@@ -11,6 +11,18 @@ const { isNoonSettlementReconciliationAcceptable, RECONCILIATION_TOLERANCE } = r
 const { buildFeeJournalPreviewLines } = require('./noonPaymentClearingPreviewService')
 const { buildUnclearedReclassJournals } = require('./noonPaymentClearingUnclearedReclassService')
 const { resolveNoonFeeJournalSides } = require('./noonPaymentClearingJournalDirection')
+const {
+  buildSaleParentOrderIdSet,
+  isSettlementAdjustmentSourceRow,
+  isPaidInvoiceSubsidyAdjustmentRow,
+  buildSettlementAdjustmentJournal,
+  collectSettlementAdjustmentSourceRows,
+} = require('./noonPaymentClearingSettlementAdjustmentService')
+const {
+  signedParentRowFulfillment,
+  parentFulfillmentChargeMagnitude,
+  buildUndepositedReconciliation,
+} = require('./noonPaymentClearingUndepositedReconciliationService')
 
 const ORPHAN_PARENT_ASSIGNMENT_REASON = 'zoho_invoice_orphan_parent'
 const PAYMENT_PREVIEW_TOLERANCE = RECONCILIATION_TOLERANCE
@@ -30,6 +42,95 @@ function isOrphanParentLogisticsRow(row) {
 /** Same normalization as noonOrderIdHelper.matchKey — keeps exclusions comparable. */
 function itemOrderMatchKey(value) {
   return clean(value).toLowerCase().replace(/\s+/g, '')
+}
+
+/** Positive subsidy on a Zoho-paid invoice — settlement adjustment journal only (not Record Payment). */
+function isPaidInvoiceSubsidyRow(row, planExclusions = null) {
+  return isPaidInvoiceSubsidyAdjustmentRow(row, planExclusions)
+}
+
+function collectPaidInvoiceSubsidyLines(allRows = [], planExclusions = null) {
+  return (Array.isArray(allRows) ? allRows : [])
+    .filter((row) => isPaidInvoiceSubsidyRow(row, planExclusions))
+    .map((row) => ({
+      rowNumber: row.rowNumber,
+      rowClass: row.rowClass,
+      parentOrderId: clean(row.originalParentOrderId || row.parentOrderId),
+      assignedItemOrderId: clean(row.assignedItemOrderId) || clean(row.itemOrderId),
+      assignedZohoInvoiceId: clean(row.assignedZohoInvoiceId || row.zohoInvoiceId),
+      assignedZohoInvoiceNumber: clean(row.assignedZohoInvoiceNumber),
+      signedAmount: round2(num(row.total)),
+      amount: round2(num(row.total)),
+      displayLabel: row.displayLabel || row.title || 'Noon shipping subsidy',
+    }))
+}
+
+/** One journal for all paid-invoice subsidies: Dr Undeposited (1066) / Cr Shipping expense. */
+function buildPaidInvoiceSubsidyJournal(subsidyLines = [], accountOverrides = {}) {
+  const cfg = getNoonPaymentClearingMarketplaceConfig()
+  const amount = round2(
+    (Array.isArray(subsidyLines) ? subsidyLines : []).reduce((sum, line) => sum + num(line.amount), 0)
+  )
+  if (amount < 0.01) return null
+
+  const undeposited = accountOverrides.undepositedFundsAccount || cfg.undepositedFundsAccount
+  const shippingExpense = accountOverrides.shippingExpenseAccount || cfg.shippingExpenseAccount
+
+  return {
+    paymentType: 'paid_invoice_subsidy',
+    feeType: 'PAID_INVOICE_SUBSIDY',
+    normalizedFeeType: 'PAID_INVOICE_SUBSIDY',
+    displayLabel: 'Noon shipping subsidy — already-paid invoice(s)',
+    accountingTreatment: 'Dr Undeposited (1066) / Cr Shipping Exp',
+    rowClass: 'paid_invoice_subsidy',
+    amount,
+    signedAmount: amount,
+    sourceLineCount: subsidyLines.length,
+    sourceLines: subsidyLines,
+    zohoAccountId: undeposited.accountId,
+    zohoAccountName: undeposited.accountName,
+    zohoAccountCode: undeposited.accountCode,
+    clearingAccountId: shippingExpense.accountId,
+    clearingAccountName: shippingExpense.accountName,
+    clearingAccountCode: shippingExpense.accountCode,
+    debit: {
+      accountId: undeposited.accountId,
+      accountName: undeposited.accountName,
+      accountCode: undeposited.accountCode,
+    },
+    credit: {
+      accountId: shippingExpense.accountId,
+      accountName: shippingExpense.accountName,
+      accountCode: shippingExpense.accountCode,
+    },
+    lineItems: [
+      {
+        debitOrCredit: 'debit',
+        accountId: undeposited.accountId,
+        accountName: undeposited.accountName,
+        accountCode: undeposited.accountCode,
+        amount,
+      },
+      {
+        debitOrCredit: 'credit',
+        accountId: shippingExpense.accountId,
+        accountName: shippingExpense.accountName,
+        accountCode: shippingExpense.accountCode,
+        amount,
+      },
+    ],
+    accountingPreview: {
+      debit: `${undeposited.accountName || 'Undeposited'} (1066)`,
+      credit: `${shippingExpense.accountName || 'Shipping Exp'} (reduce expense)`,
+      lines: [
+        { side: 'debit', account: undeposited.accountName, amount },
+        { side: 'credit', account: shippingExpense.accountName, amount },
+      ],
+    },
+    previewNote:
+      'Subsidy on Zoho-paid invoice — excluded from Record Payment; money is in this statement payout.',
+    mappingStatus: 'mapped',
+  }
 }
 
 function requireBatchForPaymentPreview(batch) {
@@ -75,10 +176,15 @@ function requireBatchForPaymentPreview(batch) {
  */
 function collectAssignedUnclearedPaymentAddOns(allRows = [], planExclusions = null, options = {}) {
   const byItem = new Map()
+  const saleParentSet = buildSaleParentOrderIdSet(allRows)
   const exInv = planExclusions?.excludedInvoiceIds
   const exItem = planExclusions?.excludedItemOrderIds
   for (const row of Array.isArray(allRows) ? allRows : []) {
     if (!options.ignoreExclusions && row.excludeFromPaymentClearing) continue
+    if (!options.ignoreExclusions && isPaidInvoiceSubsidyRow(row, planExclusions)) continue
+    if (!options.ignoreExclusions && isSettlementAdjustmentSourceRow(row, planExclusions, saleParentSet)) {
+      continue
+    }
     if (!isUnclearedInvoicePaymentBucketRow(row)) continue
     const itemId = clean(row.assignedItemOrderId) || clean(row.itemOrderId)
     if (!itemId) continue
@@ -96,25 +202,13 @@ function collectAssignedUnclearedPaymentAddOns(allRows = [], planExclusions = nu
     }
 
     const referral = positiveAmount(row.referralFee)
-    // Prefer statement Total when present — matches Noon settlement line.
-    let fulfillment = 0
-    if (Math.abs(num(row.total)) >= 0.01) {
-      fulfillment = positiveAmount(row.total)
-    } else {
-      fulfillment = positiveAmount(
-        round2(
-          num(row.fulfillmentFee) +
-            num(row.shippingCharges) +
-            num(row.otherOrderFees) +
-            num(row.othersInclVat)
-        )
-      )
-    }
+    // Use signed statement Total so same-week subsidies (+) net against charges (-).
+    const fulfillmentSigned = signedParentRowFulfillment(row)
 
     entry.commission = round2(entry.commission + referral)
-    entry.fulfillment = round2(entry.fulfillment + fulfillment)
+    entry.fulfillment = round2(entry.fulfillment + fulfillmentSigned)
     if (isOrphanParentLogisticsRow(row)) {
-      entry.fulfillmentOrphan = round2((entry.fulfillmentOrphan || 0) + fulfillment)
+      entry.fulfillmentOrphan = round2((entry.fulfillmentOrphan || 0) + fulfillmentSigned)
     }
     entry.sourceRowNumbers.push(row.rowNumber)
     entry.sourceBreakdown.push({
@@ -124,7 +218,7 @@ function collectAssignedUnclearedPaymentAddOns(allRows = [], planExclusions = nu
       fulfillmentFee: round2(num(row.fulfillmentFee)),
       shippingCharges: round2(num(row.shippingCharges)),
       othersInclVat: round2(num(row.othersInclVat)),
-      appliedFulfillment: fulfillment,
+      appliedFulfillment: fulfillmentSigned,
       appliedCommission: referral,
       orphanLogistics: isOrphanParentLogisticsRow(row),
     })
@@ -219,6 +313,7 @@ function buildInvoicePaymentPlansFromBatch(batch, accountOverrides = {}, options
     excludedItemOrderIds: new Set(),
   }
   const matched = (Array.isArray(batch.matchedOrders) ? batch.matchedOrders : []).filter((item) => {
+    if (!options.ignoreExclusions && item.logisticsOnly) return false
     if (!options.ignoreExclusions && item.excludeFromPaymentClearing) return false
     if (!options.ignoreExclusions && excludedInvoiceIds.has(clean(item.zohoInvoiceId))) return false
     if (!options.ignoreExclusions && excludedItemOrderIds.has(itemOrderMatchKey(item.itemOrderId))) return false
@@ -242,20 +337,31 @@ function buildInvoicePaymentPlan(item, accounts, addOns = null) {
   const itemCommission = positiveAmount(item.referralFee)
   const itemFulfillment = positiveAmount(round2(num(item.fulfillmentFee) + num(item.shippingCharges)))
   const parentCommission = positiveAmount(addOns?.commission)
-  const parentFulfillment = positiveAmount(addOns?.fulfillment)
-  const parentOrphanFulfillment = positiveAmount(addOns?.fulfillmentOrphan)
-  const parentInStatementFulfillment = round2(Math.max(0, parentFulfillment - parentOrphanFulfillment))
+  const parentFulfillmentSigned = round2(num(addOns?.fulfillment))
+  const parentFulfillmentChargeSigned = round2(Math.min(0, parentFulfillmentSigned))
+  const parentFulfillmentTo1068 = parentFulfillmentChargeMagnitude(parentFulfillmentSigned)
+  const parentOrphanFulfillmentSigned = round2(num(addOns?.fulfillmentOrphan))
+  const parentOrphanChargeSigned = round2(Math.min(0, parentOrphanFulfillmentSigned))
+  const parentOrphanFulfillmentTo1068 = parentFulfillmentChargeMagnitude(parentOrphanFulfillmentSigned)
+  const parentInStatementChargeSigned = round2(
+    parentFulfillmentChargeSigned - parentOrphanChargeSigned
+  )
+  const parentInStatementFulfillment = parentFulfillmentChargeMagnitude(
+    parentInStatementChargeSigned
+  )
   const commission = round2(itemCommission + parentCommission)
   const fulfillmentShipping = round2(
-    (item.logisticsOnly ? 0 : itemFulfillment) + parentFulfillment + (item.logisticsOnly ? itemFulfillment : 0)
+    (item.logisticsOnly ? 0 : itemFulfillment) +
+      parentFulfillmentTo1068 +
+      (item.logisticsOnly ? itemFulfillment : 0)
   )
   let invoiceClearingNetBalance = 0
   if (!item.logisticsOnly) {
     const statementTotal = num(item.total)
     if (Math.abs(statementTotal) >= 0.01) {
-      // Statement Total already nets item-level fees; only subtract parent folds parked on 1068/1067.
+      // Statement Total nets item fees; parent folds apply as signed net (subsidy + charge).
       invoiceClearingNetBalance = round2(
-        Math.max(0, statementTotal - parentCommission - parentFulfillment)
+        Math.max(0, statementTotal - parentCommission + parentFulfillmentChargeSigned)
       )
     } else {
       invoiceClearingNetBalance = round2(Math.max(0, saleGross - commission - fulfillmentShipping))
@@ -302,7 +408,7 @@ function buildInvoicePaymentPlan(item, accounts, addOns = null) {
     referralFee: commission,
     fulfillmentShipping,
     parentLogisticsAddOn: parentInStatementFulfillment,
-    parentLogisticsOrphanAddOn: parentOrphanFulfillment,
+    parentLogisticsOrphanAddOn: parentOrphanFulfillmentTo1068,
     parentCommissionAddOn: positiveAmount(addOns?.commission),
     parentLogisticsSources: Array.isArray(addOns?.sourceBreakdown) ? addOns.sourceBreakdown : [],
     netBalancePayment,
@@ -476,15 +582,22 @@ function computeStatementUndepositedTarget(allRows = []) {
  * Orphan parent/adjustment rows clear via 1068 but are already deducted from the Noon payout.
  * When planned 1066 exceeds the statement subtotal (pre-advertising), post a bridge journal Cr 1066.
  */
-function buildUndepositedSettlementBridgeJournal(invoicePayments, allRows, accountOverrides = {}) {
+function buildUndepositedSettlementBridgeJournal(
+  invoicePayments,
+  allRows,
+  accountOverrides = {},
+  options = {}
+) {
   const cfg = getNoonPaymentClearingMarketplaceConfig()
   const targetUndeposited = computeStatementUndepositedTarget(allRows)
-  const plannedUndeposited = round2(
+  const recordPayment1066 = round2(
     (Array.isArray(invoicePayments) ? invoicePayments : []).reduce(
       (sum, p) => sum + num(p.netBalancePayment?.amount),
       0
     )
   )
+  const subsidyTo1066 = round2(num(options.paidInvoiceSubsidyAmount))
+  const plannedUndeposited = round2(recordPayment1066 + subsidyTo1066)
   const excessUndeposited = round2(plannedUndeposited - targetUndeposited)
   if (excessUndeposited < 0.01) return null
 
@@ -515,6 +628,8 @@ function buildUndepositedSettlementBridgeJournal(invoicePayments, allRows, accou
     amount: excessUndeposited,
     targetUndeposited1066: targetUndeposited,
     plannedUndeposited1066: plannedUndeposited,
+    recordPayment1066,
+    paidInvoiceSubsidy1066: subsidyTo1066,
     zohoAccountId: expense.accountId,
     zohoAccountName: expense.accountName,
     zohoAccountCode: expense.accountCode,
@@ -538,28 +653,40 @@ function buildUndepositedSettlementBridgeJournal(invoicePayments, allRows, accou
   }
 }
 
-function buildFoldedUnclearedChargeSummaries(allRows = []) {
+function buildFoldedUnclearedChargeSummaries(allRows = [], planExclusions = null) {
+  const saleParentSet = buildSaleParentOrderIdSet(allRows)
   return (Array.isArray(allRows) ? allRows : [])
     .filter((row) => isUnclearedInvoicePaymentBucketRow(row))
-    .map((row) => ({
-      rowNumber: row.rowNumber,
-      rowClass: row.rowClass,
-      feeType: row.normalizedFeeType || '',
-      displayLabel: row.displayLabel || row.title || '',
-      accountingTreatment: 'Invoice Record Payment → uncleared (first entry)',
-      signedAmount: round2(num(row.total)),
-      amount: Math.abs(round2(num(row.total))),
-      parentOrderId: clean(row.originalParentOrderId || row.parentOrderId),
-      assignedItemOrderId: clean(row.assignedItemOrderId) || clean(row.itemOrderId),
-      previewNote: clean(row.assignedItemOrderId)
-        ? isOrphanParentLogisticsRow(row)
-          ? `Folded via Zoho invoice ${clean(row.assignedZohoInvoiceNumber) || clean(row.assignedItemOrderId)} (sale not in this statement) → uncleared GL (1068)`
-          : `Folded into invoice payment for ${clean(row.assignedItemOrderId)} → uncleared GL`
-        : clean(row.itemOrderId)
-          ? `Cleared via invoice payment for ${clean(row.itemOrderId)} → uncleared GL`
-          : 'Uncleared via invoice payment (no child assignment — no Zoho invoice for this Noon parent order)',
-      clearingPath: 'invoice_payment_uncleared',
-    }))
+    .map((row) => {
+      const settlementAdjustment = isSettlementAdjustmentSourceRow(row, planExclusions, saleParentSet)
+      return {
+        rowNumber: row.rowNumber,
+        rowClass: row.rowClass,
+        feeType: row.normalizedFeeType || '',
+        displayLabel: row.displayLabel || row.title || '',
+        accountingTreatment: settlementAdjustment
+          ? isPaidInvoiceSubsidyRow(row, planExclusions)
+            ? 'Settlement adjustment journal — Dr 1066 / Cr expense (+ VAT)'
+            : 'Settlement adjustment journal — Dr expense (+ VAT) / Cr 1066'
+          : 'Invoice Record Payment → uncleared (first entry)',
+        signedAmount: round2(num(row.total)),
+        amount: Math.abs(round2(num(row.total))),
+        parentOrderId: clean(row.originalParentOrderId || row.parentOrderId),
+        assignedItemOrderId: clean(row.assignedItemOrderId) || clean(row.itemOrderId),
+        assignedZohoInvoiceId: clean(row.assignedZohoInvoiceId || row.zohoInvoiceId),
+        assignedZohoInvoiceNumber: clean(row.assignedZohoInvoiceNumber),
+        previewNote: settlementAdjustment
+          ? isPaidInvoiceSubsidyRow(row, planExclusions)
+            ? `Paid-invoice subsidy ${round2(num(row.total))} AED on ${clean(row.assignedZohoInvoiceNumber) || clean(row.assignedItemOrderId)} → settlement adjustment journal (no Record Payment)`
+            : `Cross-week charge on ${clean(row.originalParentOrderId || row.parentOrderId)} — sale not in this statement → settlement adjustment journal (invoice link is audit-only)`
+          : clean(row.assignedItemOrderId)
+            ? `Folded into invoice payment for ${clean(row.assignedItemOrderId)} → uncleared GL`
+            : clean(row.itemOrderId)
+              ? `Cleared via invoice payment for ${clean(row.itemOrderId)} → uncleared GL`
+              : 'Uncleared via invoice payment (no child assignment — no Zoho invoice for this Noon parent order)',
+        clearingPath: settlementAdjustment ? 'settlement_adjustment_journal' : 'invoice_payment_uncleared',
+      }
+    })
 }
 
 function summarizeShippingBreakup(invoicePayments = []) {
@@ -595,14 +722,28 @@ function summarizeShippingBreakup(invoicePayments = []) {
 function buildPaymentPreviewFromBatch(batch, mappingRules = [], inputVatAccount = null, accountOverrides = {}) {
   requireBatchForPaymentPreview(batch)
   const cfg = getNoonPaymentClearingMarketplaceConfig()
-  const invoicePayments = buildInvoicePaymentPlansFromBatch(batch, accountOverrides)
   const allRows = batch.allRows || []
+  const planExclusions = collectPlanExclusions(batch)
+  const metadata = batch.reportSnapshot || batch.metadata || {}
+  const settlementAdjustmentJournal = buildSettlementAdjustmentJournal(
+    allRows,
+    metadata,
+    {
+      undepositedFundsAccount: accountOverrides.undepositedFundsAccount || cfg.undepositedFundsAccount,
+      inputVatAccount: inputVatAccount || batch.inputVatAccount || accountOverrides.inputVatAccount || cfg.inputVatAccount,
+      vatRate: accountOverrides.vatRate ?? cfg.vatRate,
+    },
+    planExclusions
+  )
+  const settlementAdjustmentLines = settlementAdjustmentJournal?.sourceLines || []
+  const paidInvoiceSubsidyLines = settlementAdjustmentLines.filter((line) => line.paidInvoiceSubsidy)
+  const invoicePayments = buildInvoicePaymentPlansFromBatch(batch, accountOverrides)
   const feeJournalLines = buildFeeJournalPreviewLines(
     allRows,
     mappingRules,
     inputVatAccount || batch.inputVatAccount || accountOverrides.inputVatAccount || null
   )
-  const foldedUnclearedCharges = buildFoldedUnclearedChargeSummaries(allRows)
+  const foldedUnclearedCharges = buildFoldedUnclearedChargeSummaries(allRows, planExclusions)
   const parentChargeLines = foldedUnclearedCharges.filter((l) => l.rowClass === ROW_CLASS.PARENT_ORDER_CHARGE)
   const adjustmentFolded = foldedUnclearedCharges.filter((l) => l.rowClass === ROW_CLASS.ORDER_ADJUSTMENT)
   const statementFeeLines = feeJournalLines.filter((l) => l.rowClass === 'statement_fee')
@@ -612,7 +753,6 @@ function buildPaymentPreviewFromBatch(batch, mappingRules = [], inputVatAccount 
   const totalInvoicePayments = round2(invoicePayments.reduce((a, p) => a + p.totalClearingAmount, 0))
   const totalFeeJournals = round2(feeJournalLines.reduce((a, l) => a + l.amount, 0))
   const expectedSettlement = round2(batch.reconciliationSummary?.expectedSettlement || 0)
-  const metadata = batch.reportSnapshot || batch.metadata || {}
   const settlementReference = buildSettlementReference(metadata)
 
   const basePreview = {
@@ -644,27 +784,53 @@ function buildPaymentPreviewFromBatch(batch, mappingRules = [], inputVatAccount 
   const invoiceOverpayments = collectInvoiceOverpayments(invoicePayments)
   const blocked = invoiceOverpayments.length > 0
   const shippingBreakup = summarizeShippingBreakup(invoicePayments)
-  const undepositedSettlementBridgeJournal = buildUndepositedSettlementBridgeJournal(
-    invoicePayments,
-    allRows,
-    {
-      shippingExpenseAccount: accountOverrides.shippingExpenseAccount || cfg.shippingExpenseAccount,
-      undepositedFundsAccount: accountOverrides.undepositedFundsAccount || cfg.undepositedFundsAccount,
-    }
+  const adjustmentSummary = settlementAdjustmentJournal?.summary || {}
+  const subsidy1066 = round2(
+    paidInvoiceSubsidyLines.reduce((sum, line) => sum + num(line.undepositedImpact), 0)
   )
+  const undepositedSettlementBridgeJournal = null
   const targetUndeposited1066 = computeStatementUndepositedTarget(allRows)
-  const plannedUndeposited1066 = round2(
+  const recordPayment1066 = round2(
     invoicePayments.reduce((sum, p) => sum + num(p.netBalancePayment?.amount), 0)
+  )
+  const settlementAdjustment1066 = round2(num(adjustmentSummary.netUndepositedImpact))
+  const plannedUndeposited1066 = round2(recordPayment1066 + settlementAdjustment1066)
+  const undepositedPlanningDifference = round2(targetUndeposited1066 - plannedUndeposited1066)
+  const undepositedPlanningBlocked =
+    Math.abs(undepositedPlanningDifference) >= PAYMENT_PREVIEW_TOLERANCE
+
+  const undepositedReconciliation = buildUndepositedReconciliation(
+    batch,
+    {
+      ...basePreview,
+      invoicePayments,
+      feeJournalLines,
+      settlementAdjustmentJournal,
+      summary: {
+        expectedNoonSettlement: expectedSettlement,
+        targetUndeposited1066,
+        recordPayment1066,
+        settlementAdjustment1066,
+        plannedUndeposited1066,
+        undepositedPlanningDifference,
+      },
+    },
+    planExclusions
   )
 
   return {
     ...basePreview,
-    status: blocked ? 'blocked' : 'previewed',
+    status: blocked || undepositedPlanningBlocked ? 'blocked' : 'previewed',
     invoiceOverpayments,
     unclearedReclassJournals: reclass.lines,
     unclearedReclassSummary: reclass.summary,
     shippingBreakup,
+    settlementAdjustmentJournal,
+    settlementAdjustmentLines,
+    paidInvoiceSubsidyJournal: null,
+    paidInvoiceSubsidyLines,
     undepositedSettlementBridgeJournal,
+    undepositedReconciliation,
     summary: {
       invoicePaymentCount: invoicePayments.length,
       totalInvoicePayments,
@@ -675,18 +841,30 @@ function buildPaymentPreviewFromBatch(batch, mappingRules = [], inputVatAccount 
       ),
       expectedNoonSettlement: expectedSettlement,
       targetUndeposited1066,
+      recordPayment1066,
+      paidInvoiceSubsidy1066: subsidy1066,
+      settlementAdjustment1066,
+      settlementAdjustmentLineCount: adjustmentSummary.sourceRowCount || 0,
+      settlementAdjustmentGrossNegative: adjustmentSummary.grossNegativeAdjustments || 0,
+      settlementAdjustmentGrossPositive: adjustmentSummary.grossPositiveAdjustments || 0,
+      settlementAdjustmentNetExpense: adjustmentSummary.netExpense || 0,
+      settlementAdjustmentInputVat: adjustmentSummary.inputVat || 0,
       plannedUndeposited1066,
-      undepositedSettlementBridgeAmount: undepositedSettlementBridgeJournal?.amount || 0,
+      undepositedPlanningDifference,
+      undepositedSettlementBridgeAmount: 0,
+      paidInvoiceSubsidyLineCount: paidInvoiceSubsidyLines.length,
       finalDifference: round2(
         expectedSettlement - round2(totalInvoicePayments - totalFeeJournals)
       ),
       unmappedFeeJournalCount: feeJournalLines.filter((l) => l.mappingStatus === 'needs_mapping').length,
       unmappedUnclearedReclassCount: reclass.summary.unmappedCount,
       invoiceOverpaymentCount: invoiceOverpayments.length,
-      blocked,
-      blockedReason: blocked
-        ? 'One or more invoice payment totals exceed the Zoho invoice value.'
-        : null,
+      blocked: blocked || undepositedPlanningBlocked,
+      blockedReason: undepositedPlanningBlocked
+        ? `Undeposited planning differs from statement subtotal by ${undepositedPlanningDifference} AED — explain before posting.`
+        : blocked
+          ? 'One or more invoice payment totals exceed the Zoho invoice value.'
+          : null,
       ...shippingBreakup,
     },
   }
@@ -699,8 +877,11 @@ module.exports = {
   buildInvoicePaymentPlansFromBatch,
   aggregatePaymentPlansByInvoice,
   isOrphanParentLogisticsRow,
+  isPaidInvoiceSubsidyRow,
   buildPaymentPreviewFromBatch,
   collectAssignedUnclearedPaymentAddOns,
+  collectPaidInvoiceSubsidyLines,
+  buildPaidInvoiceSubsidyJournal,
   collectPlanExclusions,
   collectInvoiceOverpayments,
   assertNoStatementOverpayments,
@@ -709,4 +890,6 @@ module.exports = {
   attachLiveZohoBalancesToPaymentPreview,
   computeStatementUndepositedTarget,
   buildUndepositedSettlementBridgeJournal,
+  collectSettlementAdjustmentSourceRows,
+  buildUndepositedReconciliation,
 }

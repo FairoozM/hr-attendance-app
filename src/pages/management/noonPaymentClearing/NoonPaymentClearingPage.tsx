@@ -50,6 +50,7 @@ export function NoonPaymentClearingPage() {
   const [paymentPreview, setPaymentPreview] = useState<NoonPaymentPreview | null>(null)
   const [postingResult, setPostingResult] = useState<NoonPostingResult | null>(null)
   const [expandedParents, setExpandedParents] = useState<Record<string, boolean>>({})
+  const [showSettlementAdjustmentDetail, setShowSettlementAdjustmentDetail] = useState(false)
   const [loading, setLoading] = useState(false)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
@@ -1171,30 +1172,35 @@ export function NoonPaymentClearingPage() {
                           </div>
                         </div>
                       ) : null}
+                      {(paymentPreview.summary.settlementAdjustmentLineCount ?? 0) > 0 ? (
+                        <div className="ainv-summary-card">
+                          <span>Settlement adjustment journal (1066)</span>
+                          <strong>{money(paymentPreview.summary.settlementAdjustment1066)}</strong>
+                          <div className="npc-muted">
+                            {paymentPreview.summary.settlementAdjustmentLineCount ?? 0} source row(s) · gross −
+                            {money(paymentPreview.summary.settlementAdjustmentGrossNegative)} / +
+                            {money(paymentPreview.summary.settlementAdjustmentGrossPositive)}
+                          </div>
+                        </div>
+                      ) : null}
+                      {(paymentPreview.summary.paidInvoiceSubsidyLineCount ?? 0) > 0 ? (
+                        <div className="ainv-summary-card">
+                          <span>Paid-invoice subsidies (in adjustment journal)</span>
+                          <strong>{money(paymentPreview.summary.paidInvoiceSubsidy1066)}</strong>
+                          <div className="npc-muted">
+                            {paymentPreview.summary.paidInvoiceSubsidyLineCount ?? 0} line(s) · Dr 1066 / Cr expense
+                          </div>
+                        </div>
+                      ) : null}
                       {(paymentPreview.summary.undepositedSettlementBridgeAmount ?? 0) > 0 ? (
                         <div className="ainv-summary-card">
                           <span>Settlement bridge Cr 1066</span>
                           <strong>{money(paymentPreview.summary.undepositedSettlementBridgeAmount)}</strong>
-                          <div className="npc-muted">orphan logistics already in Noon payout</div>
+                          <div className="npc-muted">unexpected — cross-week charges should use adjustment journal</div>
                         </div>
                       ) : null}
-                      {(paymentPreview.summary.orphanShippingToUncleared ??
-                        paymentPreview.summary.orphanShippingToUndeposited ??
-                        0) > 0 ||
-                      (paymentPreview.summary.inStatementShippingToUncleared ?? 0) > 0 ? (
+                      {(paymentPreview.summary.inStatementShippingToUncleared ?? 0) > 0 ? (
                         <>
-                          <div className="ainv-summary-card">
-                            <span>Orphan shipping → 1068 (uncleared)</span>
-                            <strong>
-                              {money(
-                                paymentPreview.summary.orphanShippingToUncleared ??
-                                  paymentPreview.summary.orphanShippingToUndeposited
-                              )}
-                            </strong>
-                            <div className="npc-muted">
-                              {paymentPreview.summary.orphanShippingInvoiceCount ?? 0} invoice line(s)
-                            </div>
-                          </div>
                           <div className="ainv-summary-card">
                             <span>In-statement shipping → 1068 (uncleared)</span>
                             <strong>{money(paymentPreview.summary.inStatementShippingToUncleared)}</strong>
@@ -1379,6 +1385,116 @@ export function NoonPaymentClearingPage() {
                         </tbody>
                       </table>
                     </div>
+                    {paymentPreview.settlementAdjustmentJournal ? (
+                      <>
+                        <h3>Settlement adjustment journal (cross-week charges)</h3>
+                        <p className="npc-muted">
+                          Zero-sale shipping/logistics from prior weeks — not Record Payment. One journal per
+                          statement with per-order expense/VAT detail; aggregated Cr/Dr 1066.
+                        </p>
+                        <div className="npc-table-wrap">
+                          <table className="npc-table">
+                            <thead>
+                              <tr>
+                                <th>Journal</th>
+                                <th>Net 1066 impact</th>
+                                <th>Summary</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              <tr>
+                                <td>
+                                  <strong>
+                                    {String(
+                                      paymentPreview.settlementAdjustmentJournal.displayLabel ||
+                                        'Noon Settlement Adjustments'
+                                    )}
+                                  </strong>
+                                  <div className="npc-muted">
+                                    {String(paymentPreview.settlementAdjustmentJournal.accountingTreatment || '')}
+                                  </div>
+                                  {paymentPreview.settlementAdjustmentJournal.referenceNumber ? (
+                                    <div className="npc-muted">
+                                      Ref: {String(paymentPreview.settlementAdjustmentJournal.referenceNumber)}
+                                    </div>
+                                  ) : null}
+                                </td>
+                                <td className="npc-money">
+                                  {money(Number(paymentPreview.summary.settlementAdjustment1066) || 0)}
+                                </td>
+                                <td className="npc-muted">
+                                  {paymentPreview.summary.settlementAdjustmentLineCount ?? 0} rows · expense{' '}
+                                  {money(paymentPreview.summary.settlementAdjustmentNetExpense)} · VAT{' '}
+                                  {money(paymentPreview.summary.settlementAdjustmentInputVat)}
+                                  <div>{String(paymentPreview.settlementAdjustmentJournal.previewNote || '')}</div>
+                                </td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+                        <button
+                          type="button"
+                          className="npc-btn npc-btn--ghost"
+                          onClick={() => setShowSettlementAdjustmentDetail((v) => !v)}
+                        >
+                          {showSettlementAdjustmentDetail ? 'Hide' : 'View'} source order detail (
+                          {paymentPreview.settlementAdjustmentLines?.length ??
+                            paymentPreview.settlementAdjustmentJournal.sourceLineCount ??
+                            0}
+                          )
+                        </button>
+                        {showSettlementAdjustmentDetail ? (
+                          <div className="npc-table-wrap">
+                            <table className="npc-table">
+                              <thead>
+                                <tr>
+                                  <th>Row</th>
+                                  <th>Parent / Item order</th>
+                                  <th>Type</th>
+                                  <th>Gross</th>
+                                  <th>Net expense</th>
+                                  <th>VAT</th>
+                                  <th>Expense acct</th>
+                                  <th>Related invoice</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {(paymentPreview.settlementAdjustmentLines ||
+                                  paymentPreview.settlementAdjustmentJournal.sourceLines ||
+                                  []).map((line, idx) => (
+                                  <tr key={`adj-${line.rowNumber ?? idx}-${line.assignedItemOrderId ?? line.parentOrderId ?? idx}`}>
+                                    <td>{line.rowNumber ?? '—'}</td>
+                                    <td>
+                                      <code className="npc-ref">{line.parentOrderId || '—'}</code>
+                                      {line.assignedItemOrderId ? (
+                                        <div className="npc-muted">→ {line.assignedItemOrderId}</div>
+                                      ) : line.itemOrderId ? (
+                                        <div className="npc-muted">{line.itemOrderId}</div>
+                                      ) : null}
+                                    </td>
+                                    <td>
+                                      {String(line.displayLabel || 'Adjustment')}
+                                      {line.paidInvoiceSubsidy ? (
+                                        <div className="npc-muted">paid-invoice subsidy</div>
+                                      ) : null}
+                                    </td>
+                                    <td className="npc-money">{money(line.signedGrossAmount ?? line.grossAmount)}</td>
+                                    <td className="npc-money">{money(line.netExpenseAmount)}</td>
+                                    <td className="npc-money">{money(line.vatAmount)}</td>
+                                    <td>
+                                      {line.expenseAccountCode || line.expenseAccountName || '—'}
+                                    </td>
+                                    <td>
+                                      {line.assignedZohoInvoiceNumber || line.assignedZohoInvoiceId || '—'}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        ) : null}
+                      </>
+                    ) : null}
                     <h3>Statement fee journals (Advertising etc.)</h3>
                     <div className="npc-table-wrap">
                       <table className="npc-table">

@@ -239,6 +239,62 @@ export interface NoonOpenBalanceShortfall {
   excluded?: boolean
 }
 
+export interface NoonSettlementAdjustmentSourceLine {
+  rowNumber?: number
+  rowClass?: string
+  transactionType?: string
+  parentOrderId?: string
+  itemOrderId?: string
+  assignedItemOrderId?: string
+  assignedZohoInvoiceId?: string
+  assignedZohoInvoiceNumber?: string
+  sku?: string
+  signedGrossAmount?: number
+  grossAmount?: number
+  vatInclusive?: boolean
+  vatRate?: number
+  netExpenseAmount?: number
+  vatAmount?: number
+  expenseAccountCode?: string
+  expenseAccountName?: string
+  undepositedImpact?: number
+  displayLabel?: string
+  accountingTreatment?: string
+  paidInvoiceSubsidy?: boolean
+  isPositiveReversal?: boolean
+}
+
+export interface NoonSettlementAdjustmentJournal {
+  paymentType?: string
+  feeType?: string
+  displayLabel?: string
+  accountingTreatment?: string
+  amount?: number
+  signedAmount?: number
+  referenceNumber?: string
+  sourceLineCount?: number
+  sourceLines?: NoonSettlementAdjustmentSourceLine[]
+  previewNote?: string
+  summary?: {
+    sourceRowCount?: number
+    grossNegativeAdjustments?: number
+    grossPositiveAdjustments?: number
+    netExpense?: number
+    inputVat?: number
+    netUndepositedImpact?: number
+    paidInvoiceSubsidyLineCount?: number
+  }
+  accountingPreview?: {
+    sourceRowCount?: number
+    grossNegativeAdjustments?: number
+    grossPositiveAdjustments?: number
+    netExpense?: number
+    inputVat?: number
+    netUndepositedImpact?: number
+    lines?: Array<{ side?: string; account?: string; amount?: number; description?: string }>
+  }
+}
+
 export interface NoonPaymentPreview {
   paymentPreviewId?: number
   status?: string
@@ -277,6 +333,21 @@ export interface NoonPaymentPreview {
   unclearedReclassJournals?: Array<Record<string, unknown>>
   unclearedReclassSummary?: Record<string, unknown>
   undepositedSettlementBridgeJournal?: Record<string, unknown> | null
+  paidInvoiceSubsidyJournal?: Record<string, unknown> | null
+  paidInvoiceSubsidyLines?: Array<Record<string, unknown>>
+  settlementAdjustmentJournal?: NoonSettlementAdjustmentJournal | null
+  settlementAdjustmentLines?: NoonSettlementAdjustmentSourceLine[]
+  undepositedReconciliation?: {
+    targetBeforeAdvertising?: number
+    plannedBeforeAdvertising?: number
+    difference?: number
+    deltaSum?: number
+    reconcilesToDifference?: boolean
+    targetComponents?: Record<string, number>
+    plannedComponents?: Record<string, number>
+    candidateRows?: Array<Record<string, unknown>>
+    nonZeroDeltas?: Array<Record<string, unknown>>
+  }
   summary: {
     invoicePaymentCount: number
     totalInvoicePayments: number
@@ -285,8 +356,18 @@ export interface NoonPaymentPreview {
     totalAdjustments: number
     expectedNoonSettlement: number
     targetUndeposited1066?: number
+    recordPayment1066?: number
+    paidInvoiceSubsidy1066?: number
+    settlementAdjustment1066?: number
+    settlementAdjustmentLineCount?: number
+    settlementAdjustmentGrossNegative?: number
+    settlementAdjustmentGrossPositive?: number
+    settlementAdjustmentNetExpense?: number
+    settlementAdjustmentInputVat?: number
+    undepositedPlanningDifference?: number
     plannedUndeposited1066?: number
     undepositedSettlementBridgeAmount?: number
+    paidInvoiceSubsidyLineCount?: number
     finalDifference: number
     unmappedFeeJournalCount: number
     unmappedUnclearedReclassCount?: number

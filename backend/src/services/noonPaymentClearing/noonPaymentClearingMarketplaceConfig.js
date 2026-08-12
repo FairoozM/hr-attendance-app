@@ -18,7 +18,8 @@ function accountFromEnv(prefix, defaults) {
  *     Noon CSV "Net Proceeds" = sale/invoice gross (not cash after fees).
  *     1066 Undeposited = Net Proceeds − commission − shipping (statement residual)
  *     1067 Uncleared Commission = |referral fee| (+ parent commission add-ons)
- *     1068 Uncleared Shipping = |fulfillment/shipping| (+ all parent/adjustment logistics folds, incl. orphans)
+ *     1068 Uncleared Shipping = |fulfillment/shipping| (+ in-statement parent logistics folds only)
+ *     Cross-week zero-sale charges → settlement adjustment journal (Dr expense / Cr 1066), not 1068 Record Payment
  *     Sum of three payments = invoice / Net Proceeds gross.
  *   Fee journals (statement-level, e.g. advertising):
  *     Advertising → Dr 2053 (+ Input VAT 1085) / Cr 1066

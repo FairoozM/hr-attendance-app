@@ -429,7 +429,7 @@ async function excludeOpenBalanceShortfalls(
       const { excludeFromPaymentClearing, excludeReason, ...rest } = m
       return rest
     }
-    return { ...m, excludeFromPaymentClearing: true, excludeReason: 'open_balance_short_already_paid' }
+    return { ...m, excludeFromPaymentClearing: true, excludeReason: 'open_balance_short_already_paid', paidInvoiceSubsidy: false }
   })
 
   const allRows = (batch.allRows || []).map((row) => {
@@ -446,6 +446,7 @@ async function excludeOpenBalanceShortfalls(
       ...row,
       excludeFromPaymentClearing: true,
       excludeReason: 'open_balance_short_already_paid',
+      paidInvoiceSubsidy: num(row.total) >= 0.01,
     }
   })
 

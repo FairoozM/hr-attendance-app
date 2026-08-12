@@ -1151,10 +1151,21 @@ describe('parent logistics payment add-ons', () => {
       ],
       [{ matchStatus: 'matched', itemOrderId: 'NAEI70000251652-1', zohoInvoiceId: 'inv-x' }]
     )
-    const addOns = collectAssignedUnclearedPaymentAddOns(rows)
+    const allRows = [
+      {
+        rowNumber: 10,
+        rowClass: ROW_CLASS.SALE_ITEM,
+        parentOrderId: 'NAEI70000251652',
+        itemOrderId: 'NAEI70000251652-1',
+        netProceed: 535,
+        total: 504.76,
+      },
+      ...rows,
+    ]
+    const addOns = collectAssignedUnclearedPaymentAddOns(allRows)
     const forChild = addOns.get('NAEI70000251652-1')
     assert.ok(forChild)
-    assert.equal(forChild.fulfillment, 30.24)
+    assert.equal(forChild.fulfillment, -30.24)
     assert.notEqual(forChild.fulfillment, 22.68)
 
     const plan = buildInvoicePaymentPlan(
@@ -1228,7 +1239,7 @@ describe('parent logistics payment add-ons', () => {
         zohoInvoiceTotal: 100,
       },
       getNoonPaymentClearingMarketplaceConfig().paymentPreviewAccounts,
-      { commission: 0, fulfillment: 90 }
+      { commission: 0, fulfillment: -90 }
     )
     // 100 - 20 - 100 = 0 residual; commission 20 + shipping 100 = 120 > invoice 100
     assert.equal(plan.fulfillmentPayment.amount, 100)
@@ -1617,15 +1628,14 @@ describe('orphan parent logistics → Zoho invoice', () => {
     assert.equal(result.syntheticMatchedOrders[0].logisticsOnly, true)
   })
 
-  it('routes orphan parent logistics to fulfillment_shipping / 1068, not net_balance / 1066', () => {
+  it('routes cross-week orphan parent logistics to settlement adjustment journal, not Record Payment', () => {
     const {
       applyParentOrderChargeFallbackWithSynthetics,
       ASSIGNMENT_REASON_ZOHO,
     } = require('../src/services/noonPaymentClearing/noonPaymentClearingParentChargeFallback')
     const {
-      buildInvoicePaymentPlansFromBatch,
+      buildPaymentPreviewFromBatch,
     } = require('../src/services/noonPaymentClearing/noonPaymentClearingPaymentPreviewService')
-    const { getNoonPaymentClearingMarketplaceConfig } = require('../src/services/noonPaymentClearing/noonPaymentClearingMarketplaceConfig')
     const { ROW_CLASS } = require('../src/services/noonPaymentClearing/noonPaymentClearingCategoryService')
 
     const parentAssign = applyParentOrderChargeFallbackWithSynthetics(
@@ -1659,16 +1669,14 @@ describe('orphan parent logistics → Zoho invoice', () => {
       multipleMatchItems: [],
       matchedOrders: parentAssign.syntheticMatchedOrders,
       allRows: parentAssign.rows,
+      reportSnapshot: { referenceNr: 'PS-TEST-ORPHAN' },
     }
-    const plans = buildInvoicePaymentPlansFromBatch(batch, {
-      paymentPreviewAccounts: getNoonPaymentClearingMarketplaceConfig().paymentPreviewAccounts,
-    })
-    assert.equal(plans.length, 1)
-    assert.equal(plans[0].fulfillmentPayment.amount, 21.42)
-    assert.equal(plans[0].fulfillmentPayment.depositToAccountCode, '1068')
-    assert.equal(plans[0].netBalancePayment.amount, 0)
-    assert.equal(plans[0].netBalancePayment.depositToAccountCode, '1066')
-    assert.equal(plans[0].parentLogisticsOrphanAddOn, 21.42)
+    const preview = buildPaymentPreviewFromBatch(batch, [])
+    assert.equal(preview.invoicePayments.length, 0)
+    assert.ok(preview.settlementAdjustmentJournal)
+    assert.equal(preview.settlementAdjustmentJournal.amount, 21.42)
+    assert.equal(preview.summary.undepositedSettlementBridgeAmount, 0)
+    assert.equal(preview.summary.settlementAdjustmentLineCount, 1)
   })
 
   it('uses statement Total for 1066 when subsidies reduce the sale line (PS-11752)', () => {
@@ -1693,9 +1701,9 @@ describe('orphan parent logistics → Zoho invoice', () => {
     assert.notEqual(plan.netBalancePayment.amount, 160.07)
   })
 
-  it('builds undeposited settlement bridge when orphan logistics inflate planned 1066 (PS-11752 shape)', () => {
+  it('does not build settlement bridge when cross-week charges use adjustment journal (PS-11752 shape)', () => {
     const {
-      buildUndepositedSettlementBridgeJournal,
+      buildPaymentPreviewFromBatch,
       buildInvoicePaymentPlan,
     } = require('../src/services/noonPaymentClearing/noonPaymentClearingPaymentPreviewService')
     const { getNoonPaymentClearingMarketplaceConfig } = require('../src/services/noonPaymentClearing/noonPaymentClearingMarketplaceConfig')
@@ -1715,31 +1723,217 @@ describe('orphan parent logistics → Zoho invoice', () => {
       cfg.paymentPreviewAccounts,
       null
     )
-    const orphanPlan = buildInvoicePaymentPlan(
+    assert.equal(salePlan.netBalancePayment.amount, 605.86)
+    const batch = {
+      status: 'approved',
+      reconciliationSummary: { reconciliationStatus: 'reconciled', reconciliationDifference: 0, expectedSettlement: 584.44 },
+      unmatchedOrders: [],
+      multipleMatchItems: [],
+      matchedOrders: [
+        {
+          itemOrderId: 'NAEI60024715688-1',
+          parentOrderId: 'NAEI60024715688',
+          netProceed: 759,
+          referralFee: -119.54,
+          fulfillmentFee: -33.6,
+          total: 605.86,
+          zohoInvoiceId: 'inv-759',
+          zohoInvoiceNumber: 'INV-042276',
+          zohoInvoiceTotal: 759,
+        },
+      ],
+      allRows: [
+        { rowClass: ROW_CLASS.SALE_ITEM, parentOrderId: 'NAEI60024715688', itemOrderId: 'NAEI60024715688-1', total: 605.86 },
+        {
+          rowClass: ROW_CLASS.PARENT_ORDER_CHARGE,
+          parentOrderId: 'NAEI60012472440',
+          total: -21.42,
+          fulfillmentFee: -21.42,
+        },
+        { rowClass: ROW_CLASS.STATEMENT_FEE, total: -2009.62 },
+      ],
+      reportSnapshot: { referenceNr: 'PS-11752-AE20260708' },
+    }
+    const preview = buildPaymentPreviewFromBatch(batch, [])
+    assert.equal(preview.summary.undepositedSettlementBridgeAmount, 0)
+    assert.ok(!preview.undepositedSettlementBridgeJournal)
+    assert.ok(preview.settlementAdjustmentJournal)
+    assert.equal(preview.settlementAdjustmentJournal.amount, 21.42)
+    assert.equal(preview.summary.recordPayment1066, 605.86)
+    assert.equal(preview.summary.settlementAdjustment1066, -21.42)
+  })
+
+  it('routes paid-invoice subsidies into settlement adjustment journal (not Record Payment)', () => {
+    const {
+      buildPaymentPreviewFromBatch,
+      collectPaidInvoiceSubsidyLines,
+    } = require('../src/services/noonPaymentClearing/noonPaymentClearingPaymentPreviewService')
+    const { buildSettlementAdjustmentJournal } = require('../src/services/noonPaymentClearing/noonPaymentClearingSettlementAdjustmentService')
+    const { ROW_CLASS } = require('../src/services/noonPaymentClearing/noonPaymentClearingCategoryService')
+
+    const allRows = [
       {
-        itemOrderId: 'NAEI60012472440-1',
-        logisticsOnly: true,
-        netProceed: 0,
+        rowNumber: 28,
+        rowClass: ROW_CLASS.PARENT_ORDER_CHARGE,
+        parentOrderId: 'NAEI70009406690',
+        assignedItemOrderId: 'NAEI70009406690-1',
+        assignedZohoInvoiceId: 'inv-paid',
+        assignedZohoInvoiceNumber: 'INV-042333',
+        total: 7.56,
+        fulfillmentFee: 7.56,
+        excludeFromPaymentClearing: true,
+        excludeReason: 'open_balance_short_already_paid',
+        paidInvoiceSubsidy: true,
+      },
+      {
+        rowNumber: 29,
+        rowClass: ROW_CLASS.PARENT_ORDER_CHARGE,
+        parentOrderId: 'NAEI70023851199',
+        assignedItemOrderId: 'NAEI70023851199-1',
+        assignedZohoInvoiceId: 'inv-paid2',
+        assignedZohoInvoiceNumber: 'INV-042300',
+        total: 7.56,
+        fulfillmentFee: 7.56,
+        excludeFromPaymentClearing: true,
+        excludeReason: 'open_balance_short_already_paid',
+        paidInvoiceSubsidy: true,
+      },
+    ]
+    const lines = collectPaidInvoiceSubsidyLines(allRows, {
+      excludedInvoiceIds: new Set(['inv-paid', 'inv-paid2']),
+      excludedItemOrderIds: new Set(),
+    })
+    assert.equal(lines.length, 2)
+    const journal = buildSettlementAdjustmentJournal(allRows, { referenceNr: 'PS-TEST-SUB' }, {}, {
+      excludedInvoiceIds: new Set(['inv-paid', 'inv-paid2']),
+      excludedItemOrderIds: new Set(),
+    })
+    assert.ok(journal)
+    assert.equal(journal.summary.grossPositiveAdjustments, 15.12)
+    assert.equal(journal.summary.netUndepositedImpact, 15.12)
+
+    const batch = {
+      status: 'approved',
+      reconciliationSummary: { reconciliationStatus: 'reconciled', reconciliationDifference: 0 },
+      unmatchedOrders: [],
+      multipleMatchItems: [],
+      matchedOrders: [
+        {
+          itemOrderId: 'NAEI70009406690-1',
+          zohoInvoiceId: 'inv-paid',
+          logisticsOnly: true,
+          excludeFromPaymentClearing: true,
+          netProceed: 0,
+          referralFee: 0,
+          fulfillmentFee: 0,
+        },
+      ],
+      allRows,
+      reportSnapshot: {
+        referenceNr: 'PS-TEST-SUB',
+        openBalanceReconcile: {
+          excludedInvoiceIds: ['inv-paid', 'inv-paid2'],
+        },
+      },
+    }
+    const preview = buildPaymentPreviewFromBatch(batch, [])
+    assert.equal(preview.summary.paidInvoiceSubsidy1066, 15.12)
+    assert.equal(preview.summary.settlementAdjustmentGrossPositive, 15.12)
+    assert.equal(preview.invoicePayments.length, 0)
+  })
+
+  it('nets same-week parent subsidies with signed totals so undeposited planning is zero (PS-11752 +28.80)', () => {
+    const {
+      collectAssignedUnclearedPaymentAddOns,
+      buildPaymentPreviewFromBatch,
+      buildUndepositedReconciliation,
+    } = require('../src/services/noonPaymentClearing/noonPaymentClearingPaymentPreviewService')
+    const { ROW_CLASS } = require('../src/services/noonPaymentClearing/noonPaymentClearingCategoryService')
+
+    const allRows = [
+      {
+        rowNumber: 62,
+        rowClass: ROW_CLASS.SALE_ITEM,
+        parentOrderId: 'NAEI70003640128',
+        itemOrderId: 'NAEI70003640128-4',
+        netProceed: 134.28,
+        total: 139.01,
+      },
+      {
+        rowNumber: 27,
+        rowClass: ROW_CLASS.PARENT_ORDER_CHARGE,
+        parentOrderId: 'NAEI70003640128',
+        assignedItemOrderId: 'NAEI70003640128-4',
+        total: 4.73,
+        orderSubsidies: 4.73,
+      },
+      {
+        rowNumber: 69,
+        rowClass: ROW_CLASS.SALE_ITEM,
+        parentOrderId: 'NAEI70043650752',
+        itemOrderId: 'NAEI70043650752-1',
+        netProceed: 151.46,
+        total: 156.19,
+      },
+      {
+        rowNumber: 32,
+        rowClass: ROW_CLASS.PARENT_ORDER_CHARGE,
+        parentOrderId: 'NAEI70043650752',
+        assignedItemOrderId: 'NAEI70043650752-1',
+        total: 4.73,
+        orderSubsidies: 4.73,
+      },
+      {
+        rowNumber: 77,
+        rowClass: ROW_CLASS.SALE_ITEM,
+        parentOrderId: 'NAEI70049423935',
+        itemOrderId: 'NAEI70049423935-1',
+        netProceed: 131.66,
+        total: 136.6,
+      },
+      {
+        rowNumber: 36,
+        rowClass: ROW_CLASS.PARENT_ORDER_CHARGE,
+        parentOrderId: 'NAEI70049423935',
+        assignedItemOrderId: 'NAEI70049423935-1',
+        total: 4.94,
+        orderSubsidies: 4.94,
+      },
+    ]
+    const matchedOrders = allRows
+      .filter((r) => r.rowClass === ROW_CLASS.SALE_ITEM)
+      .map((r) => ({
+        itemOrderId: r.itemOrderId,
+        parentOrderId: r.parentOrderId,
+        netProceed: r.netProceed,
+        total: r.total,
         referralFee: 0,
         fulfillmentFee: 0,
-        zohoInvoiceId: 'inv-orphan',
-        zohoInvoiceNumber: 'INV-041000',
-        zohoInvoiceTotal: 190,
-      },
-      cfg.paymentPreviewAccounts,
-      { fulfillment: 21.42, fulfillmentOrphan: 21.42, sourceBreakdown: [] }
-    )
-    const allRows = [
-      { rowClass: ROW_CLASS.SALE_ITEM, total: 605.86 },
-      { rowClass: ROW_CLASS.PARENT_ORDER_CHARGE, total: -21.42 },
-      { rowClass: ROW_CLASS.STATEMENT_FEE, total: -2009.62 },
-    ]
-    const bridge = buildUndepositedSettlementBridgeJournal([salePlan, orphanPlan], allRows, cfg)
-    assert.ok(bridge)
-    assert.equal(bridge.amount, 21.42)
-    assert.equal(bridge.credit.accountCode, '1066')
-    assert.equal(bridge.targetUndeposited1066, 584.44)
-    assert.equal(bridge.plannedUndeposited1066, 605.86)
+        zohoInvoiceId: `inv-${r.itemOrderId}`,
+        zohoInvoiceTotal: r.netProceed,
+      }))
+    const addOns = collectAssignedUnclearedPaymentAddOns(allRows)
+    assert.equal(addOns.get('NAEI70003640128-4')?.fulfillment || 0, 0)
+    assert.equal(addOns.get('NAEI70043650752-1')?.fulfillment || 0, 0)
+    assert.equal(addOns.get('NAEI70049423935-1')?.fulfillment || 0, 0)
+
+    const batch = {
+      status: 'approved',
+      reconciliationSummary: { reconciliationStatus: 'reconciled', reconciliationDifference: 0, expectedSettlement: 431.8 },
+      unmatchedOrders: [],
+      multipleMatchItems: [],
+      matchedOrders,
+      allRows,
+      reportSnapshot: { referenceNr: 'PS-11752-SUBSIDY-NET' },
+    }
+    const preview = buildPaymentPreviewFromBatch(batch, [])
+    assert.equal(preview.summary.undepositedPlanningDifference, 0)
+    assert.equal(preview.summary.plannedUndeposited1066, preview.summary.targetUndeposited1066)
+    assert.equal(preview.settlementAdjustmentJournal?.sourceLineCount, 3)
+    assert.equal(preview.summary.settlementAdjustmentGrossPositive, 14.4)
+    const recon = buildUndepositedReconciliation(batch, preview, null)
+    assert.equal(recon.difference, 0)
+    assert.equal(recon.nonZeroDeltas.length, 0)
   })
 
   it('falls back to parent-level Zoho order id when child id is not on the invoice', () => {

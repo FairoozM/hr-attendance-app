@@ -536,14 +536,16 @@ async function postApprovedBatch({
   const unclearedReclassJournals = Array.isArray(paymentPreview.unclearedReclassJournals)
     ? paymentPreview.unclearedReclassJournals
     : []
-  const settlementBridgeJournal = paymentPreview.undepositedSettlementBridgeJournal || null
+  const settlementBridgeJournal = null
+  const settlementAdjustmentJournal = paymentPreview.settlementAdjustmentJournal || null
+  const paidInvoiceSubsidyJournal = null
   await ensureCanPostBatch(batch, Boolean(latestPreview), {
     dryRun,
     allowPosted,
     feeJournalLines: [
       ...feeJournalLines,
       ...unclearedReclassJournals,
-      ...(settlementBridgeJournal ? [settlementBridgeJournal] : []),
+      ...(settlementAdjustmentJournal ? [settlementAdjustmentJournal] : []),
     ],
     paymentPreview,
   })
@@ -573,8 +575,8 @@ async function postApprovedBatch({
       ...line,
       paymentType: line.paymentType || `uncleared_reclass_${line.feeType}`,
     })),
-    ...(settlementBridgeJournal
-      ? [{ ...settlementBridgeJournal, paymentType: 'undeposited_settlement_bridge' }]
+    ...(settlementAdjustmentJournal
+      ? [{ ...settlementAdjustmentJournal, paymentType: 'settlement_adjustment' }]
       : []),
   ]
   const result = {
@@ -835,7 +837,8 @@ async function postApprovedBatch({
         customerId: '',
         lineItems: enrichedLineItems.length >= 2 ? enrichedLineItems : undefined,
         vatBreakdown: line.vatBreakdown || null,
-        referenceNumber: buildEntryReference(metadata, line.feeType || paymentType),
+        referenceNumber:
+          clean(line.referenceNumber) || buildEntryReference(metadata, line.feeType || paymentType),
         date: paymentDate,
       }
       let zohoPayloadPreview = null
