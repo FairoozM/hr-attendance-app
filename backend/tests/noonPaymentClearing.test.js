@@ -2200,6 +2200,170 @@ describe('open balance reconcile', () => {
     assert.equal(journal.summary.grossNegativeAdjustments, 64.26)
     assert.equal(journal.summary.grossPositiveAdjustments, 4.73)
     assert.equal(journal.summary.netUndepositedImpact, -59.53)
+
+    const {
+      assertBalancedZohoJournalPayload,
+      sumZohoJournalPayload,
+    } = require('../src/services/noonPaymentClearing/noonPaymentClearingJournalBalanceService')
+    const payloadTotals = sumZohoJournalPayload(payload)
+    assert.equal(payloadTotals.difference, 0)
+    assertBalancedZohoJournalPayload(payload, {
+      journalType: 'settlement_adjustment',
+      reference: ref,
+    })
+    assert.equal(journal.journalAudit.balanced, true)
+    assert.equal(journal.journalAudit.positiveExpenseVatMatchesGross, true)
+    assert.equal(journal.journalAudit.negativeExpenseVatMatchesGross, true)
+  })
+})
+
+describe('Settlement adjustment journal balance (PS-11752-AE20260729 shape)', () => {
+  const {
+    buildSettlementAdjustmentJournal,
+    auditSettlementAdjustmentJournal,
+    detectDuplicateSettlementAdjustmentSources,
+    resolveSettlementAdjustmentVatSplit,
+  } = require('../src/services/noonPaymentClearing/noonPaymentClearingSettlementAdjustmentService')
+  const { buildManualJournalPayload } = require('../src/services/amazonPaymentClearingZohoPaymentService')
+  const {
+    assertBalancedZohoJournalPayload,
+    sumZohoJournalPayload,
+    sumJournalLineItems,
+  } = require('../src/services/noonPaymentClearing/noonPaymentClearingJournalBalanceService')
+  const { ROW_CLASS } = require('../src/services/noonPaymentClearing/noonPaymentClearingCategoryService')
+  const { ASSIGNMENT_REASON_ZOHO } = require('../src/services/noonPaymentClearing/noonPaymentClearingParentChargeFallback')
+
+  const ref = 'PS-11752-AE20260729'
+  const metadata = { referenceNr: ref, zohoCustomerId: 'noon-customer-123' }
+
+  const sourceRows = [
+    {
+      rowNumber: 8,
+      rowClass: ROW_CLASS.PARENT_ORDER_CHARGE,
+      parentOrderId: 'NAEI70062331436',
+      total: -33.6,
+      fulfillmentFee: -33.6,
+    },
+    {
+      rowNumber: 9,
+      rowClass: ROW_CLASS.PARENT_ORDER_CHARGE,
+      parentOrderId: 'NAEI70062331437',
+      total: -42.84,
+      fulfillmentFee: -42.84,
+    },
+    {
+      rowNumber: 10,
+      rowClass: ROW_CLASS.PARENT_ORDER_CHARGE,
+      parentOrderId: 'NAEI60012472440',
+      assignedItemOrderId: 'NAEI60012472440-1',
+      assignmentReason: ASSIGNMENT_REASON_ZOHO,
+      parentFallbackStatus: 'assigned_zoho_orphan',
+      total: -21.42,
+      fulfillmentFee: -21.42,
+    },
+    {
+      rowNumber: 11,
+      rowClass: ROW_CLASS.PARENT_ORDER_CHARGE,
+      parentOrderId: 'NAEI70062331438',
+      total: -43.89,
+      fulfillmentFee: -43.89,
+    },
+    {
+      rowNumber: 28,
+      rowClass: ROW_CLASS.PARENT_ORDER_CHARGE,
+      parentOrderId: 'NAEI70009406690',
+      assignedItemOrderId: 'NAEI70009406690-1',
+      total: 14.82,
+      orderSubsidies: 14.82,
+    },
+    {
+      rowNumber: 29,
+      rowClass: ROW_CLASS.PARENT_ORDER_CHARGE,
+      parentOrderId: 'NAEI70023851199',
+      assignedItemOrderId: 'NAEI70023851199-1',
+      total: 619.21,
+      fulfillmentFee: 626.82,
+      orderSubsidies: -7.61,
+    },
+  ]
+
+  it('orderSubsidies split VAT from row.total (14.82 → 14.11 + 0.71)', () => {
+    const split = resolveSettlementAdjustmentVatSplit(
+      { total: 14.82, orderSubsidies: 14.82 },
+      0.05
+    )
+    assert.equal(split.netAmount, 14.11)
+    assert.equal(split.vatAmount, 0.71)
+    assert.equal(split.sourceGrossCheck, true)
+  })
+
+  it('0729-shaped journal summary totals match statement adjustment audit', () => {
+    const journal = buildSettlementAdjustmentJournal(sourceRows, metadata, {}, null)
+    assert.ok(journal)
+    assert.equal(journal.blocked, false)
+    assert.equal(journal.summary.grossNegativeAdjustments, 141.75)
+    assert.equal(journal.summary.grossPositiveAdjustments, 634.03)
+    assert.equal(journal.summary.netUndepositedImpact, 492.28)
+  })
+
+  it('final Zoho payload debits equal credits for settlement adjustment journal', () => {
+    const journal = buildSettlementAdjustmentJournal(sourceRows, metadata, {}, null)
+    const payload = buildManualJournalPayload({
+      feeType: journal.feeType,
+      notes: journal.displayLabel,
+      referenceNumber: journal.referenceNumber,
+      lineItems: journal.lineItems.map((item) => ({
+        ...item,
+        accountId: item.accountId || `acc-${item.accountCode || 'x'}`,
+      })),
+    })
+    const totals = sumZohoJournalPayload(payload)
+    assert.equal(totals.totalDebits, totals.totalCredits)
+    assert.equal(totals.difference, 0)
+    assertBalancedZohoJournalPayload(payload, {
+      journalType: 'settlement_adjustment',
+      reference: ref,
+    })
+    assert.equal(journal.journalAudit.balanced, true)
+    assert.equal(journal.journalAudit.positiveExpenseVatMatchesGross, true)
+    assert.equal(journal.journalAudit.negativeExpenseVatMatchesGross, true)
+  })
+
+  it('positive expense/VAT components total gross positive; negative total gross negative', () => {
+    const journal = buildSettlementAdjustmentJournal(sourceRows, metadata, {}, null)
+    const audit = auditSettlementAdjustmentJournal(journal, metadata, sourceRows)
+    assert.equal(audit.positiveExpenseVatTotal, audit.grossPositiveAdjustments)
+    assert.equal(audit.negativeExpenseVatTotal, audit.grossNegativeAdjustments)
+    assert.equal(audit.nonZeroDeltas.length, 0)
+  })
+
+  it('blocks duplicate settlement adjustment source rows', () => {
+    const row = {
+      rowNumber: 5,
+      rowClass: ROW_CLASS.PARENT_ORDER_CHARGE,
+      parentOrderId: 'P1',
+      total: -10,
+      fulfillmentFee: -10,
+    }
+    const dupes = detectDuplicateSettlementAdjustmentSources([row, row], metadata)
+    assert.equal(dupes.length, 1)
+    const journal = buildSettlementAdjustmentJournal([row, row], metadata, {}, null)
+    assert.equal(journal.blockCode, 'DUPLICATE_SETTLEMENT_ADJUSTMENT_SOURCE')
+  })
+
+  it('fee component fields 626.82 + 7.61 must not be confused with journal credits — payload uses row.total split', () => {
+    const row = sourceRows.find((r) => r.rowNumber === 29)
+    const journal = buildSettlementAdjustmentJournal([row], metadata, {}, null)
+    const lineTotals = sumJournalLineItems(journal.lineItems)
+    assert.equal(lineTotals.difference, 0)
+    const expenseCredits = journal.lineItems.filter(
+      (line) => line.debitOrCredit === 'credit' && line.accountCode === '2162'
+    )
+    const vatCredits = journal.lineItems.filter(
+      (line) => line.debitOrCredit === 'credit' && line.accountCode === '1085'
+    )
+    assert.notEqual(round2(expenseCredits[0].amount + vatCredits[0].amount), 634.43)
+    assert.equal(round2(expenseCredits[0].amount + vatCredits[0].amount), 619.21)
   })
 })
 
@@ -2326,5 +2490,370 @@ describe('zero-sale cross-week item logistics (PS-11752-AE20260624 row 41)', () 
     assert.equal(expected1066Contribution(zeroSaleRow, ctx), -17.85)
     assert.equal(cls.recordPayment1066 + cls.settlementAdjustment1066, 0)
     assert.equal(round2(expected1066Contribution(zeroSaleRow, ctx) - (cls.recordPayment1066 + cls.settlementAdjustment1066)), -17.85)
+  })
+})
+
+describe('Noon cross-week product returns (PS-11752-AE20260729 row 16)', () => {
+  const {
+    reclassifyReturnRows,
+    collectReturnRows,
+    buildNoonReturnFeeBreakdown,
+    isNoonCrossWeekReturnRow,
+    RETURN_BLOCK_CODES,
+  } = require('../src/services/noonPaymentClearing/noonPaymentClearingReturnService')
+  const {
+    matchNoonReturnRowsToCreditNotes,
+  } = require('../src/services/noonPaymentClearing/noonPaymentClearingReturnMatchingService')
+  const { isSettlementFeeJournalRow } = require('../src/services/noonPaymentClearing/noonPaymentClearingCategoryService')
+  const {
+    isSettlementAdjustmentSourceRow,
+  } = require('../src/services/noonPaymentClearing/noonPaymentClearingSettlementAdjustmentService')
+  const { buildReturnFeePlan, proveUnclearedCommission1067NetsToZero, proveUnclearedShipping1068NetsToZero, proveUnclearedReturnAccountsNetToZero } = require('../src/services/noonPaymentClearing/noonPaymentClearingReturnFeeService')
+  const { buildInvoicePaymentPlan } = require('../src/services/noonPaymentClearing/noonPaymentClearingPaymentPreviewService')
+  const { getNoonPaymentClearingMarketplaceConfig } = require('../src/services/noonPaymentClearing/noonPaymentClearingMarketplaceConfig')
+  const { buildCreditNoteApplyPlan } = require('../src/services/noonPaymentClearing/noonPaymentClearingCreditNotePostingService')
+  const {
+    buildUndepositedReconciliation,
+  } = require('../src/services/noonPaymentClearing/noonPaymentClearingUndepositedReconciliationService')
+
+  const returnRow = {
+    rowNumber: 16,
+    parentOrderId: 'NAEI70013425039',
+    itemOrderId: 'NAEI70013425039-4',
+    transactionType: 'order_update',
+    rowClass: ROW_CLASS.ORDER_ADJUSTMENT,
+    netProceed: -84,
+    referralFee: 13.23,
+    fulfillmentFee: 0,
+    shippingCharges: 0,
+    total: -70.77,
+  }
+
+  it('classifies row 16 as RETURN — not fee journal or settlement adjustment', () => {
+    const rows = reclassifyReturnRows([returnRow])
+    const row = rows[0]
+    assert.equal(row.rowClass, ROW_CLASS.RETURN)
+    assert.ok(isNoonCrossWeekReturnRow(row, new Set()))
+    assert.equal(isSettlementFeeJournalRow(row), false)
+    assert.equal(isSettlementAdjustmentSourceRow(row, null, new Set()), false)
+  })
+
+  it('decomposes product refund 84, commission reversal 13.23, net settlement -70.77', () => {
+    const [row] = reclassifyReturnRows([returnRow])
+    const b = buildNoonReturnFeeBreakdown(row)
+    assert.equal(b.productRefundAmount, 84)
+    assert.equal(b.commissionReversalGross, 13.23)
+    assert.equal(b.commissionReversalNet, 12.6)
+    assert.equal(b.commissionReversalVat, 0.63)
+    assert.equal(b.netSettlementEffect, -70.77)
+  })
+
+  it('blocks with RETURN_CREDIT_NOTE_MISSING when invoice exists but no CN', () => {
+    const [row] = reclassifyReturnRows([returnRow])
+    const invoices = [
+      mapInvoice({
+        invoice_id: 'inv-ret',
+        invoice_number: 'INV-RET-1',
+        customer_id: 'cust-noon',
+        customer_name: 'Noon',
+        total: 84,
+        custom_fields: [{ label: 'Order Number', value: 'NAEI70013425039-4' }],
+      }),
+    ]
+    const result = matchNoonReturnRowsToCreditNotes([row], invoices, [])
+    assert.equal(result.creditNoteBlockingRows.length, 1)
+    assert.equal(result.creditNoteBlockingRows[0].blockCode, RETURN_BLOCK_CODES.RETURN_CREDIT_NOTE_MISSING)
+    assert.equal(result.matchedReturns[0].status, 'blocked')
+  })
+
+  it('matches CN and builds refund plan for 84 when CN amount aligns', async () => {
+    const [row] = reclassifyReturnRows([returnRow])
+    const invoices = [
+      mapInvoice({
+        invoice_id: 'inv-ret',
+        invoice_number: 'INV-RET-1',
+        customer_id: 'cust-noon',
+        customer_name: 'Noon',
+        total: 84,
+        custom_fields: [{ label: 'Order Number', value: 'NAEI70013425039-4' }],
+      }),
+    ]
+    const creditNotes = [
+      {
+        creditnote_id: 'cn-ret',
+        creditnote_number: 'NAEI70013425039-4',
+        invoice_id: 'inv-ret',
+        customer_id: 'cust-noon',
+        total: 84,
+        balance: 84,
+        status: 'open',
+      },
+    ]
+    const result = matchNoonReturnRowsToCreditNotes([row], invoices, creditNotes)
+    assert.equal(result.matchedReturns[0].status, 'matched')
+    assert.equal(result.matchedReturns[0].productRefundAmount, 84)
+    const batch = {
+      batchId: 99,
+      matchedReturns: result.matchedReturns,
+      reportSnapshot: { referenceNr: 'PS-11752-AE20260729' },
+      zohoCustomerId: 'cust-noon',
+    }
+    const plan = await buildCreditNoteApplyPlan(batch, {
+      listRefunds: async () => [],
+    })
+    assert.equal(plan.planRows[0].action, 'refund_existing')
+    assert.equal(plan.planRows[0].refundAmount, 84)
+  })
+
+  it('payment preview reconciles return principal and commission reversal on 1066', () => {
+    const [row] = reclassifyReturnRows([returnRow])
+    const batch = {
+      batchId: 1,
+      status: 'approved',
+      allRows: [row],
+      matchedOrders: [],
+      unmatchedOrders: [],
+      multipleMatchItems: [],
+      reconciliationSummary: { expectedSettlement: -70.77, reconciliationStatus: 'matched' },
+      reportSnapshot: { referenceNr: 'PS-11752-AE20260729' },
+      matchedReturns: [
+        {
+          itemOrderId: 'NAEI70013425039-4',
+          productRefundAmount: 84,
+          status: 'matched',
+          zohoCreditNoteId: 'cn-ret',
+          zohoInvoiceId: 'inv-ret',
+        },
+      ],
+      creditNoteBlockingRows: [],
+    }
+    const preview = buildPaymentPreviewFromBatch(batch, [], NOON_INPUT_VAT)
+    assert.equal(preview.summary.returnPrincipal1066, -84)
+    assert.equal(preview.summary.returnFeeReversal1066, 13.23)
+    assert.equal(preview.summary.plannedUndeposited1066, -70.77)
+    assert.equal(preview.summary.targetUndeposited1066, -70.77)
+    assert.equal(preview.summary.undepositedPlanningDifference, 0)
+    assert.equal(preview.summary.returnBlocked, false)
+    assert.equal(preview.undepositedReconciliation.nonZeroDeltas.length, 0)
+  })
+
+  it('buildReturnFeePlan produces settlement + expense-reversal pair for commission (1067 → 0)', () => {
+    const [row] = reclassifyReturnRows([returnRow])
+    const batch = {
+      matchedReturns: [{ itemOrderId: 'NAEI70013425039-4', status: 'matched' }],
+      reportSnapshot: { referenceNr: 'PS-11752-AE20260729' },
+    }
+    const plan = buildReturnFeePlan(batch, [row])
+    assert.equal(plan.summary.totalJournalCount, 2)
+    assert.equal(plan.summary.settlementJournalCount, 1)
+    assert.equal(plan.summary.expenseReversalJournalCount, 1)
+    assert.equal(plan.totalUndepositedImpact, 13.23)
+
+    const settlement = plan.settlementJournalLines[0]
+    assert.equal(settlement.phase, 'settlement')
+    assert.equal(settlement.debit.amount, 13.23)
+    assert.equal(settlement.creditCommission.amount, 13.23)
+    assert.equal(settlement.creditVat, null)
+
+    const expense = plan.expenseReversalJournalLines[0]
+    assert.equal(expense.phase, 'expense_reversal')
+    assert.equal(expense.debitUncleared.amount, 13.23)
+    assert.equal(expense.creditExpense.amount, 12.6)
+    assert.equal(expense.creditVat.amount, 0.63)
+    assert.equal(expense.undepositedImpact, 0)
+  })
+
+  it('buildReturnFeePlan produces parallel 1068 settlement + expense reversal for fulfillment returns', () => {
+    const fulfillmentReturnRow = {
+      rowNumber: 20,
+      parentOrderId: 'NAEI70013425039',
+      itemOrderId: 'NAEI70013425039-5',
+      transactionType: 'order_update',
+      rowClass: ROW_CLASS.ORDER_ADJUSTMENT,
+      netProceed: -10,
+      referralFee: 0,
+      fulfillmentFee: -5.25,
+      shippingCharges: 0,
+      total: -5.25,
+    }
+    const [row] = reclassifyReturnRows([fulfillmentReturnRow])
+    const batch = {
+      matchedReturns: [{ itemOrderId: 'NAEI70013425039-5', status: 'matched' }],
+      reportSnapshot: { referenceNr: 'PS-11752-AE20260729' },
+    }
+    const plan = buildReturnFeePlan(batch, [row])
+    assert.equal(plan.summary.totalJournalCount, 2)
+    const settlement = plan.settlementJournalLines[0]
+    assert.equal(settlement.creditShipping.amount, 5.25)
+    const expense = plan.expenseReversalJournalLines[0]
+    assert.equal(expense.debitUncleared.accountCode, '1068')
+    assert.equal(expense.creditExpense.accountCode, '2162')
+    assert.equal(round2(expense.creditExpense.amount + expense.creditVat.amount), 5.25)
+  })
+
+  it('return commission reversal nets 1067 to zero against original sale commission (13.23 gross)', () => {
+    const [returnClassified] = reclassifyReturnRows([returnRow])
+    const saleReferralFee = -13.23
+    const cfg = getNoonPaymentClearingMarketplaceConfig()
+    const salePlan = buildInvoicePaymentPlan(
+      {
+        itemOrderId: 'NAEI70013425039-4',
+        parentOrderId: 'NAEI70013425039',
+        netProceed: 84,
+        referralFee: saleReferralFee,
+        fulfillmentFee: 0,
+        shippingCharges: 0,
+        total: 70.77,
+        zohoInvoiceTotal: 84,
+        zohoInvoiceId: 'inv-ret',
+        zohoInvoiceNumber: 'INV-RET-1',
+      },
+      cfg.paymentPreviewAccounts,
+      null
+    )
+    assert.equal(salePlan.commissionPayment.amount, 13.23)
+
+    const proof = proveUnclearedCommission1067NetsToZero(saleReferralFee, returnClassified, {
+      matchedReturns: [{ itemOrderId: 'NAEI70013425039-4', status: 'matched' }],
+      reportSnapshot: { referenceNr: 'PS-11752-AE20260729' },
+    })
+    assert.equal(proof.saleCommission1067, 13.23)
+    assert.equal(proof.returnCredit1067, 13.23)
+    assert.equal(proof.expenseDebit1067, 13.23)
+    assert.equal(proof.expenseCredit2143, 12.6)
+    assert.equal(proof.expenseCredit1085, 0.63)
+    assert.equal(proof.returnCreditMatchesSaleCommission, true)
+    assert.equal(proof.startingBalance1067, 0)
+    assert.equal(proof.balanceAfterSettlement, -13.23)
+    assert.equal(proof.balance1067AfterReturn, 0)
+    assert.equal(proof.netsToZero, true)
+  })
+
+  it('full sale-week + return-week 1067 ledger ends at zero after both Phase 3 journals', () => {
+    const [returnClassified] = reclassifyReturnRows([returnRow])
+    const saleCommission1067 = 13.23
+    const saleReclassCredit1067 = 13.23
+    const proof = proveUnclearedCommission1067NetsToZero(-13.23, returnClassified, {
+      matchedReturns: [{ itemOrderId: 'NAEI70013425039-4', status: 'matched' }],
+      reportSnapshot: { referenceNr: 'PS-11752-AE20260729' },
+    })
+    let balance1067 = round2(saleCommission1067 - saleReclassCredit1067)
+    assert.equal(balance1067, 0, '1067 after sale reclass')
+    balance1067 = round2(balance1067 - proof.returnCredit1067)
+    assert.equal(balance1067, -13.23, '1067 after settlement reversal')
+    balance1067 = round2(balance1067 + proof.expenseDebit1067)
+    assert.equal(balance1067, 0, '1067 after automatic expense/VAT reversal')
+    assert.equal(proof.netsToZero, true)
+  })
+
+  it('return fulfillment reversal nets 1068 to zero after both Phase 3 journals (5.25 gross)', () => {
+    const fulfillmentReturnRow = {
+      rowNumber: 20,
+      parentOrderId: 'NAEI70013425039',
+      itemOrderId: 'NAEI70013425039-5',
+      transactionType: 'order_update',
+      rowClass: ROW_CLASS.ORDER_ADJUSTMENT,
+      netProceed: -10,
+      referralFee: 0,
+      fulfillmentFee: -5.25,
+      shippingCharges: 0,
+      total: -5.25,
+    }
+    const [returnClassified] = reclassifyReturnRows([fulfillmentReturnRow])
+    const batchCtx = {
+      matchedReturns: [{ itemOrderId: 'NAEI70013425039-5', status: 'matched' }],
+      reportSnapshot: { referenceNr: 'PS-11752-AE20260729' },
+    }
+    const proof = proveUnclearedShipping1068NetsToZero(-5.25, returnClassified, batchCtx)
+    assert.equal(proof.saleShipping1068, 5.25)
+    assert.equal(proof.returnCredit1068, 5.25)
+    assert.equal(proof.expenseDebit1068, 5.25)
+    assert.equal(proof.expenseCredit2162, 5)
+    assert.equal(proof.expenseCredit1085, 0.25)
+    assert.equal(proof.startingBalance1068, 0)
+    assert.equal(proof.balanceAfterSettlement, -5.25)
+    assert.equal(proof.balance1068AfterReturn, 0)
+    assert.equal(proof.netsToZero, true)
+  })
+
+  it('proveUnclearedReturnAccountsNetToZero: row 16 clears 1067; 1068 unaffected', () => {
+    const [row] = reclassifyReturnRows([returnRow])
+    const batch = {
+      matchedReturns: [{ itemOrderId: 'NAEI70013425039-4', status: 'matched' }],
+      reportSnapshot: { referenceNr: 'PS-11752-AE20260729' },
+    }
+    const proof = proveUnclearedReturnAccountsNetToZero(batch, [row])
+    assert.equal(proof.allUnclearedAccountsNetToZero, true)
+    assert.equal(proof.commission1067.affectedItemCount, 1)
+    assert.equal(proof.commission1067.allNetToZero, true)
+    assert.equal(proof.commission1067.proofs[0].balance1067AfterReturn, 0)
+    assert.equal(proof.shipping1068.affectedItemCount, 0)
+    assert.equal(proof.shipping1068.allNetToZero, true)
+  })
+
+  it('proveUnclearedReturnAccountsNetToZero: fulfillment return clears 1068', () => {
+    const fulfillmentReturnRow = {
+      rowNumber: 20,
+      parentOrderId: 'NAEI70013425039',
+      itemOrderId: 'NAEI70013425039-5',
+      transactionType: 'order_update',
+      rowClass: ROW_CLASS.ORDER_ADJUSTMENT,
+      netProceed: -10,
+      referralFee: 0,
+      fulfillmentFee: -5.25,
+      shippingCharges: 0,
+      total: -5.25,
+    }
+    const [row] = reclassifyReturnRows([fulfillmentReturnRow])
+    const batch = {
+      matchedReturns: [{ itemOrderId: 'NAEI70013425039-5', status: 'matched' }],
+      reportSnapshot: { referenceNr: 'PS-11752-AE20260729' },
+    }
+    const proof = proveUnclearedReturnAccountsNetToZero(batch, [row])
+    assert.equal(proof.allUnclearedAccountsNetToZero, true)
+    assert.equal(proof.commission1067.affectedItemCount, 0)
+    assert.equal(proof.shipping1068.affectedItemCount, 1)
+    assert.equal(proof.shipping1068.proofs[0].balance1068AfterReturn, 0)
+  })
+
+  it('proveUnclearedReturnAccountsNetToZero matches buildReturnFeePlan journal pairs', () => {
+    const [row] = reclassifyReturnRows([returnRow])
+    const batch = {
+      matchedReturns: [{ itemOrderId: 'NAEI70013425039-4', status: 'matched' }],
+      reportSnapshot: { referenceNr: 'PS-11752-AE20260729' },
+    }
+    const plan = buildReturnFeePlan(batch, [row])
+    const proof = proveUnclearedReturnAccountsNetToZero(batch, [row])
+    assert.equal(plan.summary.totalJournalCount, 2)
+    assert.equal(proof.allUnclearedAccountsNetToZero, true)
+    assert.equal(proof.commission1067.proofs[0].netsToZero, true)
+  })
+
+  it('Phase 3 dry-run posts settlement + expense reversal with stable postingGroupKey', async () => {
+    const { postReturnFeeJournalsForBatch } = require('../src/services/noonPaymentClearing/noonPaymentClearingPostingService')
+    const [row] = reclassifyReturnRows([returnRow])
+    const batch = {
+      batchId: 42,
+      status: 'posted',
+      postedToZoho: true,
+      allRows: [row],
+      matchedReturns: [{ itemOrderId: 'NAEI70013425039-4', status: 'matched' }],
+      reportSnapshot: { referenceNr: 'PS-11752-AE20260729' },
+    }
+    const result = await postReturnFeeJournalsForBatch({
+      batch,
+      dryRun: true,
+      buildJournalPayloadPreview: async () => ({ line_items: [] }),
+    })
+    assert.equal(result.summary.journalsCreated, 2)
+    assert.equal(result.summary.settlementJournalsCreated, 1)
+    assert.equal(result.summary.expenseReversalJournalsCreated, 1)
+    assert.deepEqual(
+      result.journals.map((journal) => journal.postingGroupKey),
+      [
+        'return_fee_settlement:commission:NAEI70013425039-4',
+        'return_fee_expense_reversal:commission:NAEI70013425039-4',
+      ]
+    )
   })
 })

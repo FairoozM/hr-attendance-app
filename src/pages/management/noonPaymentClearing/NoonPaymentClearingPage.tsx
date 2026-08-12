@@ -2,15 +2,20 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   approveNoonPaymentClearingBatch,
+  applyNoonCreditNotes,
   excludeNoonOpenBalanceShortfalls,
+  fetchNoonCreditNoteApplyPlan,
   fetchNoonPaymentClearingBatch,
+  fetchNoonReturnFeePlan,
   fetchNoonSavedBatches,
   fetchNoonZohoCustomers,
   forceRepostNoonPaymentClearing,
   generateNoonPaymentPreview,
+  postNoonReturnFeeJournals,
   type NoonPaymentClearingPreview,
   type NoonPaymentPreview,
   type NoonPostingResult,
+  type NoonReturnFeePlan,
   type NoonSavedBatchSummary,
   postNoonPaymentClearingToZoho,
   previewNoonStatementUpload,
@@ -49,6 +54,9 @@ export function NoonPaymentClearingPage() {
   const [preview, setPreview] = useState<NoonPaymentClearingPreview | null>(null)
   const [paymentPreview, setPaymentPreview] = useState<NoonPaymentPreview | null>(null)
   const [postingResult, setPostingResult] = useState<NoonPostingResult | null>(null)
+  const [cnApplyResult, setCnApplyResult] = useState<Record<string, unknown> | null>(null)
+  const [returnFeeResult, setReturnFeeResult] = useState<Record<string, unknown> | null>(null)
+  const [returnFeePlan, setReturnFeePlan] = useState<NoonReturnFeePlan | null>(null)
   const [expandedParents, setExpandedParents] = useState<Record<string, boolean>>({})
   const [showSettlementAdjustmentDetail, setShowSettlementAdjustmentDetail] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -425,6 +433,66 @@ export function NoonPaymentClearingPage() {
     }
   }
 
+  const refreshReturnFeePlan = useCallback(async (batchId: string | number) => {
+    const plan = await fetchNoonReturnFeePlan(batchId)
+    setReturnFeePlan(plan)
+    return plan
+  }, [])
+
+  useEffect(() => {
+    if (activeStep !== 11 || preview?.batchId == null) return
+    if ((paymentPreview?.returns?.length ?? 0) === 0) {
+      setReturnFeePlan(null)
+      return
+    }
+    let cancelled = false
+    refreshReturnFeePlan(preview.batchId).catch((err) => {
+      if (!cancelled) setError(safeError(err))
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [activeStep, preview?.batchId, paymentPreview?.returns?.length, refreshReturnFeePlan])
+
+  async function onApplyCreditNotes(dryRun: boolean) {
+    if (!preview?.batchId) return
+    if (!dryRun && !window.confirm('Refund matched return Credit Notes to Noon Undeposited (1066)?')) return
+    setLoading(true)
+    setError('')
+    try {
+      await fetchNoonCreditNoteApplyPlan(preview.batchId)
+      const result = await applyNoonCreditNotes(preview.batchId, dryRun)
+      setCnApplyResult(result)
+      setNotice(dryRun ? 'Credit note refund dry run complete.' : 'Credit note refunds posted.')
+    } catch (err) {
+      setError(safeError(err))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function onPostReturnFees(dryRun: boolean) {
+    if (!preview?.batchId) return
+    if (!dryRun && !window.confirm('Post return fee clearing journals (settlement + expense/VAT reversal) to Zoho?')) return
+    setLoading(true)
+    setError('')
+    try {
+      const plan = await refreshReturnFeePlan(preview.batchId)
+      if (!plan.creditNoteApplyComplete && !dryRun) {
+        setError('Refund all matched return credit notes (Phase 2) before posting return fee journals.')
+        return
+      }
+      const result = await postNoonReturnFeeJournals(preview.batchId, dryRun)
+      setReturnFeeResult(result)
+      await refreshReturnFeePlan(preview.batchId)
+      setNotice(dryRun ? 'Return fee journal dry run complete.' : 'Return fee journals posted.')
+    } catch (err) {
+      setError(safeError(err))
+    } finally {
+      setLoading(false)
+    }
+  }
+
   /** Open-balance blocks are rectified in Step 6 — take the user there with fresh data. */
   async function recoverFromOpenBalanceBlock(msg: string) {
     const isBalanceIssue =
@@ -551,7 +619,7 @@ export function NoonPaymentClearingPage() {
             summary={
               collapsed && preview
                 ? step.id === 4
-                  ? `${preview.matchedOrders?.length || 0} matched · ${preview.unmatchedOrders?.length || 0} missing`
+                  ? `${preview.matchedOrders?.length || 0} matched · ${preview.unmatchedOrders?.length || 0} missing · ${(preview.matchedReturns || []).filter((r) => r.status === 'matched').length} return CN`
                   : step.id === 6
                     ? (preview.openBalanceShortfalls || []).length
                       ? `${preview.openBalanceShortfalls!.length} open-balance shortfall(s)`
@@ -827,6 +895,39 @@ export function NoonPaymentClearingPage() {
                     </tbody>
                   </table>
                 </div>
+                {(preview.matchedReturns?.length || preview.creditNoteBlockingRows?.length) ? (
+                  <>
+                    <h4>Returns / Credit Notes</h4>
+                    <div className="npc-table-wrap">
+                      <table className="npc-table">
+                        <thead>
+                          <tr>
+                            <th>Item Order</th>
+                            <th>Refund</th>
+                            <th>Commission rev.</th>
+                            <th>Invoice</th>
+                            <th>Credit Note</th>
+                            <th>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {[...(preview.matchedReturns || []), ...(preview.creditNoteBlockingRows || [])].map((row) => (
+                            <tr key={`ret-${row.itemOrderId}-${row.status}`}>
+                              <td>
+                                <code className="npc-ref">{row.itemOrderId}</code>
+                              </td>
+                              <td className="npc-money">{money(row.productRefundAmount)}</td>
+                              <td className="npc-money">{money(row.commissionReversalGross)}</td>
+                              <td>{row.zohoInvoiceNumber || '—'}</td>
+                              <td>{row.zohoCreditNoteNumber || '—'}</td>
+                              <td>{row.blockCode || row.status || '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                ) : null}
               </div>
             )}
 
@@ -1224,6 +1325,71 @@ export function NoonPaymentClearingPage() {
                         </>
                       ) : null}
                     </div>
+                    {(paymentPreview.summary.returnRowCount ?? 0) > 0 ? (
+                      <>
+                        <h3>Returns &amp; return fee reversals</h3>
+                        {paymentPreview.summary.returnBlocked ? (
+                          <div className="npc-alert npc-alert--error" role="alert">
+                            RETURN BLOCKED — matched Credit Note required before posting (
+                            {(paymentPreview.creditNoteBlockingRows || [])[0]?.blockCode || 'RETURN_CREDIT_NOTE_MISSING'}
+                            ).
+                          </div>
+                        ) : null}
+                        <div className="npc-summary-grid">
+                          <div className="ainv-summary-card">
+                            <span>Product refund (CN → 1066)</span>
+                            <strong>{money(paymentPreview.summary.returnPrincipal1066)}</strong>
+                          </div>
+                          <div className="ainv-summary-card">
+                            <span>Commission reversal (1066)</span>
+                            <strong>{money(paymentPreview.summary.returnFeeReversal1066)}</strong>
+                          </div>
+                        </div>
+                        <div className="npc-table-wrap">
+                          <table className="npc-table">
+                            <thead>
+                              <tr>
+                                <th>Item</th>
+                                <th>Refund</th>
+                                <th>Comm. gross</th>
+                                <th>Comm. net</th>
+                                <th>VAT</th>
+                                <th>Net settlement</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {(paymentPreview.returns || []).map((row) => (
+                                <tr key={`pv-ret-${row.itemOrderId}`}>
+                                  <td>
+                                    <code className="npc-ref">{row.itemOrderId}</code>
+                                  </td>
+                                  <td className="npc-money">{money(row.productRefundAmount)}</td>
+                                  <td className="npc-money">
+                                    {money(
+                                      paymentPreview.returnFeeReversals?.find((r) => r.itemOrderId === row.itemOrderId)
+                                        ?.commissionReversalGross
+                                    )}
+                                  </td>
+                                  <td className="npc-money">
+                                    {money(
+                                      paymentPreview.returnFeeReversals?.find((r) => r.itemOrderId === row.itemOrderId)
+                                        ?.commissionReversalNet
+                                    )}
+                                  </td>
+                                  <td className="npc-money">
+                                    {money(
+                                      paymentPreview.returnFeeReversals?.find((r) => r.itemOrderId === row.itemOrderId)
+                                        ?.commissionReversalVat
+                                    )}
+                                  </td>
+                                  <td className="npc-money">{money(row.netSettlementEffect)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </>
+                    ) : null}
                     <h3>Invoice payments (Net 1066 / Commission 1067 / Shipping 1068)</h3>
                     <p className="npc-muted">
                       Noon CSV &quot;Net Proceeds&quot; is invoice gross. 1066 gets the residual after commission and
@@ -1458,6 +1624,17 @@ export function NoonPaymentClearingPage() {
                                   {paymentPreview.summary.settlementAdjustmentLineCount ?? 0} rows · expense{' '}
                                   {money(paymentPreview.summary.settlementAdjustmentNetExpense)} · VAT{' '}
                                   {money(paymentPreview.summary.settlementAdjustmentInputVat)}
+                                  {paymentPreview.settlementAdjustmentJournal?.journalAudit ? (
+                                    <div>
+                                      Journal balance: debits{' '}
+                                      {money(paymentPreview.settlementAdjustmentJournal.journalAudit.totalDebits)} · credits{' '}
+                                      {money(paymentPreview.settlementAdjustmentJournal.journalAudit.totalCredits)} · diff{' '}
+                                      {money(paymentPreview.settlementAdjustmentJournal.journalAudit.difference)}
+                                      {paymentPreview.settlementAdjustmentJournal.journalAudit.balanced
+                                        ? ' ✓'
+                                        : ' — blocked'}
+                                    </div>
+                                  ) : null}
                                   <div>{String(paymentPreview.settlementAdjustmentJournal.previewNote || '')}</div>
                                 </td>
                               </tr>
@@ -1575,6 +1752,122 @@ export function NoonPaymentClearingPage() {
 
             {step.id === 11 && (
               <div className="npc-step-stack">
+                <p className="npc-muted">
+                  Phase 1: Record Payments + fee journals (below). Phase 2: Refund Credit Notes. Phase 3:
+                  return fee clearing — for each reversed commission/shipping fee, posts settlement (Dr 1066 /
+                  Cr 1067 or 1068) then automatically reverses the original expense + VAT (Dr 1067 or 1068 / Cr
+                  2143 or 2162 / Cr 1085) so uncleared accounts net to zero.
+                </p>
+                {(paymentPreview?.returns?.length ?? 0) > 0 ? (
+                  <>
+                    {returnFeePlan?.unclearedAccountProof ? (
+                      <div
+                        className={`npc-alert ${
+                          returnFeePlan.unclearedAccountProof.allUnclearedAccountsNetToZero
+                            ? 'npc-approved-panel'
+                            : 'npc-alert--error'
+                        }`}
+                      >
+                        <strong>Phase 3 clears uncleared GL balances</strong>
+                        <ul style={{ margin: '8px 0 0', paddingLeft: '1.2rem' }}>
+                          <li>
+                            1067 Commission:{' '}
+                            {returnFeePlan.unclearedAccountProof.commission1067.allNetToZero
+                              ? 'nets to zero'
+                              : 'does not net to zero'}
+                            {returnFeePlan.unclearedAccountProof.commission1067.affectedItemCount > 0
+                              ? ` (${returnFeePlan.unclearedAccountProof.commission1067.affectedItemCount} return(s) · settlement + expense/VAT reversal)`
+                              : ' (no commission reversals in this batch)'}
+                          </li>
+                          <li>
+                            1068 Shipping:{' '}
+                            {returnFeePlan.unclearedAccountProof.shipping1068.allNetToZero
+                              ? 'nets to zero'
+                              : 'does not net to zero'}
+                            {returnFeePlan.unclearedAccountProof.shipping1068.affectedItemCount > 0
+                              ? ` (${returnFeePlan.unclearedAccountProof.shipping1068.affectedItemCount} return(s) · settlement + expense/VAT reversal)`
+                              : ' (no shipping reversals in this batch)'}
+                          </li>
+                        </ul>
+                        {returnFeePlan.summary ? (
+                          <p className="npc-muted" style={{ margin: '8px 0 0' }}>
+                            {returnFeePlan.summary.settlementJournalCount ?? 0} settlement +{' '}
+                            {returnFeePlan.summary.expenseReversalJournalCount ?? 0} expense/VAT reversal journal(s)
+                            per matched return.
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  <div className="npc-button-row">
+                    <button
+                      type="button"
+                      className="ainv-btn"
+                      disabled={!paymentPreview || loading || Boolean(paymentPreview.summary?.returnBlocked) || !isPosted}
+                      onClick={() => onApplyCreditNotes(true)}
+                    >
+                      Dry run CN refunds
+                    </button>
+                    <button
+                      type="button"
+                      className="ainv-btn ainv-btn--danger"
+                      disabled={
+                        !paymentPreview ||
+                        loading ||
+                        Boolean(paymentPreview.summary?.returnBlocked) ||
+                        !isPosted
+                      }
+                      onClick={() => onApplyCreditNotes(false)}
+                    >
+                      Refund Credit Notes
+                    </button>
+                    <button
+                      type="button"
+                      className="ainv-btn"
+                      disabled={!paymentPreview || loading || Boolean(paymentPreview.summary?.returnBlocked) || !isPosted}
+                      onClick={() => onPostReturnFees(true)}
+                    >
+                      Dry run return fees
+                    </button>
+                    <button
+                      type="button"
+                      className="ainv-btn ainv-btn--danger"
+                      disabled={
+                        !paymentPreview ||
+                        loading ||
+                        Boolean(paymentPreview.summary?.returnBlocked) ||
+                        !isPosted
+                      }
+                      onClick={() => onPostReturnFees(false)}
+                    >
+                      Post return fee journals
+                    </button>
+                  </div>
+                  </>
+                ) : null}
+                {cnApplyResult ? (
+                  <div className="npc-alert npc-approved-panel" style={{ marginTop: 8 }}>
+                    Credit note apply: {String((cnApplyResult as { status?: string }).status || 'done')}
+                  </div>
+                ) : null}
+                {returnFeeResult ? (
+                  <div className="npc-alert npc-approved-panel" style={{ marginTop: 8 }}>
+                    Return fees: {String((returnFeeResult as { status?: string }).status || 'done')}
+                    {(() => {
+                      const summary = (returnFeeResult as { summary?: Record<string, number> }).summary
+                      if (!summary) return null
+                      const parts = [
+                        summary.settlementJournalsCreated
+                          ? `${summary.settlementJournalsCreated} settlement`
+                          : '',
+                        summary.expenseReversalJournalsCreated
+                          ? `${summary.expenseReversalJournalsCreated} expense/VAT reversal`
+                          : '',
+                        summary.journalsSkipped ? `${summary.journalsSkipped} skipped` : '',
+                      ].filter(Boolean)
+                      return parts.length ? ` (${parts.join(', ')})` : null
+                    })()}
+                  </div>
+                ) : null}
                 {paymentPreview?.unclearedReclassJournals?.length ? (
                   <div className="npc-alert npc-approved-panel">
                     <strong>This post will also clear uncleared balances into expense + VAT</strong>
@@ -1601,7 +1894,7 @@ export function NoonPaymentClearingPage() {
                     disabled={!paymentPreview || loading || Boolean(paymentPreview.summary?.blocked)}
                     onClick={() => onPost(true)}
                   >
-                    Dry run
+                    Dry run Phase 1 — sales & settlement journals
                   </button>
                   <button
                     type="button"

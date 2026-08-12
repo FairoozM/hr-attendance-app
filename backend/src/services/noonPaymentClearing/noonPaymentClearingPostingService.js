@@ -5,6 +5,15 @@ const { buildPaymentPreviewFromBatch, PAYMENT_PREVIEW_TOLERANCE, assertNoStateme
 const { isNoonSettlementReconciliationAcceptable } = require('./noonPaymentClearingReconciliationService')
 const { buildSettlementReference, buildEntryReference, truncateZohoReference } = require('./noonPaymentClearingReferenceService')
 const store = require('./noonPaymentClearingStore')
+const { buildReturnFeePlan } = require('./noonPaymentClearingReturnFeeService')
+const {
+  buildCreditNoteApplyPlan,
+  isCreditNoteApplyComplete,
+} = require('./noonPaymentClearingCreditNotePostingService')
+const {
+  assertBalancedJournalLineItems,
+  assertBalancedZohoJournalPayload,
+} = require('./noonPaymentClearingJournalBalanceService')
 
 const chartAccountCache = { at: 0, rows: null }
 
@@ -543,6 +552,15 @@ async function postApprovedBatch({
   const settlementBridgeJournal = null
   const settlementAdjustmentJournal = paymentPreview.settlementAdjustmentJournal || null
   const paidInvoiceSubsidyJournal = null
+  if (settlementAdjustmentJournal?.blocked) {
+    const err = new Error(
+      settlementAdjustmentJournal.blockingReason ||
+        'Settlement adjustment journal is blocked and cannot be posted.'
+    )
+    err.code = settlementAdjustmentJournal.blockCode || 'SETTLEMENT_ADJUSTMENT_BLOCKED'
+    err.status = 422
+    throw err
+  }
   await ensureCanPostBatch(batch, Boolean(latestPreview), {
     dryRun,
     allowPosted,
@@ -848,7 +866,16 @@ async function postApprovedBatch({
       }
       let zohoPayloadPreview = null
       try {
+        const lineItemsForBalance = enrichedLineItems.length ? enrichedLineItems : line.lineItems || []
+        assertBalancedJournalLineItems(lineItemsForBalance, {
+          journalType: paymentType,
+          reference: journalRequest.referenceNumber,
+        })
         zohoPayloadPreview = await buildJournalPayloadPreview(journalRequest)
+        assertBalancedZohoJournalPayload(zohoPayloadPreview, {
+          journalType: paymentType,
+          reference: journalRequest.referenceNumber,
+        })
       } catch (err) {
         // Still surface the planned journal on dry run — do not hide uncleared→expense work.
         if (dryRun) {
@@ -1021,10 +1048,263 @@ async function forceRepostBatch({
   })
 }
 
+function returnFeeLineToJournalItems(line) {
+  if (line.phase === 'expense_reversal') {
+    const items = [
+      {
+        debitOrCredit: 'debit',
+        accountId: line.debitUncleared?.accountId,
+        accountName: line.debitUncleared?.accountName,
+        accountCode: line.debitUncleared?.accountCode,
+        amount: line.debitUncleared?.amount,
+        description: line.description,
+      },
+      {
+        debitOrCredit: 'credit',
+        accountId: line.creditExpense?.accountId,
+        accountName: line.creditExpense?.accountName,
+        accountCode: line.creditExpense?.accountCode,
+        amount: line.creditExpense?.amount,
+        description: line.description,
+      },
+    ]
+    if (line.creditVat) {
+      items.push({
+        debitOrCredit: 'credit',
+        accountId: line.creditVat.accountId,
+        accountName: line.creditVat.accountName,
+        accountCode: line.creditVat.accountCode,
+        amount: line.creditVat.amount,
+        description: line.vatDescription || line.description,
+      })
+    }
+    return items
+  }
+
+  const items = [
+    {
+      debitOrCredit: 'debit',
+      accountId: line.debit?.accountId,
+      accountName: line.debit?.accountName,
+      accountCode: line.debit?.accountCode,
+      amount: line.debit?.amount,
+      description: line.description,
+    },
+  ]
+  if (line.creditCommission) {
+    items.push({
+      debitOrCredit: 'credit',
+      accountId: line.creditCommission.accountId,
+      accountName: line.creditCommission.accountName,
+      accountCode: line.creditCommission.accountCode,
+      amount: line.creditCommission.amount,
+      description: line.description,
+    })
+  }
+  if (line.creditShipping) {
+    items.push({
+      debitOrCredit: 'credit',
+      accountId: line.creditShipping.accountId,
+      accountName: line.creditShipping.accountName,
+      accountCode: line.creditShipping.accountCode,
+      amount: line.creditShipping.amount,
+      description: line.description,
+    })
+  }
+  if (line.creditVat) {
+    items.push({
+      debitOrCredit: 'credit',
+      accountId: line.creditVat.accountId,
+      accountName: line.creditVat.accountName,
+      accountCode: line.creditVat.accountCode,
+      amount: line.creditVat.amount,
+      description: line.vatDescription || line.description,
+    })
+  }
+  return items
+}
+
+async function ensureCanPostReturnFeeJournals(batch, options = {}) {
+  const dryRun = options.dryRun !== false
+  if (!batch) {
+    const err = new Error('Noon payment clearing batch not found.')
+    err.code = 'NOON_PAYMENT_CLEARING_BATCH_NOT_FOUND'
+    err.status = 404
+    throw err
+  }
+  if (batch.status !== 'posted' && !batch.postedToZoho) {
+    const err = new Error('Return fee journals require sales payments to be posted first (Step 11 phase 1).')
+    err.code = 'NOON_PAYMENT_CLEARING_SALES_NOT_POSTED'
+    err.status = 422
+    throw err
+  }
+  if (!dryRun && batch.batchId != null) {
+    const cnPlan = await buildCreditNoteApplyPlan(batch)
+    if (!isCreditNoteApplyComplete(batch, cnPlan)) {
+      const err = new Error('Return fee journals require all return credit notes to be refunded first (Step 11 phase 2).')
+      err.code = 'NOON_PAYMENT_CLEARING_CREDIT_NOTE_APPLY_REQUIRED'
+      err.status = 422
+      throw err
+    }
+  }
+}
+
+async function isReturnFeePostComplete(batchId, batchOverride = null) {
+  const batch = batchOverride || (await store.getBatchById(batchId))
+  if (!batch) return false
+  const returnFeePlan = buildReturnFeePlan(batch, batch.allRows || [])
+  const journalLines = (returnFeePlan.journalLines || []).filter((row) => row.status === 'ready')
+  if (journalLines.length === 0) return true
+  const postings = await store.listPostingsForBatch(batchId).catch(() => [])
+  const postedKeys = new Set(
+    postings.filter((row) => row.status === 'posted' && row.postingGroupKey).map((row) => row.postingGroupKey)
+  )
+  return journalLines.every((line) => postedKeys.has(line.postingGroupKey))
+}
+
+async function postReturnFeeJournalsForBatch({
+  batch,
+  dryRun = true,
+  postedBy,
+  createManualJournal = zohoPaymentService.createZohoManualJournal,
+  buildJournalPayloadPreview = zohoPaymentService.buildManualJournalPayloadPreview,
+} = {}) {
+  await ensureCanPostReturnFeeJournals(batch, { dryRun })
+  const paymentDate = zohoPaymentService.todayLocalDate()
+  const metadata = batch.reportSnapshot || batch.metadata || {}
+  const returnFeePlan = buildReturnFeePlan(batch, batch.allRows || [])
+  const result = {
+    success: true,
+    dryRun: Boolean(dryRun),
+    batchId: batch.batchId,
+    status: dryRun ? 'dry_run' : 'posted',
+    settlementReference: buildSettlementReference(metadata),
+    summary: {
+      journalsCreated: 0,
+      journalsSkipped: 0,
+      settlementJournalsCreated: 0,
+      expenseReversalJournalsCreated: 0,
+      errors: 0,
+    },
+    journals: [],
+    errors: [],
+  }
+
+  for (const line of returnFeePlan.journalLines || []) {
+    const paymentType = line.feeType || line.normalizedFeeType
+    const postingGroupKey = line.postingGroupKey || paymentType
+    const existing = await store.findGroupedPosting(batch.batchId, paymentType, postingGroupKey)
+    if (existing && existing.status === 'posted' && !dryRun) {
+      result.summary.journalsSkipped += 1
+      result.journals.push({
+        ...line,
+        paymentType,
+        postingGroupKey,
+        status: 'skipped',
+        zohoJournalId: existing.zohoPaymentId,
+        reason: 'Already posted for batch/return fee journal.',
+      })
+      continue
+    }
+
+    const lineItems = returnFeeLineToJournalItems(line)
+    const enrichedLineItems = await enrichJournalLineItems(lineItems)
+    const debit = await resolveNoonGlAccount(line.debit || line.debitUncleared || {})
+    const credit = await resolveNoonGlAccount(
+      line.creditCommission || line.creditShipping || line.creditExpense || {}
+    )
+    const journalRequest = {
+      feeType: line.feeType,
+      notes: line.description,
+      amount: Math.abs(round2(Number(line.grossAmount) || 0)),
+      debit,
+      credit,
+      customerId: '',
+      lineItems: enrichedLineItems.length >= 2 ? enrichedLineItems : undefined,
+      referenceNumber: clean(line.referenceNumber) || buildEntryReference(metadata, line.feeType || paymentType),
+      date: paymentDate,
+    }
+
+    let zohoPayloadPreview = null
+    try {
+      const lineItemsForBalance = enrichedLineItems.length >= 2 ? enrichedLineItems : returnFeeLineToJournalItems(line)
+      assertBalancedJournalLineItems(lineItemsForBalance, {
+        journalType: paymentType,
+        reference: clean(line.referenceNumber) || buildEntryReference(metadata, line.feeType || paymentType),
+      })
+      zohoPayloadPreview = await buildJournalPayloadPreview(journalRequest)
+      assertBalancedZohoJournalPayload(zohoPayloadPreview, {
+        journalType: paymentType,
+        reference: journalRequest.referenceNumber,
+      })
+    } catch (err) {
+      result.summary.errors += 1
+      const error = {
+        ...line,
+        paymentType,
+        postingGroupKey,
+        status: 'error',
+        error: err?.message || 'Failed to build return fee journal payload preview',
+      }
+      result.errors.push(error)
+      result.journals.push(error)
+      continue
+    }
+
+    if (dryRun) {
+      result.summary.journalsCreated += 1
+      if (line.phase === 'settlement') result.summary.settlementJournalsCreated += 1
+      if (line.phase === 'expense_reversal') result.summary.expenseReversalJournalsCreated += 1
+      result.journals.push({ ...line, paymentType, postingGroupKey, status: 'dry_run', zohoPayloadPreview })
+      continue
+    }
+
+    try {
+      const created = await createManualJournal(journalRequest)
+      const zohoJournalId = clean(created?.journal_id || created?.journalId || created?.id)
+      await store.insertPosting({
+        batchId: batch.batchId,
+        itemOrderId: line.itemOrderId,
+        paymentType,
+        postingGroupKey,
+        zohoPaymentId: zohoJournalId,
+        zohoJournalNumber: clean(created?.journal_number || created?.journalNumber),
+        amount: journalRequest.amount,
+        accountCode: debit.accountCode,
+        referenceNumber: journalRequest.referenceNumber,
+        description: line.description,
+        mappingSnapshot: { journalRequest, zohoResponse: created, phase: line.phase },
+        status: 'posted',
+      })
+      result.summary.journalsCreated += 1
+      if (line.phase === 'settlement') result.summary.settlementJournalsCreated += 1
+      if (line.phase === 'expense_reversal') result.summary.expenseReversalJournalsCreated += 1
+      result.journals.push({ ...line, paymentType, postingGroupKey, status: 'created', zohoJournalId })
+    } catch (err) {
+      result.summary.errors += 1
+      const error = {
+        ...line,
+        paymentType,
+        postingGroupKey,
+        status: 'error',
+        error: err?.message || 'Return fee journal post failed',
+      }
+      result.errors.push(error)
+      result.journals.push(error)
+    }
+  }
+
+  result.success = result.summary.errors === 0
+  return result
+}
+
 module.exports = {
   ensureCanPostBatch,
+  ensureCanPostReturnFeeJournals,
+  isReturnFeePostComplete,
   surfaceOpenBalanceBlockInStep6,
   postApprovedBatch,
+  postReturnFeeJournalsForBatch,
   forceRepostBatch,
   flattenInvoicePayments,
   resolveExistingPaymentSkip,

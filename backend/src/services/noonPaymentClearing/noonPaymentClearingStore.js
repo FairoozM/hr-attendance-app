@@ -197,6 +197,9 @@ async function ensureNoonPaymentClearingTables() {
   await query(`ALTER TABLE noon_payment_clearing_settings DROP COLUMN IF EXISTS clearing_account_id`)
   await query(`ALTER TABLE noon_payment_clearing_settings DROP COLUMN IF EXISTS clearing_account_name`)
   await query(`ALTER TABLE noon_payment_clearing_settings DROP COLUMN IF EXISTS clearing_account_code`)
+  await query(`ALTER TABLE noon_payment_clearing_batches ADD COLUMN IF NOT EXISTS refund_return_rows JSONB NOT NULL DEFAULT '[]'::jsonb`)
+  await query(`ALTER TABLE noon_payment_clearing_batches ADD COLUMN IF NOT EXISTS matched_returns JSONB NOT NULL DEFAULT '[]'::jsonb`)
+  await query(`ALTER TABLE noon_payment_clearing_batches ADD COLUMN IF NOT EXISTS credit_note_blocking_rows JSONB NOT NULL DEFAULT '[]'::jsonb`)
 }
 
 function mapInputVatSettings(row) {
@@ -311,6 +314,9 @@ function mapBatch(row) {
     statementFees: safeJson(row.statement_fees, []),
     feeJournalLines: safeJson(row.fee_journal_lines, []),
     allRows: safeJson(row.all_rows, []),
+    refundReturnRows: safeJson(row.refund_return_rows, []),
+    matchedReturns: safeJson(row.matched_returns, []),
+    creditNoteBlockingRows: safeJson(row.credit_note_blocking_rows, []),
     blockingIssues: safeJson(row.blocking_issues, []),
     reportSnapshot: safeJson(row.report_snapshot, {}),
     metadata: safeJson(row.report_snapshot, {}),
@@ -498,6 +504,7 @@ async function savePreviewBatch(preview, createdBy = null) {
             fee_journal_lines = $13::jsonb, all_rows = $14::jsonb, blocking_issues = $15::jsonb,
             report_snapshot = $16::jsonb, warnings = $17::jsonb,
             zoho_customer_id = $18, zoho_customer_name = $19,
+            refund_return_rows = $20::jsonb, matched_returns = $21::jsonb, credit_note_blocking_rows = $22::jsonb,
             approved_by = NULL, approved_at = NULL, updated_at = NOW()
            WHERE id = $1`,
           [
@@ -520,6 +527,9 @@ async function savePreviewBatch(preview, createdBy = null) {
             JSON.stringify(preview.warnings || []),
             preview.zohoCustomerId || null,
             preview.zohoCustomerName || null,
+            JSON.stringify(preview.refundReturnRows || []),
+            JSON.stringify(preview.matchedReturns || []),
+            JSON.stringify(preview.creditNoteBlockingRows || []),
           ]
         )
         await insertRows(client, existing.batchId, preview.allRows)
@@ -542,10 +552,11 @@ async function savePreviewBatch(preview, createdBy = null) {
         marketplace, reference_nr, contract, contract_type, status,
         totals, hierarchy, reconciliation_summary, matched_orders, unmatched_orders,
         multiple_match_items, parent_charges, adjustments, statement_fees, fee_journal_lines,
-        all_rows, blocking_issues, report_snapshot, warnings, zoho_customer_id, zoho_customer_name, created_by
+        all_rows, blocking_issues, report_snapshot, warnings, zoho_customer_id, zoho_customer_name,
+        refund_return_rows, matched_returns, credit_note_blocking_rows, created_by
       ) VALUES (
         $1,$2,$3,$4,'previewed',$5::jsonb,$6::jsonb,$7::jsonb,$8::jsonb,$9::jsonb,
-        $10::jsonb,$11::jsonb,$12::jsonb,$13::jsonb,$14::jsonb,$15::jsonb,$16::jsonb,$17::jsonb,$18::jsonb,$19,$20,$21
+        $10::jsonb,$11::jsonb,$12::jsonb,$13::jsonb,$14::jsonb,$15::jsonb,$16::jsonb,$17::jsonb,$18::jsonb,$19,$20,$21::jsonb,$22::jsonb,$23::jsonb,$24
       ) RETURNING id`,
       [
         marketplace,
@@ -568,6 +579,9 @@ async function savePreviewBatch(preview, createdBy = null) {
         JSON.stringify(preview.warnings || []),
         preview.zohoCustomerId || null,
         preview.zohoCustomerName || null,
+        JSON.stringify(preview.refundReturnRows || []),
+        JSON.stringify(preview.matchedReturns || []),
+        JSON.stringify(preview.creditNoteBlockingRows || []),
         createdBy == null ? null : Number(createdBy),
       ]
     )

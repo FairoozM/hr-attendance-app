@@ -24,6 +24,11 @@ const {
   parentFulfillmentChargeMagnitude,
   buildUndepositedReconciliation,
 } = require('./noonPaymentClearingUndepositedReconciliationService')
+const {
+  collectReturnRows,
+  buildNoonReturnFeeBreakdown,
+} = require('./noonPaymentClearingReturnService')
+const { summarizeReturnFeeReversals } = require('./noonPaymentClearingReturnFeeService')
 
 const ORPHAN_PARENT_ASSIGNMENT_REASON = 'zoho_invoice_orphan_parent'
 const PAYMENT_PREVIEW_TOLERANCE = RECONCILIATION_TOLERANCE
@@ -328,11 +333,12 @@ function buildInvoicePaymentPlansFromBatch(batch, accountOverrides = {}, options
   return matched
     .filter((item) => {
       if (options.ignoreExclusions) return true
-      // Invoice match ≠ payment eligibility — zero Net Proceeds lines clear via settlement adjustment.
-      if (num(item.netProceed) < 0.01) return false
       const row = allRows.find(
         (r) => clean(r.itemOrderId).toLowerCase() === clean(item.itemOrderId).toLowerCase()
       )
+      if (row?.rowClass === ROW_CLASS.RETURN) return false
+      // Invoice match ≠ payment eligibility — zero Net Proceeds lines clear via settlement adjustment.
+      if (num(item.netProceed) < 0.01) return false
       if (row && isZeroSaleCrossWeekLogisticsSettlementRow(row, saleParentSet)) return false
       return true
     })
@@ -810,10 +816,47 @@ function buildPaymentPreviewFromBatch(batch, mappingRules = [], inputVatAccount 
     invoicePayments.reduce((sum, p) => sum + num(p.netBalancePayment?.amount), 0)
   )
   const settlementAdjustment1066 = round2(num(adjustmentSummary.netUndepositedImpact))
-  const plannedUndeposited1066 = round2(recordPayment1066 + settlementAdjustment1066)
+  const returnFeeReversals = summarizeReturnFeeReversals(allRows)
+  const matchedReturns = batch.matchedReturns || []
+  const returnRows = collectReturnRows(allRows)
+  const returns = matchedReturns.map((row) => {
+    const breakdown = buildNoonReturnFeeBreakdown(
+      returnRows.find((r) => clean(r.itemOrderId) === clean(row.itemOrderId)) || row
+    )
+    return {
+      rowNumber: row.rowNumber,
+      itemOrderId: row.itemOrderId,
+      parentOrderId: row.parentOrderId,
+      zohoInvoiceNumber: row.zohoInvoiceNumber,
+      zohoCreditNoteNumber: row.zohoCreditNoteNumber,
+      productRefundAmount: breakdown.productRefundAmount,
+      commissionReversalGross: breakdown.commissionReversalGross,
+      netSettlementEffect: breakdown.netSettlementEffect,
+      status: row.status,
+      blockCode: row.blockCode || '',
+      blockingReason: row.blockingReason || '',
+    }
+  })
+  const returnPrincipal1066 = round2(
+    matchedReturns
+      .filter((row) => row.status === 'matched')
+      .reduce((sum, row) => sum - num(row.productRefundAmount), 0)
+  )
+  const returnFeeReversal1066 = round2(
+    returnFeeReversals.reduce((sum, row) => sum + num(row.commissionReversalGross), 0)
+  )
+  const returnBlocked =
+    (batch.creditNoteBlockingRows || []).some((row) => row.blockCode) ||
+    matchedReturns.some((row) => row.status === 'blocked')
+  const settlementAdjustmentBlocked = Boolean(settlementAdjustmentJournal?.blocked)
+  const plannedUndeposited1066 = round2(
+    recordPayment1066 + settlementAdjustment1066 + returnPrincipal1066 + returnFeeReversal1066
+  )
   const undepositedPlanningDifference = round2(targetUndeposited1066 - plannedUndeposited1066)
   const undepositedPlanningBlocked =
-    Math.abs(undepositedPlanningDifference) >= PAYMENT_PREVIEW_TOLERANCE
+    Math.abs(undepositedPlanningDifference) >= PAYMENT_PREVIEW_TOLERANCE ||
+    returnBlocked ||
+    settlementAdjustmentBlocked
 
   const undepositedReconciliation = buildUndepositedReconciliation(
     batch,
@@ -822,11 +865,15 @@ function buildPaymentPreviewFromBatch(batch, mappingRules = [], inputVatAccount 
       invoicePayments,
       feeJournalLines,
       settlementAdjustmentJournal,
+      matchedReturns,
+      returns,
       summary: {
         expectedNoonSettlement: expectedSettlement,
         targetUndeposited1066,
         recordPayment1066,
         settlementAdjustment1066,
+        returnPrincipal1066,
+        returnFeeReversal1066,
         plannedUndeposited1066,
         undepositedPlanningDifference,
       },
@@ -837,6 +884,10 @@ function buildPaymentPreviewFromBatch(batch, mappingRules = [], inputVatAccount 
   return {
     ...basePreview,
     status: blocked || undepositedPlanningBlocked ? 'blocked' : 'previewed',
+    returns,
+    returnFeeReversals,
+    matchedReturns,
+    creditNoteBlockingRows: batch.creditNoteBlockingRows || [],
     invoiceOverpayments,
     unclearedReclassJournals: reclass.lines,
     unclearedReclassSummary: reclass.summary,
@@ -860,6 +911,13 @@ function buildPaymentPreviewFromBatch(batch, mappingRules = [], inputVatAccount 
       recordPayment1066,
       paidInvoiceSubsidy1066: subsidy1066,
       settlementAdjustment1066,
+      returnPrincipal1066,
+      returnFeeReversal1066,
+      returnBlocked,
+      settlementAdjustmentBlocked,
+      settlementAdjustmentJournalBalanced: settlementAdjustmentJournal?.journalAudit?.balanced ?? true,
+      settlementAdjustmentJournalDifference: settlementAdjustmentJournal?.journalAudit?.difference ?? 0,
+      returnRowCount: returnRows.length,
       settlementAdjustmentLineCount: adjustmentSummary.sourceRowCount || 0,
       settlementAdjustmentGrossNegative: adjustmentSummary.grossNegativeAdjustments || 0,
       settlementAdjustmentGrossPositive: adjustmentSummary.grossPositiveAdjustments || 0,
@@ -876,7 +934,12 @@ function buildPaymentPreviewFromBatch(batch, mappingRules = [], inputVatAccount 
       unmappedUnclearedReclassCount: reclass.summary.unmappedCount,
       invoiceOverpaymentCount: invoiceOverpayments.length,
       blocked: blocked || undepositedPlanningBlocked,
-      blockedReason: undepositedPlanningBlocked
+      blockedReason: settlementAdjustmentBlocked
+        ? settlementAdjustmentJournal?.blockingReason ||
+          'Settlement adjustment journal is blocked (duplicate source or unbalanced).'
+        : returnBlocked
+        ? `Return blocked: ${(batch.creditNoteBlockingRows || [])[0]?.blockingReason || 'Credit Note missing or mismatched.'}`
+        : undepositedPlanningBlocked
         ? `Undeposited planning differs from statement subtotal by ${undepositedPlanningDifference} AED — explain before posting.`
         : blocked
           ? 'One or more invoice payment totals exceed the Zoho invoice value.'

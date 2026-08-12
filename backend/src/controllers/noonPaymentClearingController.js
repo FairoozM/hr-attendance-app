@@ -312,6 +312,48 @@ async function deleteFeeJournalMapping(req, res) {
   }
 }
 
+async function getCreditNoteApplyPlan(req, res) {
+  try {
+    const json = await service.getCreditNoteApplyPlanForBatch(req.params.id)
+    return res.json(json)
+  } catch (err) {
+    return sendError(res, err)
+  }
+}
+
+async function postApplyCreditNotes(req, res) {
+  try {
+    const json = await service.applyCreditNotesForBatchId(req.params.id, {
+      dryRun: req.body?.dryRun !== false,
+      postedBy: userId(req),
+    })
+    return res.json(json)
+  } catch (err) {
+    return sendError(res, err)
+  }
+}
+
+async function getReturnFeePlan(req, res) {
+  try {
+    const json = await service.getReturnFeePlanForBatch(req.params.id)
+    return res.json(json)
+  } catch (err) {
+    return sendError(res, err)
+  }
+}
+
+async function postReturnFeeJournals(req, res) {
+  try {
+    const json = await service.postReturnFeeJournalsForBatchId(req.params.id, {
+      dryRun: req.body?.dryRun !== false,
+      postedBy: userId(req),
+    })
+    return res.json(json)
+  } catch (err) {
+    return sendError(res, err)
+  }
+}
+
 async function getZohoChartAccounts(req, res) {
   try {
     const accounts = await listZohoChartAccounts()
@@ -341,4 +383,8 @@ module.exports = {
   getInputVatSettings,
   putInputVatSettings,
   getZohoChartAccounts,
+  getCreditNoteApplyPlan,
+  postApplyCreditNotes,
+  getReturnFeePlan,
+  postReturnFeeJournals,
 }

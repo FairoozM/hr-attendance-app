@@ -96,6 +96,13 @@ function getNoonPaymentClearingMarketplaceConfig() {
     monthlyStorageFeesAccount: monthlyStorageFees,
     longTermStorageFeesAccount: longTermStorageFees,
     inputVatAccount: inputVat,
+    /** Return fee journal GL roles (Amazon 1024/1026/1028 parallel). */
+    returnFeeAccounts: {
+      UNDEPOSITED: undepositedFunds,
+      COMMISSION: unclearedCommission,
+      SHIPPING: unclearedShipping,
+      INPUT_VAT: inputVat,
+    },
     paymentPreviewAccounts: {
       NET_BALANCE: {
         depositToAccountCode: undepositedFunds.accountCode,

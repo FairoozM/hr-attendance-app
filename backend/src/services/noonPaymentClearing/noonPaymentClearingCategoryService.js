@@ -4,6 +4,7 @@ const ROW_CLASS = Object.freeze({
   SALE_ITEM: 'sale_item',
   PARENT_ORDER_CHARGE: 'parent_order_charge',
   ORDER_ADJUSTMENT: 'order_adjustment',
+  RETURN: 'return',
   STATEMENT_FEE: 'statement_fee',
   OTHER: 'other',
 })
@@ -244,6 +245,7 @@ function feeMappingTypeCandidates(feeType) {
 function isUnclearedInvoicePaymentBucketRow(row) {
   if (!row) return false
   const rowClass = row.rowClass || classifyNoonStatementRow(row)
+  if (rowClass === ROW_CLASS.RETURN) return false
   if (rowClass !== ROW_CLASS.PARENT_ORDER_CHARGE && rowClass !== ROW_CLASS.ORDER_ADJUSTMENT) {
     return false
   }
@@ -270,6 +272,7 @@ function isUnclearedInvoicePaymentBucketRow(row) {
 function isSettlementFeeJournalRow(row) {
   if (!row) return false
   const rowClass = row.rowClass || classifyNoonStatementRow(row)
+  if (rowClass === ROW_CLASS.RETURN) return false
   if (rowClass === ROW_CLASS.STATEMENT_FEE) return true
   if (rowClass === ROW_CLASS.PARENT_ORDER_CHARGE) return false
   if (rowClass === ROW_CLASS.ORDER_ADJUSTMENT) {
@@ -285,6 +288,7 @@ module.exports = {
   classifyNoonStatementRow,
   requiresZohoInvoice,
   normalizeNoonFeeType,
+  normalizeTransactionType,
   displayLabelForFeeRow,
   accountingTreatmentForFeeRow,
   hasProductSaleSignal,

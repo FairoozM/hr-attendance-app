@@ -9,7 +9,13 @@ const {
 const { resolveNoonOrderIds } = require('./noonOrderIdHelper')
 const { getNoonPaymentClearingMarketplaceConfig } = require('./noonPaymentClearingMarketplaceConfig')
 const { truncateZohoReference } = require('./noonPaymentClearingReferenceService')
-const { extractVatFromNoonRow, DEFAULT_VAT_RATE } = require('./noonPaymentClearingVatService')
+const { extractVatFromNoonRow, splitVatInclusiveAmount, DEFAULT_VAT_RATE, VAT_INCLUSIVE_COMPONENT_FIELDS } = require('./noonPaymentClearingVatService')
+const {
+  sumJournalLineItems,
+  assertBalancedJournalLineItems,
+  assertBalancedZohoJournalPayload,
+  JOURNAL_BALANCE_TOLERANCE,
+} = require('./noonPaymentClearingJournalBalanceService')
 const { ASSIGNMENT_REASON_ZOHO } = require('./noonPaymentClearingParentChargeFallback')
 
 const SETTLEMENT_ADJUSTMENT_FEE_TYPE = 'NOON_SETTLEMENT_ADJUSTMENT'
@@ -58,6 +64,8 @@ function hasMarketplaceLogisticsCharge(row) {
  */
 function isZeroSaleCrossWeekLogisticsSettlementRow(row, saleParentSet) {
   if (!row || row.excludeFromPaymentClearing) return false
+  if (row.rowClass === ROW_CLASS.RETURN) return false
+  if (num(row.netProceed) <= -0.01) return false
   if (num(row.netProceed) >= 0.01) return false
   if (!hasMarketplaceLogisticsCharge(row)) return false
   if (row.rowClass === ROW_CLASS.SALE_ITEM && num(row.total) > 0.01) return false
@@ -109,6 +117,7 @@ function isSameWeekPositiveParentSubsidyRow(row, saleParentSet) {
 
 function isSettlementAdjustmentSourceRow(row, planExclusions = null, saleParentSet = null) {
   if (!row) return false
+  if (row.rowClass === ROW_CLASS.RETURN) return false
   if (isPaidInvoiceSubsidyAdjustmentRow(row, planExclusions)) return true
   const parents = saleParentSet || buildSaleParentOrderIdSet([])
   if (isZeroSaleCrossWeekLogisticsSettlementRow(row, parents)) return true
@@ -193,6 +202,156 @@ function adjustmentDescriptionLabel(row) {
   return raw.split('/')[0].trim() || 'shipping'
 }
 
+function rowHasVatInclusiveServiceFee(row) {
+  return VAT_INCLUSIVE_COMPONENT_FIELDS.some((def) => Math.abs(num(row[def.field])) >= 0.005)
+}
+
+/**
+ * Settlement adjustment journals must split VAT from the authoritative row.total gross.
+ * Component fields can disagree with Total (e.g. fulfillmentFee 626.82 vs total 619.21).
+ */
+function resolveSettlementAdjustmentVatSplit(row, vatRate = DEFAULT_VAT_RATE) {
+  const signedGross = round2(num(row.total))
+  const absGross = round2(Math.abs(signedGross))
+  if (absGross < 0.01) return null
+
+  if (!rowHasVatInclusiveServiceFee(row)) {
+    return {
+      signedGross,
+      absGross,
+      vatInclusive: false,
+      netAmount: absGross,
+      vatAmount: 0,
+      sourceGrossCheck: true,
+      vatSource: 'none',
+    }
+  }
+
+  const split = splitVatInclusiveAmount(absGross, vatRate)
+  const netAmount = round2(split.netAmount)
+  const vatAmount = round2(split.vatAmount)
+  return {
+    signedGross,
+    absGross,
+    vatInclusive: true,
+    netAmount,
+    vatAmount,
+    sourceGrossCheck: Math.abs(round2(netAmount + vatAmount) - absGross) < 0.005,
+    vatSource: 'row_total_inclusive',
+  }
+}
+
+function buildSettlementAdjustmentSourceIdentity(row, metadata = {}) {
+  const ref = clean(metadata.referenceNr) || clean(metadata.statementId) || 'unknown'
+  return [
+    ref,
+    `row:${Number(row.rowNumber) || 0}`,
+    `item:${clean(row.itemOrderId)}`,
+    `parent:${parentOrderIdForRow(row)}`,
+    `class:${clean(row.rowClass)}`,
+    `total:${round2(num(row.total))}`,
+  ].join('|')
+}
+
+function detectDuplicateSettlementAdjustmentSources(sourceRows = [], metadata = {}) {
+  const seen = new Map()
+  const duplicates = []
+  for (const row of sourceRows) {
+    const identity = buildSettlementAdjustmentSourceIdentity(row, metadata)
+    if (seen.has(identity)) {
+      duplicates.push({
+        identity,
+        rowNumbers: [seen.get(identity), row.rowNumber],
+        parentOrderId: clean(row.parentOrderId),
+        itemOrderId: clean(row.itemOrderId),
+      })
+      continue
+    }
+    seen.set(identity, row.rowNumber)
+  }
+  return duplicates
+}
+
+function auditSettlementAdjustmentSourceRow(row, metadata = {}, accounts = {}, saleParentSet = null) {
+  const vatSplit = resolveSettlementAdjustmentVatSplit(row, accounts.vatRate ?? DEFAULT_VAT_RATE)
+  if (!vatSplit) return null
+  const isPositiveReversal = vatSplit.signedGross > 0
+  const expenseAmount = vatSplit.vatInclusive && vatSplit.vatAmount >= 0.005 ? vatSplit.netAmount : vatSplit.absGross
+  const vatPostingAmount = vatSplit.vatInclusive && vatSplit.vatAmount >= 0.005 ? vatSplit.vatAmount : 0
+  const payloadTotal = round2(expenseAmount + vatPostingAmount)
+  return {
+    sourceRow: row.rowNumber,
+    parentOrderId: clean(row.originalParentOrderId || row.parentOrderId),
+    itemOrderId: clean(row.itemOrderId),
+    transactionType: clean(row.transactionType),
+    classification: isPaidInvoiceSubsidyAdjustmentRow(row)
+      ? 'paid_invoice_subsidy'
+      : isZeroSaleCrossWeekLogisticsSettlementRow(row, saleParentSet || buildSaleParentOrderIdSet([]))
+        ? 'zero_sale_cross_week_logistics'
+        : isSameWeekPositiveParentSubsidyRow(row, saleParentSet || buildSaleParentOrderIdSet([]))
+          ? 'same_week_parent_subsidy'
+          : 'cross_week_adjustment',
+    signedGross: vatSplit.signedGross,
+    vatInclusive: vatSplit.vatInclusive,
+    netExpense: round2(isPositiveReversal ? -expenseAmount : expenseAmount),
+    vatAmount: round2(isPositiveReversal ? -vatPostingAmount : vatPostingAmount),
+    expenseDirection: isPositiveReversal ? 'credit' : 'debit',
+    vatDirection: vatSplit.vatAmount >= 0.005 ? (isPositiveReversal ? 'credit' : 'debit') : 'none',
+    undeposited1066Direction: isPositiveReversal ? 'debit' : 'credit',
+    expenseAmount,
+    vatPostingAmount,
+    undeposited1066Amount: vatSplit.absGross,
+    sourceGrossCheck: vatSplit.sourceGrossCheck,
+    payloadTotal,
+    payloadDelta: round2(payloadTotal - vatSplit.absGross),
+    sourceIdentity: buildSettlementAdjustmentSourceIdentity(row, metadata),
+  }
+}
+
+function auditSettlementAdjustmentJournal(journal, metadata = {}, sourceRows = []) {
+  if (!journal) return null
+  const lineTotals = sumJournalLineItems(journal.lineItems || [])
+  const saleParentSet = buildSaleParentOrderIdSet(sourceRows)
+  const cfg = getNoonPaymentClearingMarketplaceConfig()
+  const accounts = { vatRate: cfg.vatRate ?? DEFAULT_VAT_RATE }
+  const sourceAudits = sourceRows
+    .map((row) => auditSettlementAdjustmentSourceRow(row, metadata, accounts, saleParentSet))
+    .filter(Boolean)
+  const duplicateSources = detectDuplicateSettlementAdjustmentSources(sourceRows, metadata)
+  const nonZeroDeltas = sourceAudits
+    .filter((row) => Math.abs(row.payloadDelta) >= JOURNAL_BALANCE_TOLERANCE)
+    .sort((a, b) => Math.abs(b.payloadDelta) - Math.abs(a.payloadDelta))
+
+  let positiveExpenseVatTotal = 0
+  let negativeExpenseVatTotal = 0
+  for (const audit of sourceAudits) {
+    const componentTotal = round2(audit.expenseAmount + audit.vatPostingAmount)
+    if (audit.signedGross > 0) positiveExpenseVatTotal = round2(positiveExpenseVatTotal + componentTotal)
+    else negativeExpenseVatTotal = round2(negativeExpenseVatTotal + componentTotal)
+  }
+
+  return {
+    totalDebits: lineTotals.totalDebits,
+    totalCredits: lineTotals.totalCredits,
+    difference: lineTotals.difference,
+    balanced: Math.abs(lineTotals.difference) < JOURNAL_BALANCE_TOLERANCE,
+    duplicateSources,
+    sourceAudits,
+    nonZeroDeltas,
+    positiveExpenseVatTotal,
+    negativeExpenseVatTotal,
+    grossPositiveAdjustments: journal.summary?.grossPositiveAdjustments || 0,
+    grossNegativeAdjustments: journal.summary?.grossNegativeAdjustments || 0,
+    netUndepositedImpact: journal.summary?.netUndepositedImpact || 0,
+    positiveExpenseVatMatchesGross:
+      Math.abs(positiveExpenseVatTotal - round2(num(journal.summary?.grossPositiveAdjustments))) <
+      JOURNAL_BALANCE_TOLERANCE,
+    negativeExpenseVatMatchesGross:
+      Math.abs(negativeExpenseVatTotal - round2(num(journal.summary?.grossNegativeAdjustments))) <
+      JOURNAL_BALANCE_TOLERANCE,
+  }
+}
+
 function buildAdjustmentLineDescription(row, metadata = {}, kind = 'expense') {
   const ref = clean(metadata.referenceNr) || clean(metadata.statementId) || 'Noon settlement'
   const orderPart = orderIdPartForDescription(row)
@@ -230,14 +389,15 @@ function buildSourceRowAdjustmentFragments(row, accounts, metadata, saleParentSe
 
   const noonCustomerId = clean(metadata.zohoCustomerId)
   const vatRate = accounts.vatRate ?? DEFAULT_VAT_RATE
-  const vatBreakdown = extractVatFromNoonRow(row, { vatRate })
+  const vatSplit = resolveSettlementAdjustmentVatSplit(row, vatRate)
+  if (!vatSplit) return null
   const expenseAccount = resolveAdjustmentExpenseAccount(row, accounts.cfg)
   const inputVat = normalizeGlAccount(accounts.inputVatAccount, 'Input VAT')
   const undeposited = normalizeGlAccount(accounts.undepositedFundsAccount, 'Noon Undeposited Funds')
 
-  const absGross = Math.abs(signedGross)
-  const absNet = Math.abs(vatBreakdown.netAmount)
-  const absVat = Math.abs(vatBreakdown.vatAmount)
+  const absGross = vatSplit.absGross
+  const absNet = vatSplit.netAmount
+  const absVat = vatSplit.vatAmount
   const isPositiveReversal = signedGross > 0
   const expenseDesc = buildAdjustmentLineDescription(row, metadata, 'expense')
   const vatDesc = buildAdjustmentLineDescription(row, metadata, 'vat')
@@ -247,13 +407,13 @@ function buildSourceRowAdjustmentFragments(row, accounts, metadata, saleParentSe
 
   if (isPositiveReversal) {
     undepositedSignedImpact = absGross
-    if (vatBreakdown.vatInclusive && absVat >= 0.005) {
+    if (vatSplit.vatInclusive && absVat >= 0.005) {
       detailLineItems.push(lineItemFromAccount(expenseAccount, 'credit', absNet, expenseDesc, noonCustomerId))
       detailLineItems.push(lineItemFromAccount(inputVat, 'credit', absVat, vatDesc, noonCustomerId))
     } else {
       detailLineItems.push(lineItemFromAccount(expenseAccount, 'credit', absGross, expenseDesc, noonCustomerId))
     }
-  } else if (vatBreakdown.vatInclusive && absVat >= 0.005) {
+  } else if (vatSplit.vatInclusive && absVat >= 0.005) {
     undepositedSignedImpact = -absGross
     detailLineItems.push(lineItemFromAccount(expenseAccount, 'debit', absNet, expenseDesc, noonCustomerId))
     detailLineItems.push(lineItemFromAccount(inputVat, 'debit', absVat, vatDesc, noonCustomerId))
@@ -261,6 +421,8 @@ function buildSourceRowAdjustmentFragments(row, accounts, metadata, saleParentSe
     undepositedSignedImpact = -absGross
     detailLineItems.push(lineItemFromAccount(expenseAccount, 'debit', absGross, expenseDesc, noonCustomerId))
   }
+
+  const sourceAudit = auditSettlementAdjustmentSourceRow(row, metadata, accounts, saleParentSet)
 
   const sourceDetail = {
     rowNumber: row.rowNumber,
@@ -274,8 +436,8 @@ function buildSourceRowAdjustmentFragments(row, accounts, metadata, saleParentSe
     sku: clean(row.sku || row.partnerSku),
     signedGrossAmount: signedGross,
     grossAmount: absGross,
-    vatInclusive: vatBreakdown.vatInclusive,
-    vatRate: vatBreakdown.vatRate,
+    vatInclusive: vatSplit.vatInclusive,
+    vatRate,
     netExpenseAmount: round2(isPositiveReversal ? -absNet : absNet),
     vatAmount: round2(isPositiveReversal ? -absVat : absVat),
     expenseAccountId: expenseAccount.accountId,
@@ -285,6 +447,8 @@ function buildSourceRowAdjustmentFragments(row, accounts, metadata, saleParentSe
     inputVatAccountName: inputVat.accountName,
     inputVatAccountCode: inputVat.accountCode,
     undepositedImpact: undepositedSignedImpact,
+    sourceGrossCheck: vatSplit.sourceGrossCheck,
+    sourceAudit,
     parentFallbackStatus: clean(row.parentFallbackStatus),
     assignmentReason: clean(row.assignmentReason),
     displayLabel: row.displayLabel || displayLabelForFeeRow(row) || 'Settlement adjustment',
@@ -346,6 +510,30 @@ function buildSettlementAdjustmentJournal(allRows = [], metadata = {}, accountOv
   const sourceRows = collectSettlementAdjustmentSourceRows(allRows, planExclusions)
   if (!sourceRows.length) return null
 
+  const duplicateSources = detectDuplicateSettlementAdjustmentSources(sourceRows, metadata)
+  if (duplicateSources.length) {
+    return {
+      paymentType: 'settlement_adjustment',
+      feeType: SETTLEMENT_ADJUSTMENT_FEE_TYPE,
+      normalizedFeeType: SETTLEMENT_ADJUSTMENT_FEE_TYPE,
+      displayLabel: 'Noon Settlement Adjustments Journal',
+      blocked: true,
+      blockCode: 'DUPLICATE_SETTLEMENT_ADJUSTMENT_SOURCE',
+      blockingReason: `Duplicate settlement adjustment source row(s): ${duplicateSources
+        .map((row) => row.identity)
+        .join('; ')}`,
+      duplicateSources,
+      sourceLineCount: sourceRows.length,
+      lineItems: [],
+      summary: {
+        sourceRowCount: sourceRows.length,
+        grossNegativeAdjustments: 0,
+        grossPositiveAdjustments: 0,
+        netUndepositedImpact: 0,
+      },
+    }
+  }
+
   const saleParentSet = buildSaleParentOrderIdSet(allRows)
   const sourceDetails = []
   const detailLineItems = []
@@ -387,6 +575,14 @@ function buildSettlementAdjustmentJournal(allRows = [], metadata = {}, accountOv
 
   const signedAmount = round2(summary.netUndepositedImpact)
   const referenceNumber = truncateZohoReference(ref)
+  const journalAudit = auditSettlementAdjustmentJournal(
+    {
+      lineItems: detailLineItems,
+      summary,
+    },
+    metadata,
+    sourceRows
+  )
 
   return {
     paymentType: 'settlement_adjustment',
@@ -402,6 +598,12 @@ function buildSettlementAdjustmentJournal(allRows = [], metadata = {}, accountOv
     sourceLines: sourceDetails,
     lineItems: detailLineItems,
     summary,
+    journalAudit,
+    blocked: !journalAudit.balanced,
+    blockCode: journalAudit.balanced ? '' : 'UNBALANCED_JOURNAL',
+    blockingReason: journalAudit.balanced
+      ? ''
+      : `Settlement adjustment journal unbalanced: debits ${journalAudit.totalDebits.toFixed(2)} vs credits ${journalAudit.totalCredits.toFixed(2)} (difference ${journalAudit.difference.toFixed(2)}).`,
     zohoAccountId: undepositedAccount.accountId,
     zohoAccountName: undepositedAccount.accountName,
     zohoAccountCode: undepositedAccount.accountCode,
@@ -441,4 +643,9 @@ module.exports = {
   buildSettlementAdjustmentJournal,
   buildAdjustmentLineDescription,
   primaryOrderIdForRow,
+  resolveSettlementAdjustmentVatSplit,
+  buildSettlementAdjustmentSourceIdentity,
+  detectDuplicateSettlementAdjustmentSources,
+  auditSettlementAdjustmentSourceRow,
+  auditSettlementAdjustmentJournal,
 }

@@ -27,6 +27,21 @@ const {
 } = require('./noonPaymentClearingPostingService')
 const { clean, matchKey } = require('./noonOrderIdHelper')
 const { ROW_CLASS } = require('./noonPaymentClearingCategoryService')
+const { matchNoonReturnsForRows } = require('./noonPaymentClearingReturnMatchingService')
+const { collectReturnRows, RETURN_BLOCK_CODES } = require('./noonPaymentClearingReturnService')
+const {
+  buildCreditNoteApplyPlan,
+  applyCreditNotesForBatch,
+  isCreditNoteApplyComplete,
+} = require('./noonPaymentClearingCreditNotePostingService')
+const {
+  buildReturnFeePlan,
+  proveUnclearedReturnAccountsNetToZero,
+} = require('./noonPaymentClearingReturnFeeService')
+const {
+  postReturnFeeJournalsForBatch,
+  isReturnFeePostComplete,
+} = require('./noonPaymentClearingPostingService')
 const { fetchInvoicesByIds, fetchInvoices } = require('../../integrations/zoho/zohoBooksClient')
 const { deriveInvoiceRange } = require('./noonPaymentClearingZohoMatcher')
 
@@ -147,6 +162,64 @@ async function loadMappingContext() {
   }
 }
 
+async function enrichPreviewWithReturnMatching(preview, matchResult, options = {}) {
+  const returnRows = collectReturnRows(preview?.allRows || [])
+  if (!returnRows.length) {
+    return {
+      ...preview,
+      refundReturnRows: [],
+      matchedReturns: [],
+      creditNoteBlockingRows: [],
+    }
+  }
+  try {
+    const returnMatch = await matchNoonReturnsForRows(preview.allRows, {
+      invoices: matchResult?.invoices || [],
+      customerId: preview.zohoCustomerId || matchResult?.zohoCustomerId,
+      customerName: preview.zohoCustomerName || matchResult?.zohoCustomerName,
+    })
+    const blockingIssues = [...(preview.blockingIssues || [])].filter(
+      (issue) => !Object.values(RETURN_BLOCK_CODES).includes(issue.code)
+    )
+    for (const row of returnMatch.creditNoteBlockingRows || []) {
+      if (!row?.blockCode) continue
+      blockingIssues.push({
+        code: row.blockCode,
+        severity: 'block',
+        message: row.blockingReason || row.blockCode,
+        itemOrderId: row.itemOrderId,
+        rowNumber: row.rowNumber,
+      })
+    }
+    const hasReturnBlockers = (returnMatch.creditNoteBlockingRows || []).some((row) => row.blockCode)
+    return {
+      ...preview,
+      refundReturnRows: returnMatch.refundReturnRows || [],
+      matchedReturns: returnMatch.matchedReturns || [],
+      creditNoteBlockingRows: returnMatch.creditNoteBlockingRows || [],
+      blockingIssues,
+      isCleanForApproval: Boolean(preview.isCleanForApproval) && !hasReturnBlockers,
+      totals: {
+        ...(preview.totals || {}),
+        returnRowCount: returnRows.length,
+        matchedReturnCount: (returnMatch.matchedReturns || []).filter((r) => r.status === 'matched').length,
+        returnBlockerCount: (returnMatch.creditNoteBlockingRows || []).length,
+      },
+    }
+  } catch (err) {
+    if (options.allowMatchFailure) {
+      return {
+        ...preview,
+        warnings: [...(preview.warnings || []), err.message || 'Return credit note match failed'],
+        refundReturnRows: [],
+        matchedReturns: [],
+        creditNoteBlockingRows: [],
+      }
+    }
+    throw err
+  }
+}
+
 async function buildPreviewFromUpload(buffer, fileName, options = {}) {
   const parsed = parseNoonStatementReportBuffer(buffer, fileName)
   const cfg = getNoonPaymentClearingMarketplaceConfig()
@@ -189,8 +262,11 @@ async function buildPreviewFromUpload(buffer, fileName, options = {}) {
     zohoCustomerName: matchResult.zohoCustomerName || customerName,
     warnings: parsed.warnings,
   })
+  const enrichedPreview = await enrichPreviewWithReturnMatching(preview, matchResult, {
+    allowMatchFailure: options.allowMatchFailure,
+  })
 
-  const batch = await store.savePreviewBatch(preview, options.createdBy)
+  const batch = await store.savePreviewBatch(enrichedPreview, options.createdBy)
   // Early open-balance check (before approve / payment preview).
   try {
     await reconcileOpenBalances(batch.batchId)
@@ -242,6 +318,9 @@ async function getBatchPreview(batchId) {
     inputVatAccount,
     blockingIssues: batch.blockingIssues,
     warnings: batch.warnings,
+    refundReturnRows: batch.refundReturnRows || [],
+    matchedReturns: batch.matchedReturns || [],
+    creditNoteBlockingRows: batch.creditNoteBlockingRows || [],
     zohoCustomerId: batch.zohoCustomerId,
     zohoCustomerName: batch.zohoCustomerName,
     openBalanceShortfalls,
@@ -261,6 +340,9 @@ async function getBatchPreview(batchId) {
       !(batch.unmatchedOrders || []).length &&
       !(batch.multipleMatchItems || []).length &&
       !(batch.blockingIssues || []).some((i) => i.code === 'UNEXPLAINED_OTHER') &&
+      !(batch.blockingIssues || []).some((i) =>
+        Object.values(RETURN_BLOCK_CODES).includes(i.code)
+      ) &&
       !hasOpenBalanceBlock,
     status: batch.status,
     postedToZoho: batch.postedToZoho,
@@ -741,6 +823,18 @@ function validateBatchReadyForApproval(batch) {
     err.status = 422
     throw err
   }
+  const returnBlockers = (batch.blockingIssues || []).filter((i) =>
+    Object.values(RETURN_BLOCK_CODES).includes(i.code)
+  )
+  if (returnBlockers.length) {
+    const err = new Error(
+      `Approval blocked: ${returnBlockers.length} return(s) require a matched Zoho Credit Note.`
+    )
+    err.code = returnBlockers[0]?.code || 'RETURN_CREDIT_NOTE_MISSING'
+    err.status = 422
+    err.details = { returnBlockers }
+    throw err
+  }
   const shortfalls = getActiveOpenBalanceShortfalls(batch)
   if (shortfalls.length) {
     const sample =
@@ -943,6 +1037,78 @@ async function forceRepost(batchId, options = {}) {
   })
 }
 
+async function getCreditNoteApplyPlanForBatch(batchId) {
+  const batch = await store.getBatchById(batchId)
+  if (!batch) {
+    const err = new Error('Noon payment clearing batch not found.')
+    err.code = 'NOON_PAYMENT_CLEARING_BATCH_NOT_FOUND'
+    err.status = 404
+    throw err
+  }
+  const plan = await buildCreditNoteApplyPlan(batch)
+  return { success: true, ...plan }
+}
+
+async function applyCreditNotesForBatchId(batchId, options = {}) {
+  const batch = await store.getBatchById(batchId)
+  if (!batch) {
+    const err = new Error('Noon payment clearing batch not found.')
+    err.code = 'NOON_PAYMENT_CLEARING_BATCH_NOT_FOUND'
+    err.status = 404
+    throw err
+  }
+  if (batch.status !== 'approved' && batch.status !== 'posted') {
+    const err = new Error('Credit note apply requires an approved Noon statement batch.')
+    err.code = 'NOON_PAYMENT_CLEARING_BATCH_NOT_APPROVED'
+    err.status = 422
+    throw err
+  }
+  if (options.dryRun === false && batch.status !== 'posted' && !batch.postedToZoho) {
+    const err = new Error('Credit note apply requires sales payments to be posted first (Step 11 phase 1).')
+    err.code = 'NOON_PAYMENT_CLEARING_SALES_NOT_POSTED'
+    err.status = 422
+    throw err
+  }
+  return applyCreditNotesForBatch(batch, {
+    dryRun: options.dryRun !== false,
+    postedBy: options.postedBy,
+  })
+}
+
+async function getReturnFeePlanForBatch(batchId) {
+  const batch = await store.getBatchById(batchId)
+  if (!batch) {
+    const err = new Error('Noon payment clearing batch not found.')
+    err.code = 'NOON_PAYMENT_CLEARING_BATCH_NOT_FOUND'
+    err.status = 404
+    throw err
+  }
+  const plan = buildReturnFeePlan(batch, batch.allRows || [])
+  const cnPlan = await buildCreditNoteApplyPlan(batch)
+  return {
+    success: true,
+    ...plan,
+    unclearedAccountProof: proveUnclearedReturnAccountsNetToZero(batch, batch.allRows || []),
+    creditNoteApplyComplete: isCreditNoteApplyComplete(batch, cnPlan),
+    returnFeePostComplete: await isReturnFeePostComplete(batch.batchId, batch),
+  }
+}
+
+async function postReturnFeeJournalsForBatchId(batchId, options = {}) {
+  const batch = await store.getBatchById(batchId)
+  if (!batch) {
+    const err = new Error('Noon payment clearing batch not found.')
+    err.code = 'NOON_PAYMENT_CLEARING_BATCH_NOT_FOUND'
+    err.status = 404
+    throw err
+  }
+  return postReturnFeeJournalsForBatch({
+    batch,
+    dryRun: options.dryRun !== false,
+    postedBy: options.postedBy,
+  })
+}
+
 module.exports = {
   buildPreviewFromUpload,
   getBatchPreview,
@@ -953,6 +1119,10 @@ module.exports = {
   generatePaymentPreview,
   postBatchToZoho,
   forceRepost,
+  getCreditNoteApplyPlanForBatch,
+  applyCreditNotesForBatchId,
+  getReturnFeePlanForBatch,
+  postReturnFeeJournalsForBatchId,
   listSavedBatches: store.listSavedBatches,
   listFeeJournalMappings: store.listFeeJournalMappings,
   saveFeeJournalMapping: store.saveFeeJournalMapping,

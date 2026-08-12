@@ -31,6 +31,10 @@ const {
   DEFAULT_VAT_RATE,
   extractVatFromNoonRow,
 } = require('./noonPaymentClearingVatService')
+const {
+  reclassifyReturnRows,
+  RETURN_BLOCK_CODES,
+} = require('./noonPaymentClearingReturnService')
 
 function buildBlockingIssues({ annotatedRows, unmatchedOrders, multipleMatchItems, reconciliation }) {
   const issues = []
@@ -325,6 +329,7 @@ function buildPreview({
   const matchedFromStatement = matchResult?.matchedOrders || []
   const zohoInvoices = matchResult?.invoices || []
   let annotatedRows = reclassifyExplainableOtherRows(matchResult?.annotatedRows || rows || [])
+  annotatedRows = reclassifyReturnRows(annotatedRows)
   const parentAssign = applyParentOrderChargeFallbackWithSynthetics(
     annotatedRows,
     matchedFromStatement,
@@ -373,12 +378,29 @@ function buildPreview({
   const statementFees = annotatedRows.filter((r) => r.rowClass === ROW_CLASS.STATEMENT_FEE)
   const vatSummary = summarizeFeeJournalVat(feeJournalLines)
   const inputVat = normalizeInputVatAccount(inputVatAccount)
+  const refundReturnRows = matchResult?.refundReturnRows || []
+  const matchedReturns = matchResult?.matchedReturns || []
+  const creditNoteBlockingRows = matchResult?.creditNoteBlockingRows || []
+  for (const row of creditNoteBlockingRows) {
+    if (!row?.blockCode) continue
+    blockingIssues.push({
+      code: row.blockCode,
+      severity: 'block',
+      message: row.blockingReason || row.blockCode,
+      itemOrderId: row.itemOrderId,
+      rowNumber: row.rowNumber,
+    })
+  }
+  const hasReturnBlockers = creditNoteBlockingRows.some((row) =>
+    Object.values(RETURN_BLOCK_CODES).includes(row.blockCode)
+  )
 
   const isCleanForApproval =
     isNoonSettlementReconciliationAcceptable(reconciliation) &&
     unmatchedOrders.length === 0 &&
     multipleMatchItems.length === 0 &&
-    !blockingIssues.some((i) => i.code === 'UNEXPLAINED_OTHER')
+    !blockingIssues.some((i) => i.code === 'UNEXPLAINED_OTHER') &&
+    !hasReturnBlockers
 
   return {
     metadata: {
@@ -405,6 +427,9 @@ function buildPreview({
     zohoCustomerName:
       zohoCustomerName || matchResult?.zohoCustomerName || cfg.zohoCustomerName || 'Noon',
     isCleanForApproval,
+    refundReturnRows,
+    matchedReturns,
+    creditNoteBlockingRows,
     totals: {
       rowCount: annotatedRows.length,
       matchedItemCount: matchedOrders.length,
@@ -413,6 +438,9 @@ function buildPreview({
       parentChargeCount: parentCharges.length,
       adjustmentCount: adjustments.length,
       statementFeeCount: statementFees.length,
+      returnRowCount: annotatedRows.filter((r) => r.rowClass === ROW_CLASS.RETURN).length,
+      matchedReturnCount: matchedReturns.filter((r) => r.status === 'matched').length,
+      returnBlockerCount: creditNoteBlockingRows.length,
       settlementTotal: reconciliation.calculatedSettlement,
       feeJournalInputVat: vatSummary.inputVat,
       feeJournalNetExpense: vatSummary.netExpense,

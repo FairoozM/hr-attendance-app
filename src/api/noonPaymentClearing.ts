@@ -223,6 +223,28 @@ export interface NoonPaymentClearingPreview {
   openBalanceExcluded?: NoonOpenBalanceShortfall[]
   openBalanceCheckedAt?: string | null
   openBalanceCheckWarning?: string | null
+  refundReturnRows?: NoonReturnCreditNoteRow[]
+  matchedReturns?: NoonReturnCreditNoteRow[]
+  creditNoteBlockingRows?: NoonReturnCreditNoteRow[]
+}
+
+export interface NoonReturnCreditNoteRow {
+  rowNumber?: number
+  itemOrderId?: string
+  parentOrderId?: string
+  productRefundAmount?: number
+  commissionReversalGross?: number
+  netSettlementEffect?: number
+  zohoInvoiceId?: string
+  zohoInvoiceNumber?: string
+  zohoCreditNoteId?: string
+  zohoCreditNoteNumber?: string
+  creditNoteAmount?: number
+  creditNoteDifference?: number
+  status?: string
+  blockCode?: string
+  blockingReason?: string
+  creditNoteAction?: string
 }
 
 export interface NoonOpenBalanceShortfall {
@@ -337,6 +359,17 @@ export interface NoonPaymentPreview {
   paidInvoiceSubsidyLines?: Array<Record<string, unknown>>
   settlementAdjustmentJournal?: NoonSettlementAdjustmentJournal | null
   settlementAdjustmentLines?: NoonSettlementAdjustmentSourceLine[]
+  returns?: NoonReturnCreditNoteRow[]
+  returnFeeReversals?: Array<{
+    rowNumber?: number
+    itemOrderId?: string
+    commissionReversalGross?: number
+    commissionReversalNet?: number
+    commissionReversalVat?: number
+    netSettlementEffect?: number
+  }>
+  matchedReturns?: NoonReturnCreditNoteRow[]
+  creditNoteBlockingRows?: NoonReturnCreditNoteRow[]
   undepositedReconciliation?: {
     targetBeforeAdvertising?: number
     plannedBeforeAdvertising?: number
@@ -359,6 +392,10 @@ export interface NoonPaymentPreview {
     recordPayment1066?: number
     paidInvoiceSubsidy1066?: number
     settlementAdjustment1066?: number
+    returnPrincipal1066?: number
+    returnFeeReversal1066?: number
+    returnBlocked?: boolean
+    returnRowCount?: number
     settlementAdjustmentLineCount?: number
     settlementAdjustmentGrossNegative?: number
     settlementAdjustmentGrossPositive?: number
@@ -381,6 +418,38 @@ export interface NoonPaymentPreview {
     shippingReclassJournalGross?: number
     blocked?: boolean
     blockedReason?: string | null
+  }
+}
+
+export interface NoonUnclearedAccountProof {
+  commission1067: {
+    accountCode: string
+    affectedItemCount: number
+    allNetToZero: boolean
+    proofs: Array<Record<string, unknown>>
+  }
+  shipping1068: {
+    accountCode: string
+    affectedItemCount: number
+    allNetToZero: boolean
+    proofs: Array<Record<string, unknown>>
+  }
+  allUnclearedAccountsNetToZero: boolean
+}
+
+export interface NoonReturnFeePlan {
+  success?: boolean
+  returnRowCount?: number
+  totalUndepositedImpact?: number
+  creditNoteApplyComplete?: boolean
+  returnFeePostComplete?: boolean
+  settlementJournalLines?: Array<Record<string, unknown>>
+  expenseReversalJournalLines?: Array<Record<string, unknown>>
+  unclearedAccountProof?: NoonUnclearedAccountProof
+  summary?: {
+    settlementJournalCount?: number
+    expenseReversalJournalCount?: number
+    totalJournalCount?: number
   }
 }
 
@@ -614,6 +683,38 @@ export async function postNoonPaymentClearingToZoho(batchId: string | number, dr
     return unwrap(started as NoonPostingResult & { success: boolean })
   }
   return pollNoonPostingJob(started.jobId)
+}
+
+export async function fetchNoonCreditNoteApplyPlan(batchId: string | number) {
+  const data = await api.get<{ success: boolean; planRows?: unknown[]; summary?: Record<string, unknown> }>(
+    `${BASE}/batches/${batchId}/credit-note-apply-plan`
+  )
+  return unwrap(data)
+}
+
+export async function applyNoonCreditNotes(batchId: string | number, dryRun = true) {
+  const data = await api.post<{ success: boolean } & Record<string, unknown>>(
+    `${BASE}/batches/${batchId}/apply-credit-notes`,
+    { dryRun },
+    longOpts
+  )
+  return unwrap(data)
+}
+
+export async function fetchNoonReturnFeePlan(batchId: string | number) {
+  const data = await api.get<NoonReturnFeePlan & { success: boolean }>(
+    `${BASE}/batches/${batchId}/return-fee-plan`
+  )
+  return unwrap(data)
+}
+
+export async function postNoonReturnFeeJournals(batchId: string | number, dryRun = true) {
+  const data = await api.post<{ success: boolean } & Record<string, unknown>>(
+    `${BASE}/batches/${batchId}/post-return-fee-journals`,
+    { dryRun },
+    longOpts
+  )
+  return unwrap(data)
 }
 
 export async function forceRepostNoonPaymentClearing(batchId: string | number, reason: string) {
