@@ -51,6 +51,13 @@ function buildCustomerPaymentPayload(payment, opts = {}) {
   }
 }
 
+function resolveJournalLineCustomerId(line, journal) {
+  const lineCustomerId = clean(line.customerId || line.customer_id)
+  if (lineCustomerId) return lineCustomerId
+  if (Array.isArray(journal.lineItems) && journal.lineItems.length >= 2) return undefined
+  return clean(journal.customerId) || undefined
+}
+
 function buildManualJournalPayload(journal, opts = {}) {
   const journalDate = journal.date || opts.date || todayLocalDate()
   const base = {
@@ -65,10 +72,12 @@ function buildManualJournalPayload(journal, opts = {}) {
       ...base,
       line_items: journal.lineItems.map((line) => ({
         account_id: line.accountId || line.account_id || undefined,
-        customer_id: line.customerId || line.customer_id || journal.customerId || undefined,
+        customer_id: resolveJournalLineCustomerId(line, journal),
         debit_or_credit: line.debitOrCredit || line.debit_or_credit,
         amount: Number(line.amount) || 0,
-        description: line.description || journal.description || journal.feeType || undefined,
+        description:
+          clean(line.description) ||
+          undefined,
       })),
     }
   }
@@ -323,10 +332,10 @@ async function buildManualJournalPayloadPreview(journal, opts = {}) {
       resolvedLines.push({
         account_id: account.accountId,
         account_name: account.accountName,
-        customer_id: line.customerId || line.customer_id || journal.customerId || undefined,
+        customer_id: resolveJournalLineCustomerId(line, journal),
         debit_or_credit: line.debitOrCredit || line.debit_or_credit,
         amount: Number(line.amount) || 0,
-        description: line.description || journal.description || journal.feeType || undefined,
+        description: clean(line.description) || undefined,
       })
     }
     return {

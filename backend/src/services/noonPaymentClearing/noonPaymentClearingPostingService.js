@@ -75,6 +75,10 @@ async function enrichJournalLineItems(lineItems = []) {
       accountCode: resolved.accountCode || clean(item.accountCode),
       debitOrCredit: item.debitOrCredit,
       amount: item.amount,
+      description: clean(item.description),
+      ...(clean(item.customerId || item.customer_id)
+        ? { customerId: clean(item.customerId || item.customer_id) }
+        : {}),
     })
   }
   return out
@@ -829,11 +833,12 @@ async function postApprovedBatch({
       const credit = await resolveNoonGlAccount(line.credit || {})
       const journalRequest = {
         feeType: line.feeType,
-        description: line.displayLabel || line.title || line.feeType,
+        notes: line.displayLabel || line.title || line.feeType,
         amount: line.amount,
         debit,
         credit,
-        // Amazon-style: no customer on fee / uncleared-reclass journals
+        // Amazon-style: no customer on fee / uncleared-reclass journals.
+        // Settlement adjustment attaches customer_id per expense/VAT line only (not 1066 balancing).
         customerId: '',
         lineItems: enrichedLineItems.length >= 2 ? enrichedLineItems : undefined,
         vatBreakdown: line.vatBreakdown || null,
@@ -860,6 +865,8 @@ async function postApprovedBatch({
                 account_code: item.accountCode || '',
                 debit_or_credit: item.debitOrCredit,
                 amount: item.amount,
+                description: item.description || '',
+                customer_id: item.customerId || item.customer_id || '',
               })),
             },
             lineItems: enrichedLineItems.length ? enrichedLineItems : line.lineItems,
@@ -900,7 +907,7 @@ async function postApprovedBatch({
           zohoJournalNumber,
           amount: line.amount,
           referenceNumber: journalRequest.referenceNumber,
-          description: journalRequest.description,
+          description: journalRequest.notes,
           mappingSnapshot: {
             feeType: line.feeType,
             parentOrderId: line.parentOrderId,

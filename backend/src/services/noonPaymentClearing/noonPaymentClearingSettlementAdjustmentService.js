@@ -10,6 +10,7 @@ const { resolveNoonOrderIds } = require('./noonOrderIdHelper')
 const { getNoonPaymentClearingMarketplaceConfig } = require('./noonPaymentClearingMarketplaceConfig')
 const { truncateZohoReference } = require('./noonPaymentClearingReferenceService')
 const { extractVatFromNoonRow, DEFAULT_VAT_RATE } = require('./noonPaymentClearingVatService')
+const { ASSIGNMENT_REASON_ZOHO } = require('./noonPaymentClearingParentChargeFallback')
 
 const SETTLEMENT_ADJUSTMENT_FEE_TYPE = 'NOON_SETTLEMENT_ADJUSTMENT'
 const PAID_INVOICE_SUBSIDY_REASON = 'open_balance_short_already_paid'
@@ -109,26 +110,72 @@ function resolveAdjustmentExpenseAccount(row, cfg) {
   return normalizeGlAccount(cfg.shippingExpenseAccount, 'Shipping Expense')
 }
 
-function primaryOrderIdForRow(row) {
-  return (
-    clean(row.assignedItemOrderId) ||
-    clean(row.itemOrderId) ||
-    clean(row.originalParentOrderId || row.parentOrderId) ||
-    clean(resolveNoonOrderIds(row).parentOrderId)
+function isParentFallbackRow(row) {
+  const status = clean(row.parentFallbackStatus)
+  const reason = clean(row.assignmentReason)
+  if (status === 'assigned_zoho_orphan') return true
+  if (reason === ASSIGNMENT_REASON_ZOHO) return true
+  return false
+}
+
+function orderIdPartForDescription(row) {
+  const item = clean(row.itemOrderId)
+  const parent = clean(
+    row.originalParentOrderId || row.parentOrderId || resolveNoonOrderIds(row).parentOrderId
   )
+  const assigned = clean(row.assignedItemOrderId)
+
+  if (item && item.includes('-')) return item
+  if (isParentFallbackRow(row) && parent && assigned) {
+    return `Parent ${parent} | Child ${assigned}`
+  }
+  if (assigned && assigned.includes('-')) return assigned
+  if (parent) return parent
+  return assigned || item || 'unknown'
+}
+
+function grossLabelForRow(row) {
+  const gross = round2(Math.abs(num(row.total)))
+  return num(row.total) > 0 ? `Gross +${gross}` : `Gross ${gross}`
+}
+
+function primaryOrderIdForRow(row) {
+  return orderIdPartForDescription(row)
+}
+
+function adjustmentDescriptionLabel(row) {
+  const raw = (displayLabelForFeeRow(row) || 'shipping').toLowerCase()
+  if (raw.includes('fulfillment') || raw.includes('shipping') || raw.includes('logistics')) {
+    return 'shipping'
+  }
+  if (raw.includes('commission') || raw.includes('referral')) {
+    return 'commission'
+  }
+  if (raw.includes('adjustment')) {
+    return 'adjustment'
+  }
+  return raw.split('/')[0].trim() || 'shipping'
 }
 
 function buildAdjustmentLineDescription(row, metadata = {}, kind = 'expense') {
-  const ref = clean(metadata.referenceNr) || 'Noon settlement'
-  const orderId = primaryOrderIdForRow(row)
-  if (kind === 'vat') return `Noon VAT | ${orderId} | ${ref}`
-  const gross = round2(Math.abs(num(row.total)))
-  const label = (displayLabelForFeeRow(row) || 'shipping').toLowerCase()
-  return `Noon ${label} | ${orderId} | ${ref} | Gross ${gross}`
+  const ref = clean(metadata.referenceNr) || clean(metadata.statementId) || 'Noon settlement'
+  const orderPart = orderIdPartForDescription(row)
+  const grossLabel = grossLabelForRow(row)
+
+  if (kind === 'vat') {
+    return `Noon VAT | ${orderPart} | ${ref} | ${grossLabel}`
+  }
+
+  if (num(row.total) > 0) {
+    return `Noon subsidy | ${orderPart} | ${ref} | ${grossLabel}`
+  }
+
+  const label = adjustmentDescriptionLabel(row)
+  return `Noon ${label} | ${orderPart} | ${ref} | ${grossLabel}`
 }
 
-function lineItemFromAccount(account, debitOrCredit, amount, description = '') {
-  return {
+function lineItemFromAccount(account, debitOrCredit, amount, description = '', customerId = '') {
+  const item = {
     debitOrCredit,
     accountId: account.accountId,
     accountName: account.accountName,
@@ -136,12 +183,16 @@ function lineItemFromAccount(account, debitOrCredit, amount, description = '') {
     amount: round2(amount),
     description: clean(description),
   }
+  const resolvedCustomerId = clean(customerId)
+  if (resolvedCustomerId) item.customerId = resolvedCustomerId
+  return item
 }
 
 function buildSourceRowAdjustmentFragments(row, accounts, metadata) {
   const signedGross = round2(num(row.total))
   if (Math.abs(signedGross) < 0.01) return null
 
+  const noonCustomerId = clean(metadata.zohoCustomerId)
   const vatRate = accounts.vatRate ?? DEFAULT_VAT_RATE
   const vatBreakdown = extractVatFromNoonRow(row, { vatRate })
   const expenseAccount = resolveAdjustmentExpenseAccount(row, accounts.cfg)
@@ -161,18 +212,18 @@ function buildSourceRowAdjustmentFragments(row, accounts, metadata) {
   if (isPositiveReversal) {
     undepositedSignedImpact = absGross
     if (vatBreakdown.vatInclusive && absVat >= 0.005) {
-      detailLineItems.push(lineItemFromAccount(expenseAccount, 'credit', absNet, expenseDesc))
-      detailLineItems.push(lineItemFromAccount(inputVat, 'credit', absVat, vatDesc))
+      detailLineItems.push(lineItemFromAccount(expenseAccount, 'credit', absNet, expenseDesc, noonCustomerId))
+      detailLineItems.push(lineItemFromAccount(inputVat, 'credit', absVat, vatDesc, noonCustomerId))
     } else {
-      detailLineItems.push(lineItemFromAccount(expenseAccount, 'credit', absGross, expenseDesc))
+      detailLineItems.push(lineItemFromAccount(expenseAccount, 'credit', absGross, expenseDesc, noonCustomerId))
     }
   } else if (vatBreakdown.vatInclusive && absVat >= 0.005) {
     undepositedSignedImpact = -absGross
-    detailLineItems.push(lineItemFromAccount(expenseAccount, 'debit', absNet, expenseDesc))
-    detailLineItems.push(lineItemFromAccount(inputVat, 'debit', absVat, vatDesc))
+    detailLineItems.push(lineItemFromAccount(expenseAccount, 'debit', absNet, expenseDesc, noonCustomerId))
+    detailLineItems.push(lineItemFromAccount(inputVat, 'debit', absVat, vatDesc, noonCustomerId))
   } else {
     undepositedSignedImpact = -absGross
-    detailLineItems.push(lineItemFromAccount(expenseAccount, 'debit', absGross, expenseDesc))
+    detailLineItems.push(lineItemFromAccount(expenseAccount, 'debit', absGross, expenseDesc, noonCustomerId))
   }
 
   const sourceDetail = {

@@ -727,7 +727,10 @@ function buildPaymentPreviewFromBatch(batch, mappingRules = [], inputVatAccount 
   const metadata = batch.reportSnapshot || batch.metadata || {}
   const settlementAdjustmentJournal = buildSettlementAdjustmentJournal(
     allRows,
-    metadata,
+    {
+      ...metadata,
+      zohoCustomerId: clean(batch.zohoCustomerId),
+    },
     {
       undepositedFundsAccount: accountOverrides.undepositedFundsAccount || cfg.undepositedFundsAccount,
       inputVatAccount: inputVatAccount || batch.inputVatAccount || accountOverrides.inputVatAccount || cfg.inputVatAccount,

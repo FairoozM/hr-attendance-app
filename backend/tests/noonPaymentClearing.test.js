@@ -2041,4 +2041,164 @@ describe('open balance reconcile', () => {
     assert.equal(invoiceBalanceShortfalls.length, 1)
     assert.equal(invoiceBalanceShortfalls[0].zohoInvoiceNumber, 'INV-042333')
   })
+
+  it('settlement adjustment Zoho journal payload keeps per-order line descriptions (not journal title)', () => {
+    const {
+      buildSettlementAdjustmentJournal,
+      buildAdjustmentLineDescription,
+    } = require('../src/services/noonPaymentClearing/noonPaymentClearingSettlementAdjustmentService')
+    const { buildManualJournalPayload } = require('../src/services/amazonPaymentClearingZohoPaymentService')
+    const { ROW_CLASS } = require('../src/services/noonPaymentClearing/noonPaymentClearingCategoryService')
+    const { ASSIGNMENT_REASON_ZOHO } = require('../src/services/noonPaymentClearing/noonPaymentClearingParentChargeFallback')
+
+    const ref = 'PS-11752-AE20260708'
+    const metadata = { referenceNr: ref, zohoCustomerId: 'noon-customer-123' }
+
+    assert.match(
+      buildAdjustmentLineDescription(
+        { parentOrderId: 'NAEI70062331436', total: -42.84, fulfillmentFee: -42.84 },
+        metadata,
+        'expense'
+      ),
+      /Noon shipping \| NAEI70062331436 \| PS-11752-AE20260708 \| Gross 42\.84/
+    )
+    assert.match(
+      buildAdjustmentLineDescription(
+        { parentOrderId: 'NAEI70062331436', total: -42.84, fulfillmentFee: -42.84 },
+        metadata,
+        'vat'
+      ),
+      /Noon VAT \| NAEI70062331436 \| PS-11752-AE20260708 \| Gross 42\.84/
+    )
+    assert.match(
+      buildAdjustmentLineDescription(
+        {
+          parentOrderId: 'NAEI70003640128',
+          assignedItemOrderId: 'NAEI70003640128-4',
+          total: 4.73,
+          orderSubsidies: 4.73,
+        },
+        metadata,
+        'expense'
+      ),
+      /Noon subsidy \| NAEI70003640128-4 \| PS-11752-AE20260708 \| Gross \+4\.73/
+    )
+    assert.match(
+      buildAdjustmentLineDescription(
+        {
+          parentOrderId: 'NAEI60012472440',
+          assignedItemOrderId: 'NAEI60012472440-1',
+          assignmentReason: ASSIGNMENT_REASON_ZOHO,
+          parentFallbackStatus: 'assigned_zoho_orphan',
+          total: -21.42,
+          fulfillmentFee: -21.42,
+        },
+        metadata,
+        'expense'
+      ),
+      /Parent NAEI60012472440 \| Child NAEI60012472440-1/
+    )
+
+    const allRows = [
+      {
+        rowNumber: 1,
+        rowClass: ROW_CLASS.SALE_ITEM,
+        parentOrderId: 'NAEI60024715688',
+        itemOrderId: 'NAEI60024715688-1',
+        total: 605.86,
+      },
+      {
+        rowNumber: 2,
+        rowClass: ROW_CLASS.PARENT_ORDER_CHARGE,
+        parentOrderId: 'NAEI70062331436',
+        total: -42.84,
+        fulfillmentFee: -42.84,
+      },
+      {
+        rowNumber: 27,
+        rowClass: ROW_CLASS.PARENT_ORDER_CHARGE,
+        parentOrderId: 'NAEI70003640128',
+        assignedItemOrderId: 'NAEI70003640128-4',
+        total: 4.73,
+        orderSubsidies: 4.73,
+      },
+      {
+        rowNumber: 3,
+        rowClass: ROW_CLASS.PARENT_ORDER_CHARGE,
+        parentOrderId: 'NAEI60012472440',
+        assignedItemOrderId: 'NAEI60012472440-1',
+        assignmentReason: ASSIGNMENT_REASON_ZOHO,
+        parentFallbackStatus: 'assigned_zoho_orphan',
+        total: -21.42,
+        fulfillmentFee: -21.42,
+      },
+    ]
+
+    const journal = buildSettlementAdjustmentJournal(allRows, metadata, {}, null)
+    assert.ok(journal)
+    assert.equal(journal.referenceNumber, ref)
+
+    const enrichedLineItems = journal.lineItems.map((item) => ({
+      accountId: item.accountId || `acc-${item.accountCode || 'x'}`,
+      accountName: item.accountName,
+      accountCode: item.accountCode,
+      debitOrCredit: item.debitOrCredit,
+      amount: item.amount,
+      description: item.description,
+      ...(item.customerId ? { customerId: item.customerId } : {}),
+    }))
+
+    const payload = buildManualJournalPayload({
+      feeType: journal.feeType,
+      notes: journal.displayLabel,
+      referenceNumber: journal.referenceNumber,
+      lineItems: enrichedLineItems,
+    })
+
+    assert.equal(payload.reference_number, ref)
+    assert.ok(Array.isArray(payload.line_items))
+    assert.ok(payload.line_items.length >= 4)
+    assert.equal(payload.notes, 'Noon Settlement Adjustments Journal')
+
+    const genericTitle = 'Noon Settlement Adjustments Journal'
+    for (const line of payload.line_items) {
+      assert.notEqual(line.description, genericTitle)
+    }
+
+    const expenseShipping = payload.line_items.find(
+      (l) => l.description.includes('NAEI70062331436') && l.description.startsWith('Noon shipping')
+    )
+    assert.ok(expenseShipping)
+    assert.match(expenseShipping.description, /Gross 42\.84/)
+    assert.equal(expenseShipping.customer_id, 'noon-customer-123')
+
+    const vatShipping = payload.line_items.find(
+      (l) => l.description.startsWith('Noon VAT') && l.description.includes('NAEI70062331436')
+    )
+    assert.ok(vatShipping)
+    assert.match(vatShipping.description, /Gross 42\.84/)
+    assert.equal(vatShipping.customer_id, 'noon-customer-123')
+
+    const subsidyLine = payload.line_items.find(
+      (l) => l.description.startsWith('Noon subsidy') && l.description.includes('NAEI70003640128-4')
+    )
+    assert.ok(subsidyLine)
+    assert.match(subsidyLine.description, /Gross \+4\.73/)
+
+    const parentFallbackLine = payload.line_items.find((l) =>
+      l.description.includes('Parent NAEI60012472440')
+    )
+    assert.ok(parentFallbackLine)
+
+    const balancing1066 = payload.line_items.filter((l) =>
+      l.description.startsWith('Noon settlement adjustments |')
+    )
+    assert.ok(balancing1066.length >= 1)
+    assert.ok(balancing1066.every((l) => !l.description.includes('NAEI70062331436')))
+    assert.equal(balancing1066[0].customer_id, undefined)
+
+    assert.equal(journal.summary.grossNegativeAdjustments, 64.26)
+    assert.equal(journal.summary.grossPositiveAdjustments, 4.73)
+    assert.equal(journal.summary.netUndepositedImpact, -59.53)
+  })
 })
