@@ -215,7 +215,8 @@ export function NoonFeeJournalMappingPanel({
           <>
             <strong>{unmappedCount} fee line(s) still need an expense account.</strong>
             <div className="npc-muted" style={{ marginTop: 6 }}>
-              Map each Noon fee type once — the same mapping is reused on every future statement.
+              Map each Noon fee type once — the same mapping is reused on every future statement. Pick the
+              Zoho account below, then click <strong>Save mapping</strong> (the dropdown alone does not save).
             </div>
           </>
         ) : (

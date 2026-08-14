@@ -2,16 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   approveNoonPaymentClearingBatch,
-  applyNoonCreditNotes,
   excludeNoonOpenBalanceShortfalls,
-  fetchNoonCreditNoteApplyPlan,
   fetchNoonPaymentClearingBatch,
   fetchNoonReturnFeePlan,
   fetchNoonSavedBatches,
   fetchNoonZohoCustomers,
   forceRepostNoonPaymentClearing,
   generateNoonPaymentPreview,
-  postNoonReturnFeeJournals,
+  refreshNoonReturnMatching,
   type NoonPaymentClearingPreview,
   type NoonPaymentPreview,
   type NoonPostingResult,
@@ -24,6 +22,8 @@ import {
 import { CLEARING_STEPS, type StepStatus } from './clearingSteps'
 import { ClearingStepper, StepPanel } from './components/ClearingStepper'
 import { NoonFeeJournalMappingPanel } from './components/NoonFeeJournalMappingPanel'
+import { NoonReturnClearingStep } from './components/NoonReturnClearingStep'
+import { NoonReturnsStep } from './components/NoonReturnsStep'
 import './NoonPaymentClearingPage.css'
 
 const STEP_KEY_TO_ID = new Map(CLEARING_STEPS.map((s) => [s.key, s.id]))
@@ -54,8 +54,6 @@ export function NoonPaymentClearingPage() {
   const [preview, setPreview] = useState<NoonPaymentClearingPreview | null>(null)
   const [paymentPreview, setPaymentPreview] = useState<NoonPaymentPreview | null>(null)
   const [postingResult, setPostingResult] = useState<NoonPostingResult | null>(null)
-  const [cnApplyResult, setCnApplyResult] = useState<Record<string, unknown> | null>(null)
-  const [returnFeeResult, setReturnFeeResult] = useState<Record<string, unknown> | null>(null)
   const [returnFeePlan, setReturnFeePlan] = useState<NoonReturnFeePlan | null>(null)
   const [expandedParents, setExpandedParents] = useState<Record<string, boolean>>({})
   const [showSettlementAdjustmentDetail, setShowSettlementAdjustmentDetail] = useState(false)
@@ -130,7 +128,19 @@ export function NoonPaymentClearingPage() {
       preview?.batch?.postedToZoho
   )
 
-  // Same rules as backend validateBatchReadyForApproval — fee journal mapping is Step 9, not approval.
+  const returnRowCount = useMemo(
+    () => preview?.refundReturnRows?.length ?? preview?.totals?.returnRowCount ?? 0,
+    [preview?.refundReturnRows, preview?.totals?.returnRowCount]
+  )
+  const returnBlockerCount = useMemo(() => {
+    const blocking = preview?.creditNoteBlockingRows?.length ?? 0
+    const fromIssues = (preview?.blockingIssues || []).filter((i) =>
+      String(i.code || '').startsWith('RETURN_')
+    ).length
+    return Math.max(blocking, fromIssues)
+  }, [preview?.creditNoteBlockingRows, preview?.blockingIssues])
+
+  // Same rules as backend validateBatchReadyForApproval — fee journal mapping is Step 10, not approval.
   const approvalBlockers = useMemo(() => {
     if (!preview) return [] as string[]
     const reasons: string[] = []
@@ -143,6 +153,11 @@ export function NoonPaymentClearingPage() {
     if ((preview.multipleMatchItems || []).length > 0) {
       reasons.push(`${preview.multipleMatchItems.length} item order(s) matched more than one invoice.`)
     }
+    for (const row of preview.creditNoteBlockingRows || []) {
+      if (row.blockCode) {
+        reasons.push(row.blockingReason || row.blockCode)
+      }
+    }
     for (const issue of preview.blockingIssues || []) {
       if (issue.code === 'UNEXPLAINED_OTHER') {
         reasons.push(issue.message || 'Unexplained transaction amount remains.')
@@ -150,14 +165,17 @@ export function NoonPaymentClearingPage() {
       if (issue.code === 'OPEN_BALANCE_SHORT') {
         reasons.push(issue.message || 'Invoice open balance is short — fix in Parent-Level Charges.')
       }
+      if (String(issue.code || '').startsWith('RETURN_')) {
+        reasons.push(issue.message || issue.code || 'Return credit note blocker.')
+      }
     }
     if ((preview.openBalanceShortfalls || []).length > 0) {
       reasons.push(
-        `${preview.openBalanceShortfalls!.length} invoice(s) lack open Zoho balance — go to Step 6 and exclude already-paid logistics.`
+        `${preview.openBalanceShortfalls!.length} invoice(s) lack open Zoho balance — go to Step 7 and exclude already-paid logistics.`
       )
     }
     if (!preview.openBalanceCheckedAt) {
-      reasons.push('Run "Check open balances (Zoho)" in Step 6 before approving.')
+      reasons.push('Run "Check open balances (Zoho)" in Step 7 before approving.')
     }
     return Array.from(new Set(reasons))
   }, [preview])
@@ -183,45 +201,71 @@ export function NoonPaymentClearingPage() {
       : (preview.unmatchedOrders?.length || 0) > 0 || (preview.multipleMatchItems?.length || 0) > 0
         ? 'blocked'
         : 'completed'
-    s[5] = preview ? 'completed' : 'not_started'
-    s[6] = !preview
+    s[5] = !preview
+      ? 'not_started'
+      : returnRowCount === 0
+        ? 'completed'
+        : returnBlockerCount > 0
+          ? 'blocked'
+          : 'completed'
+    s[6] = preview ? 'completed' : 'not_started'
+    s[7] = !preview
       ? 'not_started'
       : (preview.openBalanceShortfalls || []).length > 0
         ? 'blocked'
         : 'completed'
-    s[7] = !preview
+    s[8] = !preview
       ? 'not_started'
       : preview.reconciliationSummary?.reconciliationStatus === 'mismatch'
         ? 'blocked'
         : 'completed'
-    s[8] = !preview
+    s[9] = !preview
       ? 'not_started'
       : isApproved || isPosted
         ? 'completed'
         : canApproveSettlement
           ? 'ready'
           : 'blocked'
-    s[9] = !preview
+    s[10] = !preview
       ? 'not_started'
       : (preview.feeJournalLines || []).some((l) => l.mappingStatus === 'needs_mapping')
         ? 'blocked'
         : 'ready'
-    s[10] = !paymentPreview
+    s[11] = !paymentPreview
       ? isApproved || isPosted
         ? 'ready'
         : 'not_started'
       : paymentPreview.summary?.blocked
         ? 'blocked'
         : 'completed'
-    s[11] = isPosted
+    s[12] = isPosted
       ? 'completed'
       : paymentPreview
         ? paymentPreview.summary?.blocked
           ? 'blocked'
           : 'ready'
         : 'not_started'
+    s[13] =
+      returnRowCount === 0
+        ? 'completed'
+        : !isPosted
+          ? 'not_started'
+          : paymentPreview?.summary?.returnBlocked
+            ? 'blocked'
+            : returnFeePlan?.creditNoteApplyComplete && returnFeePlan?.returnFeePostComplete
+              ? 'completed'
+              : 'ready'
     return s
-  }, [preview, isApproved, isPosted, canApproveSettlement, paymentPreview])
+  }, [
+    preview,
+    isApproved,
+    isPosted,
+    canApproveSettlement,
+    paymentPreview,
+    returnRowCount,
+    returnBlockerCount,
+    returnFeePlan,
+  ])
 
   async function onReconcileOpenBalances() {
     if (!preview?.batchId) return
@@ -237,7 +281,7 @@ export function NoonPaymentClearingPage() {
           ? `Open balance check: ${n} invoice(s) need attention — exclude already-paid logistics below.`
           : 'Open balance check passed — all planned clearings fit live Zoho balances.'
       )
-      goToStep(6)
+      goToStep(7)
     } catch (err) {
       setError(safeError(err))
     } finally {
@@ -312,7 +356,9 @@ export function NoonPaymentClearingPage() {
     setError('')
     setNotice('Uploading statement… matching Zoho invoices in the background (avoids CloudFront timeout).')
     try {
-      const data = await previewNoonStatementUpload(file, zohoCustomerName)
+      const data = await previewNoonStatementUpload(file, zohoCustomerName, {
+        onProgress: (step) => setNotice(`Uploading… ${step}`),
+      })
       setPreview(data)
       setPaymentPreview(null)
       setPostingResult(null)
@@ -351,7 +397,7 @@ export function NoonPaymentClearingPage() {
       await approveNoonPaymentClearingBatch(preview.batchId)
       const data = await fetchNoonPaymentClearingBatch(preview.batchId)
       setPreview(data)
-      goToStep(9)
+      goToStep(10)
       setNotice('Statement approved. Map fee journals, then generate payment preview.')
     } catch (err) {
       const msg = safeError(err)
@@ -371,8 +417,10 @@ export function NoonPaymentClearingPage() {
     try {
       const pp = await generateNoonPaymentPreview(preview.batchId)
       setPaymentPreview(pp)
+      const refreshed = await fetchNoonPaymentClearingBatch(preview.batchId)
+      setPreview(refreshed)
       setNotice('Payment preview ready.')
-      goToStep(10)
+      goToStep(11)
     } catch (err) {
       const msg = safeError(err)
       setError(msg)
@@ -406,7 +454,7 @@ export function NoonPaymentClearingPage() {
       if (!dryRun) {
         window.alert(
           missing.length || errors || result.success === false
-            ? `FAILED / INCOMPLETE\n\n${headline}\n\nMissing: ${missing.join(', ') || 'n/a'}\nCheck Step 11 for error details.`
+            ? `FAILED / INCOMPLETE\n\n${headline}\n\nMissing: ${missing.join(', ') || 'n/a'}\nCheck Step 12 for error details.`
             : `SUCCESS\n\n${headline}\n\nYou should see 3 payment groups in Zoho: net_balance, commission, fulfillment_shipping.`
         )
         const data = await fetchNoonPaymentClearingBatch(preview.batchId)
@@ -419,7 +467,8 @@ export function NoonPaymentClearingPage() {
       } else {
         setNotice(headline)
       }
-      goToStep(11)
+      const hasReturns = (paymentPreview?.returns?.length ?? returnRowCount) > 0
+      goToStep(dryRun ? 12 : hasReturns && !missing.length && !errors && result.success !== false ? 13 : 12)
       requestAnimationFrame(() => {
         postingResultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
       })
@@ -440,8 +489,8 @@ export function NoonPaymentClearingPage() {
   }, [])
 
   useEffect(() => {
-    if (activeStep !== 11 || preview?.batchId == null) return
-    if ((paymentPreview?.returns?.length ?? 0) === 0) {
+    if (activeStep !== 13 || preview?.batchId == null) return
+    if (returnRowCount === 0) {
       setReturnFeePlan(null)
       return
     }
@@ -452,48 +501,20 @@ export function NoonPaymentClearingPage() {
     return () => {
       cancelled = true
     }
-  }, [activeStep, preview?.batchId, paymentPreview?.returns?.length, refreshReturnFeePlan])
+  }, [activeStep, preview?.batchId, returnRowCount, refreshReturnFeePlan])
 
-  async function onApplyCreditNotes(dryRun: boolean) {
-    if (!preview?.batchId) return
-    if (!dryRun && !window.confirm('Refund matched return Credit Notes to Noon Undeposited (1066)?')) return
-    setLoading(true)
-    setError('')
-    try {
-      await fetchNoonCreditNoteApplyPlan(preview.batchId)
-      const result = await applyNoonCreditNotes(preview.batchId, dryRun)
-      setCnApplyResult(result)
-      setNotice(dryRun ? 'Credit note refund dry run complete.' : 'Credit note refunds posted.')
-    } catch (err) {
-      setError(safeError(err))
-    } finally {
-      setLoading(false)
+  useEffect(() => {
+    if ((activeStep !== 10 && activeStep !== 11) || !preview?.batchId) return
+    let cancelled = false
+    refreshPreviewFromServer().catch((err) => {
+      if (!cancelled) setError(safeError(err))
+    })
+    return () => {
+      cancelled = true
     }
-  }
+  }, [activeStep, preview?.batchId])
 
-  async function onPostReturnFees(dryRun: boolean) {
-    if (!preview?.batchId) return
-    if (!dryRun && !window.confirm('Post return fee clearing journals (settlement + expense/VAT reversal) to Zoho?')) return
-    setLoading(true)
-    setError('')
-    try {
-      const plan = await refreshReturnFeePlan(preview.batchId)
-      if (!plan.creditNoteApplyComplete && !dryRun) {
-        setError('Refund all matched return credit notes (Phase 2) before posting return fee journals.')
-        return
-      }
-      const result = await postNoonReturnFeeJournals(preview.batchId, dryRun)
-      setReturnFeeResult(result)
-      await refreshReturnFeePlan(preview.batchId)
-      setNotice(dryRun ? 'Return fee journal dry run complete.' : 'Return fee journals posted.')
-    } catch (err) {
-      setError(safeError(err))
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  /** Open-balance blocks are rectified in Step 6 — take the user there with fresh data. */
+  /** Open-balance blocks are rectified in Step 7 — take the user there with fresh data. */
   async function recoverFromOpenBalanceBlock(msg: string) {
     const isBalanceIssue =
       msg.includes('open Zoho balance') ||
@@ -503,7 +524,7 @@ export function NoonPaymentClearingPage() {
     try {
       const data = await fetchNoonPaymentClearingBatch(preview.batchId)
       setPreview(data)
-      goToStep(6)
+      goToStep(7)
       setNotice('Blocked invoices are listed below — exclude the already-paid ones, or void their Zoho payments, then retry.')
     } catch {
       /* keep the alert error visible */
@@ -541,7 +562,7 @@ export function NoonPaymentClearingPage() {
       setPreview(data)
       if (result.success === false) setError(headline)
       else setNotice(headline)
-      goToStep(11)
+      goToStep(12)
       requestAnimationFrame(() => {
         postingResultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
       })
@@ -550,6 +571,22 @@ export function NoonPaymentClearingPage() {
       setError(msg)
       window.alert(`Force repost failed\n\n${msg}`)
       await recoverFromOpenBalanceBlock(msg)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function onRefreshReturns() {
+    if (!preview?.batchId) return
+    setLoading(true)
+    setError('')
+    setNotice('Refreshing return credit note matching from Zoho…')
+    try {
+      const data = await refreshNoonReturnMatching(preview.batchId)
+      setPreview(data)
+      setNotice('Return matching refreshed.')
+    } catch (err) {
+      setError(safeError(err))
     } finally {
       setLoading(false)
     }
@@ -607,20 +644,28 @@ export function NoonPaymentClearingPage() {
             collapsed={collapsed}
             onExpand={() => goToStep(step.id)}
             blocker={
-              step.id === 6 && (preview?.openBalanceShortfalls || []).length > 0
+              step.id === 7 && (preview?.openBalanceShortfalls || []).length > 0
                 ? `${preview!.openBalanceShortfalls!.length} invoice(s) lack open Zoho balance — exclude already-paid logistics.`
-                : step.id === 8 && approvalBlockers.length
-                  ? approvalBlockers[0]
-                  : step.id === 9 &&
-                      (preview?.feeJournalLines || []).some((l) => l.mappingStatus === 'needs_mapping')
-                    ? 'Map statement fee expense accounts first (Advertising).'
-                    : undefined
+                : step.id === 5 && returnBlockerCount > 0
+                  ? `${returnBlockerCount} return(s) need a matched Zoho Credit Note.`
+                  : step.id === 9 && approvalBlockers.length
+                    ? approvalBlockers[0]
+                    : step.id === 10 &&
+                        (preview?.feeJournalLines || []).some((l) => l.mappingStatus === 'needs_mapping')
+                      ? 'Map statement fee expense accounts first (Advertising).'
+                      : undefined
             }
             summary={
               collapsed && preview
                 ? step.id === 4
-                  ? `${preview.matchedOrders?.length || 0} matched · ${preview.unmatchedOrders?.length || 0} missing · ${(preview.matchedReturns || []).filter((r) => r.status === 'matched').length} return CN`
-                  : step.id === 6
+                  ? `${preview.matchedOrders?.length || 0} matched · ${preview.unmatchedOrders?.length || 0} missing`
+                  : step.id === 5
+                    ? returnRowCount === 0
+                      ? 'No returns'
+                      : returnBlockerCount > 0
+                        ? `${returnBlockerCount} blocker(s)`
+                        : `${(preview.matchedReturns || []).filter((r) => r.status === 'matched').length} matched CN`
+                  : step.id === 7
                     ? (preview.openBalanceShortfalls || []).length
                       ? `${preview.openBalanceShortfalls!.length} open-balance shortfall(s)`
                       : (preview.openBalanceExcluded || []).length
@@ -628,15 +673,25 @@ export function NoonPaymentClearingPage() {
                         : preview.openBalanceCheckedAt
                           ? 'Open balances OK'
                           : 'Check open balances'
-                  : step.id === 7
+                  : step.id === 8
                     ? preview.reconciliationSummary?.reconciliationStatus
-                    : step.id === 8
+                    : step.id === 9
                       ? canApproveSettlement
                         ? isApproved || isPosted
                           ? 'Approved'
                           : 'Ready to approve'
                         : approvalBlockers[0]
-                      : undefined
+                      : step.id === 13
+                        ? returnRowCount === 0
+                          ? 'N/A'
+                          : returnFeePlan?.returnFeePostComplete
+                            ? 'Complete'
+                            : returnFeePlan?.creditNoteApplyComplete
+                              ? 'CN refunds done'
+                              : isPosted
+                                ? 'Ready'
+                                : 'After post'
+                        : undefined
                 : undefined
             }
           >
@@ -895,43 +950,14 @@ export function NoonPaymentClearingPage() {
                     </tbody>
                   </table>
                 </div>
-                {(preview.matchedReturns?.length || preview.creditNoteBlockingRows?.length) ? (
-                  <>
-                    <h4>Returns / Credit Notes</h4>
-                    <div className="npc-table-wrap">
-                      <table className="npc-table">
-                        <thead>
-                          <tr>
-                            <th>Item Order</th>
-                            <th>Refund</th>
-                            <th>Commission rev.</th>
-                            <th>Invoice</th>
-                            <th>Credit Note</th>
-                            <th>Status</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {[...(preview.matchedReturns || []), ...(preview.creditNoteBlockingRows || [])].map((row) => (
-                            <tr key={`ret-${row.itemOrderId}-${row.status}`}>
-                              <td>
-                                <code className="npc-ref">{row.itemOrderId}</code>
-                              </td>
-                              <td className="npc-money">{money(row.productRefundAmount)}</td>
-                              <td className="npc-money">{money(row.commissionReversalGross)}</td>
-                              <td>{row.zohoInvoiceNumber || '—'}</td>
-                              <td>{row.zohoCreditNoteNumber || '—'}</td>
-                              <td>{row.blockCode || row.status || '—'}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </>
-                ) : null}
               </div>
             )}
 
             {step.id === 5 && preview && (
+              <NoonReturnsStep preview={preview} loading={loading} onRefresh={onRefreshReturns} />
+            )}
+
+            {step.id === 6 && preview && (
               <div className="npc-step-stack">
                 <p className="npc-muted">order_update / fee-only adjustments — not treated as new sales invoices.</p>
                 <div className="npc-table-wrap">
@@ -972,7 +998,7 @@ export function NoonPaymentClearingPage() {
               </div>
             )}
 
-            {step.id === 6 && preview && (
+            {step.id === 7 && preview && (
               <div className="npc-step-stack">
                 <div className="npc-alert">
                   Parent logistics fold onto a child / Zoho invoice for Record Payment (1068). Before approve, check{' '}
@@ -1160,7 +1186,7 @@ export function NoonPaymentClearingPage() {
               </div>
             )}
 
-            {step.id === 7 && preview && (
+            {step.id === 8 && preview && (
               <div className="npc-step-stack">
                 <div className="npc-summary-grid">
                   <div className="ainv-summary-card">
@@ -1203,7 +1229,7 @@ export function NoonPaymentClearingPage() {
               </div>
             )}
 
-            {step.id === 8 && preview && (
+            {step.id === 9 && preview && (
               <div className="npc-step-stack">
                 {isApproved || isPosted ? (
                   <div className="npc-alert npc-approved-panel">Settlement approved.</div>
@@ -1232,11 +1258,11 @@ export function NoonPaymentClearingPage() {
               </div>
             )}
 
-            {step.id === 9 && preview && (
+            {step.id === 10 && preview && (
               <NoonFeeJournalMappingPanel preview={preview} onPreviewRefresh={refreshPreviewFromServer} />
             )}
 
-            {step.id === 10 && (
+            {step.id === 11 && (
               <div className="npc-step-stack">
                 {error ? (
                   <div className="npc-alert npc-alert--error" role="alert">
@@ -1254,7 +1280,7 @@ export function NoonPaymentClearingPage() {
                 {!isApproved && !isPosted ? (
                   <p className="npc-muted">
                     Statement is not approved yet (status: {String(preview?.status || preview?.batch?.status || '—')}).
-                    Go to <strong>Step 8</strong> and click Approve settlement.
+                    Go to <strong>Step 9</strong> and click Approve settlement.
                   </p>
                 ) : !paymentPreview ? (
                   <p className="npc-muted">
@@ -1750,124 +1776,12 @@ export function NoonPaymentClearingPage() {
               </div>
             )}
 
-            {step.id === 11 && (
+            {step.id === 12 && (
               <div className="npc-step-stack">
                 <p className="npc-muted">
-                  Phase 1: Record Payments + fee journals (below). Phase 2: Refund Credit Notes. Phase 3:
-                  return fee clearing — for each reversed commission/shipping fee, posts settlement (Dr 1066 /
-                  Cr 1067 or 1068) then automatically reverses the original expense + VAT (Dr 1067 or 1068 / Cr
-                  2143 or 2162 / Cr 1085) so uncleared accounts net to zero.
+                  Post grouped Record Payments, advertising fee journals, and uncleared→expense reclass journals.
+                  Return credit note refunds and fee reversals are in Step 13 after this post completes.
                 </p>
-                {(paymentPreview?.returns?.length ?? 0) > 0 ? (
-                  <>
-                    {returnFeePlan?.unclearedAccountProof ? (
-                      <div
-                        className={`npc-alert ${
-                          returnFeePlan.unclearedAccountProof.allUnclearedAccountsNetToZero
-                            ? 'npc-approved-panel'
-                            : 'npc-alert--error'
-                        }`}
-                      >
-                        <strong>Phase 3 clears uncleared GL balances</strong>
-                        <ul style={{ margin: '8px 0 0', paddingLeft: '1.2rem' }}>
-                          <li>
-                            1067 Commission:{' '}
-                            {returnFeePlan.unclearedAccountProof.commission1067.allNetToZero
-                              ? 'nets to zero'
-                              : 'does not net to zero'}
-                            {returnFeePlan.unclearedAccountProof.commission1067.affectedItemCount > 0
-                              ? ` (${returnFeePlan.unclearedAccountProof.commission1067.affectedItemCount} return(s) · settlement + expense/VAT reversal)`
-                              : ' (no commission reversals in this batch)'}
-                          </li>
-                          <li>
-                            1068 Shipping:{' '}
-                            {returnFeePlan.unclearedAccountProof.shipping1068.allNetToZero
-                              ? 'nets to zero'
-                              : 'does not net to zero'}
-                            {returnFeePlan.unclearedAccountProof.shipping1068.affectedItemCount > 0
-                              ? ` (${returnFeePlan.unclearedAccountProof.shipping1068.affectedItemCount} return(s) · settlement + expense/VAT reversal)`
-                              : ' (no shipping reversals in this batch)'}
-                          </li>
-                        </ul>
-                        {returnFeePlan.summary ? (
-                          <p className="npc-muted" style={{ margin: '8px 0 0' }}>
-                            {returnFeePlan.summary.settlementJournalCount ?? 0} settlement +{' '}
-                            {returnFeePlan.summary.expenseReversalJournalCount ?? 0} expense/VAT reversal journal(s)
-                            per matched return.
-                          </p>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  <div className="npc-button-row">
-                    <button
-                      type="button"
-                      className="ainv-btn"
-                      disabled={!paymentPreview || loading || Boolean(paymentPreview.summary?.returnBlocked) || !isPosted}
-                      onClick={() => onApplyCreditNotes(true)}
-                    >
-                      Dry run CN refunds
-                    </button>
-                    <button
-                      type="button"
-                      className="ainv-btn ainv-btn--danger"
-                      disabled={
-                        !paymentPreview ||
-                        loading ||
-                        Boolean(paymentPreview.summary?.returnBlocked) ||
-                        !isPosted
-                      }
-                      onClick={() => onApplyCreditNotes(false)}
-                    >
-                      Refund Credit Notes
-                    </button>
-                    <button
-                      type="button"
-                      className="ainv-btn"
-                      disabled={!paymentPreview || loading || Boolean(paymentPreview.summary?.returnBlocked) || !isPosted}
-                      onClick={() => onPostReturnFees(true)}
-                    >
-                      Dry run return fees
-                    </button>
-                    <button
-                      type="button"
-                      className="ainv-btn ainv-btn--danger"
-                      disabled={
-                        !paymentPreview ||
-                        loading ||
-                        Boolean(paymentPreview.summary?.returnBlocked) ||
-                        !isPosted
-                      }
-                      onClick={() => onPostReturnFees(false)}
-                    >
-                      Post return fee journals
-                    </button>
-                  </div>
-                  </>
-                ) : null}
-                {cnApplyResult ? (
-                  <div className="npc-alert npc-approved-panel" style={{ marginTop: 8 }}>
-                    Credit note apply: {String((cnApplyResult as { status?: string }).status || 'done')}
-                  </div>
-                ) : null}
-                {returnFeeResult ? (
-                  <div className="npc-alert npc-approved-panel" style={{ marginTop: 8 }}>
-                    Return fees: {String((returnFeeResult as { status?: string }).status || 'done')}
-                    {(() => {
-                      const summary = (returnFeeResult as { summary?: Record<string, number> }).summary
-                      if (!summary) return null
-                      const parts = [
-                        summary.settlementJournalsCreated
-                          ? `${summary.settlementJournalsCreated} settlement`
-                          : '',
-                        summary.expenseReversalJournalsCreated
-                          ? `${summary.expenseReversalJournalsCreated} expense/VAT reversal`
-                          : '',
-                        summary.journalsSkipped ? `${summary.journalsSkipped} skipped` : '',
-                      ].filter(Boolean)
-                      return parts.length ? ` (${parts.join(', ')})` : null
-                    })()}
-                  </div>
-                ) : null}
                 {paymentPreview?.unclearedReclassJournals?.length ? (
                   <div className="npc-alert npc-approved-panel">
                     <strong>This post will also clear uncleared balances into expense + VAT</strong>
@@ -1884,7 +1798,7 @@ export function NoonPaymentClearingPage() {
                 ) : (
                   <div className="npc-alert npc-alert--error">
                     No uncleared→expense reclass journals in the payment preview. Hard-refresh, then click{' '}
-                    <strong>Generate payment preview</strong> on Step 10 again.
+                    <strong>Generate payment preview</strong> on Step 11 again.
                   </div>
                 )}
                 <div className="npc-button-row">
@@ -1894,7 +1808,7 @@ export function NoonPaymentClearingPage() {
                     disabled={!paymentPreview || loading || Boolean(paymentPreview.summary?.blocked)}
                     onClick={() => onPost(true)}
                   >
-                    Dry run Phase 1 — sales & settlement journals
+                    Dry run — sales & settlement journals
                   </button>
                   <button
                     type="button"
@@ -2089,6 +2003,18 @@ export function NoonPaymentClearingPage() {
                   </div>
                 ) : null}
               </div>
+            )}
+
+            {step.id === 13 && preview && (
+              <NoonReturnClearingStep
+                preview={preview}
+                paymentPreview={paymentPreview}
+                isPosted={isPosted}
+                loading={loading}
+                onPlanChange={setReturnFeePlan}
+                onNotice={setNotice}
+                onError={setError}
+              />
             )}
 
             {!preview && step.id > 1 ? <p className="npc-muted">Upload or open a statement in step 1 first.</p> : null}

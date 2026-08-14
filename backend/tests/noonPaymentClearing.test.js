@@ -832,6 +832,82 @@ describe('Noon fee journal direction', () => {
     assert.equal(fromDbStyle[0].mappingStatus, 'mapped')
     assert.equal(fromDbStyle[0].credit.accountCode, '1066')
   })
+
+  it('maps STATEMENT_FEE lines using saved NOON_ADVERTISING_FEE mapping alias', () => {
+    const lines = buildFeeJournalPreviewLines(
+      [
+        {
+          rowNumber: 2,
+          rowClass: 'statement_fee',
+          title: 'Statement Fee',
+          total: -10,
+        },
+      ],
+      [
+        {
+          normalizedFeeType: 'NOON_ADVERTISING_FEE',
+          zohoAccountId: 'exp-1',
+          zohoAccountName: 'Advertising Expense',
+          isActive: true,
+        },
+      ],
+      NOON_INPUT_VAT,
+      { clearingAccount: { accountId: 'undep-1', accountCode: '1066', accountName: 'Noon Undeposited Funds' } }
+    )
+    assert.equal(lines[0].mappingStatus, 'mapped')
+    assert.equal(lines[0].normalizedFeeType, 'STATEMENT_FEE')
+  })
+
+  it('maps advertising when Input VAT is saved and marketplace default expense code exists', () => {
+    const lines = buildFeeJournalPreviewLines(
+      [
+        {
+          rowNumber: 1,
+          rowClass: 'statement_fee',
+          normalizedFeeType: 'NOON_ADVERTISING_FEE',
+          title: 'Advertising Fee',
+          nonOrderFees: -2009.62,
+          total: -2009.62,
+        },
+      ],
+      [],
+      NOON_INPUT_VAT,
+      { clearingAccount: { accountId: 'undep-1', accountCode: '1066', accountName: 'Noon Undeposited Funds' } }
+    )
+    assert.equal(lines[0].mappingStatus, 'mapped')
+    assert.equal(lines[0].zohoAccountCode, '2053')
+  })
+
+  it('does not treat cross-week return row 16 as a fee journal line needing expense mapping', () => {
+    const lines = buildFeeJournalPreviewLines(
+      [
+        {
+          rowNumber: 16,
+          parentOrderId: 'NAEI70013425039',
+          itemOrderId: 'NAEI70013425039-4',
+          transactionType: 'order_update',
+          rowClass: 'order_adjustment',
+          netProceed: -84,
+          referralFee: 13.23,
+          total: -70.77,
+        },
+        {
+          rowNumber: 1,
+          rowClass: 'statement_fee',
+          normalizedFeeType: 'NOON_ADVERTISING_FEE',
+          title: 'Advertising Fee',
+          nonOrderFees: -948.71,
+          total: -948.71,
+        },
+      ],
+      [],
+      NOON_INPUT_VAT,
+      { clearingAccount: { accountId: 'undep-1', accountCode: '1066', accountName: 'Noon Undeposited Funds' } }
+    )
+    assert.equal(lines.length, 1)
+    assert.equal(lines[0].mappingStatus, 'mapped')
+    assert.equal(lines[0].rowNumber, 1)
+  })
 })
 
 describe('Noon VAT-inclusive service fees', () => {
@@ -2566,6 +2642,28 @@ describe('Noon cross-week product returns (PS-11752-AE20260729 row 16)', () => {
     assert.equal(result.matchedReturns[0].status, 'blocked')
   })
 
+  it('matches CN numbered as item order id when sale invoice is outside paginated invoice list', () => {
+    const [row] = reclassifyReturnRows([returnRow])
+    const creditNotes = [
+      {
+        creditnote_id: 'cn-ret',
+        creditnote_number: 'NAEI70013425039-4',
+        invoice_id: 'inv-042491',
+        invoice_number: 'INV-042491',
+        customer_id: 'cust-noon',
+        total: 84,
+        balance: 84,
+        status: 'open',
+      },
+    ]
+    const result = matchNoonReturnRowsToCreditNotes([row], [], creditNotes)
+    assert.equal(result.matchedReturns[0].status, 'matched')
+    assert.equal(result.matchedReturns[0].zohoCreditNoteNumber, 'NAEI70013425039-4')
+    assert.equal(result.matchedReturns[0].zohoInvoiceId, 'inv-042491')
+    assert.equal(result.matchedReturns[0].zohoInvoiceNumber, 'INV-042491')
+    assert.equal(result.matchedReturns[0].productRefundAmount, 84)
+  })
+
   it('matches CN and builds refund plan for 84 when CN amount aligns', async () => {
     const [row] = reclassifyReturnRows([returnRow])
     const invoices = [
@@ -2634,6 +2732,36 @@ describe('Noon cross-week product returns (PS-11752-AE20260729 row 16)', () => {
     assert.equal(preview.summary.targetUndeposited1066, -70.77)
     assert.equal(preview.summary.undepositedPlanningDifference, 0)
     assert.equal(preview.summary.returnBlocked, false)
+    assert.equal(preview.undepositedReconciliation.nonZeroDeltas.length, 0)
+  })
+
+  it('undeposited recon classifies stored ORDER_ADJUSTMENT return rows without pre-reclassification', () => {
+    const batch = {
+      batchId: 1,
+      status: 'approved',
+      allRows: [{ ...returnRow, rowClass: ROW_CLASS.ORDER_ADJUSTMENT }],
+      matchedOrders: [],
+      unmatchedOrders: [],
+      multipleMatchItems: [],
+      reconciliationSummary: { expectedSettlement: -70.77, reconciliationStatus: 'matched' },
+      reportSnapshot: { referenceNr: 'PS-11752-AE20260729' },
+      matchedReturns: [
+        {
+          itemOrderId: 'NAEI70013425039-4',
+          status: 'matched',
+          zohoCreditNoteId: 'cn-ret',
+          zohoInvoiceId: 'inv-ret',
+        },
+      ],
+      creditNoteBlockingRows: [],
+    }
+    const preview = buildPaymentPreviewFromBatch(batch, [], NOON_INPUT_VAT)
+    const row16 = preview.undepositedReconciliation.candidateRows.find((row) => row.rowNumber === 16)
+    assert.equal(row16.classification, 'return_settlement')
+    assert.equal(row16.planned1066Contribution, -70.77)
+    assert.equal(row16.delta, 0)
+    assert.equal(preview.summary.returnPrincipal1066, -84)
+    assert.equal(preview.undepositedReconciliation.difference, 0)
     assert.equal(preview.undepositedReconciliation.nonZeroDeltas.length, 0)
   })
 
@@ -2854,6 +2982,37 @@ describe('Noon cross-week product returns (PS-11752-AE20260729 row 16)', () => {
         'return_fee_settlement:commission:NAEI70013425039-4',
         'return_fee_expense_reversal:commission:NAEI70013425039-4',
       ]
+    )
+  })
+})
+
+describe('Noon return matching refresh and approval gates', () => {
+  const { validateBatchReadyForApproval, refreshReturnMatchingForBatch } = require('../src/services/noonPaymentClearing/noonPaymentClearingService')
+  const { RETURN_BLOCK_CODES } = require('../src/services/noonPaymentClearing/noonPaymentClearingReturnService')
+
+  it('blocks approval when RETURN_CREDIT_NOTE_MISSING is in blockingIssues', () => {
+    assert.throws(
+      () =>
+        validateBatchReadyForApproval({
+          reconciliationSummary: { reconciliationStatus: 'reconciled' },
+          unmatchedOrders: [],
+          multipleMatchItems: [],
+          blockingIssues: [
+            {
+              code: RETURN_BLOCK_CODES.RETURN_CREDIT_NOTE_MISSING,
+              message: 'No Zoho Credit Note found.',
+            },
+          ],
+          reportSnapshot: { openBalanceReconcile: { checkedAt: '2026-01-01' } },
+        }),
+      (err) => err.code === RETURN_BLOCK_CODES.RETURN_CREDIT_NOTE_MISSING
+    )
+  })
+
+  it('refreshReturnMatchingForBatch rejects unknown batch id', async () => {
+    await assert.rejects(
+      () => refreshReturnMatchingForBatch(2147483640),
+      (err) => err.code === 'NOON_PAYMENT_CLEARING_BATCH_NOT_FOUND'
     )
   })
 })

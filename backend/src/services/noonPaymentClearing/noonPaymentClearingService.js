@@ -76,28 +76,22 @@ async function fetchNoonInvoiceBalancesForBatch(batch, invoiceIds = []) {
   return map
 }
 
-async function resolveAccountByCodeOrName(target) {
+function resolveAccountFromChartList(target, accounts) {
   const code = clean(target?.accountCode)
   const name = clean(target?.accountName)
   if (clean(target?.accountId)) return target
   if (!code && !name) return target || {}
-  try {
-    const { listZohoChartAccounts } = require('../amazonPaymentClearingZohoPaymentService')
-    const accounts = await listZohoChartAccounts()
-    const hit = (Array.isArray(accounts) ? accounts : []).find((a) => {
-      const aCode = clean(a.accountCode || a.account_code)
-      const aName = clean(a.accountName || a.account_name)
-      return (code && aCode === code) || (name && aName === name)
-    })
-    if (hit) {
-      return {
-        accountId: clean(hit.accountId || hit.account_id),
-        accountName: clean(hit.accountName || hit.account_name) || name,
-        accountCode: clean(hit.accountCode || hit.account_code) || code,
-      }
+  const hit = (Array.isArray(accounts) ? accounts : []).find((a) => {
+    const aCode = clean(a.accountCode || a.account_code)
+    const aName = clean(a.accountName || a.account_name)
+    return (code && aCode === code) || (name && aName === name)
+  })
+  if (hit) {
+    return {
+      accountId: clean(hit.accountId || hit.account_id),
+      accountName: clean(hit.accountName || hit.account_name) || name,
+      accountCode: clean(hit.accountCode || hit.account_code) || code,
     }
-  } catch {
-    // Preview/tests can run with codes only.
   }
   return target || {}
 }
@@ -106,12 +100,21 @@ async function loadMappingContext() {
   const mappingRules = await store.listFeeJournalMappings('AE').catch(() => [])
   const inputVatSettings = await store.getInputVatSettings('AE').catch(() => null)
   const cfg = getNoonPaymentClearingMarketplaceConfig()
-  const undeposited = await resolveAccountByCodeOrName(cfg.undepositedFundsAccount)
-  const unclearedCommission = await resolveAccountByCodeOrName(cfg.unclearedCommissionAccount)
-  const unclearedShipping = await resolveAccountByCodeOrName(cfg.unclearedShippingAccount)
-  const commissionExpense = await resolveAccountByCodeOrName(cfg.commissionExpenseAccount)
-  const shippingExpense = await resolveAccountByCodeOrName(cfg.shippingExpenseAccount)
-  const inputVatDefault = await resolveAccountByCodeOrName(cfg.inputVatAccount)
+  let chartAccounts = []
+  try {
+    const { listZohoChartAccounts } = require('../amazonPaymentClearingZohoPaymentService')
+    chartAccounts = await listZohoChartAccounts()
+  } catch {
+    // Preview/tests can run with codes only.
+  }
+  const resolveAccount = (target) => resolveAccountFromChartList(target, chartAccounts)
+  const undeposited = resolveAccount(cfg.undepositedFundsAccount)
+  const unclearedCommission = resolveAccount(cfg.unclearedCommissionAccount)
+  const unclearedShipping = resolveAccount(cfg.unclearedShippingAccount)
+  const commissionExpense = resolveAccount(cfg.commissionExpenseAccount)
+  const shippingExpense = resolveAccount(cfg.shippingExpenseAccount)
+  const advertisingExpense = resolveAccount(cfg.advertisingExpenseAccount)
+  const inputVatDefault = resolveAccount(cfg.inputVatAccount)
   const inputVatAccount = {
     ...inputVatDefault,
     ...(inputVatSettings || {}),
@@ -156,9 +159,80 @@ async function loadMappingContext() {
     unclearedCommissionAccount: unclearedCommission,
     commissionExpenseAccount: commissionExpense,
     shippingExpenseAccount: shippingExpense,
+    advertisingExpenseAccount: advertisingExpense,
     inputVatAccount,
     zohoCustomerName: cfg.zohoCustomerName,
     marketplaceConfig: cfg,
+  }
+}
+
+function mergeReturnBlockersIntoIssues(blockingIssues = [], creditNoteBlockingRows = []) {
+  const issues = [...(Array.isArray(blockingIssues) ? blockingIssues : [])].filter(
+    (issue) => !Object.values(RETURN_BLOCK_CODES).includes(issue.code)
+  )
+  for (const row of creditNoteBlockingRows || []) {
+    if (!row?.blockCode) continue
+    issues.push({
+      code: row.blockCode,
+      severity: 'block',
+      message: row.blockingReason || row.blockCode,
+      itemOrderId: row.itemOrderId,
+      rowNumber: row.rowNumber,
+    })
+  }
+  return issues
+}
+
+/** Live Zoho CN match for return rows — needs full invoice list, not matchedOrders-only. */
+async function refreshBatchReturnMatching(batch, options = {}) {
+  const allRows = batch?.allRows || []
+  const returnRows = collectReturnRows(allRows)
+  if (!returnRows.length) {
+    return {
+      matchedReturns: [],
+      creditNoteBlockingRows: [],
+      refundReturnRows: [],
+      blockingIssues: mergeReturnBlockersIntoIssues(batch?.blockingIssues || [], []),
+    }
+  }
+
+  const customerId = clean(batch.zohoCustomerId)
+  const customerName = clean(batch.zohoCustomerName)
+  let invoices = Array.isArray(options.invoices) ? options.invoices : []
+  if (!invoices.length) {
+    try {
+      const range = deriveInvoiceRange(allRows)
+      const fetched = await fetchInvoices(range.fromDate, range.toDate, customerId || null)
+      const rows = Array.isArray(fetched?.rows) ? fetched.rows : Array.isArray(fetched) ? fetched : []
+      invoices = rows.map(mapInvoice).filter((inv) => inv.zohoInvoiceId)
+    } catch (err) {
+      if (!options.allowMatchFailure) throw err
+      console.warn('[noon-payment-clearing] return match invoice fetch failed:', err?.message || err)
+      invoices = (batch.matchedOrders || [])
+        .map((order) =>
+          mapInvoice({
+            invoice_id: order.zohoInvoiceId,
+            invoice_number: order.zohoInvoiceNumber,
+            customer_id: order.zohoCustomerId || customerId,
+            customer_name: order.zohoCustomerName || customerName,
+            total: order.zohoInvoiceTotal,
+            custom_fields: [{ label: 'Order Number', value: order.itemOrderId }],
+          })
+        )
+        .filter((inv) => inv.zohoInvoiceId)
+    }
+  }
+
+  const returnMatch = await matchNoonReturnsForRows(allRows, {
+    invoices,
+    customerId,
+    customerName,
+  })
+  return {
+    matchedReturns: returnMatch.matchedReturns || [],
+    creditNoteBlockingRows: returnMatch.creditNoteBlockingRows || [],
+    refundReturnRows: returnMatch.refundReturnRows || [],
+    blockingIssues: mergeReturnBlockersIntoIssues(batch?.blockingIssues || [], returnMatch.creditNoteBlockingRows),
   }
 }
 
@@ -178,19 +252,10 @@ async function enrichPreviewWithReturnMatching(preview, matchResult, options = {
       customerId: preview.zohoCustomerId || matchResult?.zohoCustomerId,
       customerName: preview.zohoCustomerName || matchResult?.zohoCustomerName,
     })
-    const blockingIssues = [...(preview.blockingIssues || [])].filter(
-      (issue) => !Object.values(RETURN_BLOCK_CODES).includes(issue.code)
+    const blockingIssues = mergeReturnBlockersIntoIssues(
+      preview.blockingIssues,
+      returnMatch.creditNoteBlockingRows
     )
-    for (const row of returnMatch.creditNoteBlockingRows || []) {
-      if (!row?.blockCode) continue
-      blockingIssues.push({
-        code: row.blockCode,
-        severity: 'block',
-        message: row.blockingReason || row.blockCode,
-        itemOrderId: row.itemOrderId,
-        rowNumber: row.rowNumber,
-      })
-    }
     const hasReturnBlockers = (returnMatch.creditNoteBlockingRows || []).some((row) => row.blockCode)
     return {
       ...preview,
@@ -267,27 +332,25 @@ async function buildPreviewFromUpload(buffer, fileName, options = {}) {
   })
 
   const batch = await store.savePreviewBatch(enrichedPreview, options.createdBy)
-  // Early open-balance check (before approve / payment preview).
-  try {
-    await reconcileOpenBalances(batch.batchId)
-  } catch (err) {
-    console.warn('[noon-payment-clearing] open balance reconcile after upload failed:', err?.message || err)
-  }
+  // Open-balance reconcile runs in Step 6 — keep upload jobs fast (no second Zoho sweep).
   return getBatchPreview(batch.batchId)
 }
 
 async function getBatchPreview(batchId) {
-  const batch = await store.getBatchById(batchId)
+  let batch = await store.getBatchById(batchId)
   if (!batch) {
     const err = new Error('Noon payment clearing batch not found.')
     err.code = 'NOON_PAYMENT_CLEARING_BATCH_NOT_FOUND'
     err.status = 404
     throw err
   }
-  const { mappingRules, settlementBridgeAccount, inputVatAccount, marketplaceConfig } =
+  const { mappingRules, settlementBridgeAccount, inputVatAccount, marketplaceConfig, advertisingExpenseAccount } =
     await loadMappingContext()
   // Rebuild fee journals live so mapping / VAT / Amazon-style clearing counters apply.
-  const feeJournalLines = buildFeeJournalPreviewLines(batch.allRows || [], mappingRules, inputVatAccount)
+  const feeJournalLines = buildFeeJournalPreviewLines(batch.allRows || [], mappingRules, inputVatAccount, {
+    clearingAccount: settlementBridgeAccount,
+    advertisingExpenseAccount,
+  })
   const feeJournalVatSummary = summarizeFeeJournalVat(feeJournalLines)
   const batchWithExclusions = reapplyExcludedInvoices(batch)
   const openBalanceShortfalls = getActiveOpenBalanceShortfalls(batchWithExclusions)
@@ -842,7 +905,7 @@ function validateBatchReadyForApproval(batch) {
         `${shortfalls[0].zohoInvoiceNumber || shortfalls[0].itemOrderId}: clearing ${shortfalls[0].totalClearingAmount} > open balance ${shortfalls[0].openBalance}`) ||
       ''
     const err = new Error(
-      `Approval blocked: ${shortfalls.length} invoice(s) lack open Zoho balance. Go to Step 6 and exclude already-paid logistics (or void Zoho payments). ${sample}`
+      `Approval blocked: ${shortfalls.length} invoice(s) lack open Zoho balance. Go to Step 7 and exclude already-paid logistics (or void Zoho payments). ${sample}`
     )
     err.code = 'NOON_PAYMENT_CLEARING_OPEN_BALANCE_SHORT'
     err.status = 422
@@ -981,12 +1044,19 @@ async function generatePaymentPreview(batchId, createdBy) {
     batch = (await store.getBatchById(batch.batchId)) || batch
     batch = reapplyExcludedInvoices(batch)
   }
+  const returnMatch = await refreshBatchReturnMatching(batch)
+  batch = await store.updateBatchReturnMatching(batch.batchId, returnMatch)
+  batch = batch || (await store.getBatchById(batchId))
+  batch = reapplyExcludedInvoices(batch)
+
   const ctx = await loadMappingContext()
   const paymentPreview = buildPaymentPreviewFromBatch(batch, ctx.mappingRules, ctx.inputVatAccount, {
     commissionExpenseAccount: ctx.commissionExpenseAccount,
     shippingExpenseAccount: ctx.shippingExpenseAccount,
     unclearedCommissionAccount: ctx.unclearedCommissionAccount,
     unclearedShippingAccount: ctx.unclearedShippingAccount,
+    undepositedFundsAccount: ctx.settlementBridgeAccount,
+    advertisingExpenseAccount: ctx.advertisingExpenseAccount,
     inputVatAccount: ctx.inputVatAccount,
     paymentPreviewAccounts: ctx.marketplaceConfig?.paymentPreviewAccounts,
     vatRate: ctx.inputVatAccount?.vatRate,
@@ -1064,7 +1134,7 @@ async function applyCreditNotesForBatchId(batchId, options = {}) {
     throw err
   }
   if (options.dryRun === false && batch.status !== 'posted' && !batch.postedToZoho) {
-    const err = new Error('Credit note apply requires sales payments to be posted first (Step 11 phase 1).')
+    const err = new Error('Credit note apply requires sales payments to be posted first (Step 12).')
     err.code = 'NOON_PAYMENT_CLEARING_SALES_NOT_POSTED'
     err.status = 422
     throw err
@@ -1109,6 +1179,19 @@ async function postReturnFeeJournalsForBatchId(batchId, options = {}) {
   })
 }
 
+async function refreshReturnMatchingForBatch(batchId) {
+  let batch = await store.getBatchById(batchId)
+  if (!batch) {
+    const err = new Error('Noon payment clearing batch not found.')
+    err.code = 'NOON_PAYMENT_CLEARING_BATCH_NOT_FOUND'
+    err.status = 404
+    throw err
+  }
+  const returnMatch = await refreshBatchReturnMatching(batch, { allowMatchFailure: false })
+  await store.updateBatchReturnMatching(batch.batchId, returnMatch)
+  return getBatchPreview(batchId)
+}
+
 module.exports = {
   buildPreviewFromUpload,
   getBatchPreview,
@@ -1123,6 +1206,7 @@ module.exports = {
   applyCreditNotesForBatchId,
   getReturnFeePlanForBatch,
   postReturnFeeJournalsForBatchId,
+  refreshReturnMatchingForBatch,
   listSavedBatches: store.listSavedBatches,
   listFeeJournalMappings: store.listFeeJournalMappings,
   saveFeeJournalMapping: store.saveFeeJournalMapping,

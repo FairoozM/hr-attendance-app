@@ -664,6 +664,28 @@ async function updateBatchParentAssignments(batchId, patch = {}) {
   return mapBatch(result.rows[0])
 }
 
+async function updateBatchReturnMatching(batchId, patch = {}) {
+  await ensureNoonPaymentClearingTables()
+  const result = await query(
+    `UPDATE noon_payment_clearing_batches
+     SET matched_returns = COALESCE($2::jsonb, matched_returns),
+         credit_note_blocking_rows = COALESCE($3::jsonb, credit_note_blocking_rows),
+         refund_return_rows = COALESCE($4::jsonb, refund_return_rows),
+         blocking_issues = COALESCE($5::jsonb, blocking_issues),
+         updated_at = NOW()
+     WHERE id = $1
+     RETURNING *`,
+    [
+      batchId,
+      patch.matchedReturns != null ? JSON.stringify(patch.matchedReturns) : null,
+      patch.creditNoteBlockingRows != null ? JSON.stringify(patch.creditNoteBlockingRows) : null,
+      patch.refundReturnRows != null ? JSON.stringify(patch.refundReturnRows) : null,
+      patch.blockingIssues != null ? JSON.stringify(patch.blockingIssues) : null,
+    ]
+  )
+  return mapBatch(result.rows[0])
+}
+
 async function updateBatchOpenBalanceReconcile(batchId, patch = {}) {
   await ensureNoonPaymentClearingTables()
   const batch = await getBatchById(batchId)
@@ -749,6 +771,21 @@ async function listFeeJournalMappings(marketplace = 'AE', { includeInactive = fa
 }
 
 async function saveFeeJournalMapping(mapping, userId = null) {
+  await ensureNoonPaymentClearingTables()
+  const saved = await upsertFeeJournalMappingRow(mapping, userId)
+  const normalizedFeeType = String(mapping.normalizedFeeType || saved?.normalizedFeeType || '').trim().toUpperCase()
+  const aliasGroups = [['NOON_ADVERTISING_FEE', 'ADVERTISING', 'STATEMENT_FEE']]
+  for (const group of aliasGroups) {
+    if (!group.includes(normalizedFeeType)) continue
+    for (const alias of group) {
+      if (alias === normalizedFeeType) continue
+      await upsertFeeJournalMappingRow({ ...mapping, id: undefined, normalizedFeeType: alias }, userId)
+    }
+  }
+  return saved
+}
+
+async function upsertFeeJournalMappingRow(mapping, userId = null) {
   await ensureNoonPaymentClearingTables()
   const marketplace = mapping.marketplace || 'AE'
   const normalizedFeeType = String(mapping.normalizedFeeType || '').trim()
@@ -1085,6 +1122,7 @@ module.exports = {
   markBatchPosted,
   resetBatchToApprovedForRepost,
   updateBatchParentAssignments,
+  updateBatchReturnMatching,
   updateBatchOpenBalanceReconcile,
   savePaymentPreview,
   getLatestPaymentPreviewForBatch,

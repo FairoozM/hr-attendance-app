@@ -354,6 +354,15 @@ async function postReturnFeeJournals(req, res) {
   }
 }
 
+async function postRefreshReturnMatching(req, res) {
+  try {
+    const preview = await service.refreshReturnMatchingForBatch(req.params.id)
+    return res.json({ success: true, ...preview })
+  } catch (err) {
+    return sendError(res, err)
+  }
+}
+
 async function getZohoChartAccounts(req, res) {
   try {
     const accounts = await listZohoChartAccounts()
@@ -387,4 +396,5 @@ module.exports = {
   postApplyCreditNotes,
   getReturnFeePlan,
   postReturnFeeJournals,
+  postRefreshReturnMatching,
 }

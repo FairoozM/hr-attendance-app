@@ -232,8 +232,13 @@ function reclassifyExplainableOtherRows(rows) {
 
 function feeMappingTypeCandidates(feeType) {
   const t = clean(feeType)
-  if (t === NORMALIZED_FEE_TYPE.NOON_ADVERTISING_FEE || t === NORMALIZED_FEE_TYPE.ADVERTISING) {
-    return [NORMALIZED_FEE_TYPE.NOON_ADVERTISING_FEE, NORMALIZED_FEE_TYPE.ADVERTISING]
+  const advertisingGroup = [
+    NORMALIZED_FEE_TYPE.NOON_ADVERTISING_FEE,
+    NORMALIZED_FEE_TYPE.ADVERTISING,
+    NORMALIZED_FEE_TYPE.STATEMENT_FEE,
+  ]
+  if (advertisingGroup.includes(t)) {
+    return advertisingGroup
   }
   return [t]
 }
@@ -273,6 +278,10 @@ function isSettlementFeeJournalRow(row) {
   if (!row) return false
   const rowClass = row.rowClass || classifyNoonStatementRow(row)
   if (rowClass === ROW_CLASS.RETURN) return false
+  const itemOrderId = clean(row.itemOrderId)
+  if (itemOrderId && itemOrderId.includes('-') && num(row.netProceed) <= -0.01) {
+    return false
+  }
   if (rowClass === ROW_CLASS.STATEMENT_FEE) return true
   if (rowClass === ROW_CLASS.PARENT_ORDER_CHARGE) return false
   if (rowClass === ROW_CLASS.ORDER_ADJUSTMENT) {

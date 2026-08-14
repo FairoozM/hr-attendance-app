@@ -493,7 +493,11 @@ export async function fetchNoonPaymentClearingBatch(batchId: string | number) {
   return unwrap(data)
 }
 
-export async function previewNoonStatementUpload(file: File, zohoCustomerName: string) {
+export async function previewNoonStatementUpload(
+  file: File,
+  zohoCustomerName: string,
+  options: { onProgress?: (step: string) => void } = {}
+) {
   const form = new FormData()
   form.append('file', file)
   form.append('zohoCustomerName', zohoCustomerName)
@@ -521,6 +525,10 @@ export async function previewNoonStatementUpload(file: File, zohoCustomerName: s
       progress?: { step?: string; current?: number; total?: number }
       result?: NoonPaymentClearingPreview
     }>(`${BASE}/preview-upload/jobs/${encodeURIComponent(started.jobId)}`, longOpts)
+
+    if (job.progress?.step) {
+      options.onProgress?.(job.progress.step)
+    }
 
     if (job.status === 'completed' && job.result) {
       return unwrap({ success: true, ...job.result })
@@ -704,6 +712,15 @@ export async function applyNoonCreditNotes(batchId: string | number, dryRun = tr
 export async function fetchNoonReturnFeePlan(batchId: string | number) {
   const data = await api.get<NoonReturnFeePlan & { success: boolean }>(
     `${BASE}/batches/${batchId}/return-fee-plan`
+  )
+  return unwrap(data)
+}
+
+export async function refreshNoonReturnMatching(batchId: string | number) {
+  const data = await api.post<{ success: boolean } & NoonPaymentClearingPreview>(
+    `${BASE}/batches/${batchId}/refresh-return-matching`,
+    {},
+    longOpts
   )
   return unwrap(data)
 }

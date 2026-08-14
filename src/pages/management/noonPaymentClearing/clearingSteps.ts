@@ -34,50 +34,64 @@ export const CLEARING_STEPS: ClearingStep[] = [
   },
   {
     id: 5,
+    key: 'returns',
+    title: 'Reconcile Sales Returns',
+    description:
+      'Match Noon sales return rows to Zoho Credit Notes by item order ID. Blockers here must be resolved before approval.',
+  },
+  {
+    id: 6,
     key: 'adjustments',
     title: 'Noon Adjustments',
     description: 'order_update and fee-only adjustments associated with parent/item orders when possible.',
   },
   {
-    id: 6,
+    id: 7,
     key: 'parent-charges',
     title: 'Parent Charges & Open Balance',
     description:
       'Parent logistics assigned to child/Zoho invoices. Check live Zoho open balance here and exclude already-paid logistics before approve.',
   },
   {
-    id: 7,
+    id: 8,
     key: 'reconcile',
     title: 'Statement Reconciliation',
     description: 'All statement financial rows must equal the Noon settlement total within tolerance.',
   },
   {
-    id: 8,
+    id: 9,
     key: 'approve',
     title: 'Approve Settlement',
     description:
       'No Zoho writes before approval. Missing fee-account mapping does not block this step — map those in the next step.',
   },
   {
-    id: 9,
+    id: 10,
     key: 'fee-journals',
     title: 'Noon Fee Journal Mapping',
     description:
       'Statement fees only (e.g. Advertising): pick expense after VAT + Input VAT. Commission and shipping clear via invoice payments to uncleared — expense reclass is later.',
   },
   {
-    id: 10,
+    id: 11,
     key: 'preview',
     title: 'Payment Preview',
     description:
       'Each invoice splits into Net (1066), Commission (1067), and Shipping/Fulfillment (1068). Statement fee journals shown separately.',
   },
   {
-    id: 11,
+    id: 12,
     key: 'post',
     title: 'Post to Zoho',
     description:
       'Dry run, then post grouped Record Payments, advertising fee journals, and uncleared→expense reclass journals (commission 1067→2143, shipping 1068→2162, + Input VAT).',
+  },
+  {
+    id: 13,
+    key: 'return-clearing',
+    title: 'Return Refunds & Fee Reversals',
+    description:
+      'After sales payments are posted: refund matched Credit Notes to Undeposited (1066), then post return fee clearing journals (settlement + commission/shipping expense + VAT reversal).',
   },
 ]
 

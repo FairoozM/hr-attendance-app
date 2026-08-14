@@ -5,6 +5,7 @@ const {
   clean,
   displayLabelForFeeRow,
   accountingTreatmentForFeeRow,
+  normalizeNoonFeeType,
   reclassifyExplainableOtherRows,
   feeMappingTypeCandidates,
   isSettlementFeeJournalRow,
@@ -28,13 +29,15 @@ const {
   getNoonFeeJournalCounterAccount,
 } = require('./noonPaymentClearingMarketplaceConfig')
 const {
+  reclassifyReturnRows,
+  isNoonReturnRow,
+  RETURN_BLOCK_CODES,
+} = require('./noonPaymentClearingReturnService')
+const { buildSaleParentOrderIdSet } = require('./noonPaymentClearingSettlementAdjustmentService')
+const {
   DEFAULT_VAT_RATE,
   extractVatFromNoonRow,
 } = require('./noonPaymentClearingVatService')
-const {
-  reclassifyReturnRows,
-  RETURN_BLOCK_CODES,
-} = require('./noonPaymentClearingReturnService')
 
 function buildBlockingIssues({ annotatedRows, unmatchedOrders, multipleMatchItems, reconciliation }) {
   const issues = []
@@ -137,33 +140,56 @@ function resolveClearingForFeeType(feeType) {
   return normalizeGlAccount(getNoonFeeJournalCounterAccount(feeType))
 }
 
-function buildFeeJournalPreviewLines(rows, mappingRules = [], inputVatAccount = null) {
+function buildFeeJournalPreviewLines(rows, mappingRules = [], inputVatAccount = null, options = {}) {
   const cfg = getNoonPaymentClearingMarketplaceConfig()
   const vatAcct = normalizeInputVatAccount(inputVatAccount, cfg.vatRate || DEFAULT_VAT_RATE)
+  const clearingOverride = options.clearingAccount ? normalizeGlAccount(options.clearingAccount) : null
+  const saleParentSet = buildSaleParentOrderIdSet(rows)
+  const classifiedRows = reclassifyReturnRows(rows, saleParentSet)
   // Amazon KSA parallel: order-linked commission/shipping stay on uncleared via
   // Record Payments. Settlement fee journals are statement-level (advertising) only.
-  const journalRows = (Array.isArray(rows) ? rows : []).filter((row) => isSettlementFeeJournalRow(row))
+  const journalRows = (Array.isArray(classifiedRows) ? classifiedRows : []).filter(
+    (row) => isSettlementFeeJournalRow(row) && !isNoonReturnRow(row)
+  )
+  const defaultAdvertisingExpense = normalizeGlAccount(
+    options.advertisingExpenseAccount || cfg.advertisingExpenseAccount,
+    'Noon Advertising Exp'
+  )
+  const inputVatConfigured = Boolean(clean(vatAcct.accountId) || clean(vatAcct.accountCode))
   return journalRows.map((row, idx) => {
-    const feeType = row.normalizedFeeType || 'OTHER'
+    const feeType = row.normalizedFeeType || normalizeNoonFeeType(row) || 'OTHER'
     const rule = findFeeMappingRule(mappingRules, feeType)
     const signedAmount = round2(num(row.total))
     const vatBreakdown = extractVatFromNoonRow(row, { vatRate: vatAcct.vatRate })
     const displayLabel = row.displayLabel || displayLabelForFeeRow(row)
     const isAdvertising =
       feeType === 'NOON_ADVERTISING_FEE' || feeType === 'ADVERTISING' || /advertis/i.test(displayLabel)
+    const useMarketplaceExpenseDefaults = inputVatConfigured
     const originalParentOrderId = clean(row.originalParentOrderId || row.parentOrderId)
     const assignedItemOrderId = clean(row.assignedItemOrderId)
     const assignmentReason = clean(row.assignmentReason)
     const suggestion = (cfg.feeJournalAccountSuggestions || []).find(
       (s) => clean(s.normalizedFeeType) === clean(feeType)
     )
-    const feeAccountId = clean(rule?.zohoAccountId || rule?.debitAccountId)
+    const feeAccountId = clean(
+      rule?.zohoAccountId ||
+        rule?.debitAccountId ||
+        (useMarketplaceExpenseDefaults ? defaultAdvertisingExpense.accountId : '')
+    )
     const feeAccountName =
-      clean(rule?.zohoAccountName || rule?.debitAccountName) || clean(suggestion?.zohoAccountName)
-    const feeAccountCode = clean(rule?.zohoAccountCode || rule?.debitAccountCode || suggestion?.zohoAccountCode)
+      clean(rule?.zohoAccountName || rule?.debitAccountName) ||
+      clean(suggestion?.zohoAccountName) ||
+      (useMarketplaceExpenseDefaults ? defaultAdvertisingExpense.accountName : '')
+    const feeAccountCode = clean(
+      rule?.zohoAccountCode ||
+        rule?.debitAccountCode ||
+        (useMarketplaceExpenseDefaults
+          ? suggestion?.zohoAccountCode || defaultAdvertisingExpense.accountCode
+          : '')
+    )
     // Always merge marketplace clearing (1066 etc.) — saved mappings often store credit
     // name only with empty id/code, which previously wiped accountCode and forced remapping.
-    const defaultClearing = resolveClearingForFeeType(feeType)
+    const defaultClearing = clearingOverride || resolveClearingForFeeType(feeType)
     const clearing = normalizeGlAccount(
       {
         accountId: rule?.creditAccountId || defaultClearing.accountId,
@@ -176,8 +202,7 @@ function buildFeeJournalPreviewLines(rows, mappingRules = [], inputVatAccount = 
     const mapped = isNoonFeeMappingComplete(feeAccountId, clearing.accountId, {
       vatAmount: vatBreakdown.vatAmount,
       inputVatAccountId: vatAcct.accountId,
-      // Only treat fee as mapped when user saved an account id (or explicit rule code) — not suggestion alone.
-      feeAccountCode: clean(rule?.zohoAccountCode || rule?.debitAccountCode),
+      feeAccountCode,
       clearingAccountCode: clearing.accountCode,
       inputVatAccountCode: vatAcct.accountCode,
     })

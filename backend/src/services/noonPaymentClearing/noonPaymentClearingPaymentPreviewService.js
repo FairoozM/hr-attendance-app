@@ -27,6 +27,7 @@ const {
 const {
   collectReturnRows,
   buildNoonReturnFeeBreakdown,
+  reclassifyReturnRows,
 } = require('./noonPaymentClearingReturnService')
 const { summarizeReturnFeeReversals } = require('./noonPaymentClearingReturnFeeService')
 
@@ -741,7 +742,9 @@ function summarizeShippingBreakup(invoicePayments = []) {
 function buildPaymentPreviewFromBatch(batch, mappingRules = [], inputVatAccount = null, accountOverrides = {}) {
   requireBatchForPaymentPreview(batch)
   const cfg = getNoonPaymentClearingMarketplaceConfig()
-  const allRows = batch.allRows || []
+  const rawRows = batch.allRows || []
+  const saleParentSetForReturns = buildSaleParentOrderIdSet(rawRows)
+  const allRows = reclassifyReturnRows(rawRows, saleParentSetForReturns)
   const planExclusions = collectPlanExclusions(batch)
   const metadata = batch.reportSnapshot || batch.metadata || {}
   const settlementAdjustmentJournal = buildSettlementAdjustmentJournal(
@@ -763,7 +766,12 @@ function buildPaymentPreviewFromBatch(batch, mappingRules = [], inputVatAccount 
   const feeJournalLines = buildFeeJournalPreviewLines(
     allRows,
     mappingRules,
-    inputVatAccount || batch.inputVatAccount || accountOverrides.inputVatAccount || null
+    inputVatAccount || batch.inputVatAccount || accountOverrides.inputVatAccount || null,
+    {
+      clearingAccount:
+        accountOverrides.undepositedFundsAccount || accountOverrides.settlementBridgeAccount || null,
+      advertisingExpenseAccount: accountOverrides.advertisingExpenseAccount || null,
+    }
   )
   const foldedUnclearedCharges = buildFoldedUnclearedChargeSummaries(allRows, planExclusions)
   const parentChargeLines = foldedUnclearedCharges.filter((l) => l.rowClass === ROW_CLASS.PARENT_ORDER_CHARGE)
@@ -840,7 +848,16 @@ function buildPaymentPreviewFromBatch(batch, mappingRules = [], inputVatAccount 
   const returnPrincipal1066 = round2(
     matchedReturns
       .filter((row) => row.status === 'matched')
-      .reduce((sum, row) => sum - num(row.productRefundAmount), 0)
+      .reduce((sum, row) => {
+        let productRefundAmount = num(row.productRefundAmount)
+        if (Math.abs(productRefundAmount) < 0.01) {
+          const returnRow = returnRows.find((r) => clean(r.itemOrderId) === clean(row.itemOrderId))
+          if (returnRow) {
+            productRefundAmount = buildNoonReturnFeeBreakdown(returnRow).productRefundAmount
+          }
+        }
+        return sum - productRefundAmount
+      }, 0)
   )
   const returnFeeReversal1066 = round2(
     returnFeeReversals.reduce((sum, row) => sum + num(row.commissionReversalGross), 0)

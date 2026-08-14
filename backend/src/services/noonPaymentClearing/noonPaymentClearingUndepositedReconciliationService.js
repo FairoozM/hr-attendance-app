@@ -6,7 +6,7 @@ const {
   isZeroSaleCrossWeekLogisticsSettlementRow,
   collectSettlementAdjustmentSourceRows,
 } = require('./noonPaymentClearingSettlementAdjustmentService')
-const { buildNoonReturnFeeBreakdown } = require('./noonPaymentClearingReturnService')
+const { buildNoonReturnFeeBreakdown, reclassifyReturnRows } = require('./noonPaymentClearingReturnService')
 
 function signedParentRowFulfillment(row) {
   if (Math.abs(num(row.total)) >= 0.01) {
@@ -219,9 +219,10 @@ function filterActionableNonZeroDeltas(candidateRows = []) {
 }
 
 function buildUndepositedReconciliation(batch, preview, planExclusions = null) {
-  const allRows = batch?.allRows || []
+  const rawRows = batch?.allRows || []
   const metadata = batch?.reportSnapshot || batch?.metadata || {}
-  const saleParentSet = buildSaleParentOrderIdSet(allRows)
+  const saleParentSet = buildSaleParentOrderIdSet(rawRows)
+  const allRows = reclassifyReturnRows(rawRows, saleParentSet)
   const adjSources = collectSettlementAdjustmentSourceRows(allRows, planExclusions)
   const adjSourceByRow = new Map(
     (preview?.settlementAdjustmentJournal?.sourceLines || []).map((line) => [line.rowNumber, line])

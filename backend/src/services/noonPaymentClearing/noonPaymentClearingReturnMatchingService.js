@@ -1,4 +1,4 @@
-const { fetchCreditNotes } = require('../../integrations/zoho/zohoBooksClient')
+const { fetchCreditNotes, fetchInvoicesByIds } = require('../../integrations/zoho/zohoBooksClient')
 const {
   mapInvoice,
   findExactInvoiceMatches,
@@ -92,6 +92,126 @@ function creditNoteMatchesInvoiceOrOrder(creditNote, invoice, itemOrderId) {
   return needles.some((needle) => refs.some((ref) => ref === needle || ref.includes(needle) || needle.includes(ref)))
 }
 
+function findCreditNotesForItemOrderId(creditNotes, itemOrderId) {
+  const key = matchKey(itemOrderId)
+  if (!key) return []
+  return (Array.isArray(creditNotes) ? creditNotes : []).filter(
+    (cn) => matchKey(creditNoteNumber(cn)) === key
+  )
+}
+
+function normalizeMappedInvoice(invoice) {
+  if (!invoice) return null
+  return invoice.zohoInvoiceId && Array.isArray(invoice.matchKeys) ? invoice : mapInvoice(invoice.raw || invoice)
+}
+
+function resolveInvoiceForCreditNote(cnRaw, invoices, byInvoiceNumber) {
+  const cn = mapCreditNote(cnRaw)
+  const list = Array.isArray(invoices) ? invoices : []
+  for (const invId of cn.invoiceIds) {
+    const hit = list.find((inv) => matchKey(normalizeMappedInvoice(inv)?.zohoInvoiceId) === matchKey(invId))
+    if (hit) return normalizeMappedInvoice(hit)
+  }
+  const raw = cn.raw || cnRaw || {}
+  const linkedNumber = clean(
+    raw.invoice_number ||
+      raw.invoice?.invoice_number ||
+      raw.linked_invoice_number ||
+      (Array.isArray(raw.invoices) ? raw.invoices[0]?.invoice_number : '')
+  )
+  if (linkedNumber) {
+    const hits = (byInvoiceNumber.get(matchKey(linkedNumber)) || []).filter(
+      (inv) => matchKey(inv.zohoInvoiceNumber) === matchKey(linkedNumber)
+    )
+    if (hits.length === 1) return hits[0]
+  }
+  if (cn.invoiceIds.length === 1) {
+    return {
+      zohoInvoiceId: cn.invoiceIds[0],
+      zohoInvoiceNumber: linkedNumber,
+      zohoPoNumber: '',
+      zohoOrderNumber: '',
+      matchKeys: [],
+      zohoCustomerId: cn.zohoCustomerId,
+      zohoCustomerName: cn.zohoCustomerName,
+      zohoInvoiceTotal: Math.abs(round2(cn.amount)),
+      balance: Math.abs(round2(cn.balance)),
+      raw,
+    }
+  }
+  return null
+}
+
+function buildMatchedReturnFromCreditNote(base, invoice, creditNote, productRefundAmount) {
+  const creditNoteAmount = Math.abs(round2(creditNote.amount))
+  const creditNoteDifference = round2(creditNoteAmount - productRefundAmount)
+  const invoiceTotal = Math.abs(round2(invoice?.zohoInvoiceTotal))
+  const itemKey = matchKey(base.itemOrderId)
+  const matchesOrderLinkedCn =
+    itemKey &&
+    matchKey(creditNote.zohoCreditNoteNumber) === itemKey &&
+    invoiceTotal > 0 &&
+    Math.abs(creditNoteAmount - invoiceTotal) <= TOLERANCE
+  const matchesInvoiceTotal = invoiceTotal > 0 && Math.abs(creditNoteAmount - invoiceTotal) <= TOLERANCE
+  const matchesPrincipal = Math.abs(creditNoteDifference) <= TOLERANCE
+  const isMatched = matchesPrincipal || matchesInvoiceTotal || matchesOrderLinkedCn
+  const invoiceFields = invoice
+    ? {
+        zohoInvoiceId: invoice.zohoInvoiceId,
+        zohoInvoiceNumber: invoice.zohoInvoiceNumber,
+        zohoPoNumber: invoice.zohoPoNumber,
+        zohoCustomerId: invoice.zohoCustomerId,
+        zohoCustomerName: invoice.zohoCustomerName,
+        zohoInvoiceTotal: invoice.zohoInvoiceTotal,
+        matchType: 'order_number',
+      }
+    : {}
+
+  const out = {
+    ...base,
+    ...invoiceFields,
+    zohoCreditNoteId: creditNote.zohoCreditNoteId,
+    zohoCreditNoteNumber: creditNote.zohoCreditNoteNumber,
+    creditNoteAmount,
+    creditNoteBalance: Math.abs(round2(creditNote.balance)),
+    creditNoteStatus: creditNote.status,
+    creditNoteDifference,
+    creditNoteAction: isMatched ? 'matched_existing' : 'blocked',
+    status: isMatched ? 'matched' : 'blocked',
+    blockCode: isMatched ? '' : RETURN_BLOCK_CODES.RETURN_CREDIT_NOTE_AMOUNT_MISMATCH,
+    blockingReason: isMatched
+      ? ''
+      : `Credit Note amount ${creditNoteAmount} differs from product refund ${productRefundAmount}.`,
+  }
+  if (!isMatched) out.creditNoteAction = 'blocked'
+  return { out, isMatched }
+}
+
+async function hydrateInvoicesForReturnRows(returnRows, creditNotes, invoices = []) {
+  const byId = new Map()
+  for (const inv of invoices) {
+    const mapped = normalizeMappedInvoice(inv)
+    if (mapped?.zohoInvoiceId) byId.set(matchKey(mapped.zohoInvoiceId), mapped)
+  }
+  const missing = new Set()
+  for (const row of returnRows) {
+    const itemOrderId = itemOrderIdForRow(row)
+    for (const cnRaw of findCreditNotesForItemOrderId(creditNotes, itemOrderId)) {
+      for (const invId of mapCreditNote(cnRaw).invoiceIds) {
+        if (!byId.has(matchKey(invId))) missing.add(clean(invId))
+      }
+    }
+  }
+  if (missing.size) {
+    const fetched = await fetchInvoicesByIds([...missing], { concurrency: 5, retries: 2 })
+    for (const [, raw] of fetched) {
+      const mapped = mapInvoice(raw)
+      if (mapped.zohoInvoiceId) byId.set(matchKey(mapped.zohoInvoiceId), mapped)
+    }
+  }
+  return [...byId.values()]
+}
+
 function blockedReturnRow(base, code, reason, extra = {}) {
   return {
     ...base,
@@ -160,6 +280,37 @@ function matchNoonReturnRowsToCreditNotes(returnRows, invoices, creditNotes) {
       continue
     }
 
+    const cnByItemOrder = findCreditNotesForItemOrderId(creditNotes, itemOrderId)
+    if (cnByItemOrder.length > 1) {
+      const blocked = blockedReturnRow(
+        base,
+        RETURN_BLOCK_CODES.RETURN_CREDIT_NOTE_MULTIPLE_MATCHES,
+        `Multiple Zoho Credit Notes match item order ${itemOrderId}.`,
+        {
+          candidateCreditNoteNumbers: cnByItemOrder
+            .map((cn) => creditNoteNumber(cn))
+            .filter(Boolean),
+        }
+      )
+      creditNoteBlockingRows.push(blocked)
+      matchedReturns.push(blocked)
+      continue
+    }
+
+    if (cnByItemOrder.length === 1) {
+      const mappedCn = mapCreditNote(cnByItemOrder[0])
+      const invoice = resolveInvoiceForCreditNote(cnByItemOrder[0], invoices, byInvoiceNumber)
+      const { out, isMatched } = buildMatchedReturnFromCreditNote(
+        base,
+        invoice,
+        mappedCn,
+        productRefundAmount
+      )
+      matchedReturns.push(out)
+      if (!isMatched) creditNoteBlockingRows.push(out)
+      continue
+    }
+
     const { matches } = findExactInvoiceMatches(itemOrderId, byOrderRef, byInvoiceNumber)
     if (matches.length === 0) {
       const blocked = blockedReturnRow(
@@ -224,41 +375,14 @@ function matchNoonReturnRowsToCreditNotes(returnRows, invoices, creditNotes) {
     }
 
     const creditNote = mappedCns[0]
-    const creditNoteAmount = Math.abs(round2(creditNote.amount))
-    const creditNoteDifference = round2(creditNoteAmount - productRefundAmount)
-    const invoiceTotal = Math.abs(round2(invoice.zohoInvoiceTotal))
-    const itemKey = matchKey(itemOrderId)
-    const matchesOrderLinkedCn =
-      itemKey &&
-      matchKey(creditNote.zohoCreditNoteNumber) === itemKey &&
-      invoiceTotal > 0 &&
-      Math.abs(creditNoteAmount - invoiceTotal) <= TOLERANCE
-    const matchesInvoiceTotal =
-      invoiceTotal > 0 && Math.abs(creditNoteAmount - invoiceTotal) <= TOLERANCE
-    const matchesPrincipal = Math.abs(creditNoteDifference) <= TOLERANCE
-    const isMatched = matchesPrincipal || matchesInvoiceTotal || matchesOrderLinkedCn
-
-    const out = {
-      ...base,
-      ...invoiceFields,
-      zohoCreditNoteId: creditNote.zohoCreditNoteId,
-      zohoCreditNoteNumber: creditNote.zohoCreditNoteNumber,
-      creditNoteAmount,
-      creditNoteBalance: Math.abs(round2(creditNote.balance)),
-      creditNoteStatus: creditNote.status,
-      creditNoteDifference,
-      creditNoteAction: isMatched ? 'matched_existing' : 'blocked',
-      status: isMatched ? 'matched' : 'blocked',
-      blockCode: isMatched ? '' : RETURN_BLOCK_CODES.RETURN_CREDIT_NOTE_AMOUNT_MISMATCH,
-      blockingReason: isMatched
-        ? ''
-        : `Credit Note amount ${creditNoteAmount} differs from product refund ${productRefundAmount}.`,
-    }
+    const { out, isMatched } = buildMatchedReturnFromCreditNote(
+      { ...base, ...invoiceFields },
+      invoice,
+      creditNote,
+      productRefundAmount
+    )
     matchedReturns.push(out)
-    if (!isMatched) {
-      out.creditNoteAction = 'blocked'
-      creditNoteBlockingRows.push(out)
-    }
+    if (!isMatched) creditNoteBlockingRows.push(out)
   }
 
   return {
@@ -293,8 +417,9 @@ async function matchNoonReturnsForRows(allRows, options = {}) {
   const invoices = (Array.isArray(options.invoices) ? options.invoices : []).map((inv) =>
     inv.zohoInvoiceId ? inv : mapInvoice(inv.raw || inv)
   )
+  const hydratedInvoices = await hydrateInvoicesForReturnRows(returnRows, creditNotes, invoices)
 
-  const result = matchNoonReturnRowsToCreditNotes(returnRows, invoices, creditNotes)
+  const result = matchNoonReturnRowsToCreditNotes(returnRows, hydratedInvoices, creditNotes)
   return {
     ...result,
     zohoCustomerId: customerId,
@@ -308,6 +433,9 @@ async function matchNoonReturnsForRows(allRows, options = {}) {
 module.exports = {
   mapCreditNote,
   creditNoteMatchesInvoiceOrOrder,
+  findCreditNotesForItemOrderId,
+  resolveInvoiceForCreditNote,
+  hydrateInvoicesForReturnRows,
   matchNoonReturnRowsToCreditNotes,
   matchNoonReturnsForRows,
 }
