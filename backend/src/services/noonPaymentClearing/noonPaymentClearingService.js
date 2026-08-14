@@ -19,6 +19,7 @@ const {
   buildInvoicePaymentPlansFromBatch,
   aggregatePaymentPlansByInvoice,
   annotateInvoicePaymentsWithLiveBalances,
+  buildReturnItemOrderIdSet,
 } = require('./noonPaymentClearingPaymentPreviewService')
 const {
   postApprovedBatch,
@@ -849,9 +850,14 @@ function getActiveOpenBalanceShortfalls(batch) {
   const shortfalls = batch?.reportSnapshot?.openBalanceReconcile?.shortfalls || []
   const excludedInvoiceIds = collectExcludedInvoiceIds(batch)
   const excludedItemOrderIds = collectExcludedItemOrderIds(batch)
-  return shortfalls.filter(
-    (s) => !isPseudoFetchShortfall(s) && !isExcludedShortfall(s, excludedInvoiceIds, excludedItemOrderIds)
-  )
+  const returnItemOrderIds = buildReturnItemOrderIdSet(batch)
+  return shortfalls.filter((s) => {
+    if (isPseudoFetchShortfall(s)) return false
+    if (isExcludedShortfall(s, excludedInvoiceIds, excludedItemOrderIds)) return false
+    const itemKey = matchKey(s?.itemOrderId)
+    if (itemKey && returnItemOrderIds.has(itemKey)) return false
+    return true
+  })
 }
 
 function validateBatchReadyForApproval(batch) {

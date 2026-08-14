@@ -51,6 +51,28 @@ function itemOrderMatchKey(value) {
   return clean(value).toLowerCase().replace(/\s+/g, '')
 }
 
+/** Sales returns clear only via return steps — never Record Payment or open-balance plans. */
+function buildReturnItemOrderIdSet(batch, classifiedRows = null) {
+  const rawRows = batch?.allRows || []
+  const saleParentSet = buildSaleParentOrderIdSet(rawRows)
+  const rows = classifiedRows || reclassifyReturnRows(rawRows, saleParentSet)
+  const ids = new Set()
+  for (const row of collectReturnRows(rows, saleParentSet)) {
+    const key = itemOrderMatchKey(row.itemOrderId)
+    if (key) ids.add(key)
+  }
+  for (const row of [...(batch?.matchedReturns || []), ...(batch?.refundReturnRows || [])]) {
+    const key = itemOrderMatchKey(row.itemOrderId)
+    if (key) ids.add(key)
+  }
+  return ids
+}
+
+function isSalesReturnItemOrderId(itemOrderId, returnItemOrderIds) {
+  const key = itemOrderMatchKey(itemOrderId)
+  return Boolean(key && returnItemOrderIds.has(key))
+}
+
 /** Positive subsidy on a Zoho-paid invoice — settlement adjustment journal only (not Record Payment). */
 function isPaidInvoiceSubsidyRow(row, planExclusions = null) {
   return isPaidInvoiceSubsidyAdjustmentRow(row, planExclusions)
@@ -186,6 +208,7 @@ function collectAssignedUnclearedPaymentAddOns(allRows = [], planExclusions = nu
   const saleParentSet = buildSaleParentOrderIdSet(allRows)
   const exInv = planExclusions?.excludedInvoiceIds
   const exItem = planExclusions?.excludedItemOrderIds
+  const returnItemOrderIds = options.returnItemOrderIds || null
   for (const row of Array.isArray(allRows) ? allRows : []) {
     if (!options.ignoreExclusions && row.excludeFromPaymentClearing) continue
     if (!options.ignoreExclusions && isPaidInvoiceSubsidyRow(row, planExclusions)) continue
@@ -193,8 +216,10 @@ function collectAssignedUnclearedPaymentAddOns(allRows = [], planExclusions = nu
       continue
     }
     if (!isUnclearedInvoicePaymentBucketRow(row)) continue
+    if (row.rowClass === ROW_CLASS.RETURN) continue
     const itemId = clean(row.assignedItemOrderId) || clean(row.itemOrderId)
     if (!itemId) continue
+    if (returnItemOrderIds && isSalesReturnItemOrderId(itemId, returnItemOrderIds)) continue
     const rowInv = clean(row.assignedZohoInvoiceId || row.zohoInvoiceId)
     const rowItemKey = itemOrderMatchKey(itemId)
     if (exInv && rowInv && exInv.has(rowInv)) continue
@@ -319,25 +344,30 @@ function buildInvoicePaymentPlansFromBatch(batch, accountOverrides = {}, options
     excludedInvoiceIds: new Set(),
     excludedItemOrderIds: new Set(),
   }
+  const rawRows = batch.allRows || []
+  const saleParentSet = buildSaleParentOrderIdSet(rawRows)
+  const classifiedRows = reclassifyReturnRows(rawRows, saleParentSet)
+  const returnItemOrderIds = buildReturnItemOrderIdSet(batch, classifiedRows)
   const matched = (Array.isArray(batch.matchedOrders) ? batch.matchedOrders : []).filter((item) => {
+    if (isSalesReturnItemOrderId(item.itemOrderId, returnItemOrderIds)) return false
     if (!options.ignoreExclusions && item.logisticsOnly) return false
     if (!options.ignoreExclusions && item.excludeFromPaymentClearing) return false
     if (!options.ignoreExclusions && excludedInvoiceIds.has(clean(item.zohoInvoiceId))) return false
     if (!options.ignoreExclusions && excludedItemOrderIds.has(itemOrderMatchKey(item.itemOrderId))) return false
     return true
   })
-  const allRows = batch.allRows || []
-  const saleParentSet = buildSaleParentOrderIdSet(allRows)
-  const addOnsByItem = collectAssignedUnclearedPaymentAddOns(allRows, planExclusions, {
+  const addOnsByItem = collectAssignedUnclearedPaymentAddOns(classifiedRows, planExclusions, {
     ignoreExclusions: options.ignoreExclusions,
+    returnItemOrderIds,
   })
   return matched
     .filter((item) => {
-      if (options.ignoreExclusions) return true
-      const row = allRows.find(
+      if (isSalesReturnItemOrderId(item.itemOrderId, returnItemOrderIds)) return false
+      const row = classifiedRows.find(
         (r) => clean(r.itemOrderId).toLowerCase() === clean(item.itemOrderId).toLowerCase()
       )
       if (row?.rowClass === ROW_CLASS.RETURN) return false
+      if (options.ignoreExclusions) return true
       // Invoice match ≠ payment eligibility — zero Net Proceeds lines clear via settlement adjustment.
       if (num(item.netProceed) < 0.01) return false
       if (row && isZeroSaleCrossWeekLogisticsSettlementRow(row, saleParentSet)) return false
@@ -971,6 +1001,8 @@ module.exports = {
   requireBatchForPaymentPreview,
   buildInvoicePaymentPlan,
   buildInvoicePaymentPlansFromBatch,
+  buildReturnItemOrderIdSet,
+  isSalesReturnItemOrderId,
   aggregatePaymentPlansByInvoice,
   isOrphanParentLogisticsRow,
   isPaidInvoiceSubsidyRow,

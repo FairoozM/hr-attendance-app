@@ -3015,4 +3015,39 @@ describe('Noon return matching refresh and approval gates', () => {
       (err) => err.code === 'NOON_PAYMENT_CLEARING_BATCH_NOT_FOUND'
     )
   })
+
+  it('excludes sales return item orders from payment plans even with ignoreExclusions', () => {
+    const { buildInvoicePaymentPlansFromBatch } = require('../src/services/noonPaymentClearing/noonPaymentClearingPaymentPreviewService')
+    const { ROW_CLASS } = require('../src/services/noonPaymentClearing/noonPaymentClearingCategoryService')
+    const returnRow = {
+      rowNumber: 10,
+      itemOrderId: 'NAEI50031648956-1',
+      parentOrderId: 'NAEI50031648956',
+      netProceed: -133,
+      referralFee: 20.95,
+      fulfillmentFee: -26.25,
+      shippingCharges: 0,
+      total: -112.05,
+      transactionType: 'order_update',
+      rowClass: ROW_CLASS.ORDER_ADJUSTMENT,
+    }
+    const batch = {
+      matchedOrders: [
+        {
+          itemOrderId: 'NAEI50031648956-1',
+          zohoInvoiceId: 'inv-041408',
+          zohoInvoiceNumber: 'INV-041408',
+          zohoInvoiceTotal: 133,
+          netProceed: -133,
+          referralFee: 20.95,
+          fulfillmentFee: -26.25,
+          shippingCharges: 0,
+        },
+      ],
+      allRows: [returnRow],
+      matchedReturns: [{ itemOrderId: 'NAEI50031648956-1', status: 'matched' }],
+    }
+    const plans = buildInvoicePaymentPlansFromBatch(batch, {}, { ignoreExclusions: true })
+    assert.equal(plans.length, 0)
+  })
 })
