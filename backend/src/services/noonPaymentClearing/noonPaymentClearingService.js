@@ -851,11 +851,17 @@ function getActiveOpenBalanceShortfalls(batch) {
   const excludedInvoiceIds = collectExcludedInvoiceIds(batch)
   const excludedItemOrderIds = collectExcludedItemOrderIds(batch)
   const returnItemOrderIds = buildReturnItemOrderIdSet(batch)
+  const recordPaymentPlans = buildInvoicePaymentPlansFromBatch(batch, {}, { ignoreExclusions: false })
+  const recordPaymentKeys = new Set(
+    recordPaymentPlans.map((p) => `${clean(p.zohoInvoiceId)}|${matchKey(p.itemOrderId)}`)
+  )
   return shortfalls.filter((s) => {
     if (isPseudoFetchShortfall(s)) return false
     if (isExcludedShortfall(s, excludedInvoiceIds, excludedItemOrderIds)) return false
     const itemKey = matchKey(s?.itemOrderId)
     if (itemKey && returnItemOrderIds.has(itemKey)) return false
+    const planKey = `${clean(s?.zohoInvoiceId)}|${itemKey}`
+    if (!recordPaymentKeys.has(planKey)) return false
     return true
   })
 }

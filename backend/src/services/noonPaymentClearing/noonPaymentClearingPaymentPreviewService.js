@@ -367,10 +367,10 @@ function buildInvoicePaymentPlansFromBatch(batch, accountOverrides = {}, options
         (r) => clean(r.itemOrderId).toLowerCase() === clean(item.itemOrderId).toLowerCase()
       )
       if (row?.rowClass === ROW_CLASS.RETURN) return false
-      if (options.ignoreExclusions) return true
-      // Invoice match ≠ payment eligibility — zero Net Proceeds lines clear via settlement adjustment.
+      // Settlement adjustment / return rows never use Record Payment — even for open-balance detection.
       if (num(item.netProceed) < 0.01) return false
       if (row && isZeroSaleCrossWeekLogisticsSettlementRow(row, saleParentSet)) return false
+      if (options.ignoreExclusions) return true
       return true
     })
     .map((item) =>

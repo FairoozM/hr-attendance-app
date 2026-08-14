@@ -2077,11 +2077,10 @@ describe('open balance reconcile', () => {
     assert.equal(invoiceBalanceShortfalls.length, 0)
   })
 
-  it('still lists excluded invoices in excludedShortfalls after reconcile', () => {
+  it('zero-net excluded logistics are not Record Payment plans (settlement adjustment only)', () => {
     const {
       aggregatePaymentPlansByInvoice,
       buildInvoicePaymentPlansFromBatch,
-      annotateInvoicePaymentsWithLiveBalances,
     } = require('../src/services/noonPaymentClearing/noonPaymentClearingPaymentPreviewService')
     const batch = {
       matchedOrders: [
@@ -2109,13 +2108,7 @@ describe('open balance reconcile', () => {
     const fullPlans = aggregatePaymentPlansByInvoice(
       buildInvoicePaymentPlansFromBatch(batch, {}, { ignoreExclusions: true })
     )
-    assert.equal(fullPlans.length, 1)
-    const { invoiceBalanceShortfalls } = annotateInvoicePaymentsWithLiveBalances(
-      fullPlans,
-      new Map([['inv-paid', { invoice_id: 'inv-paid', balance: 0 }]])
-    )
-    assert.equal(invoiceBalanceShortfalls.length, 1)
-    assert.equal(invoiceBalanceShortfalls[0].zohoInvoiceNumber, 'INV-042333')
+    assert.equal(fullPlans.length, 0)
   })
 
   it('settlement adjustment Zoho journal payload keeps per-order line descriptions (not journal title)', () => {
@@ -3046,6 +3039,41 @@ describe('Noon return matching refresh and approval gates', () => {
       ],
       allRows: [returnRow],
       matchedReturns: [{ itemOrderId: 'NAEI50031648956-1', status: 'matched' }],
+    }
+    const plans = buildInvoicePaymentPlansFromBatch(batch, {}, { ignoreExclusions: true })
+    assert.equal(plans.length, 0)
+  })
+
+  it('excludes zero-net logistics from open-balance plans even with ignoreExclusions', () => {
+    const { buildInvoicePaymentPlansFromBatch } = require('../src/services/noonPaymentClearing/noonPaymentClearingPaymentPreviewService')
+    const { ROW_CLASS } = require('../src/services/noonPaymentClearing/noonPaymentClearingCategoryService')
+    const batch = {
+      matchedOrders: [
+        {
+          itemOrderId: 'NAEI50032993351-1',
+          parentOrderId: 'NAEI50032993351',
+          zohoInvoiceId: 'inv-041410',
+          zohoInvoiceNumber: 'INV-041410',
+          zohoInvoiceTotal: 100,
+          netProceed: 0,
+          referralFee: -10,
+          fulfillmentFee: -13.1,
+          shippingCharges: 0,
+        },
+      ],
+      allRows: [
+        {
+          rowNumber: 20,
+          rowClass: ROW_CLASS.ORDER_ADJUSTMENT,
+          itemOrderId: 'NAEI50032993351-1',
+          parentOrderId: 'NAEI50032993351',
+          netProceed: 0,
+          referralFee: -10,
+          fulfillmentFee: -13.1,
+          shippingCharges: 0,
+          total: -23.1,
+        },
+      ],
     }
     const plans = buildInvoicePaymentPlansFromBatch(batch, {}, { ignoreExclusions: true })
     assert.equal(plans.length, 0)
