@@ -1,4 +1,5 @@
 const { round2, num, clean } = require('./noonPaymentClearingCategoryService')
+const { normalizeGlAccount } = require('./noonPaymentClearingRowPredicates')
 const { buildSettlementReference, buildEntryReference } = require('./noonPaymentClearingReferenceService')
 const { getNoonPaymentClearingMarketplaceConfig } = require('./noonPaymentClearingMarketplaceConfig')
 const {
@@ -8,15 +9,6 @@ const {
   isNoonReturnRow,
   TOLERANCE,
 } = require('./noonPaymentClearingReturnService')
-
-function normalizeGlAccount(account = null, fallbackName = '') {
-  if (!account) return { accountId: '', accountName: fallbackName, accountCode: '' }
-  return {
-    accountId: clean(account.accountId),
-    accountName: clean(account.accountName) || fallbackName,
-    accountCode: clean(account.accountCode),
-  }
-}
 
 function returnFeeAccounts(cfg) {
   return {

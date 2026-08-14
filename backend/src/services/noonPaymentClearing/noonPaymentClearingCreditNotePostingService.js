@@ -1,16 +1,13 @@
 const { listCreditNoteRefunds, refundCreditNote } = require('../../integrations/zoho/zohoBooksClient')
 const { buildSettlementReference, buildEntryReference } = require('./noonPaymentClearingReferenceService')
 const { round2, num, clean } = require('./noonPaymentClearingCategoryService')
+const { positiveAmount } = require('./noonPaymentClearingRowPredicates')
 const { getNoonPaymentClearingMarketplaceConfig } = require('./noonPaymentClearingMarketplaceConfig')
 const { buildReturnDescription, TOLERANCE } = require('./noonPaymentClearingReturnService')
 const store = require('./noonPaymentClearingStore')
 const zohoPaymentService = require('../amazonPaymentClearingZohoPaymentService')
 
 const PAYMENT_TYPE = 'credit_note_refund'
-
-function positiveAmount(value) {
-  return Math.abs(round2(num(value)))
-}
 
 async function creditNoteRefundTotal(creditNoteId, referenceNumber = '', listRefunds = listCreditNoteRefunds) {
   const refunds = await listRefunds(creditNoteId)

@@ -7,7 +7,11 @@ const {
   normalizeTransactionType,
 } = require('./noonPaymentClearingCategoryService')
 const { resolveNoonOrderIds } = require('./noonOrderIdHelper')
-const { buildSaleParentOrderIdSet } = require('./noonPaymentClearingSettlementAdjustmentService')
+const {
+  buildSaleParentOrderIdSet,
+  parentOrderIdForRow,
+  itemOrderIdForRow,
+} = require('./noonPaymentClearingRowPredicates')
 const { extractVatFromNoonRow } = require('./noonPaymentClearingVatService')
 
 const RETURN_BLOCK_CODES = Object.freeze({
@@ -20,16 +24,6 @@ const RETURN_BLOCK_CODES = Object.freeze({
 })
 
 const TOLERANCE = 0.01
-
-function parentOrderIdForRow(row) {
-  return clean(
-    row.originalParentOrderId || row.parentOrderId || resolveNoonOrderIds(row).parentOrderId
-  ).toLowerCase()
-}
-
-function itemOrderIdForRow(row) {
-  return clean(row.itemOrderId || resolveNoonOrderIds(row).itemOrderId)
-}
 
 /** Net Proceeds materially negative — not zero-sale logistics. */
 function isNegativeNetProceedRow(row) {

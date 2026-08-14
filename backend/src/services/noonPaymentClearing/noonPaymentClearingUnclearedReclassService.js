@@ -1,4 +1,5 @@
 const { round2, num, clean } = require('./noonPaymentClearingCategoryService')
+const { normalizeGlAccount } = require('./noonPaymentClearingRowPredicates')
 const {
   DEFAULT_VAT_RATE,
   splitVatInclusiveAmount,
@@ -19,14 +20,7 @@ const { getNoonPaymentClearingMarketplaceConfig } = require('./noonPaymentCleari
  *   Cr Uncleared Shipping (1068) gross
  */
 
-function normalizeAccount(account = null, fallbackName = '') {
-  if (!account) return { accountId: '', accountName: fallbackName, accountCode: '' }
-  return {
-    accountId: clean(account.accountId || account.depositToAccountId),
-    accountName: clean(account.accountName || account.depositToAccountName) || fallbackName,
-    accountCode: clean(account.accountCode || account.depositToAccountCode),
-  }
-}
+const normalizeAccount = normalizeGlAccount
 
 function isMapped(expense, clearing, vatAcct, vatAmount) {
   if (!clean(expense.accountId) && !clean(expense.accountCode)) return false

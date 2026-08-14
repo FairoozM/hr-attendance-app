@@ -33,7 +33,10 @@ const {
   isNoonReturnRow,
   RETURN_BLOCK_CODES,
 } = require('./noonPaymentClearingReturnService')
-const { buildSaleParentOrderIdSet } = require('./noonPaymentClearingSettlementAdjustmentService')
+const {
+  buildSaleParentOrderIdSet,
+  normalizeGlAccount,
+} = require('./noonPaymentClearingRowPredicates')
 const {
   DEFAULT_VAT_RATE,
   extractVatFromNoonRow,
@@ -84,18 +87,6 @@ function findFeeMappingRule(mappingRules, feeType) {
   return (Array.isArray(mappingRules) ? mappingRules : []).find(
     (r) => r.isActive !== false && candidates.has(clean(r.normalizedFeeType))
   )
-}
-
-/** Normalize a clearing/expense account object (id/name/code). */
-function normalizeGlAccount(account = null, fallbackName = '') {
-  if (!account) {
-    return { accountId: '', accountName: fallbackName, accountCode: '' }
-  }
-  return {
-    accountId: clean(account.accountId || account.depositToAccountId),
-    accountName: clean(account.accountName || account.depositToAccountName) || fallbackName,
-    accountCode: clean(account.accountCode || account.depositToAccountCode),
-  }
 }
 
 /**

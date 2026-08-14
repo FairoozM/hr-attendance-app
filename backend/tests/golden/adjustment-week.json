@@ -1,0 +1,184 @@
+{
+  "referenceNr": "GOLDEN-ADJUSTMENT-WEEK",
+  "rowCount": 4,
+  "rowClassCounts": {
+    "order_adjustment": 1,
+    "parent_order_charge": 2,
+    "other": 1
+  },
+  "reconciliationSummary": {
+    "calculatedSettlement": -62.37,
+    "expectedSettlement": -62.37,
+    "reconciliationDifference": 0,
+    "reconciliationStatus": "reconciled"
+  },
+  "targetUndeposited1066": -62.37,
+  "settlementAdjustmentSourceRowNumbers": [
+    10,
+    11,
+    12
+  ],
+  "rows": [
+    {
+      "rowNumber": 10,
+      "rowClass": "order_adjustment",
+      "normalizedFeeType": "",
+      "transactionType": "order_update",
+      "parentOrderId": "NAEI50032993351",
+      "itemOrderId": "NAEI50032993351-1",
+      "assignedItemOrderId": "",
+      "assignedZohoInvoiceNumber": "",
+      "netProceed": 0,
+      "referralFee": -10,
+      "fulfillmentFee": -13.1,
+      "shippingCharges": 0,
+      "total": -23.1,
+      "excludeFromPaymentClearing": false,
+      "saleParentInStatement": false
+    },
+    {
+      "rowNumber": 11,
+      "rowClass": "parent_order_charge",
+      "normalizedFeeType": "",
+      "transactionType": "order",
+      "parentOrderId": "NAEI60012472440",
+      "itemOrderId": "",
+      "assignedItemOrderId": "",
+      "assignedZohoInvoiceNumber": "",
+      "netProceed": 0,
+      "referralFee": 0,
+      "fulfillmentFee": -17.85,
+      "shippingCharges": 0,
+      "total": -17.85,
+      "excludeFromPaymentClearing": false,
+      "saleParentInStatement": false
+    },
+    {
+      "rowNumber": 12,
+      "rowClass": "parent_order_charge",
+      "normalizedFeeType": "",
+      "transactionType": "order",
+      "parentOrderId": "NAEI70009406690",
+      "itemOrderId": "",
+      "assignedItemOrderId": "NAEI70009406690-1",
+      "assignedZohoInvoiceNumber": "INV-042333",
+      "netProceed": 0,
+      "referralFee": 0,
+      "fulfillmentFee": 7.56,
+      "shippingCharges": 0,
+      "total": 7.56,
+      "excludeFromPaymentClearing": true,
+      "saleParentInStatement": false
+    },
+    {
+      "rowNumber": 13,
+      "rowClass": "other",
+      "normalizedFeeType": "",
+      "transactionType": "",
+      "parentOrderId": "",
+      "itemOrderId": "",
+      "assignedItemOrderId": "",
+      "assignedZohoInvoiceNumber": "",
+      "netProceed": 0,
+      "referralFee": 0,
+      "fulfillmentFee": 0,
+      "shippingCharges": 0,
+      "total": -28.98,
+      "excludeFromPaymentClearing": false,
+      "saleParentInStatement": false
+    }
+  ],
+  "feeJournalLines": [],
+  "settlementAdjustmentJournal": {
+    "amount": 40.95,
+    "signedAmount": -33.39,
+    "blocked": false,
+    "blockCode": "",
+    "sourceLineCount": 3,
+    "summary": {
+      "sourceRowCount": 3,
+      "grossNegativeAdjustments": 40.95,
+      "grossPositiveAdjustments": 7.56,
+      "netExpense": 31.8,
+      "inputVat": 1.59,
+      "netUndepositedImpact": -33.39
+    },
+    "sourceLines": [
+      {
+        "rowNumber": 10,
+        "rowClass": "order_adjustment",
+        "signedAmount": 0,
+        "netAmount": 0,
+        "vatAmount": 1.1,
+        "undepositedImpact": -23.1,
+        "paidInvoiceSubsidy": false
+      },
+      {
+        "rowNumber": 11,
+        "rowClass": "parent_order_charge",
+        "signedAmount": 0,
+        "netAmount": 0,
+        "vatAmount": 0.85,
+        "undepositedImpact": -17.85,
+        "paidInvoiceSubsidy": false
+      },
+      {
+        "rowNumber": 12,
+        "rowClass": "parent_order_charge",
+        "signedAmount": 0,
+        "netAmount": 0,
+        "vatAmount": -0.36,
+        "undepositedImpact": 7.56,
+        "paidInvoiceSubsidy": true
+      }
+    ],
+    "lineItems": [
+      {
+        "side": "credit",
+        "accountCode": "1066",
+        "amount": 40.95
+      },
+      {
+        "side": "debit",
+        "accountCode": "1066",
+        "amount": 7.56
+      },
+      {
+        "side": "credit",
+        "accountCode": "1085",
+        "amount": 0.36
+      },
+      {
+        "side": "debit",
+        "accountCode": "1085",
+        "amount": 0.85
+      },
+      {
+        "side": "debit",
+        "accountCode": "1085",
+        "amount": 1.1
+      },
+      {
+        "side": "credit",
+        "accountCode": "2162",
+        "amount": 7.2
+      },
+      {
+        "side": "debit",
+        "accountCode": "2162",
+        "amount": 17
+      },
+      {
+        "side": "debit",
+        "accountCode": "2162",
+        "amount": 22
+      }
+    ]
+  },
+  "invoicePayments": [],
+  "openBalancePlans": [],
+  "returns": {
+    "returnRowNumbers": [],
+    "matched": []
+  }
+}

@@ -1,0 +1,151 @@
+{
+  "referenceNr": "GOLDEN-RETURN-WEEK",
+  "rowCount": 4,
+  "rowClassCounts": {
+    "sale_item": 1,
+    "return": 3
+  },
+  "reconciliationSummary": {
+    "calculatedSettlement": 322.18,
+    "expectedSettlement": 322.18,
+    "reconciliationDifference": 0,
+    "reconciliationStatus": "reconciled"
+  },
+  "targetUndeposited1066": 161.63,
+  "settlementAdjustmentSourceRowNumbers": [],
+  "rows": [
+    {
+      "rowNumber": 20,
+      "rowClass": "sale_item",
+      "normalizedFeeType": "",
+      "transactionType": "order",
+      "parentOrderId": "NAEI70055512233",
+      "itemOrderId": "NAEI70055512233-1",
+      "assignedItemOrderId": "",
+      "assignedZohoInvoiceNumber": "",
+      "netProceed": 500,
+      "referralFee": -78.75,
+      "fulfillmentFee": -21,
+      "shippingCharges": 0,
+      "total": 400.25,
+      "excludeFromPaymentClearing": false,
+      "saleParentInStatement": true
+    },
+    {
+      "rowNumber": 21,
+      "rowClass": "return",
+      "normalizedFeeType": "RETURN",
+      "transactionType": "order_update",
+      "parentOrderId": "NAEI70013425039",
+      "itemOrderId": "NAEI70013425039-4",
+      "assignedItemOrderId": "",
+      "assignedZohoInvoiceNumber": "",
+      "netProceed": -84,
+      "referralFee": 13.23,
+      "fulfillmentFee": 0,
+      "shippingCharges": 0,
+      "total": -70.77,
+      "excludeFromPaymentClearing": false,
+      "saleParentInStatement": false
+    },
+    {
+      "rowNumber": 22,
+      "rowClass": "return",
+      "normalizedFeeType": "RETURN",
+      "transactionType": "order_update",
+      "parentOrderId": "NAEI50031648956",
+      "itemOrderId": "NAEI50031648956-1",
+      "assignedItemOrderId": "",
+      "assignedZohoInvoiceNumber": "",
+      "netProceed": -133,
+      "referralFee": 20.95,
+      "fulfillmentFee": -26.25,
+      "shippingCharges": 0,
+      "total": -112.05,
+      "excludeFromPaymentClearing": false,
+      "saleParentInStatement": false
+    },
+    {
+      "rowNumber": 23,
+      "rowClass": "return",
+      "normalizedFeeType": "RETURN",
+      "transactionType": "order_update",
+      "parentOrderId": "NAEI50099887766",
+      "itemOrderId": "NAEI50099887766-2",
+      "assignedItemOrderId": "",
+      "assignedZohoInvoiceNumber": "",
+      "netProceed": -60,
+      "referralFee": 9.45,
+      "fulfillmentFee": -5.25,
+      "shippingCharges": 0,
+      "total": -55.8,
+      "excludeFromPaymentClearing": false,
+      "saleParentInStatement": false
+    }
+  ],
+  "feeJournalLines": [],
+  "settlementAdjustmentJournal": null,
+  "invoicePayments": [
+    {
+      "itemOrderId": "NAEI70055512233-1",
+      "zohoInvoiceNumber": "INV-042500",
+      "invoiceTotal": 500,
+      "saleGross": 500,
+      "netBalance": 400.25,
+      "commission": 78.75,
+      "fulfillmentShipping": 21,
+      "parentLogisticsAddOn": 0,
+      "parentCommissionAddOn": 0,
+      "totalClearingAmount": 500,
+      "exceedsInvoiceTotal": false
+    }
+  ],
+  "openBalancePlans": [
+    {
+      "itemOrderId": "NAEI70055512233-1",
+      "zohoInvoiceNumber": "INV-042500",
+      "invoiceTotal": 500,
+      "saleGross": 500,
+      "netBalance": 400.25,
+      "commission": 78.75,
+      "fulfillmentShipping": 21,
+      "parentLogisticsAddOn": 0,
+      "parentCommissionAddOn": 0,
+      "totalClearingAmount": 500,
+      "exceedsInvoiceTotal": false
+    }
+  ],
+  "returns": {
+    "returnRowNumbers": [
+      21,
+      22,
+      23
+    ],
+    "matched": [
+      {
+        "itemOrderId": "NAEI50031648956-1",
+        "status": "matched",
+        "blockCode": "",
+        "zohoCreditNoteNumber": "CN-00043",
+        "productRefundAmount": 133,
+        "commissionReversalGross": 20.95
+      },
+      {
+        "itemOrderId": "NAEI50099887766-2",
+        "status": "blocked",
+        "blockCode": "RETURN_CREDIT_NOTE_MISSING",
+        "zohoCreditNoteNumber": "",
+        "productRefundAmount": 60,
+        "commissionReversalGross": 9.45
+      },
+      {
+        "itemOrderId": "NAEI70013425039-4",
+        "status": "matched",
+        "blockCode": "",
+        "zohoCreditNoteNumber": "CN-00042",
+        "productRefundAmount": 84,
+        "commissionReversalGross": 13.23
+      }
+    ]
+  }
+}

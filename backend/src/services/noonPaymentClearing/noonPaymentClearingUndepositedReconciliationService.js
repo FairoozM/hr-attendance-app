@@ -2,6 +2,9 @@ const { round2, num, clean, ROW_CLASS } = require('./noonPaymentClearingCategory
 const {
   buildSaleParentOrderIdSet,
   parentOrderIdForRow,
+  positiveAmount,
+} = require('./noonPaymentClearingRowPredicates')
+const {
   isSettlementAdjustmentSourceRow,
   isZeroSaleCrossWeekLogisticsSettlementRow,
   collectSettlementAdjustmentSourceRows,
@@ -23,10 +26,6 @@ function signedParentRowFulfillment(row) {
 
 function parentFulfillmentChargeMagnitude(signedNet) {
   return positiveAmount(Math.min(0, round2(num(signedNet))))
-}
-
-function positiveAmount(value) {
-  return Math.abs(round2(Number(value) || 0))
 }
 
 function rowItemLogisticsFees(row) {

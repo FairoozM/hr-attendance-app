@@ -7,9 +7,18 @@ const {
   displayLabelForFeeRow,
 } = require('./noonPaymentClearingCategoryService')
 const { resolveNoonOrderIds } = require('./noonOrderIdHelper')
+const {
+  itemOrderMatchKey,
+  parentOrderIdForRow,
+  isSaleBearingSaleRow,
+  buildSaleParentOrderIdSet,
+  hasMarketplaceLogisticsCharge,
+  normalizeGlAccount,
+  PAID_INVOICE_SUBSIDY_REASON,
+} = require('./noonPaymentClearingRowPredicates')
 const { getNoonPaymentClearingMarketplaceConfig } = require('./noonPaymentClearingMarketplaceConfig')
 const { truncateZohoReference } = require('./noonPaymentClearingReferenceService')
-const { extractVatFromNoonRow, splitVatInclusiveAmount, DEFAULT_VAT_RATE, VAT_INCLUSIVE_COMPONENT_FIELDS } = require('./noonPaymentClearingVatService')
+const { splitVatInclusiveAmount, DEFAULT_VAT_RATE, VAT_INCLUSIVE_COMPONENT_FIELDS } = require('./noonPaymentClearingVatService')
 const {
   sumJournalLineItems,
   assertBalancedJournalLineItems,
@@ -19,44 +28,6 @@ const {
 const { ASSIGNMENT_REASON_ZOHO } = require('./noonPaymentClearingParentChargeFallback')
 
 const SETTLEMENT_ADJUSTMENT_FEE_TYPE = 'NOON_SETTLEMENT_ADJUSTMENT'
-const PAID_INVOICE_SUBSIDY_REASON = 'open_balance_short_already_paid'
-
-function itemOrderMatchKey(value) {
-  return clean(value).toLowerCase().replace(/\s+/g, '')
-}
-
-function parentOrderIdForRow(row) {
-  return clean(
-    row.originalParentOrderId ||
-      row.parentOrderId ||
-      resolveNoonOrderIds(row).parentOrderId
-  ).toLowerCase()
-}
-
-function isSaleBearingSaleRow(row) {
-  return row?.rowClass === ROW_CLASS.SALE_ITEM && num(row.netProceed) >= 0.01
-}
-
-/** Parents with a genuine sale line (Net Proceeds > 0) in this statement — not zero-sale logistics rows. */
-function buildSaleParentOrderIdSet(rows = []) {
-  const set = new Set()
-  for (const row of rows) {
-    if (!isSaleBearingSaleRow(row)) continue
-    const parent = parentOrderIdForRow(row)
-    if (parent) set.add(parent)
-  }
-  return set
-}
-
-function hasMarketplaceLogisticsCharge(row) {
-  if (!row) return false
-  return (
-    Math.abs(num(row.fulfillmentFee)) >= 0.005 ||
-    Math.abs(num(row.shippingCharges)) >= 0.005 ||
-    Math.abs(num(row.otherOrderFees)) >= 0.005 ||
-    Math.abs(num(row.othersInclVat)) >= 0.005
-  )
-}
 
 /**
  * Item-level (or parent) logistics with Net Proceeds = 0 and no sale-bearing parent in this statement.
@@ -124,15 +95,6 @@ function isSettlementAdjustmentSourceRow(row, planExclusions = null, saleParentS
   if (isSameWeekPositiveParentSubsidyRow(row, parents)) return true
   if (row.excludeFromPaymentClearing) return false
   return isCrossWeekSettlementAdjustmentRow(row, parents)
-}
-
-function normalizeGlAccount(account = null, fallbackName = '') {
-  if (!account) return { accountId: '', accountName: fallbackName, accountCode: '' }
-  return {
-    accountId: clean(account.accountId),
-    accountName: clean(account.accountName) || fallbackName,
-    accountCode: clean(account.accountCode),
-  }
 }
 
 function resolveAdjustmentExpenseAccount(row, cfg) {

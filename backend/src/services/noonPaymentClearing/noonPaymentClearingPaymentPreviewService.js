@@ -5,6 +5,13 @@ const {
   ROW_CLASS,
   isUnclearedInvoicePaymentBucketRow,
 } = require('./noonPaymentClearingCategoryService')
+const {
+  buildSaleParentOrderIdSet,
+  itemOrderMatchKey,
+  positiveAmount,
+  isOrphanParentLogisticsRow,
+  ORPHAN_PARENT_ASSIGNMENT_REASON,
+} = require('./noonPaymentClearingRowPredicates')
 const { getNoonPaymentClearingMarketplaceConfig } = require('./noonPaymentClearingMarketplaceConfig')
 const { buildSettlementReference, buildEntryReference } = require('./noonPaymentClearingReferenceService')
 const { isNoonSettlementReconciliationAcceptable, RECONCILIATION_TOLERANCE } = require('./noonPaymentClearingReconciliationService')
@@ -12,7 +19,6 @@ const { buildFeeJournalPreviewLines } = require('./noonPaymentClearingPreviewSer
 const { buildUnclearedReclassJournals } = require('./noonPaymentClearingUnclearedReclassService')
 const { resolveNoonFeeJournalSides } = require('./noonPaymentClearingJournalDirection')
 const {
-  buildSaleParentOrderIdSet,
   isSettlementAdjustmentSourceRow,
   isPaidInvoiceSubsidyAdjustmentRow,
   isZeroSaleCrossWeekLogisticsSettlementRow,
@@ -31,25 +37,7 @@ const {
 } = require('./noonPaymentClearingReturnService')
 const { summarizeReturnFeeReversals } = require('./noonPaymentClearingReturnFeeService')
 
-const ORPHAN_PARENT_ASSIGNMENT_REASON = 'zoho_invoice_orphan_parent'
 const PAYMENT_PREVIEW_TOLERANCE = RECONCILIATION_TOLERANCE
-
-function positiveAmount(value) {
-  return Math.abs(round2(Number(value) || 0))
-}
-
-/** Parent/adjustment logistics with no sale in this statement — still clears via 1068 (uncleared), not 1066. */
-function isOrphanParentLogisticsRow(row) {
-  if (!row) return false
-  if (clean(row.assignmentReason) === ORPHAN_PARENT_ASSIGNMENT_REASON) return true
-  if (clean(row.parentFallbackStatus) === 'assigned_zoho_orphan') return true
-  return false
-}
-
-/** Same normalization as noonOrderIdHelper.matchKey — keeps exclusions comparable. */
-function itemOrderMatchKey(value) {
-  return clean(value).toLowerCase().replace(/\s+/g, '')
-}
 
 /** Statement row netProceed wins when set — matchedOrders can retain stale invoice-match sale gross. */
 function effectiveNetProceedForPlan(row, item) {

@@ -1,0 +1,238 @@
+{
+  "referenceNr": "GOLDEN-SALES-WEEK",
+  "rowCount": 5,
+  "rowClassCounts": {
+    "sale_item": 2,
+    "parent_order_charge": 2,
+    "statement_fee": 1
+  },
+  "reconciliationSummary": {
+    "calculatedSettlement": 584.44,
+    "expectedSettlement": 584.44,
+    "reconciliationDifference": 0,
+    "reconciliationStatus": "reconciled"
+  },
+  "targetUndeposited1066": 777.56,
+  "settlementAdjustmentSourceRowNumbers": [
+    4
+  ],
+  "rows": [
+    {
+      "rowNumber": 1,
+      "rowClass": "sale_item",
+      "normalizedFeeType": "",
+      "transactionType": "order",
+      "parentOrderId": "NAEI60024715688",
+      "itemOrderId": "NAEI60024715688-1",
+      "assignedItemOrderId": "",
+      "assignedZohoInvoiceNumber": "",
+      "netProceed": 759,
+      "referralFee": -119.54,
+      "fulfillmentFee": -33.6,
+      "shippingCharges": 0,
+      "total": 605.86,
+      "excludeFromPaymentClearing": false,
+      "saleParentInStatement": true
+    },
+    {
+      "rowNumber": 2,
+      "rowClass": "sale_item",
+      "normalizedFeeType": "",
+      "transactionType": "order",
+      "parentOrderId": "NAEI70000251652",
+      "itemOrderId": "NAEI70000251652-1",
+      "assignedItemOrderId": "",
+      "assignedZohoInvoiceNumber": "",
+      "netProceed": 210,
+      "referralFee": -33.08,
+      "fulfillmentFee": -12.6,
+      "shippingCharges": 0,
+      "total": 164.32,
+      "excludeFromPaymentClearing": false,
+      "saleParentInStatement": true
+    },
+    {
+      "rowNumber": 3,
+      "rowClass": "parent_order_charge",
+      "normalizedFeeType": "",
+      "transactionType": "order",
+      "parentOrderId": "NAEI70000251652",
+      "itemOrderId": "",
+      "assignedItemOrderId": "NAEI70000251652-1",
+      "assignedZohoInvoiceNumber": "INV-042277",
+      "netProceed": 0,
+      "referralFee": 0,
+      "fulfillmentFee": -21.42,
+      "shippingCharges": 0,
+      "total": -21.42,
+      "excludeFromPaymentClearing": false,
+      "saleParentInStatement": true
+    },
+    {
+      "rowNumber": 4,
+      "rowClass": "parent_order_charge",
+      "normalizedFeeType": "",
+      "transactionType": "order",
+      "parentOrderId": "NAEI60024715688",
+      "itemOrderId": "",
+      "assignedItemOrderId": "NAEI60024715688-1",
+      "assignedZohoInvoiceNumber": "INV-042276",
+      "netProceed": 0,
+      "referralFee": 0,
+      "fulfillmentFee": 0,
+      "shippingCharges": 0,
+      "total": 28.8,
+      "excludeFromPaymentClearing": false,
+      "saleParentInStatement": true
+    },
+    {
+      "rowNumber": 5,
+      "rowClass": "statement_fee",
+      "normalizedFeeType": "NOON_ADVERTISING_FEE",
+      "transactionType": "statement",
+      "parentOrderId": "",
+      "itemOrderId": "",
+      "assignedItemOrderId": "",
+      "assignedZohoInvoiceNumber": "",
+      "netProceed": 0,
+      "referralFee": 0,
+      "fulfillmentFee": 0,
+      "shippingCharges": 0,
+      "total": -2009.62,
+      "excludeFromPaymentClearing": false,
+      "saleParentInStatement": false
+    }
+  ],
+  "feeJournalLines": [
+    {
+      "rowNumber": 5,
+      "rowClass": "statement_fee",
+      "normalizedFeeType": "NOON_ADVERTISING_FEE",
+      "amount": 2009.62,
+      "netExpense": -1913.92,
+      "inputVatAmount": -95.7,
+      "vatTreatment": "vat_inclusive_split",
+      "mappingStatus": "mapped",
+      "lineItems": [
+        {
+          "side": "debit",
+          "accountCode": "2053",
+          "amount": 1913.92
+        },
+        {
+          "side": "debit",
+          "accountCode": "1085",
+          "amount": 95.7
+        },
+        {
+          "side": "credit",
+          "accountCode": "1066",
+          "amount": 2009.62
+        }
+      ]
+    }
+  ],
+  "settlementAdjustmentJournal": {
+    "amount": 28.8,
+    "signedAmount": 28.8,
+    "blocked": false,
+    "blockCode": "",
+    "sourceLineCount": 1,
+    "summary": {
+      "sourceRowCount": 1,
+      "grossNegativeAdjustments": 0,
+      "grossPositiveAdjustments": 28.8,
+      "netExpense": -27.43,
+      "inputVat": -1.37,
+      "netUndepositedImpact": 28.8
+    },
+    "sourceLines": [
+      {
+        "rowNumber": 4,
+        "rowClass": "parent_order_charge",
+        "signedAmount": 0,
+        "netAmount": 0,
+        "vatAmount": -1.37,
+        "undepositedImpact": 28.8,
+        "paidInvoiceSubsidy": false
+      }
+    ],
+    "lineItems": [
+      {
+        "side": "debit",
+        "accountCode": "1066",
+        "amount": 28.8
+      },
+      {
+        "side": "credit",
+        "accountCode": "1085",
+        "amount": 1.37
+      },
+      {
+        "side": "credit",
+        "accountCode": "2162",
+        "amount": 27.43
+      }
+    ]
+  },
+  "invoicePayments": [
+    {
+      "itemOrderId": "NAEI60024715688-1",
+      "zohoInvoiceNumber": "INV-042276",
+      "invoiceTotal": 759,
+      "saleGross": 759,
+      "netBalance": 605.86,
+      "commission": 119.54,
+      "fulfillmentShipping": 33.6,
+      "parentLogisticsAddOn": 0,
+      "parentCommissionAddOn": 0,
+      "totalClearingAmount": 759,
+      "exceedsInvoiceTotal": false
+    },
+    {
+      "itemOrderId": "NAEI70000251652-1",
+      "zohoInvoiceNumber": "INV-042277",
+      "invoiceTotal": 210,
+      "saleGross": 210,
+      "netBalance": 142.9,
+      "commission": 33.08,
+      "fulfillmentShipping": 34.02,
+      "parentLogisticsAddOn": 21.42,
+      "parentCommissionAddOn": 0,
+      "totalClearingAmount": 210,
+      "exceedsInvoiceTotal": false
+    }
+  ],
+  "openBalancePlans": [
+    {
+      "itemOrderId": "NAEI60024715688-1",
+      "zohoInvoiceNumber": "INV-042276",
+      "invoiceTotal": 759,
+      "saleGross": 759,
+      "netBalance": 605.86,
+      "commission": 119.54,
+      "fulfillmentShipping": 33.6,
+      "parentLogisticsAddOn": 0,
+      "parentCommissionAddOn": 0,
+      "totalClearingAmount": 759,
+      "exceedsInvoiceTotal": false
+    },
+    {
+      "itemOrderId": "NAEI70000251652-1",
+      "zohoInvoiceNumber": "INV-042277",
+      "invoiceTotal": 210,
+      "saleGross": 210,
+      "netBalance": 142.9,
+      "commission": 33.08,
+      "fulfillmentShipping": 34.02,
+      "parentLogisticsAddOn": 21.42,
+      "parentCommissionAddOn": 0,
+      "totalClearingAmount": 210,
+      "exceedsInvoiceTotal": false
+    }
+  ],
+  "returns": {
+    "returnRowNumbers": [],
+    "matched": []
+  }
+}
