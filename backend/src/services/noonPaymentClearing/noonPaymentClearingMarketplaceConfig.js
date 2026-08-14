@@ -140,6 +140,27 @@ function getNoonPaymentClearingMarketplaceConfig() {
         creditAccountCode: undepositedFunds.accountCode,
       },
       {
+        normalizedFeeType: 'STORAGE_FEE',
+        zohoAccountName: storageFees.accountName,
+        zohoAccountCode: storageFees.accountCode,
+        creditAccountName: undepositedFunds.accountName,
+        creditAccountCode: undepositedFunds.accountCode,
+      },
+      {
+        normalizedFeeType: 'MONTHLY_STORAGE_FEE',
+        zohoAccountName: monthlyStorageFees.accountName,
+        zohoAccountCode: monthlyStorageFees.accountCode,
+        creditAccountName: undepositedFunds.accountName,
+        creditAccountCode: undepositedFunds.accountCode,
+      },
+      {
+        normalizedFeeType: 'LONG_TERM_STORAGE_FEE',
+        zohoAccountName: longTermStorageFees.accountName,
+        zohoAccountCode: longTermStorageFees.accountCode,
+        creditAccountName: undepositedFunds.accountName,
+        creditAccountCode: undepositedFunds.accountCode,
+      },
+      {
         normalizedFeeType: 'STATEMENT_FEE',
         zohoAccountName: advertisingExpense.accountName,
         zohoAccountCode: advertisingExpense.accountCode,

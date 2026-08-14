@@ -99,74 +99,6 @@ function collectPaidInvoiceSubsidyLines(allRows = [], planExclusions = null) {
     }))
 }
 
-/** One journal for all paid-invoice subsidies: Dr Undeposited (1066) / Cr Shipping expense. */
-function buildPaidInvoiceSubsidyJournal(subsidyLines = [], accountOverrides = {}) {
-  const cfg = getNoonPaymentClearingMarketplaceConfig()
-  const amount = round2(
-    (Array.isArray(subsidyLines) ? subsidyLines : []).reduce((sum, line) => sum + num(line.amount), 0)
-  )
-  if (amount < 0.01) return null
-
-  const undeposited = accountOverrides.undepositedFundsAccount || cfg.undepositedFundsAccount
-  const shippingExpense = accountOverrides.shippingExpenseAccount || cfg.shippingExpenseAccount
-
-  return {
-    paymentType: 'paid_invoice_subsidy',
-    feeType: 'PAID_INVOICE_SUBSIDY',
-    normalizedFeeType: 'PAID_INVOICE_SUBSIDY',
-    displayLabel: 'Noon shipping subsidy — already-paid invoice(s)',
-    accountingTreatment: 'Dr Undeposited (1066) / Cr Shipping Exp',
-    rowClass: 'paid_invoice_subsidy',
-    amount,
-    signedAmount: amount,
-    sourceLineCount: subsidyLines.length,
-    sourceLines: subsidyLines,
-    zohoAccountId: undeposited.accountId,
-    zohoAccountName: undeposited.accountName,
-    zohoAccountCode: undeposited.accountCode,
-    clearingAccountId: shippingExpense.accountId,
-    clearingAccountName: shippingExpense.accountName,
-    clearingAccountCode: shippingExpense.accountCode,
-    debit: {
-      accountId: undeposited.accountId,
-      accountName: undeposited.accountName,
-      accountCode: undeposited.accountCode,
-    },
-    credit: {
-      accountId: shippingExpense.accountId,
-      accountName: shippingExpense.accountName,
-      accountCode: shippingExpense.accountCode,
-    },
-    lineItems: [
-      {
-        debitOrCredit: 'debit',
-        accountId: undeposited.accountId,
-        accountName: undeposited.accountName,
-        accountCode: undeposited.accountCode,
-        amount,
-      },
-      {
-        debitOrCredit: 'credit',
-        accountId: shippingExpense.accountId,
-        accountName: shippingExpense.accountName,
-        accountCode: shippingExpense.accountCode,
-        amount,
-      },
-    ],
-    accountingPreview: {
-      debit: `${undeposited.accountName || 'Undeposited'} (1066)`,
-      credit: `${shippingExpense.accountName || 'Shipping Exp'} (reduce expense)`,
-      lines: [
-        { side: 'debit', account: undeposited.accountName, amount },
-        { side: 'credit', account: shippingExpense.accountName, amount },
-      ],
-    },
-    previewNote:
-      'Subsidy on Zoho-paid invoice — excluded from Record Payment; money is in this statement payout.',
-    mappingStatus: 'mapped',
-  }
-}
-
 function requireBatchForPaymentPreview(batch) {
   if (!batch) {
     const err = new Error('Noon payment clearing batch not found.')
@@ -687,81 +619,6 @@ function computeStatementUndepositedTarget(allRows = []) {
   )
 }
 
-/**
- * Orphan parent/adjustment rows clear via 1068 but are already deducted from the Noon payout.
- * When planned 1066 exceeds the statement subtotal (pre-advertising), post a bridge journal Cr 1066.
- */
-function buildUndepositedSettlementBridgeJournal(
-  invoicePayments,
-  allRows,
-  accountOverrides = {},
-  options = {}
-) {
-  const cfg = getNoonPaymentClearingMarketplaceConfig()
-  const targetUndeposited = computeStatementUndepositedTarget(allRows)
-  const recordPayment1066 = round2(
-    (Array.isArray(invoicePayments) ? invoicePayments : []).reduce(
-      (sum, p) => sum + num(p.netBalancePayment?.amount),
-      0
-    )
-  )
-  const subsidyTo1066 = round2(num(options.paidInvoiceSubsidyAmount))
-  const plannedUndeposited = round2(recordPayment1066 + subsidyTo1066)
-  const excessUndeposited = round2(plannedUndeposited - targetUndeposited)
-  if (excessUndeposited < 0.01) return null
-
-  const expense = accountOverrides.shippingExpenseAccount || cfg.shippingExpenseAccount
-  const undeposited = accountOverrides.undepositedFundsAccount || cfg.undepositedFundsAccount
-  const signedAmount = round2(-excessUndeposited)
-  const sides = resolveNoonFeeJournalSides({
-    feeAccountId: expense.accountId,
-    feeAccountName: expense.accountName,
-    feeAccountCode: expense.accountCode,
-    clearingAccountId: undeposited.accountId,
-    clearingAccountName: undeposited.accountName,
-    clearingAccountCode: undeposited.accountCode,
-    signedAmount,
-    netAmount: signedAmount,
-    vatAmount: 0,
-    vatInclusive: false,
-  })
-
-  return {
-    paymentType: 'undeposited_settlement_bridge',
-    feeType: 'UNDEPOSITED_SETTLEMENT_BRIDGE',
-    normalizedFeeType: 'UNDEPOSITED_SETTLEMENT_BRIDGE',
-    displayLabel: 'Settlement bridge — orphan logistics already in Noon payout',
-    accountingTreatment: 'Dr Shipping Exp / Cr Undeposited (1066)',
-    rowClass: 'settlement_bridge',
-    signedAmount,
-    amount: excessUndeposited,
-    targetUndeposited1066: targetUndeposited,
-    plannedUndeposited1066: plannedUndeposited,
-    recordPayment1066,
-    paidInvoiceSubsidy1066: subsidyTo1066,
-    zohoAccountId: expense.accountId,
-    zohoAccountName: expense.accountName,
-    zohoAccountCode: expense.accountCode,
-    clearingAccountId: undeposited.accountId,
-    clearingAccountName: undeposited.accountName,
-    clearingAccountCode: undeposited.accountCode,
-    debit: sides.debit,
-    credit: sides.credit,
-    lineItems: sides.lineItems || [],
-    accountingPreview: {
-      debit: sides.preview?.debitLabel,
-      credit: sides.preview?.creditLabel,
-      lines: sides.preview?.lines || [],
-      expenseAccount: expense.accountName,
-      clearingAccount: undeposited.accountName,
-    },
-    previewNote:
-      `Planned undeposited ${plannedUndeposited} exceeds statement subtotal ${targetUndeposited} — ` +
-      'orphan parent/adjustment logistics already deducted from Noon payout.',
-    mappingStatus: 'mapped',
-  }
-}
-
 function buildFoldedUnclearedChargeSummaries(allRows = [], planExclusions = null) {
   const saleParentSet = buildSaleParentOrderIdSet(allRows)
   return (Array.isArray(allRows) ? allRows : [])
@@ -907,7 +764,6 @@ function buildPaymentPreviewFromBatch(batch, mappingRules = [], inputVatAccount 
   const subsidy1066 = round2(
     paidInvoiceSubsidyLines.reduce((sum, line) => sum + num(line.undepositedImpact), 0)
   )
-  const undepositedSettlementBridgeJournal = null
   const targetUndeposited1066 = computeStatementUndepositedTarget(allRows)
   const recordPayment1066 = round2(
     invoicePayments.reduce((sum, p) => sum + num(p.netBalancePayment?.amount), 0)
@@ -1005,9 +861,7 @@ function buildPaymentPreviewFromBatch(batch, mappingRules = [], inputVatAccount 
     shippingBreakup,
     settlementAdjustmentJournal,
     settlementAdjustmentLines,
-    paidInvoiceSubsidyJournal: null,
     paidInvoiceSubsidyLines,
-    undepositedSettlementBridgeJournal,
     undepositedReconciliation,
     lineTypeBreakdown,
     summary: {
@@ -1037,12 +891,14 @@ function buildPaymentPreviewFromBatch(batch, mappingRules = [], inputVatAccount 
       settlementAdjustmentInputVat: adjustmentSummary.inputVat || 0,
       plannedUndeposited1066,
       undepositedPlanningDifference,
-      undepositedSettlementBridgeAmount: 0,
       paidInvoiceSubsidyLineCount: paidInvoiceSubsidyLines.length,
       finalDifference: round2(
         expectedSettlement - round2(totalInvoicePayments - totalFeeJournals)
       ),
       unmappedFeeJournalCount: feeJournalLines.filter((l) => l.mappingStatus === 'needs_mapping').length,
+      feeJournalVatWarnings: feeJournalLines
+        .filter((l) => l.vatWarning)
+        .map((l) => ({ rowNumber: l.rowNumber, ...l.vatWarning })),
       unmappedUnclearedReclassCount: reclass.summary.unmappedCount,
       invoiceOverpaymentCount: invoiceOverpayments.length,
       blocked: blocked || undepositedPlanningBlocked,
@@ -1075,7 +931,6 @@ module.exports = {
   buildPaymentPreviewFromBatch,
   collectAssignedUnclearedPaymentAddOns,
   collectPaidInvoiceSubsidyLines,
-  buildPaidInvoiceSubsidyJournal,
   collectPlanExclusions,
   collectInvoiceOverpayments,
   assertNoStatementOverpayments,
@@ -1083,7 +938,6 @@ module.exports = {
   annotateInvoicePaymentsWithLiveBalances,
   attachLiveZohoBalancesToPaymentPreview,
   computeStatementUndepositedTarget,
-  buildUndepositedSettlementBridgeJournal,
   collectSettlementAdjustmentSourceRows,
   buildUndepositedReconciliation,
 }

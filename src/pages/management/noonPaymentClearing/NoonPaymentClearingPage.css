@@ -548,3 +548,88 @@
 .npc-ref-card__meta > div { display: flex; flex-direction: column; }
 .npc-ref-card__meta dt { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.03em; opacity: 0.65; }
 .npc-ref-card__meta dd { margin: 0; font-size: 0.85rem; font-weight: 600; }
+
+.npc-btn {
+  border-radius: 999px;
+  border: 1px solid var(--theme-border);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.4rem 0.9rem;
+}
+
+.npc-btn--ghost:hover {
+  background: color-mix(in srgb, var(--theme-glass-bg) 60%, transparent);
+}
+
+.npc-linesection {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+}
+
+.npc-linesection__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border-bottom: 2px solid var(--theme-border);
+  padding-bottom: 0.5rem;
+}
+
+.npc-linesection__head h3 { margin: 0; }
+
+.npc-linesection__totals {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.npc-linetype {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.6rem;
+  border-radius: 1rem;
+  border: 1px solid var(--theme-border);
+  background: color-mix(in srgb, var(--theme-glass-bg) 40%, transparent);
+  padding: 0.9rem 1rem;
+}
+
+.npc-linetype--gap {
+  border-color: color-mix(in srgb, #ef4444 50%, var(--theme-border));
+  background: color-mix(in srgb, #ef4444 10%, var(--theme-glass-bg));
+}
+
+.npc-linetype__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+}
+
+.npc-linetype__totals {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.npc-linetype__flag {
+  margin-left: 0.5rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, #ef4444 18%, transparent);
+  color: #b91c1c;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  padding: 0.15rem 0.5rem;
+  text-transform: uppercase;
+}
+
+.npc-linetype .npc-table-wrap { width: 100%; }

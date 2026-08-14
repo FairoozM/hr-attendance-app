@@ -52,14 +52,45 @@ function isNoonCrossWeekReturnRow(row, saleParentSet) {
   return hasProductSaleSignal(row) || tx === 'order_update' || tx === 'order'
 }
 
+/**
+ * Same-week product return: the refunded order also sold in this statement.
+ *
+ * The accounting is identical to a cross-week return — Noon deducts the refund
+ * from this payout either way — so it clears through the same credit note and
+ * fee reversal journals. Previously these rows matched no consumer at all and
+ * showed up only as an unexplained undeposited planning difference.
+ */
+function isNoonSameWeekReturnRow(row, saleParentSet) {
+  if (!row || row.excludeFromPaymentClearing) return false
+  if (!isNegativeNetProceedRow(row)) return false
+  // A refund reduces the settlement. Negative proceeds alongside a positive
+  // Total is a subsidy shape and belongs to the settlement adjustment journal.
+  if (num(row.total) >= TOLERANCE) return false
+  const itemId = itemOrderIdForRow(row)
+  if (!itemId || !itemId.includes('-')) return false
+  const parent = parentOrderIdForRow(row)
+  const parents = saleParentSet || buildSaleParentOrderIdSet([])
+  if (!parent || !parents.has(parent)) return false
+  const tx = normalizeTransactionType(row.transactionType)
+  return hasProductSaleSignal(row) || tx === 'order_update' || tx === 'order'
+}
+
+function returnTimingForRow(row, saleParentSet) {
+  if (isNoonCrossWeekReturnRow(row, saleParentSet)) return 'cross_week'
+  if (isNoonSameWeekReturnRow(row, saleParentSet)) return 'same_week'
+  return ''
+}
+
 function reclassifyReturnRows(rows = [], saleParentSet = null) {
   const parents = saleParentSet || buildSaleParentOrderIdSet(rows)
   return (Array.isArray(rows) ? rows : []).map((row) => {
-    if (!isNoonCrossWeekReturnRow(row, parents)) return row
+    const timing = returnTimingForRow(row, parents)
+    if (!timing) return row
     return {
       ...row,
       rowClass: ROW_CLASS.RETURN,
       normalizedFeeType: 'RETURN',
+      returnTiming: timing,
       reclassifiedFrom: row.rowClass || 'order_adjustment',
     }
   })
@@ -152,6 +183,8 @@ module.exports = {
   isApproximatelyZeroNetProceed,
   isNoonReturnRow,
   isNoonCrossWeekReturnRow,
+  isNoonSameWeekReturnRow,
+  returnTimingForRow,
   reclassifyReturnRows,
   collectReturnRows,
   buildNoonReturnFeeBreakdown,

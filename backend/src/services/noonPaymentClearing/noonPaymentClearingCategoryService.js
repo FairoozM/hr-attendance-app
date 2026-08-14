@@ -17,6 +17,10 @@ const NORMALIZED_FEE_TYPE = Object.freeze({
   NOON_ADVERTISING_FEE: 'NOON_ADVERTISING_FEE',
   /** Legacy alias kept for existing mapping rows. */
   ADVERTISING: 'ADVERTISING',
+  /** Statement-level storage charges. Each maps to its own Zoho account. */
+  STORAGE_FEE: 'STORAGE_FEE',
+  MONTHLY_STORAGE_FEE: 'MONTHLY_STORAGE_FEE',
+  LONG_TERM_STORAGE_FEE: 'LONG_TERM_STORAGE_FEE',
   STATEMENT_FEE: 'STATEMENT_FEE',
   SUBSIDY: 'SUBSIDY',
   ORDER_ADJUSTMENT: 'ORDER_ADJUSTMENT',
@@ -53,6 +57,22 @@ function isAdvertisingTitle(title) {
 function isAdvertisingFeeRow(row) {
   // Advertising is identified from Noon title/context — not from amount sign alone.
   return isAdvertisingTitle(row.title)
+}
+
+/**
+ * Noon bills storage under three separate Zoho accounts, so the variant matters.
+ * Long-term is checked first because its title also contains the word "storage".
+ */
+function storageFeeTypeFromTitle(title) {
+  const t = clean(title)
+  if (!/storage/i.test(t)) return ''
+  if (/long[\s_-]*term/i.test(t)) return NORMALIZED_FEE_TYPE.LONG_TERM_STORAGE_FEE
+  if (/month/i.test(t)) return NORMALIZED_FEE_TYPE.MONTHLY_STORAGE_FEE
+  return NORMALIZED_FEE_TYPE.STORAGE_FEE
+}
+
+function isStorageFeeRow(row) {
+  return Boolean(storageFeeTypeFromTitle(row?.title))
 }
 
 function hasProductSaleSignal(row) {
@@ -151,6 +171,8 @@ function normalizeNoonFeeType(row) {
     if (isAdvertisingFeeRow(row) || isAdvertisingTitle(row.title)) {
       return NORMALIZED_FEE_TYPE.NOON_ADVERTISING_FEE
     }
+    const storageType = storageFeeTypeFromTitle(row.title)
+    if (storageType) return storageType
     return NORMALIZED_FEE_TYPE.STATEMENT_FEE
   }
   if (rowClass === ROW_CLASS.PARENT_ORDER_CHARGE || rowClass === ROW_CLASS.ORDER_ADJUSTMENT) {
@@ -178,6 +200,9 @@ function displayLabelForFeeRow(row) {
   ) {
     return 'Advertising Fee'
   }
+  if (feeType === NORMALIZED_FEE_TYPE.LONG_TERM_STORAGE_FEE) return 'Long Term Storage Fee'
+  if (feeType === NORMALIZED_FEE_TYPE.MONTHLY_STORAGE_FEE) return 'Monthly Storage Fee'
+  if (feeType === NORMALIZED_FEE_TYPE.STORAGE_FEE) return 'Storage Fee'
   if (feeType === NORMALIZED_FEE_TYPE.FULFILLMENT) return 'Fulfillment / Logistics'
   if (feeType === NORMALIZED_FEE_TYPE.SHIPPING) return 'Shipping / Logistics'
   if (feeType === NORMALIZED_FEE_TYPE.PARENT_ORDER_CHARGE) return 'Parent Order Charge'
@@ -193,6 +218,13 @@ function accountingTreatmentForFeeRow(row) {
     feeType === NORMALIZED_FEE_TYPE.ADVERTISING
   ) {
     return 'Noon Advertising Expense'
+  }
+  if (
+    feeType === NORMALIZED_FEE_TYPE.STORAGE_FEE ||
+    feeType === NORMALIZED_FEE_TYPE.MONTHLY_STORAGE_FEE ||
+    feeType === NORMALIZED_FEE_TYPE.LONG_TERM_STORAGE_FEE
+  ) {
+    return 'Noon Storage Fees'
   }
   if (feeType === NORMALIZED_FEE_TYPE.FULFILLMENT || feeType === NORMALIZED_FEE_TYPE.SHIPPING) {
     return 'Noon Uncleared Fulfillment Exp'
@@ -304,6 +336,8 @@ module.exports = {
   isFeeOnlyOrderRow,
   isOrderLevelChargeRow,
   isAdvertisingFeeRow,
+  isStorageFeeRow,
+  storageFeeTypeFromTitle,
   isStatementTransactionType,
   invoiceMatchKeyForRow,
   reclassifyExplainableOtherRows,

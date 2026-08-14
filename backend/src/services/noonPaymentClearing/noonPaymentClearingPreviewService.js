@@ -6,6 +6,7 @@ const {
   displayLabelForFeeRow,
   accountingTreatmentForFeeRow,
   normalizeNoonFeeType,
+  NORMALIZED_FEE_TYPE,
   reclassifyExplainableOtherRows,
   feeMappingTypeCandidates,
   isSettlementFeeJournalRow,
@@ -144,6 +145,19 @@ function buildFeeJournalPreviewLines(rows, mappingRules = [], inputVatAccount = 
     options.advertisingExpenseAccount || cfg.advertisingExpenseAccount,
     'Noon Advertising Exp'
   )
+  /** Storage bills to its own GL, so the fallback expense account is per fee type. */
+  const defaultExpenseForFeeType = (feeType) => {
+    if (feeType === NORMALIZED_FEE_TYPE.STORAGE_FEE) {
+      return normalizeGlAccount(cfg.storageFeesAccount, 'Noon Storage Fees')
+    }
+    if (feeType === NORMALIZED_FEE_TYPE.MONTHLY_STORAGE_FEE) {
+      return normalizeGlAccount(cfg.monthlyStorageFeesAccount, 'Noon Monthly Storage Fees')
+    }
+    if (feeType === NORMALIZED_FEE_TYPE.LONG_TERM_STORAGE_FEE) {
+      return normalizeGlAccount(cfg.longTermStorageFeesAccount, 'Noon Long Term Storage Fees')
+    }
+    return defaultAdvertisingExpense
+  }
   const inputVatConfigured = Boolean(clean(vatAcct.accountId) || clean(vatAcct.accountCode))
   return journalRows.map((row, idx) => {
     const feeType = row.normalizedFeeType || normalizeNoonFeeType(row) || 'OTHER'
@@ -163,20 +177,21 @@ function buildFeeJournalPreviewLines(rows, mappingRules = [], inputVatAccount = 
     const suggestion = (cfg.feeJournalAccountSuggestions || []).find(
       (s) => clean(s.normalizedFeeType) === clean(feeType)
     )
+    const defaultExpense = defaultExpenseForFeeType(feeType)
     const feeAccountId = clean(
       rule?.zohoAccountId ||
         rule?.debitAccountId ||
-        (useMarketplaceExpenseDefaults ? defaultAdvertisingExpense.accountId : '')
+        (useMarketplaceExpenseDefaults ? defaultExpense.accountId : '')
     )
     const feeAccountName =
       clean(rule?.zohoAccountName || rule?.debitAccountName) ||
       clean(suggestion?.zohoAccountName) ||
-      (useMarketplaceExpenseDefaults ? defaultAdvertisingExpense.accountName : '')
+      (useMarketplaceExpenseDefaults ? defaultExpense.accountName : '')
     const feeAccountCode = clean(
       rule?.zohoAccountCode ||
         rule?.debitAccountCode ||
         (useMarketplaceExpenseDefaults
-          ? suggestion?.zohoAccountCode || defaultAdvertisingExpense.accountCode
+          ? suggestion?.zohoAccountCode || defaultExpense.accountCode
           : '')
     )
     // Always merge marketplace clearing (1066 etc.) — saved mappings often store credit
@@ -237,6 +252,19 @@ function buildFeeJournalPreviewLines(rows, mappingRules = [], inputVatAccount = 
           ? 'not_vat_inclusive_or_unknown'
           : 'no_vat'
 
+    // UAE Noon advertising is always VAT-bearing. A statement that carries only a
+    // Total with no including-VAT column would post the whole charge to expense and
+    // silently lose the input VAT, so say so instead of splitting nothing.
+    const vatWarning =
+      isAdvertising && Math.abs(signedAmount) >= 0.01 && Math.abs(vatBreakdown.vatAmount) < 0.005
+        ? {
+            code: 'ADVERTISING_VAT_NOT_SPLIT',
+            message:
+              `Advertising charge of ${Math.abs(signedAmount).toFixed(2)} has no including-VAT column ` +
+              'in the statement, so no input VAT was split. Verify the Noon export before posting.',
+          }
+        : null
+
     return {
       lineIndex: idx + 1,
       rowNumber: row.rowNumber,
@@ -272,6 +300,7 @@ function buildFeeJournalPreviewLines(rows, mappingRules = [], inputVatAccount = 
       inputVatAccountName: vatAcct.accountName,
       inputVatAccountCode: vatAcct.accountCode,
       vatTreatment,
+      vatWarning,
       vatBreakdown: {
         originalGrossAmount: vatBreakdown.originalGrossAmount,
         vatRate: vatBreakdown.vatRate,

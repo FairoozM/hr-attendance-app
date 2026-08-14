@@ -143,6 +143,28 @@ const LINE_TYPE_REGISTRY = Object.freeze([
   // Returns reuse the return service's own predicate rather than approximating
   // it, so a row is a return here exactly when the reclassifier would call it
   // one — including on rows that have not been reclassified yet.
+  // Same-week is tested first because both return types carry rowClass RETURN
+  // after reclassification; only the sale parent set separates them.
+  {
+    id: LINE_TYPE.RETURN_SAME_WEEK,
+    label: 'Same-week sales return',
+    description:
+      'Return whose order also sold in this statement. Same credit note and fee reversal path as a cross-week return.',
+    section: LINE_SECTION.SALES_RETURNS,
+    mechanism: MECHANISM.CREDIT_NOTE_REFUND,
+    vatPolicy: VAT_POLICY.COMPONENT_SUM,
+    glAccounts: ['1066', '1067', '1068', '1085'],
+    matches: (row, ctx) =>
+      row.returnTiming === 'same_week' ||
+      (!row.excludeFromPaymentClearing &&
+        isNegativeNetProceed(row) &&
+        // A return reduces the settlement. A positive Total alongside negative
+        // proceeds is a subsidy shape, not a refund, and is left to the
+        // subsidy rules below.
+        num(row.total) < 0.01 &&
+        isItemLevelId(row) &&
+        ctx.saleParentSet.has(parentOrderIdForRow(row))),
+  },
   {
     id: LINE_TYPE.RETURN_CROSS_WEEK,
     label: 'Sales return',
@@ -153,26 +175,6 @@ const LINE_TYPE_REGISTRY = Object.freeze([
     glAccounts: ['1066', '1067', '1068', '1085'],
     matches: (row, ctx) =>
       row.rowClass === ROW_CLASS.RETURN || isNoonCrossWeekReturnRow(row, ctx.saleParentSet),
-  },
-  {
-    id: LINE_TYPE.RETURN_SAME_WEEK,
-    label: 'Same-week sales return',
-    description:
-      'Negative proceeds whose parent also sold in this statement. No posting path exists today.',
-    section: LINE_SECTION.SALES_RETURNS,
-    mechanism: MECHANISM.NONE,
-    vatPolicy: VAT_POLICY.NONE,
-    glAccounts: [],
-    isGap: true,
-    matches: (row, ctx) =>
-      !row.excludeFromPaymentClearing &&
-      isNegativeNetProceed(row) &&
-      // A return reduces the settlement. A positive Total alongside negative
-      // proceeds is a subsidy shape, not a refund, and is left to the
-      // subsidy rules below.
-      num(row.total) < 0.01 &&
-      isItemLevelId(row) &&
-      ctx.saleParentSet.has(parentOrderIdForRow(row)),
   },
   {
     id: LINE_TYPE.PAID_INVOICE_SUBSIDY,

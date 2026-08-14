@@ -549,9 +549,7 @@ async function postApprovedBatch({
   const unclearedReclassJournals = Array.isArray(paymentPreview.unclearedReclassJournals)
     ? paymentPreview.unclearedReclassJournals
     : []
-  const settlementBridgeJournal = null
   const settlementAdjustmentJournal = paymentPreview.settlementAdjustmentJournal || null
-  const paidInvoiceSubsidyJournal = null
   if (settlementAdjustmentJournal?.blocked) {
     const err = new Error(
       settlementAdjustmentJournal.blockingReason ||

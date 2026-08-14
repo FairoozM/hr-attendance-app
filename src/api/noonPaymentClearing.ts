@@ -286,7 +286,46 @@ export interface NoonSettlementAdjustmentSourceLine {
   isPositiveReversal?: boolean
 }
 
+export interface NoonJournalAudit {
+  totalDebits: number
+  totalCredits: number
+  difference: number
+  balanced: boolean
+  duplicateSources?: Array<Record<string, unknown>>
+  sourceAudits?: Array<Record<string, unknown>>
+  nonZeroDeltas?: Array<Record<string, unknown>>
+  positiveExpenseVatTotal?: number
+  negativeExpenseVatTotal?: number
+  grossPositiveAdjustments?: number
+  grossNegativeAdjustments?: number
+  netUndepositedImpact?: number
+  positiveExpenseVatMatchesGross?: boolean
+  negativeExpenseVatMatchesGross?: boolean
+}
+
+export interface NoonAccountingPreviewLine {
+  debitOrCredit?: string
+  accountCode?: string
+  accountName?: string
+  amount?: number
+  description?: string
+}
+
+/** A journal that moves an uncleared 1067 / 1068 balance into its expense account plus input VAT. */
+export interface NoonUnclearedReclassJournal {
+  feeType?: string
+  displayLabel?: string
+  amount?: number
+  signedAmount?: number
+  grossInclVat?: number
+  netExpense?: number
+  inputVatAmount?: number
+  mappingStatus?: string
+  accountingPreview?: { lines?: NoonAccountingPreviewLine[] }
+}
+
 export interface NoonSettlementAdjustmentJournal {
+  journalAudit?: NoonJournalAudit | null
   paymentType?: string
   feeType?: string
   displayLabel?: string
@@ -317,9 +356,56 @@ export interface NoonSettlementAdjustmentJournal {
   }
 }
 
+/** One statement row as classified by the backend line type registry. */
+export interface NoonLineTypeRow {
+  rowNumber?: number
+  itemOrderId?: string
+  parentOrderId?: string
+  sku?: string
+  title?: string
+  zohoInvoiceNumber?: string
+  netProceed?: number
+  total?: number
+  vat?: number
+  excluded?: boolean
+}
+
+export interface NoonLineType {
+  id: string
+  label: string
+  description: string
+  mechanism: string
+  vatPolicy: string
+  glAccounts: string[]
+  isGap?: boolean
+  rowCount: number
+  totalAmount: number
+  totalVat: number
+  rows: NoonLineTypeRow[]
+}
+
+export interface NoonLineSection {
+  section: string
+  label: string
+  rowCount: number
+  totalAmount: number
+  totalVat: number
+  lineTypes: NoonLineType[]
+}
+
+/**
+ * Section metadata comes from the backend registry, so a new line type appears
+ * in the UI without a frontend change.
+ */
+export interface NoonLineTypeBreakdown {
+  sections: NoonLineSection[]
+  unroutedRowCount: number
+}
+
 export interface NoonPaymentPreview {
   paymentPreviewId?: number
   status?: string
+  lineTypeBreakdown?: NoonLineTypeBreakdown
   invoicePayments: Array<{
     itemOrderId: string
     parentOrderId: string
@@ -329,6 +415,7 @@ export interface NoonPaymentPreview {
     invoiceTotal?: number
     totalClearingAmount: number
     netProceed: number
+    invoiceClearingNetBalance?: number
     referralFee: number
     fulfillmentShipping: number
     parentLogisticsAddOn?: number
@@ -352,10 +439,8 @@ export interface NoonPaymentPreview {
   statementLevelCharges: Array<Record<string, unknown>>
   adjustmentClearings?: Array<Record<string, unknown>>
   feeJournalLines: Array<Record<string, unknown>>
-  unclearedReclassJournals?: Array<Record<string, unknown>>
+  unclearedReclassJournals?: NoonUnclearedReclassJournal[]
   unclearedReclassSummary?: Record<string, unknown>
-  undepositedSettlementBridgeJournal?: Record<string, unknown> | null
-  paidInvoiceSubsidyJournal?: Record<string, unknown> | null
   paidInvoiceSubsidyLines?: Array<Record<string, unknown>>
   settlementAdjustmentJournal?: NoonSettlementAdjustmentJournal | null
   settlementAdjustmentLines?: NoonSettlementAdjustmentSourceLine[]
@@ -403,10 +488,10 @@ export interface NoonPaymentPreview {
     settlementAdjustmentInputVat?: number
     undepositedPlanningDifference?: number
     plannedUndeposited1066?: number
-    undepositedSettlementBridgeAmount?: number
     paidInvoiceSubsidyLineCount?: number
     finalDifference: number
     unmappedFeeJournalCount: number
+    feeJournalVatWarnings?: Array<{ rowNumber?: number; code: string; message: string }>
     unmappedUnclearedReclassCount?: number
     invoiceOverpaymentCount?: number
     orphanShippingToUncleared?: number

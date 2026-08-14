@@ -1751,7 +1751,6 @@ describe('orphan parent logistics → Zoho invoice', () => {
     assert.equal(preview.invoicePayments.length, 0)
     assert.ok(preview.settlementAdjustmentJournal)
     assert.equal(preview.settlementAdjustmentJournal.amount, 21.42)
-    assert.equal(preview.summary.undepositedSettlementBridgeAmount, 0)
     assert.equal(preview.summary.settlementAdjustmentLineCount, 1)
   })
 
@@ -1831,7 +1830,6 @@ describe('orphan parent logistics → Zoho invoice', () => {
       reportSnapshot: { referenceNr: 'PS-11752-AE20260708' },
     }
     const preview = buildPaymentPreviewFromBatch(batch, [])
-    assert.equal(preview.summary.undepositedSettlementBridgeAmount, 0)
     assert.ok(!preview.undepositedSettlementBridgeJournal)
     assert.ok(preview.settlementAdjustmentJournal)
     assert.equal(preview.settlementAdjustmentJournal.amount, 21.42)

@@ -108,7 +108,7 @@ describe('Noon line type registry', () => {
     }
   })
 
-  it('classifies a same-week return as the known unrouted gap', () => {
+  it('routes a same-week return through the credit note refund path', () => {
     const rows = [
       {
         rowNumber: 1,
@@ -137,10 +137,41 @@ describe('Noon line type registry', () => {
     const ctx = buildRowContext(batch, { rows: classified })
 
     const sameWeekReturn = classified.find((r) => r.rowNumber === 2)
+    assert.equal(sameWeekReturn.rowClass, ROW_CLASS.RETURN)
+    assert.equal(sameWeekReturn.returnTiming, 'same_week')
     const entry = resolveLineType(sameWeekReturn, ctx)
     assert.equal(entry.id, LINE_TYPE.RETURN_SAME_WEEK)
-    assert.equal(entry.mechanism, MECHANISM.NONE)
-    assert.equal(entry.isGap, true)
+    assert.equal(entry.mechanism, MECHANISM.CREDIT_NOTE_REFUND)
+    assert.ok(!entry.isGap)
+  })
+
+  it('leaves a same-week subsidy shape out of the return path', () => {
+    // Negative proceeds with a positive Total is a subsidy, not a refund.
+    const rows = [
+      {
+        rowNumber: 1,
+        rowClass: ROW_CLASS.SALE_ITEM,
+        transactionType: 'order',
+        parentOrderId: 'NAEI70012345678',
+        itemOrderId: 'NAEI70012345678-1',
+        netProceed: 300,
+        referralFee: -47.25,
+        total: 252.75,
+      },
+      {
+        rowNumber: 2,
+        rowClass: ROW_CLASS.ORDER_ADJUSTMENT,
+        transactionType: 'order_update',
+        parentOrderId: 'NAEI70012345678',
+        itemOrderId: 'NAEI70012345678-2',
+        netProceed: -90,
+        fulfillmentFee: 12.5,
+        total: 12.5,
+      },
+    ]
+    const classified = reclassifyReturnRows(rows, buildSaleParentOrderIdSet(rows))
+    const subsidy = classified.find((r) => r.rowNumber === 2)
+    assert.notEqual(subsidy.rowClass, ROW_CLASS.RETURN)
   })
 
   it('exposes ordered section metadata covering every registered type', () => {
@@ -293,6 +324,106 @@ describe('Noon line type VAT policy', () => {
     const policy = applyVatPolicy(row, VAT_POLICY.COMPONENT_SUM)
     assert.equal(line.inputVatAmount, round2(policy.vatAmount))
     assert.equal(line.netExpense, round2(policy.netAmount))
+  })
+
+  it('flags an advertising charge that carries no including-VAT column', () => {
+    const {
+      buildFeeJournalPreviewLines,
+    } = require('../src/services/noonPaymentClearing/noonPaymentClearingPreviewService')
+    const [line] = buildFeeJournalPreviewLines(
+      [
+        {
+          rowNumber: 1,
+          rowClass: ROW_CLASS.STATEMENT_FEE,
+          title: 'Advertising',
+          total: -2009.62,
+        },
+      ],
+      [],
+      null,
+      {}
+    )
+    assert.equal(line.inputVatAmount, 0)
+    assert.equal(line.vatWarning?.code, 'ADVERTISING_VAT_NOT_SPLIT')
+  })
+
+  it('does not flag an advertising charge whose VAT did split', () => {
+    const {
+      buildFeeJournalPreviewLines,
+    } = require('../src/services/noonPaymentClearing/noonPaymentClearingPreviewService')
+    const [line] = buildFeeJournalPreviewLines(
+      [
+        {
+          rowNumber: 1,
+          rowClass: ROW_CLASS.STATEMENT_FEE,
+          title: 'Advertising',
+          nonOrderFees: -2009.62,
+          total: -2009.62,
+        },
+      ],
+      [],
+      null,
+      {}
+    )
+    assert.equal(line.vatWarning, null)
+  })
+})
+
+describe('Noon storage fee routing', () => {
+  const {
+    normalizeNoonFeeType,
+    displayLabelForFeeRow,
+    NORMALIZED_FEE_TYPE,
+  } = require('../src/services/noonPaymentClearing/noonPaymentClearingCategoryService')
+  const {
+    getNoonPaymentClearingMarketplaceConfig,
+  } = require('../src/services/noonPaymentClearing/noonPaymentClearingMarketplaceConfig')
+  const {
+    buildFeeJournalPreviewLines,
+  } = require('../src/services/noonPaymentClearing/noonPaymentClearingPreviewService')
+
+  const cases = [
+    ['Storage Fee', NORMALIZED_FEE_TYPE.STORAGE_FEE, '1207'],
+    ['Monthly Storage Fee', NORMALIZED_FEE_TYPE.MONTHLY_STORAGE_FEE, '1208'],
+    ['Long Term Storage Fee', NORMALIZED_FEE_TYPE.LONG_TERM_STORAGE_FEE, '1209'],
+  ]
+
+  it('separates the three storage variants by title', () => {
+    for (const [title, expected] of cases) {
+      const feeType = normalizeNoonFeeType({ rowClass: ROW_CLASS.STATEMENT_FEE, title })
+      assert.equal(feeType, expected, title)
+      assert.equal(displayLabelForFeeRow({ normalizedFeeType: feeType }), title)
+    }
+  })
+
+  it('gives each storage variant its own Zoho account instead of advertising', () => {
+    const cfg = getNoonPaymentClearingMarketplaceConfig()
+    for (const [title, feeType, code] of cases) {
+      const suggestion = cfg.feeJournalAccountSuggestions.find(
+        (s) => s.normalizedFeeType === feeType
+      )
+      assert.ok(suggestion, `${feeType} has no fee journal suggestion`)
+      assert.equal(suggestion.zohoAccountCode, code)
+      assert.notEqual(suggestion.zohoAccountCode, cfg.advertisingExpenseAccount.accountCode)
+
+      const [line] = buildFeeJournalPreviewLines(
+        [{ rowNumber: 1, rowClass: ROW_CLASS.STATEMENT_FEE, title, nonOrderFees: -100, total: -100 }],
+        [],
+        { accountCode: '1085' },
+        {}
+      )
+      assert.equal(line.normalizedFeeType, feeType)
+      assert.equal(line.zohoAccountCode, code, title)
+      assert.equal(line.clearingAccountCode, cfg.undepositedFundsAccount.accountCode)
+    }
+  })
+
+  it('leaves a non-storage statement fee on the generic path', () => {
+    const feeType = normalizeNoonFeeType({
+      rowClass: ROW_CLASS.STATEMENT_FEE,
+      title: 'Marketplace penalty',
+    })
+    assert.equal(feeType, NORMALIZED_FEE_TYPE.STATEMENT_FEE)
   })
 })
 
