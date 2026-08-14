@@ -51,6 +51,16 @@ function itemOrderMatchKey(value) {
   return clean(value).toLowerCase().replace(/\s+/g, '')
 }
 
+/** Statement row netProceed wins when set — matchedOrders can retain stale invoice-match sale gross. */
+function effectiveNetProceedForPlan(row, item) {
+  if (row && row.netProceed != null && row.netProceed !== '') {
+    const rowNet = num(row.netProceed)
+    if (rowNet <= -0.01) return rowNet
+    if (rowNet > -0.01 && rowNet < 0.01) return rowNet
+  }
+  return num(item.netProceed)
+}
+
 /** Sales returns clear only via return steps — never Record Payment or open-balance plans. */
 function buildReturnItemOrderIdSet(batch, classifiedRows = null) {
   const rawRows = batch?.allRows || []
@@ -211,10 +221,10 @@ function collectAssignedUnclearedPaymentAddOns(allRows = [], planExclusions = nu
   const returnItemOrderIds = options.returnItemOrderIds || null
   for (const row of Array.isArray(allRows) ? allRows : []) {
     if (!options.ignoreExclusions && row.excludeFromPaymentClearing) continue
-    if (!options.ignoreExclusions && isPaidInvoiceSubsidyRow(row, planExclusions)) continue
-    if (!options.ignoreExclusions && isSettlementAdjustmentSourceRow(row, planExclusions, saleParentSet)) {
-      continue
-    }
+    // Settlement adjustments and paid-invoice subsidies never belong on Record Payment — even when
+    // ignoreExclusions is true for open-balance detection (avoids false shortfalls on paid invoices).
+    if (isPaidInvoiceSubsidyRow(row, planExclusions)) continue
+    if (isSettlementAdjustmentSourceRow(row, planExclusions, saleParentSet)) continue
     if (!isUnclearedInvoicePaymentBucketRow(row)) continue
     if (row.rowClass === ROW_CLASS.RETURN) continue
     const itemId = clean(row.assignedItemOrderId) || clean(row.itemOrderId)
@@ -367,8 +377,11 @@ function buildInvoicePaymentPlansFromBatch(batch, accountOverrides = {}, options
         (r) => clean(r.itemOrderId).toLowerCase() === clean(item.itemOrderId).toLowerCase()
       )
       if (row?.rowClass === ROW_CLASS.RETURN) return false
-      // Settlement adjustment / return rows never use Record Payment — even for open-balance detection.
-      if (num(item.netProceed) < 0.01) return false
+      if (row && row.netProceed != null && row.netProceed !== '' && num(row.netProceed) <= -0.01) {
+        return false
+      }
+      const effectiveNetProceed = effectiveNetProceedForPlan(row, item)
+      if (effectiveNetProceed < 0.01) return false
       if (row && isZeroSaleCrossWeekLogisticsSettlementRow(row, saleParentSet)) return false
       if (options.ignoreExclusions) return true
       return true

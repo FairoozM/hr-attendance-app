@@ -358,10 +358,21 @@ async function getBatchPreview(batchId) {
   const openBalanceExcluded = batch.reportSnapshot?.openBalanceReconcile?.excludedShortfalls || []
   const openBalanceCheckedAt = batch.reportSnapshot?.openBalanceReconcile?.checkedAt || null
   const openBalanceCheckWarning = batch.reportSnapshot?.openBalanceReconcile?.warning || null
-  const hasOpenBalanceBlock =
-    openBalanceShortfalls.length > 0 ||
-    !openBalanceCheckedAt ||
-    (batch.blockingIssues || []).some((i) => i.code === 'OPEN_BALANCE_SHORT')
+  const blockingIssues = [...(batch.blockingIssues || [])].filter((i) => i.code !== 'OPEN_BALANCE_SHORT')
+  for (const s of openBalanceShortfalls) {
+    blockingIssues.push({
+      code: 'OPEN_BALANCE_SHORT',
+      severity: 'error',
+      itemOrderId: s.itemOrderId,
+      zohoInvoiceId: s.zohoInvoiceId,
+      zohoInvoiceNumber: s.zohoInvoiceNumber,
+      openBalance: s.openBalance,
+      totalClearingAmount: s.totalClearingAmount,
+      overBy: s.overBy,
+      message: `${s.zohoInvoiceNumber || s.itemOrderId}: clearing ${s.totalClearingAmount} > open balance ${s.openBalance ?? '?'} (over by ${s.overBy}). Exclude already-paid logistics or void Zoho payments first.`,
+    })
+  }
+  const hasOpenBalanceBlock = openBalanceShortfalls.length > 0 || !openBalanceCheckedAt
   return {
     batch,
     batchId: batch.batchId,
@@ -380,7 +391,7 @@ async function getBatchPreview(batchId) {
     settlementBridgeAccount,
     paymentPreviewAccounts: marketplaceConfig?.paymentPreviewAccounts,
     inputVatAccount,
-    blockingIssues: batch.blockingIssues,
+    blockingIssues,
     warnings: batch.warnings,
     refundReturnRows: batch.refundReturnRows || [],
     matchedReturns: batch.matchedReturns || [],
@@ -476,7 +487,16 @@ async function reconcileOpenBalances(batchId) {
     }
   }
 
-  const activeShortfalls = [...activeByKey.values()]
+  const activeShortfalls = getActiveOpenBalanceShortfalls({
+    ...batch,
+    reportSnapshot: {
+      ...(batch.reportSnapshot || {}),
+      openBalanceReconcile: {
+        ...snap,
+        shortfalls: [...activeByKey.values()],
+      },
+    },
+  })
   const excludedShortfalls = mergeExcludedShortfalls(prevExcludedShortfalls, [...excludedByKey.values()])
 
   const warnings = []
@@ -846,6 +866,13 @@ function isExcludedShortfall(shortfall, invoiceIds, itemOrderIds) {
   return Boolean((inv && invoiceIds.has(inv)) || (item && itemOrderIds.has(item)))
 }
 
+function splitShortfallItemOrderIds(value) {
+  return String(value || '')
+    .split(/,\s*/)
+    .map((id) => matchKey(id))
+    .filter(Boolean)
+}
+
 function getActiveOpenBalanceShortfalls(batch) {
   const shortfalls = batch?.reportSnapshot?.openBalanceReconcile?.shortfalls || []
   const excludedInvoiceIds = collectExcludedInvoiceIds(batch)
@@ -855,13 +882,19 @@ function getActiveOpenBalanceShortfalls(batch) {
   const recordPaymentKeys = new Set(
     recordPaymentPlans.map((p) => `${clean(p.zohoInvoiceId)}|${matchKey(p.itemOrderId)}`)
   )
+  const eligibleInvoiceIds = new Set(
+    recordPaymentPlans.map((p) => clean(p.zohoInvoiceId)).filter(Boolean)
+  )
   return shortfalls.filter((s) => {
     if (isPseudoFetchShortfall(s)) return false
     if (isExcludedShortfall(s, excludedInvoiceIds, excludedItemOrderIds)) return false
-    const itemKey = matchKey(s?.itemOrderId)
-    if (itemKey && returnItemOrderIds.has(itemKey)) return false
-    const planKey = `${clean(s?.zohoInvoiceId)}|${itemKey}`
-    if (!recordPaymentKeys.has(planKey)) return false
+    const invId = clean(s?.zohoInvoiceId)
+    if (invId && !eligibleInvoiceIds.has(invId)) return false
+    const itemIds = splitShortfallItemOrderIds(s?.itemOrderId)
+    if (itemIds.length) {
+      if (itemIds.every((id) => returnItemOrderIds.has(id))) return false
+      if (!itemIds.some((id) => recordPaymentKeys.has(`${invId}|${id}`))) return false
+    }
     return true
   })
 }
@@ -1211,6 +1244,7 @@ module.exports = {
   excludeOpenBalanceShortfalls,
   approveSavedBatch,
   validateBatchReadyForApproval,
+  getActiveOpenBalanceShortfalls,
   generatePaymentPreview,
   postBatchToZoho,
   forceRepost,

@@ -3078,4 +3078,89 @@ describe('Noon return matching refresh and approval gates', () => {
     const plans = buildInvoicePaymentPlansFromBatch(batch, {}, { ignoreExclusions: true })
     assert.equal(plans.length, 0)
   })
+
+  it('excludes returns when matchedOrders still carry stale positive sale netProceed', () => {
+    const { buildInvoicePaymentPlansFromBatch } = require('../src/services/noonPaymentClearing/noonPaymentClearingPaymentPreviewService')
+    const { ROW_CLASS } = require('../src/services/noonPaymentClearing/noonPaymentClearingCategoryService')
+    const batch = {
+      matchedOrders: [
+        {
+          itemOrderId: 'NAEI50031648956-1',
+          zohoInvoiceId: 'inv-041408',
+          zohoInvoiceNumber: 'INV-041408',
+          zohoInvoiceTotal: 133,
+          netProceed: 133,
+          referralFee: 20.95,
+          fulfillmentFee: -26.25,
+          shippingCharges: 0,
+        },
+      ],
+      allRows: [
+        {
+          rowNumber: 10,
+          itemOrderId: 'NAEI50031648956-1',
+          parentOrderId: 'NAEI50031648956',
+          netProceed: -133,
+          referralFee: 20.95,
+          fulfillmentFee: -26.25,
+          shippingCharges: 0,
+          total: -112.05,
+          transactionType: 'order_update',
+          rowClass: ROW_CLASS.ORDER_ADJUSTMENT,
+        },
+      ],
+      matchedReturns: [{ itemOrderId: 'NAEI50031648956-1', status: 'matched' }],
+    }
+    const plans = buildInvoicePaymentPlansFromBatch(batch, {}, { ignoreExclusions: true })
+    assert.equal(plans.length, 0)
+  })
+
+  it('drops stored open-balance shortfalls that are no longer Record Payment eligible', () => {
+    const { getActiveOpenBalanceShortfalls } = require('../src/services/noonPaymentClearing/noonPaymentClearingService')
+    const { ROW_CLASS } = require('../src/services/noonPaymentClearing/noonPaymentClearingCategoryService')
+    const batch = {
+      matchedOrders: [
+        {
+          itemOrderId: 'NAEI50031648956-1',
+          zohoInvoiceId: 'inv-041408',
+          zohoInvoiceNumber: 'INV-041408',
+          zohoInvoiceTotal: 133,
+          netProceed: 133,
+          referralFee: 20.95,
+          fulfillmentFee: -26.25,
+          shippingCharges: 0,
+        },
+      ],
+      allRows: [
+        {
+          rowNumber: 10,
+          itemOrderId: 'NAEI50031648956-1',
+          parentOrderId: 'NAEI50031648956',
+          netProceed: -133,
+          referralFee: 20.95,
+          fulfillmentFee: -26.25,
+          shippingCharges: 0,
+          total: -112.05,
+          rowClass: ROW_CLASS.ORDER_ADJUSTMENT,
+        },
+      ],
+      matchedReturns: [{ itemOrderId: 'NAEI50031648956-1', status: 'matched' }],
+      reportSnapshot: {
+        openBalanceReconcile: {
+          checkedAt: '2026-08-14T12:00:00.000Z',
+          shortfalls: [
+            {
+              itemOrderId: 'NAEI50031648956-1',
+              zohoInvoiceId: 'inv-041408',
+              zohoInvoiceNumber: 'INV-041408',
+              openBalance: 0,
+              totalClearingAmount: 47.2,
+              overBy: 47.2,
+            },
+          ],
+        },
+      },
+    }
+    assert.equal(getActiveOpenBalanceShortfalls(batch).length, 0)
+  })
 })
