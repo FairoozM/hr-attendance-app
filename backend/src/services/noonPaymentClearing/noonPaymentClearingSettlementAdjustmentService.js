@@ -18,7 +18,8 @@ const {
 } = require('./noonPaymentClearingRowPredicates')
 const { getNoonPaymentClearingMarketplaceConfig } = require('./noonPaymentClearingMarketplaceConfig')
 const { truncateZohoReference } = require('./noonPaymentClearingReferenceService')
-const { splitVatInclusiveAmount, DEFAULT_VAT_RATE, VAT_INCLUSIVE_COMPONENT_FIELDS } = require('./noonPaymentClearingVatService')
+const { DEFAULT_VAT_RATE } = require('./noonPaymentClearingVatService')
+const { applyVatPolicy, VAT_POLICY } = require('./lineTypes/noonLineTypeVatPolicy')
 const {
   sumJournalLineItems,
   assertBalancedJournalLineItems,
@@ -172,42 +173,28 @@ function adjustmentDescriptionLabel(row) {
   return raw.split('/')[0].trim() || 'shipping'
 }
 
-function rowHasVatInclusiveServiceFee(row) {
-  return VAT_INCLUSIVE_COMPONENT_FIELDS.some((def) => Math.abs(num(row[def.field])) >= 0.005)
-}
-
 /**
- * Settlement adjustment journals must split VAT from the authoritative row.total gross.
- * Component fields can disagree with Total (e.g. fulfillmentFee 626.82 vs total 619.21).
+ * Settlement adjustment journals must split VAT from the authoritative row.total
+ * gross, because component fields can disagree with Total (fulfillmentFee 626.82
+ * against a 619.21 Total). That is the TOTAL_GROSS policy, so the split itself
+ * comes from there and this function only shapes the journal builder's fields.
  */
 function resolveSettlementAdjustmentVatSplit(row, vatRate = DEFAULT_VAT_RATE) {
   const signedGross = round2(num(row.total))
   const absGross = round2(Math.abs(signedGross))
   if (absGross < 0.01) return null
 
-  if (!rowHasVatInclusiveServiceFee(row)) {
-    return {
-      signedGross,
-      absGross,
-      vatInclusive: false,
-      netAmount: absGross,
-      vatAmount: 0,
-      sourceGrossCheck: true,
-      vatSource: 'none',
-    }
-  }
-
-  const split = splitVatInclusiveAmount(absGross, vatRate)
+  const split = applyVatPolicy(row, VAT_POLICY.TOTAL_GROSS, { vatRate })
   const netAmount = round2(split.netAmount)
   const vatAmount = round2(split.vatAmount)
   return {
     signedGross,
     absGross,
-    vatInclusive: true,
+    vatInclusive: split.vatInclusive,
     netAmount,
     vatAmount,
     sourceGrossCheck: Math.abs(round2(netAmount + vatAmount) - absGross) < 0.005,
-    vatSource: 'row_total_inclusive',
+    vatSource: split.vatInclusive ? 'row_total_inclusive' : 'none',
   }
 }
 

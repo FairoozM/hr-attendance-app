@@ -6,13 +6,12 @@ const {
   hasProductSaleSignal,
   normalizeTransactionType,
 } = require('./noonPaymentClearingCategoryService')
-const { resolveNoonOrderIds } = require('./noonOrderIdHelper')
 const {
   buildSaleParentOrderIdSet,
   parentOrderIdForRow,
   itemOrderIdForRow,
 } = require('./noonPaymentClearingRowPredicates')
-const { extractVatFromNoonRow } = require('./noonPaymentClearingVatService')
+const { applyVatPolicy, VAT_POLICY } = require('./lineTypes/noonLineTypeVatPolicy')
 
 const RETURN_BLOCK_CODES = Object.freeze({
   RETURN_CREDIT_NOTE_MISSING: 'RETURN_CREDIT_NOTE_MISSING',
@@ -85,10 +84,15 @@ function buildNoonReturnFeeBreakdown(row) {
   )
   const netSettlementEffect = round2(num(row.total))
 
+  // Fee reversals are COMPONENT_SUM. The product principal above is deliberately
+  // untouched: a refund of goods carries no service-fee VAT.
   let commissionReversalNet = commissionReversalGross
   let commissionReversalVat = 0
   if (commissionReversalGross >= TOLERANCE) {
-    const vat = extractVatFromNoonRow({ referralFee: commissionReversalGross, total: commissionReversalGross })
+    const vat = applyVatPolicy(
+      { referralFee: commissionReversalGross, total: commissionReversalGross },
+      VAT_POLICY.COMPONENT_SUM
+    )
     commissionReversalNet = round2(Math.abs(vat.netAmount))
     commissionReversalVat = round2(Math.abs(vat.vatAmount))
   }
@@ -97,11 +101,10 @@ function buildNoonReturnFeeBreakdown(row) {
   let fulfillmentReversalVat = 0
   if (fulfillmentReversalGross >= TOLERANCE) {
     const gross = -fulfillmentReversalGross
-    const vat = extractVatFromNoonRow({
-      fulfillmentFee: gross,
-      shippingCharges: 0,
-      total: gross,
-    })
+    const vat = applyVatPolicy(
+      { fulfillmentFee: gross, shippingCharges: 0, total: gross },
+      VAT_POLICY.COMPONENT_SUM
+    )
     fulfillmentReversalNet = round2(Math.abs(vat.netAmount))
     fulfillmentReversalVat = round2(Math.abs(vat.vatAmount))
   }

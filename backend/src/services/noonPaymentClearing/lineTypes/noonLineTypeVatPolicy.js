@@ -86,8 +86,10 @@ function applyVatPolicy(row, policy, options = {}) {
   }
 
   if (policy === VAT_POLICY.TOTAL_GROSS) {
+    // Always works on the magnitude: the journal builder applies the direction,
+    // so the split itself must not carry a sign.
     if (!rowHasVatInclusiveServiceFee(row)) {
-      return { ...emptySplit(gross), policy }
+      return { ...emptySplit(Math.abs(gross)), policy }
     }
     const split = splitVatInclusiveAmount(round2(Math.abs(gross)), vatRate)
     return {

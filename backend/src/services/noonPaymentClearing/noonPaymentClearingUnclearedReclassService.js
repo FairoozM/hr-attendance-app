@@ -8,6 +8,8 @@ const { resolveNoonFeeJournalSides } = require('./noonPaymentClearingJournalDire
 const { getNoonPaymentClearingMarketplaceConfig } = require('./noonPaymentClearingMarketplaceConfig')
 
 /**
+ * Where the DEFERRED_TO_RECLASS VAT policy is finally resolved.
+ *
  * After invoice Record Payments park commission/shipping on uncleared GLs,
  * post settlement reclass journals (Amazon parallel for account-level expense recognition):
  *

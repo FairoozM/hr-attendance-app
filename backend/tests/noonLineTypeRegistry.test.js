@@ -242,6 +242,58 @@ describe('Noon line type VAT policy', () => {
     assert.equal(split.vatAmount, 0)
     assert.equal(split.nonVatResidue, 500)
   })
+
+  it('declares a policy for every line type, and no order payment splits VAT early', () => {
+    for (const entry of LINE_TYPE_REGISTRY) {
+      assert.ok(
+        Object.values(VAT_POLICY).includes(entry.vatPolicy),
+        `${entry.id} has no VAT policy`
+      )
+      if (entry.section === LINE_SECTION.ORDER_PAYMENTS) {
+        assert.equal(
+          entry.vatPolicy,
+          VAT_POLICY.DEFERRED_TO_RECLASS,
+          `${entry.id} would split VAT at payment time and double-count it in the reclass journal`
+        )
+      }
+    }
+  })
+
+  it('matches the split the settlement adjustment journal actually applies', () => {
+    const {
+      resolveSettlementAdjustmentVatSplit,
+    } = require('../src/services/noonPaymentClearing/noonPaymentClearingSettlementAdjustmentService')
+    const rows = [
+      { fulfillmentFee: -626.82, shippingCharges: -7.61, total: -619.21 },
+      { fulfillmentFee: -13.1, referralFee: -10, total: -23.1 },
+      { othersInclVat: 7.56, total: 7.56 },
+      { netProceed: 100, total: 100 },
+    ]
+    for (const row of rows) {
+      const journal = resolveSettlementAdjustmentVatSplit(row)
+      const policy = applyVatPolicy(row, VAT_POLICY.TOTAL_GROSS)
+      assert.equal(journal.vatAmount, round2(policy.vatAmount), JSON.stringify(row))
+      assert.equal(journal.netAmount, round2(policy.netAmount), JSON.stringify(row))
+    }
+  })
+
+  it('matches the split the fee journal actually applies', () => {
+    const {
+      buildFeeJournalPreviewLines,
+    } = require('../src/services/noonPaymentClearing/noonPaymentClearingPreviewService')
+    const row = {
+      rowNumber: 1,
+      rowClass: ROW_CLASS.STATEMENT_FEE,
+      normalizedFeeType: 'NOON_ADVERTISING_FEE',
+      title: 'Advertising',
+      nonOrderFees: -2009.62,
+      total: -2009.62,
+    }
+    const [line] = buildFeeJournalPreviewLines([row], [], null, {})
+    const policy = applyVatPolicy(row, VAT_POLICY.COMPONENT_SUM)
+    assert.equal(line.inputVatAmount, round2(policy.vatAmount))
+    assert.equal(line.netExpense, round2(policy.netAmount))
+  })
 })
 
 function round2(v) {

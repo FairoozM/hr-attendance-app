@@ -37,10 +37,8 @@ const {
   buildSaleParentOrderIdSet,
   normalizeGlAccount,
 } = require('./noonPaymentClearingRowPredicates')
-const {
-  DEFAULT_VAT_RATE,
-  extractVatFromNoonRow,
-} = require('./noonPaymentClearingVatService')
+const { DEFAULT_VAT_RATE } = require('./noonPaymentClearingVatService')
+const { applyVatPolicy, VAT_POLICY } = require('./lineTypes/noonLineTypeVatPolicy')
 
 function buildBlockingIssues({ annotatedRows, unmatchedOrders, multipleMatchItems, reconciliation }) {
   const issues = []
@@ -151,7 +149,10 @@ function buildFeeJournalPreviewLines(rows, mappingRules = [], inputVatAccount = 
     const feeType = row.normalizedFeeType || normalizeNoonFeeType(row) || 'OTHER'
     const rule = findFeeMappingRule(mappingRules, feeType)
     const signedAmount = round2(num(row.total))
-    const vatBreakdown = extractVatFromNoonRow(row, { vatRate: vatAcct.vatRate })
+    // Fee journals are COMPONENT_SUM: the including-VAT columns are the authority.
+    const vatBreakdown = applyVatPolicy(row, VAT_POLICY.COMPONENT_SUM, {
+      vatRate: vatAcct.vatRate,
+    })
     const displayLabel = row.displayLabel || displayLabelForFeeRow(row)
     const isAdvertising =
       feeType === 'NOON_ADVERTISING_FEE' || feeType === 'ADVERTISING' || /advertis/i.test(displayLabel)
