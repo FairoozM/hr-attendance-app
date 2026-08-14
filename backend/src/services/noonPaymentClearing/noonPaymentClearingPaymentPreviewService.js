@@ -12,6 +12,13 @@ const {
   isOrphanParentLogisticsRow,
   ORPHAN_PARENT_ASSIGNMENT_REASON,
 } = require('./noonPaymentClearingRowPredicates')
+const { buildRowContext, collectExclusions } = require('./lineTypes/noonRowContext')
+const {
+  vetoesRecordPayment,
+  annotateRowsWithLineType,
+  describeLineSections,
+} = require('./lineTypes/noonLineTypeRegistry')
+const { applyVatPolicy, VAT_POLICY } = require('./lineTypes/noonLineTypeVatPolicy')
 const { getNoonPaymentClearingMarketplaceConfig } = require('./noonPaymentClearingMarketplaceConfig')
 const { buildSettlementReference, buildEntryReference } = require('./noonPaymentClearingReferenceService')
 const { isNoonSettlementReconciliationAcceptable, RECONCILIATION_TOLERANCE } = require('./noonPaymentClearingReconciliationService')
@@ -258,33 +265,7 @@ function collectAssignedUnclearedPaymentAddOns(allRows = [], planExclusions = nu
 }
 
 /** Merged exclusion sets: snapshot + row flags + matched-order flags. */
-function collectPlanExclusions(batch) {
-  const excludedInvoiceIds = new Set(
-    (batch?.reportSnapshot?.openBalanceReconcile?.excludedInvoiceIds || [])
-      .map((id) => clean(id))
-      .filter(Boolean)
-  )
-  const excludedItemOrderIds = new Set(
-    (batch?.reportSnapshot?.openBalanceReconcile?.excludedItemOrderIds || [])
-      .map((id) => itemOrderMatchKey(id))
-      .filter(Boolean)
-  )
-  for (const m of batch?.matchedOrders || []) {
-    if (!m?.excludeFromPaymentClearing) continue
-    const inv = clean(m.zohoInvoiceId)
-    const item = itemOrderMatchKey(m.itemOrderId)
-    if (inv) excludedInvoiceIds.add(inv)
-    if (item) excludedItemOrderIds.add(item)
-  }
-  for (const row of batch?.allRows || []) {
-    if (!row?.excludeFromPaymentClearing) continue
-    const inv = clean(row.assignedZohoInvoiceId || row.zohoInvoiceId)
-    const item = itemOrderMatchKey(row.assignedItemOrderId || row.itemOrderId)
-    if (inv) excludedInvoiceIds.add(inv)
-    if (item) excludedItemOrderIds.add(item)
-  }
-  return { excludedInvoiceIds, excludedItemOrderIds }
-}
+const collectPlanExclusions = collectExclusions
 
 /** Sum planned clearing per Zoho invoice — open balance is per invoice, not per item line. */
 function aggregatePaymentPlansByInvoice(plans = []) {
@@ -346,6 +327,11 @@ function buildInvoicePaymentPlansFromBatch(batch, accountOverrides = {}, options
   const saleParentSet = buildSaleParentOrderIdSet(rawRows)
   const classifiedRows = reclassifyReturnRows(rawRows, saleParentSet)
   const returnItemOrderIds = buildReturnItemOrderIdSet(batch, classifiedRows)
+  const rowCtx = buildRowContext(batch, {
+    rows: classifiedRows,
+    ignoreExclusions: options.ignoreExclusions,
+  })
+  const rowByItemOrderId = indexRowsByItemOrderId(classifiedRows)
   const matched = (Array.isArray(batch.matchedOrders) ? batch.matchedOrders : []).filter((item) => {
     if (isSalesReturnItemOrderId(item.itemOrderId, returnItemOrderIds)) return false
     if (!options.ignoreExclusions && item.logisticsOnly) return false
@@ -361,22 +347,94 @@ function buildInvoicePaymentPlansFromBatch(batch, accountOverrides = {}, options
   return matched
     .filter((item) => {
       if (isSalesReturnItemOrderId(item.itemOrderId, returnItemOrderIds)) return false
-      const row = classifiedRows.find(
-        (r) => clean(r.itemOrderId).toLowerCase() === clean(item.itemOrderId).toLowerCase()
-      )
-      if (row?.rowClass === ROW_CLASS.RETURN) return false
-      if (row && row.netProceed != null && row.netProceed !== '' && num(row.netProceed) <= -0.01) {
-        return false
-      }
-      const effectiveNetProceed = effectiveNetProceedForPlan(row, item)
-      if (effectiveNetProceed < 0.01) return false
-      if (row && isZeroSaleCrossWeekLogisticsSettlementRow(row, saleParentSet)) return false
-      if (options.ignoreExclusions) return true
-      return true
+      const row = rowByItemOrderId.get(clean(item.itemOrderId).toLowerCase()) || null
+      if (vetoesRecordPayment(row, rowCtx)) return false
+      return effectiveNetProceedForPlan(row, item) >= 0.01
     })
     .map((item) =>
       buildInvoicePaymentPlan(item, accounts, addOnsByItem.get(clean(item.itemOrderId)) || null)
     )
+}
+
+/**
+ * VAT for display. TOTAL_GROSS splits the magnitude of Total because that is
+ * what the journal builder needs, so the row's own sign is reapplied here to
+ * keep a charge's VAT showing as a charge.
+ */
+function displayVatForRow(row) {
+  const split = applyVatPolicy(row, row.vatPolicy)
+  const vat = round2(num(split.vatAmount))
+  if (split.policy !== VAT_POLICY.TOTAL_GROSS) return vat
+  return num(row.total) < 0 ? round2(-vat) : vat
+}
+
+/**
+ * Group the statement's rows under their line type and section.
+ *
+ * The UI renders straight from this, so adding a line type to the registry
+ * makes it appear as its own labelled section without a frontend change.
+ */
+function buildLineTypeBreakdown(classifiedRows, ctx) {
+  const annotated = annotateRowsWithLineType(classifiedRows, ctx)
+  const rowsByType = new Map()
+  for (const row of annotated) {
+    if (!rowsByType.has(row.lineType)) rowsByType.set(row.lineType, [])
+    rowsByType.get(row.lineType).push({
+      rowNumber: row.rowNumber,
+      itemOrderId: clean(row.itemOrderId),
+      parentOrderId: clean(row.parentOrderId || row.originalParentOrderId),
+      sku: clean(row.sku || row.partnerSku),
+      title: clean(row.title),
+      zohoInvoiceNumber: clean(row.assignedZohoInvoiceNumber || row.zohoInvoiceNumber),
+      netProceed: round2(num(row.netProceed)),
+      total: round2(num(row.total)),
+      vat: displayVatForRow(row),
+      excluded: Boolean(row.excludeFromPaymentClearing),
+    })
+  }
+
+  const sections = describeLineSections()
+    .map((section) => {
+      const lineTypes = section.lineTypes
+        .map((type) => {
+          const rows = rowsByType.get(type.id) || []
+          return {
+            ...type,
+            rowCount: rows.length,
+            totalAmount: round2(rows.reduce((sum, r) => sum + num(r.total), 0)),
+            totalVat: round2(rows.reduce((sum, r) => sum + num(r.vat), 0)),
+            rows,
+          }
+        })
+        .filter((type) => type.rowCount > 0)
+      return {
+        ...section,
+        lineTypes,
+        rowCount: lineTypes.reduce((sum, t) => sum + t.rowCount, 0),
+        totalAmount: round2(lineTypes.reduce((sum, t) => sum + num(t.totalAmount), 0)),
+        totalVat: round2(lineTypes.reduce((sum, t) => sum + num(t.totalVat), 0)),
+      }
+    })
+    .filter((section) => section.rowCount > 0)
+
+  return {
+    sections,
+    unroutedRowCount: sections.reduce(
+      (sum, s) => sum + s.lineTypes.filter((t) => t.isGap).reduce((a, t) => a + t.rowCount, 0),
+      0
+    ),
+  }
+}
+
+/** First row wins per item order id, matching the lookup this replaced. */
+function indexRowsByItemOrderId(rows = []) {
+  const byItem = new Map()
+  for (const row of rows) {
+    const key = clean(row.itemOrderId).toLowerCase()
+    if (!key || byItem.has(key)) continue
+    byItem.set(key, row)
+  }
+  return byItem
 }
 
 function buildInvoicePaymentPlan(item, accounts, addOns = null) {
@@ -929,6 +987,11 @@ function buildPaymentPreviewFromBatch(batch, mappingRules = [], inputVatAccount 
     planExclusions
   )
 
+  const lineTypeBreakdown = buildLineTypeBreakdown(
+    allRows,
+    buildRowContext(batch, { rows: allRows })
+  )
+
   return {
     ...basePreview,
     status: blocked || undepositedPlanningBlocked ? 'blocked' : 'previewed',
@@ -946,6 +1009,7 @@ function buildPaymentPreviewFromBatch(batch, mappingRules = [], inputVatAccount 
     paidInvoiceSubsidyLines,
     undepositedSettlementBridgeJournal,
     undepositedReconciliation,
+    lineTypeBreakdown,
     summary: {
       invoicePaymentCount: invoicePayments.length,
       totalInvoicePayments,
@@ -999,6 +1063,7 @@ function buildPaymentPreviewFromBatch(batch, mappingRules = [], inputVatAccount 
 
 module.exports = {
   PAYMENT_PREVIEW_TOLERANCE,
+  buildLineTypeBreakdown,
   requireBatchForPaymentPreview,
   buildInvoicePaymentPlan,
   buildInvoicePaymentPlansFromBatch,

@@ -86,15 +86,23 @@ function isSameWeekPositiveParentSubsidyRow(row, saleParentSet) {
   return true
 }
 
+/**
+ * Whether a row belongs on the consolidated settlement adjustment journal.
+ *
+ * The decision now comes from the line type registry, so this and the payment
+ * path can no longer disagree about what a row is. The individual predicates
+ * above remain the accounting definitions the registry is built from, and are
+ * still used directly where a specific treatment (not membership) is needed.
+ */
 function isSettlementAdjustmentSourceRow(row, planExclusions = null, saleParentSet = null) {
   if (!row) return false
-  if (row.rowClass === ROW_CLASS.RETURN) return false
-  if (isPaidInvoiceSubsidyAdjustmentRow(row, planExclusions)) return true
-  const parents = saleParentSet || buildSaleParentOrderIdSet([])
-  if (isZeroSaleCrossWeekLogisticsSettlementRow(row, parents)) return true
-  if (isSameWeekPositiveParentSubsidyRow(row, parents)) return true
-  if (row.excludeFromPaymentClearing) return false
-  return isCrossWeekSettlementAdjustmentRow(row, parents)
+  const { resolveLineType, LINE_SECTION } = require('./lineTypes/noonLineTypeRegistry')
+  const ctx = {
+    saleParentSet: saleParentSet || new Set(),
+    excludedInvoiceIds: planExclusions?.excludedInvoiceIds || new Set(),
+    excludedItemOrderIds: planExclusions?.excludedItemOrderIds || new Set(),
+  }
+  return resolveLineType(row, ctx).section === LINE_SECTION.SETTLEMENT_ADJUSTMENTS
 }
 
 function resolveAdjustmentExpenseAccount(row, cfg) {

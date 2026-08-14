@@ -28,6 +28,7 @@ const {
   PAID_INVOICE_SUBSIDY_REASON,
   itemOrderMatchKey,
 } = require('../noonPaymentClearingRowPredicates')
+const { isNoonCrossWeekReturnRow } = require('../noonPaymentClearingReturnService')
 const { VAT_POLICY } = require('./noonLineTypeVatPolicy')
 
 /** UI grouping. Ordered as the operator works through a statement. */
@@ -139,6 +140,9 @@ function matchesCrossWeekCharge(row, ctx) {
 }
 
 const LINE_TYPE_REGISTRY = Object.freeze([
+  // Returns reuse the return service's own predicate rather than approximating
+  // it, so a row is a return here exactly when the reclassifier would call it
+  // one — including on rows that have not been reclassified yet.
   {
     id: LINE_TYPE.RETURN_CROSS_WEEK,
     label: 'Sales return',
@@ -147,7 +151,8 @@ const LINE_TYPE_REGISTRY = Object.freeze([
     mechanism: MECHANISM.CREDIT_NOTE_REFUND,
     vatPolicy: VAT_POLICY.COMPONENT_SUM,
     glAccounts: ['1066', '1067', '1068', '1085'],
-    matches: (row) => row.rowClass === ROW_CLASS.RETURN,
+    matches: (row, ctx) =>
+      row.rowClass === ROW_CLASS.RETURN || isNoonCrossWeekReturnRow(row, ctx.saleParentSet),
   },
   {
     id: LINE_TYPE.RETURN_SAME_WEEK,
@@ -160,29 +165,14 @@ const LINE_TYPE_REGISTRY = Object.freeze([
     glAccounts: [],
     isGap: true,
     matches: (row, ctx) =>
+      !row.excludeFromPaymentClearing &&
       isNegativeNetProceed(row) &&
+      // A return reduces the settlement. A positive Total alongside negative
+      // proceeds is a subsidy shape, not a refund, and is left to the
+      // subsidy rules below.
+      num(row.total) < 0.01 &&
       isItemLevelId(row) &&
       ctx.saleParentSet.has(parentOrderIdForRow(row)),
-  },
-  {
-    id: LINE_TYPE.STATEMENT_FEE_ADVERTISING,
-    label: 'Advertising fee',
-    description: 'Statement-level advertising. Dr advertising expense + Input VAT / Cr Undeposited.',
-    section: LINE_SECTION.ADVERTISING_AND_FEES,
-    mechanism: MECHANISM.FEE_JOURNAL,
-    vatPolicy: VAT_POLICY.COMPONENT_SUM,
-    glAccounts: ['2053', '1085', '1066'],
-    matches: (row) => row.rowClass === ROW_CLASS.STATEMENT_FEE && isAdvertisingFeeRow(row),
-  },
-  {
-    id: LINE_TYPE.STATEMENT_FEE_OTHER,
-    label: 'Other statement fee',
-    description: 'Statement-level fee needing an expense mapping before it can post.',
-    section: LINE_SECTION.ADVERTISING_AND_FEES,
-    mechanism: MECHANISM.FEE_JOURNAL,
-    vatPolicy: VAT_POLICY.COMPONENT_SUM,
-    glAccounts: ['1085', '1066'],
-    matches: (row) => row.rowClass === ROW_CLASS.STATEMENT_FEE,
   },
   {
     id: LINE_TYPE.PAID_INVOICE_SUBSIDY,
@@ -225,6 +215,30 @@ const LINE_TYPE_REGISTRY = Object.freeze([
     vatPolicy: VAT_POLICY.TOTAL_GROSS,
     glAccounts: ['2143', '2162', '1085', '1066'],
     matches: (row, ctx) => !isExcludedRow(row) && matchesCrossWeekCharge(row, ctx),
+  },
+  // Statement fees sit below the adjustment rules because the adjustment
+  // predicates key off an order id and logistics columns that a genuine
+  // statement-level fee never carries. Ordering them this way keeps a malformed
+  // fee row routed the way the journal builder would route it.
+  {
+    id: LINE_TYPE.STATEMENT_FEE_ADVERTISING,
+    label: 'Advertising fee',
+    description: 'Statement-level advertising. Dr advertising expense + Input VAT / Cr Undeposited.',
+    section: LINE_SECTION.ADVERTISING_AND_FEES,
+    mechanism: MECHANISM.FEE_JOURNAL,
+    vatPolicy: VAT_POLICY.COMPONENT_SUM,
+    glAccounts: ['2053', '1085', '1066'],
+    matches: (row) => row.rowClass === ROW_CLASS.STATEMENT_FEE && isAdvertisingFeeRow(row),
+  },
+  {
+    id: LINE_TYPE.STATEMENT_FEE_OTHER,
+    label: 'Other statement fee',
+    description: 'Statement-level fee needing an expense mapping before it can post.',
+    section: LINE_SECTION.ADVERTISING_AND_FEES,
+    mechanism: MECHANISM.FEE_JOURNAL,
+    vatPolicy: VAT_POLICY.COMPONENT_SUM,
+    glAccounts: ['1085', '1066'],
+    matches: (row) => row.rowClass === ROW_CLASS.STATEMENT_FEE,
   },
   {
     id: LINE_TYPE.SALE_ITEM,
@@ -312,6 +326,39 @@ function resolveLineType(row, ctx) {
   return LINE_TYPE_BY_ID[LINE_TYPE.UNEXPLAINED_OTHER]
 }
 
+/**
+ * Whether a row's line type bars it from Zoho Record Payment.
+ *
+ * This is the single question the payment path asks, replacing the three
+ * separate checks it used to make. It reproduces those checks exactly:
+ * every return (by class or by negative proceeds) and every zero-sale
+ * cross-week logistics row is barred.
+ *
+ * The paid-invoice-subsidy branch exists because that type and zero-sale
+ * logistics genuinely overlap — a subsidy row can also carry a logistics
+ * charge. The registry labels the overlap as the subsidy, since that is the
+ * correct accounting treatment, so the bar is asked for explicitly here rather
+ * than being an accident of which rule happens to be listed first.
+ *
+ * Note this is narrower than "mechanism is not RECORD_PAYMENT": rows such as
+ * cross-week charges with small positive proceeds do reach Record Payment
+ * today. Tightening that is a behavioural change, not a restructuring one.
+ */
+function vetoesRecordPayment(row, ctx) {
+  if (!row) return false
+  const entry = resolveLineType(row, ctx)
+  if (entry.section === LINE_SECTION.SALES_RETURNS) return true
+  // Negative proceeds never produce a payment, whatever else the row turns out
+  // to be. Kept separate from the return types so an excluded or parent-level
+  // negative row is still barred without being mislabelled a return.
+  if (isNegativeNetProceed(row)) return true
+  if (entry.id === LINE_TYPE.ZERO_SALE_CROSS_WEEK_LOGISTICS) return true
+  if (entry.id === LINE_TYPE.PAID_INVOICE_SUBSIDY) {
+    return matchesZeroSaleCrossWeekLogistics(row, ctx)
+  }
+  return false
+}
+
 /** Attach `lineType` / `lineSection` / `vatPolicy` to each row without mutating the input. */
 function annotateRowsWithLineType(rows, ctx) {
   return (Array.isArray(rows) ? rows : []).map((row) => {
@@ -358,6 +405,7 @@ module.exports = {
   LINE_TYPE_REGISTRY,
   LINE_TYPE_BY_ID,
   resolveLineType,
+  vetoesRecordPayment,
   annotateRowsWithLineType,
   describeLineSections,
 }

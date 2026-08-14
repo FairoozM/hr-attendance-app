@@ -154,6 +154,54 @@ describe('Noon line type registry', () => {
   })
 })
 
+describe('Noon line type breakdown for the UI', () => {
+  const {
+    buildLineTypeBreakdown,
+  } = require('../src/services/noonPaymentClearing/noonPaymentClearingPaymentPreviewService')
+
+  function breakdownFor(name) {
+    const entry = GOLDEN_BATCHES.find((b) => b.name === name)
+    const { rows, ctx } = contextFor(entry.batch)
+    return buildLineTypeBreakdown(rows, ctx)
+  }
+
+  it('groups a sales week into order payments, fees and adjustments', () => {
+    const b = breakdownFor('sales-week')
+    const labels = b.sections.map((s) => s.section)
+    assert.deepEqual(labels, [
+      LINE_SECTION.ORDER_PAYMENTS,
+      LINE_SECTION.ADVERTISING_AND_FEES,
+      LINE_SECTION.SETTLEMENT_ADJUSTMENTS,
+    ])
+    const ads = b.sections.find((s) => s.section === LINE_SECTION.ADVERTISING_AND_FEES)
+    assert.equal(ads.totalAmount, -2009.62)
+    assert.equal(ads.totalVat, -95.7)
+  })
+
+  it('shows a negative settlement adjustment with negative VAT', () => {
+    const b = breakdownFor('adjustment-week')
+    const adj = b.sections.find((s) => s.section === LINE_SECTION.SETTLEMENT_ADJUSTMENTS)
+    const zeroSale = adj.lineTypes.find((t) => t.id === LINE_TYPE.ZERO_SALE_CROSS_WEEK_LOGISTICS)
+    assert.equal(zeroSale.totalAmount, -40.95)
+    assert.ok(zeroSale.totalVat < 0, `expected a negative VAT, got ${zeroSale.totalVat}`)
+  })
+
+  it('omits sections with no rows and counts unrouted gap rows', () => {
+    const b = breakdownFor('return-week')
+    assert.ok(!b.sections.some((s) => s.rowCount === 0))
+    assert.equal(b.unroutedRowCount, 0)
+  })
+
+  it('every row in the statement lands in exactly one section', () => {
+    for (const { name, batch } of GOLDEN_BATCHES) {
+      const { rows, ctx } = contextFor(batch)
+      const b = buildLineTypeBreakdown(rows, ctx)
+      const placed = b.sections.reduce((sum, s) => sum + s.rowCount, 0)
+      assert.equal(placed, rows.length, `${name}: ${placed} placed vs ${rows.length} rows`)
+    }
+  })
+})
+
 describe('Noon line type VAT policy', () => {
   it('COMPONENT_SUM splits advertising into net and Input VAT', () => {
     const split = applyVatPolicy(
