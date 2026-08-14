@@ -1196,38 +1196,81 @@
 .ip-hud-name-row {
   display: flex;
   align-items: center;
-  gap: 0.55rem;
+  gap: 0.45rem;
+  min-width: 0;
 }
 
 .ip-hud-identity {
   grid-area: identity;
+  position: relative;
   min-width: 0;
+  z-index: 1;
+}
+
+.ip-hud-identity::before {
+  content: '';
+  position: absolute;
+  left: -20px;
+  top: 50%;
+  width: 200px;
+  height: 200px;
+  transform: translateY(-50%);
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgba(252, 231, 243, 0.9) 0%,
+    rgba(243, 232, 255, 0.4) 42%,
+    rgba(255, 255, 255, 0) 70%
+  );
+  pointer-events: none;
+  z-index: 0;
 }
 
 .ip-hud-identity-layout {
+  position: relative;
+  z-index: 1;
   display: flex;
-  align-items: flex-start;
-  gap: 12px;
+  align-items: center;
+  gap: 1.15rem;
 }
 
 .ip-hud-avatar-wrap {
   position: relative;
-  width: 128px;
-  height: 128px;
+  width: 132px;
+  height: 132px;
   flex-shrink: 0;
   margin-right: 4px;
   z-index: 3;
+  overflow: visible;
+}
+
+.ip-hud-avatar-wrap::before {
+  content: '';
+  position: absolute;
+  inset: -18px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgba(214, 41, 118, 0.22) 0%,
+    rgba(150, 47, 191, 0.12) 40%,
+    rgba(79, 91, 213, 0.05) 58%,
+    transparent 72%
+  );
+  pointer-events: none;
+  z-index: 0;
 }
 
 .ip-hud-avatar-ring {
+  position: relative;
+  z-index: 1;
   width: 100%;
   height: 100%;
   border-radius: 50%;
   padding: 4px;
-  background: linear-gradient(145deg, #e0f2fe 0%, #bae6fd 40%, #7dd3fc 100%);
+  background: linear-gradient(135deg, #feda75, #fa7e1e, #d62976, #962fbf, #4f5bd5);
   box-shadow:
-    0 10px 28px rgba(15, 23, 42, 0.14),
-    0 4px 10px rgba(0, 136, 187, 0.18);
+    0 10px 28px rgba(214, 41, 118, 0.16),
+    0 4px 10px rgba(150, 47, 191, 0.12);
 }
 
 .ip-hud-avatar-ring-inner {
@@ -1236,8 +1279,8 @@
   height: 100%;
   border-radius: 50%;
   overflow: hidden;
-  border: 3px solid rgba(255, 255, 255, 0.95);
-  background: linear-gradient(160deg, #38bdf8 0%, #0284c7 55%, #0369a1 100%);
+  border: 2.5px solid #fff;
+  background: linear-gradient(160deg, #f3e8ff 0%, #fce7f3 55%, #e0e7ff 100%);
   display: grid;
   place-items: center;
 }
@@ -1248,9 +1291,29 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+  object-position: center;
   z-index: 1;
   opacity: 0;
   transition: opacity 0.22s ease;
+}
+
+.ip-hud-verified-badge {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  z-index: 4;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  filter: drop-shadow(0 1px 3px rgba(15, 23, 42, 0.28));
+}
+
+.ip-hud-verified-badge svg {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 .ip-hud-avatar-ring-inner--photo .ip-hud-avatar-photo {
@@ -1266,7 +1329,7 @@
   z-index: 0;
   font-size: clamp(1.75rem, 4vw, 2.25rem);
   font-weight: 800;
-  color: rgba(255, 255, 255, 0.92);
+  color: #4c1d95;
   letter-spacing: -0.03em;
   user-select: none;
   transition: opacity 0.18s ease;
@@ -1276,79 +1339,99 @@
 .ip-hud-identity-copy {
   flex: 1;
   min-width: 0;
-  padding-top: 4px;
+  padding-top: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
-}
-
-.ip-hud-identity-copy .ip-hud-label {
-  margin-bottom: 0;
+  justify-content: center;
+  gap: 0.5rem;
 }
 
 .ip-hud-followers-anchor {
-  margin-top: 6px;
-  margin-left: -28px;
+  margin-top: 0;
+  margin-left: 0;
   position: relative;
   z-index: 1;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .ip-hud-identity-layout .ip-hud-followers {
   margin-top: 0;
-  min-height: 58px;
-  padding: 12px 24px 12px clamp(56px, 9vw, 72px);
+  min-height: 0;
+  max-width: 100%;
+  padding: 0.38rem 0.85rem 0.38rem 0.42rem;
   border-radius: 999px;
-  border: 1px solid rgba(0, 140, 200, 0.28);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.95) 0%, rgba(241, 248, 252, 0.92) 100%);
+  border: 1px solid rgba(165, 180, 252, 0.7);
+  background: #fff;
   box-shadow:
-    0 4px 14px rgba(0, 136, 187, 0.1),
-    0 1px 3px rgba(15, 23, 42, 0.06);
-  color: #0c4a6e;
-  font-family: 'Space Mono', ui-monospace, monospace;
-  font-size: clamp(0.85rem, 2vw, 0.98rem);
+    0 4px 12px rgba(79, 70, 229, 0.08),
+    0 1px 2px rgba(15, 23, 42, 0.05);
+  color: #2563eb;
+  font-family: inherit;
+  font-size: 0.86rem;
   font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
 }
 
 .ip-hud-contract-edit {
   display: grid;
   place-items: center;
-  width: 2rem;
-  height: 2rem;
-  border: 1px solid rgba(0, 140, 200, 0.28);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.72);
-  color: #0077aa;
+  flex-shrink: 0;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #2563eb;
   cursor: pointer;
-  opacity: 0.75;
+  opacity: 0.9;
   transition: opacity 0.14s ease, transform 0.14s ease, background 0.14s ease;
 }
 
 .ip-hud-contract-edit:hover {
   opacity: 1;
   transform: translateY(-1px);
-  background: rgba(0, 140, 200, 0.1);
+  background: rgba(37, 99, 235, 0.08);
+}
+
+.ip-hud-contract-edit:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
 }
 
 .ip-hud-followers {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.45rem;
   margin-top: 0.4rem;
   padding: 0.25rem 0.65rem;
-  border: 1px solid rgba(0, 140, 200, 0.3);
+  border: 1px solid rgba(165, 180, 252, 0.7);
   border-radius: 999px;
-  background: rgba(0, 140, 200, 0.1);
-  color: #0077aa;
-  font-family: 'Space Mono', ui-monospace, monospace;
+  background: #fff;
+  color: #2563eb;
+  font-family: inherit;
   font-size: 0.68rem;
 }
 
-.ip-hud-followers span {
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: #0088bb;
-  animation: ipHudPulse 1.8s infinite;
+.ip-hud-followers .ip-hud-ig-logo {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  border-radius: 6px;
+}
+
+.ip-hud-followers .ip-hud-ig-logo::before {
+  inset: 5px;
+  border-width: 1.5px;
+  border-radius: 4.5px;
+}
+
+.ip-hud-followers .ip-hud-ig-logo::after {
+  top: 6px;
+  right: 6px;
+  width: 3px;
+  height: 3px;
 }
 
 .ip-hud-header-totals {
@@ -2129,42 +2212,36 @@
 
 .ip-hud-identity-layout {
   align-items: center;
-  gap: 1.25rem;
+  gap: 1.2rem;
 }
 
 .ip-hud-avatar-wrap {
-  width: 108px;
-  height: 108px;
+  width: 132px;
+  height: 132px;
   margin: 0;
 }
 
 .ip-hud-avatar-ring {
-  padding: 0;
-  background: #fff;
-  box-shadow: 0 12px 26px rgba(37, 99, 235, 0.13);
+  padding: 4px;
+  background: linear-gradient(135deg, #feda75, #fa7e1e, #d62976, #962fbf, #4f5bd5);
+  box-shadow:
+    0 10px 24px rgba(214, 41, 118, 0.16),
+    0 4px 10px rgba(150, 47, 191, 0.1);
 }
 
 .ip-hud-avatar-ring-inner {
-  border: 5px solid #fff;
-  background: linear-gradient(145deg, #eef4ff, #dce8ff);
+  border: 2.5px solid #fff;
+  background: linear-gradient(145deg, #f3e8ff, #fce7f3);
 }
 
 .ip-hud-avatar-fallback {
-  color: #17233b;
+  color: #4c1d95;
   font-size: 1.55rem;
 }
 
 .ip-hud-identity-copy {
-  gap: 0.55rem;
+  gap: 0.5rem;
   padding: 0;
-}
-
-.ip-hud-label {
-  margin: 0;
-  color: #526078;
-  font-size: 0.72rem;
-  letter-spacing: 0.12em;
-  font-weight: 800;
 }
 
 .ip-hud-name {
@@ -2178,12 +2255,14 @@
 
 .ip-hud-identity-layout .ip-hud-followers {
   min-height: 0;
-  padding: 0.42rem 0.72rem;
-  border: 0;
-  background: #eef5ff;
-  box-shadow: none;
+  padding: 0.38rem 0.85rem 0.38rem 0.42rem;
+  border: 1px solid rgba(165, 180, 252, 0.7);
+  background: #fff;
+  box-shadow:
+    0 4px 12px rgba(79, 70, 229, 0.08),
+    0 1px 2px rgba(15, 23, 42, 0.05);
   color: #2563eb;
-  font-size: 0.8rem;
+  font-size: 0.86rem;
 }
 
 .ip-hud-header-totals {
@@ -3955,9 +4034,14 @@
   }
 
   .ip-hud-avatar-wrap {
-    width: 112px;
-    height: 112px;
+    width: 120px;
+    height: 120px;
     margin-right: 0;
+  }
+
+  .ip-hud-verified-badge {
+    width: 28px;
+    height: 28px;
   }
 
   .ip-hud-avatar-fallback {
@@ -3968,7 +4052,7 @@
     align-items: center;
     text-align: center;
     width: 100%;
-    padding-top: 8px;
+    padding-top: 0;
   }
 
   .ip-hud-identity-copy .ip-hud-name-row {
@@ -3983,10 +4067,9 @@
   }
 
   .ip-hud-identity-layout .ip-hud-followers {
-    padding-left: 22px;
-    padding-right: 22px;
-    width: 100%;
-    max-width: 340px;
+    padding: 0.38rem 0.85rem 0.38rem 0.42rem;
+    width: auto;
+    max-width: 100%;
     justify-content: center;
   }
 

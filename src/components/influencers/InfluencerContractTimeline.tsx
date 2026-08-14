@@ -97,6 +97,24 @@ export function InfluencerContractTimeline({
   )
 }
 
+function InstagramVerifiedBadge() {
+  return (
+    <span className="ip-hud-verified-badge" role="img" aria-label="Verified Instagram profile">
+      <svg viewBox="0 0 40 40" aria-hidden="true" focusable="false">
+        <path
+          fill="#0095F6"
+          stroke="#fff"
+          strokeWidth="2.5"
+          strokeLinejoin="round"
+          paintOrder="stroke fill"
+          fillRule="evenodd"
+          d="M19.998 3.094 14.638 0l-2.972 5.15H5.432v6.354L0 14.64 3.094 20 0 25.359l5.432 3.137v5.905h5.975L14.638 40l5.36-3.094L25.358 40l3.232-5.6h6.162v-6.01L40 25.359 36.905 20 40 14.641l-5.248-3.03v-6.46h-6.419L25.358 0l-5.36 3.094Zm7.415 11.225 2.254 2.287-11.43 11.5-6.835-6.93 2.244-2.258 4.587 4.581 9.18-9.18Z"
+        />
+      </svg>
+    </span>
+  )
+}
+
 function displayDate(date?: string | null) {
   const iso = String(date || '').slice(0, 10)
   if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return '—'
@@ -337,9 +355,9 @@ function HudContractCard({
                   </span>
                 </div>
               </div>
+              <InstagramVerifiedBadge />
             </div>
             <div className="ip-hud-identity-copy">
-              <div className="ip-hud-label">Contract monitor</div>
               <div className="ip-hud-name-row">
                 <h3 className="ip-hud-name">{influencerName}</h3>
                 {onEditContract ? (
@@ -350,7 +368,8 @@ function HudContractCard({
               </div>
               <div className="ip-hud-followers-anchor">
                 <div className="ip-hud-followers">
-                  <span /> {formatNumber(influencer?.followers)} followers
+                  <span className="ip-hud-ig-logo" aria-hidden="true" />
+                  {formatNumber(influencer?.followers)} followers
                 </div>
               </div>
             </div>
