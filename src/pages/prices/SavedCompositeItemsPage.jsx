@@ -10,12 +10,7 @@ import {
   STORAGE_KEY_RATES,
   STORAGE_KEY_ROWS,
 } from '../management/allPricesEcommerceUtils'
-import {
-  loadSavedCompositeItems,
-  removeSavedCompositeItem,
-  SAVED_COMPOSITES_UPDATED_EVENT,
-  STORAGE_KEY_SAVED_COMPOSITES,
-} from './compositeBundlePricingUtils'
+import { COMPOSITE_PRICES_STANDARD, getCompositePricesVariant } from './compositePricesVariants'
 
 function formatSavedDate(value) {
   if (!value) return '—'
@@ -30,7 +25,7 @@ function formatSavedDate(value) {
   })
 }
 
-function CompositeDetailTable({ item }) {
+function CompositeDetailTable({ item, catalogShortLabel }) {
   const rows = Array.isArray(item.components) ? item.components : []
   const economics = item.economics || {}
   return (
@@ -40,7 +35,7 @@ function CompositeDetailTable({ item }) {
           <tr>
             <th scope="col">Composite item no.</th>
             <th scope="col">Component item no.</th>
-            <th scope="col">Matched All Prices SKU</th>
+            <th scope="col">Matched {catalogShortLabel} SKU</th>
             <th scope="col">Qty</th>
             <th scope="col">Purchase price ecommerce</th>
             <th scope="col">Total component purchase</th>
@@ -148,7 +143,12 @@ function CompositeDetailTable({ item }) {
   )
 }
 
-export function SavedCompositeItemsPage() {
+/**
+ * @param {{ variant?: import('./compositePricesVariants').CompositePricesVariantId }} props
+ */
+export function SavedCompositeItemsPage({ variant = COMPOSITE_PRICES_STANDARD }) {
+  const variantCfg = getCompositePricesVariant(variant)
+  const savedStore = variantCfg.savedStore
   const [syncTick, setSyncTick] = useState(0)
   const [expanded, setExpanded] = useState(() => new Set())
   const [searchText, setSearchText] = useState('')
@@ -156,29 +156,29 @@ export function SavedCompositeItemsPage() {
   useEffect(() => {
     const bump = (event) => {
       if (
-        event.type === SAVED_COMPOSITES_UPDATED_EVENT ||
+        event.type === savedStore.updatedEvent ||
         event.type === 'focus' ||
-        event.key === STORAGE_KEY_SAVED_COMPOSITES ||
+        event.key === savedStore.storageKey ||
         event.key === STORAGE_KEY_ROWS ||
         event.key === STORAGE_KEY_RATES
       ) {
         setSyncTick((t) => t + 1)
       }
     }
-    window.addEventListener(SAVED_COMPOSITES_UPDATED_EVENT, bump)
+    window.addEventListener(savedStore.updatedEvent, bump)
     window.addEventListener('storage', bump)
     window.addEventListener('focus', bump)
     return () => {
-      window.removeEventListener(SAVED_COMPOSITES_UPDATED_EVENT, bump)
+      window.removeEventListener(savedStore.updatedEvent, bump)
       window.removeEventListener('storage', bump)
       window.removeEventListener('focus', bump)
     }
-  }, [])
+  }, [savedStore])
 
   const savedItems = useMemo(() => {
     void syncTick
-    return loadSavedCompositeItems()
-  }, [syncTick])
+    return savedStore.load()
+  }, [savedStore, syncTick])
 
   const filteredItems = useMemo(() => {
     const q = searchText.trim().toLowerCase()
@@ -198,32 +198,35 @@ export function SavedCompositeItemsPage() {
     })
   }, [])
 
-  const handleRemove = useCallback((sku) => {
-    if (!window.confirm(`Remove saved composite item ${sku}?`)) return
-    removeSavedCompositeItem(sku)
-    setExpanded((prev) => {
-      const next = new Set(prev)
-      next.delete(sku)
-      return next
-    })
-    setSyncTick((t) => t + 1)
-  }, [])
+  const handleRemove = useCallback(
+    (sku) => {
+      if (!window.confirm(`Remove saved composite item ${sku}?`)) return
+      savedStore.remove(sku)
+      setExpanded((prev) => {
+        const next = new Set(prev)
+        next.delete(sku)
+        return next
+      })
+      setSyncTick((t) => t + 1)
+    },
+    [savedStore],
+  )
 
   return (
     <div className="page composite-prices-page ap-ec-page">
       <div className="doc-page-hero">
         <div>
-          <h1 className="doc-page-title">Saved Composite Items</h1>
+          <h1 className="doc-page-title">{variantCfg.savedTitle}</h1>
           <p className="doc-page-subtitle">
-            Saved composite SKUs from the calculator. Each row shows the bundle totals; use the plus icon to expand
-            the saved component table.
+            Saved composite SKUs priced from {variantCfg.catalogLabel}. Each row shows the bundle totals; use the plus
+            icon to expand the saved component table.
           </p>
         </div>
       </div>
 
       <section className="page-section cb-bundle-section" aria-label="Saved composite item SKUs">
         <div className="cb-bundle-toolbar">
-          <NavLink className="btn btn--primary" to="/prices/composite-items">
+          <NavLink className="btn btn--primary" to={variantCfg.calculatorRoute}>
             + Add / fetch composite
           </NavLink>
           <button type="button" className="btn btn--ghost" onClick={() => setSyncTick((t) => t + 1)}>
@@ -243,8 +246,9 @@ export function SavedCompositeItemsPage() {
 
         {savedItems.length === 0 ? (
           <p className="composite-prices-placeholder">
-            No composite SKUs saved yet. Open <NavLink to="/prices/composite-items">Composite Items Prices</NavLink>,
-            fetch a composite item, then click <strong>Save composite item</strong>.
+            No composite SKUs saved yet. Open{' '}
+            <NavLink to={variantCfg.calculatorRoute}>{variantCfg.calculatorTitle}</NavLink>, fetch a composite item,
+            then click <strong>Save composite item</strong>.
           </p>
         ) : filteredItems.length === 0 ? (
           <p className="composite-prices-placeholder">
@@ -313,7 +317,7 @@ export function SavedCompositeItemsPage() {
                       {isOpen ? (
                         <tr key={`${item.sku}-detail`} className="cb-saved-table__detail-row">
                           <td colSpan={13}>
-                            <CompositeDetailTable item={item} />
+                            <CompositeDetailTable item={item} catalogShortLabel={variantCfg.catalogShortLabel} />
                           </td>
                         </tr>
                       ) : null}

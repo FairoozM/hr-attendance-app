@@ -8,6 +8,8 @@ export const PREF_NOTIFICATIONS_DISMISSED = 'notifications_dismissed_v1'
 export const PREF_SAVED_COMPOSITES = 'saved_composites_v1'
 /** Saved composites priced with Composite Items Prices (Custom) shared rates. */
 export const PREF_SAVED_COMPOSITES_CUSTOM = 'saved_composites_custom_v1'
+/** Saved composites priced from the All Prices (UAE) Special Offers catalog. */
+export const PREF_SAVED_COMPOSITES_SPECIAL_OFFERS = 'saved_composites_special_offers_v1'
 export const PREF_ALL_PRICES_EC = 'all_prices_ecommerce_v1'
 export const PREF_ALL_PRICES_SAVED_LISTS = 'all_prices_saved_lists_v1'
 export const PREF_ALL_PRICES_RECOVERY_SNAPSHOTS = 'all_prices_recovery_snapshots_v1'
@@ -16,6 +18,13 @@ export const PREF_ALL_PRICES_CLEANUP_BATCHES = 'all_prices_cleanup_batches_v1'
 export const PREF_ALL_PRICES_IMPORT_BATCHES = 'all_prices_import_batches_v1'
 /** One-time flag: UAE All Prices working draft + saved lists cleared for wholesale re-paste (2026-06-05). */
 export const PREF_ALL_PRICES_UAE_WHOLESALE_RESET = 'all_prices_uae_wholesale_reset_20260605_v1'
+/** UAE promotional/offer prices — separate catalog from the standard UAE list, any profit % allowed. */
+export const PREF_ALL_PRICES_EC_SPECIAL_OFFERS = 'all_prices_special_offers_v1'
+export const PREF_ALL_PRICES_SAVED_LISTS_SPECIAL_OFFERS = 'all_prices_saved_lists_special_offers_v1'
+export const PREF_ALL_PRICES_RECOVERY_SNAPSHOTS_SPECIAL_OFFERS = 'all_prices_recovery_snapshots_special_offers_v1'
+export const PREF_ALL_PRICES_HISTORY_SPECIAL_OFFERS = 'all_prices_history_special_offers_v1'
+export const PREF_ALL_PRICES_CLEANUP_BATCHES_SPECIAL_OFFERS = 'all_prices_cleanup_batches_special_offers_v1'
+export const PREF_ALL_PRICES_IMPORT_BATCHES_SPECIAL_OFFERS = 'all_prices_import_batches_special_offers_v1'
 /** KSA shipment-batch landed-cost pricing (separate from UAE ecommerce calculator). */
 export const PREF_KSA_PRICING_STORE = 'ksa_pricing_store_v1'
 export const PREF_KSA_PRICING_HISTORY = 'ksa_pricing_history_v1'

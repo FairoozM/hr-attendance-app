@@ -1,5 +1,10 @@
 import { getUserPrefKey, requestUserPrefSave } from '../../lib/userPreferencesBridge'
-import { getAllPricesMarket, PRICES_MARKET_KSA, PRICES_MARKET_UAE } from './allPricesMarket'
+import {
+  getAllPricesMarket,
+  PRICES_MARKET_KSA,
+  PRICES_MARKET_UAE,
+  PRICES_MARKET_UAE_SPECIAL_OFFERS,
+} from './allPricesMarket'
 import { normalizeItemNo } from './allPricesVersioning'
 
 const MAX_BATCHES = 100
@@ -57,17 +62,15 @@ export function appendHistoricalPrices(rows, marketId = PRICES_MARKET_UAE) {
   return persistHistoricalPricesStore({ ...store, rows: nextRows }, marketId)
 }
 
-/** Combined UAE + KSA rows for historical audit screens. */
+/** Combined UAE + UAE special offers + KSA rows for historical audit screens. */
 export function readAllHistoricalPriceRows() {
-  const uae = readHistoricalPricesStore(PRICES_MARKET_UAE).rows.map((row) => ({
-    ...row,
-    market: row.market || PRICES_MARKET_UAE,
-  }))
-  const ksa = readHistoricalPricesStore(PRICES_MARKET_KSA).rows.map((row) => ({
-    ...row,
-    market: row.market || PRICES_MARKET_KSA,
-  }))
-  return [...ksa, ...uae]
+  const readForMarket = (marketId) =>
+    readHistoricalPricesStore(marketId).rows.map((row) => ({ ...row, market: row.market || marketId }))
+  return [
+    ...readForMarket(PRICES_MARKET_KSA),
+    ...readForMarket(PRICES_MARKET_UAE_SPECIAL_OFFERS),
+    ...readForMarket(PRICES_MARKET_UAE),
+  ]
 }
 
 export function filterHistoricalPrices(rows, filters = {}) {

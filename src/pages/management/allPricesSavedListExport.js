@@ -1,7 +1,7 @@
 /** Export saved All Prices lists to Excel (.xlsx). */
 
 import * as XLSX from 'xlsx'
-import { computeEcommercePriceRow } from './allPricesEcommerceUtils'
+import { computeEcommercePriceRow, purchaseMarkupPct } from './allPricesEcommerceUtils'
 
 const SHEET_NAME = 'Saved Prices'
 
@@ -27,9 +27,10 @@ export function sanitizeSavedListExportFilename(iso) {
 
 /**
  * @param {{ rates?: object, rows?: object[] }} list
+ * @param {{ includePurchaseMarkup?: boolean }} [options]
  * @returns {object[]}
  */
-export function buildExportRowsFromRatesAndRows(list) {
+export function buildExportRowsFromRatesAndRows(list, options = {}) {
   const rates = list?.rates && typeof list.rates === 'object' ? list.rates : {}
   return (Array.isArray(list?.rows) ? list.rows : []).map((row) => {
     const computed = computeEcommercePriceRow(row, rates)
@@ -45,6 +46,8 @@ export function buildExportRowsFromRatesAndRows(list) {
       Number.isFinite(shipNum)
     const ok = hasInputs && !computed.denominatorInvalid
 
+    const markupPct = purchaseMarkupPct(computed.salesPrice, row.purchasePrice)
+
     return {
       'Item no.': row.itemNo != null ? String(row.itemNo) : '',
       'Sales price (AED)': ok ? computed.salesPrice : '',
@@ -55,6 +58,9 @@ export function buildExportRowsFromRatesAndRows(list) {
       'Purchase price': row.purchasePrice !== '' && row.purchasePrice != null ? Number(row.purchasePrice) : '',
       'Purchase + VAT + comm. + adv. + shipping': ok ? Number(computed.totalCost.toFixed(2)) : '',
       'Sales - costs (profit)': ok ? Number(computed.profit.toFixed(2)) : '',
+      ...(options.includePurchaseMarkup
+        ? { 'Profit % of purchase': ok && markupPct != null ? Number(markupPct.toFixed(2)) : '' }
+        : {}),
       'Profit % of sales': ok ? Number(computed.profitPct.toFixed(2)) : '',
       'Date of prices': row.dateOfPrices != null ? String(row.dateOfPrices) : '',
     }
@@ -77,21 +83,29 @@ function writeWorkbook(exportRows, filename) {
 
 /**
  * @param {{ rates?: object, rows?: object[] }} list
+ * @param {{ filePrefix?: string, includePurchaseMarkup?: boolean }} [options]
  * @returns {boolean}
  */
-export function exportSavedListToExcel(list) {
-  const exportRows = buildExportRowsFromRatesAndRows(list)
-  const filename = sanitizeExportFilename(list?.updatedAt || list?.createdAt, 'saved-prices')
+export function exportSavedListToExcel(list, options = {}) {
+  const exportRows = buildExportRowsFromRatesAndRows(list, options)
+  const filename = sanitizeExportFilename(
+    list?.updatedAt || list?.createdAt,
+    options.filePrefix || 'saved-prices',
+  )
   return writeWorkbook(exportRows, filename)
 }
 
 /**
  * @param {{ rates?: object, rows?: object[] }} params
+ * @param {{ filePrefix?: string, includePurchaseMarkup?: boolean }} [options]
  * @returns {boolean}
  */
-export function exportCurrentDraftToExcel({ rates, rows }) {
-  const exportRows = buildExportRowsFromRatesAndRows({ rates, rows })
-  const filename = sanitizeExportFilename(new Date().toISOString(), 'draft-prices')
+export function exportCurrentDraftToExcel({ rates, rows }, options = {}) {
+  const exportRows = buildExportRowsFromRatesAndRows({ rates, rows }, options)
+  const filename = sanitizeExportFilename(
+    new Date().toISOString(),
+    options.filePrefix ? `${options.filePrefix}-draft` : 'draft-prices',
+  )
   return writeWorkbook(exportRows, filename)
 }
 

@@ -435,14 +435,17 @@ export function Layout() {
     if (location.pathname.startsWith('/management/inventory-health')) return 'Inventory Health'
     if (location.pathname.startsWith('/management/account-balance-watchlist')) return 'Account Balance Watchlist'
     if (location.pathname.startsWith('/management/payments')) return 'Company payments'
+    if (location.pathname.startsWith('/prices/all-prices-special-offers')) return 'All Prices (UAE) Special Offers'
     if (location.pathname.startsWith('/prices/all-prices-ksa')) return 'All Prices (KSA)'
     if (location.pathname.startsWith('/prices/all-prices-custom')) return 'All UAE Prices (Custom)'
     if (location.pathname.startsWith('/prices/all-prices')) return 'All Prices (UAE)'
     if (location.pathname.startsWith('/prices/historical-prices')) return 'Historical Prices'
     if (location.pathname.startsWith('/prices/duplicate-cleanup')) return 'Duplicate Price Cleanup'
     if (location.pathname.startsWith('/prices/composite-items/reports')) return 'Composite Items Price Reports'
+    if (location.pathname.startsWith('/prices/composite-items-special-offers')) return 'Composite Items Prices — Special Offers'
     if (location.pathname.startsWith('/prices/composite-items-custom')) return 'Composite Items Prices (Custom)'
     if (location.pathname.startsWith('/prices/composite-items')) return 'Composite Items Prices'
+    if (location.pathname.startsWith('/prices/saved-composite-items-special-offers')) return 'Saved Composite Items (Special Offers)'
     if (location.pathname.startsWith('/prices/saved-composite-items-custom')) return 'Saved Composite Items (Custom)'
     if (location.pathname.startsWith('/prices/saved-composite-items')) return 'Saved Composite Items'
     if (location.pathname.startsWith('/management/document-expiry')) return 'Document Expiry Tracker'
@@ -518,13 +521,25 @@ export function Layout() {
 
   const pricesItems = [
     can('prices', 'view') && { label: 'All Prices (UAE)', to: '/prices/all-prices' },
+    can('prices', 'view') && {
+      label: 'All Prices (UAE) Special Offers',
+      to: '/prices/all-prices-special-offers',
+    },
     can('prices', 'view') && { label: 'All UAE Prices (Custom)', to: '/prices/all-prices-custom' },
     can('prices', 'view') && { label: 'All Prices (KSA)', to: '/prices/all-prices-ksa' },
     can('prices', 'view') && { label: 'Historical Prices', to: '/prices/historical-prices' },
     can('prices', 'view') && { label: 'Duplicate Price Cleanup', to: '/prices/duplicate-cleanup' },
     can('prices', 'view') && { label: 'Composite Items Prices', to: '/prices/composite-items' },
+    can('prices', 'view') && {
+      label: 'Composite Items Prices — Special Offers',
+      to: '/prices/composite-items-special-offers',
+    },
     can('prices', 'view') && { label: 'Composite Items Prices (Custom)', to: '/prices/composite-items-custom' },
     can('prices', 'view') && { label: 'Saved Composite Items', to: '/prices/saved-composite-items' },
+    can('prices', 'view') && {
+      label: 'Saved Composite Items (Special Offers)',
+      to: '/prices/saved-composite-items-special-offers',
+    },
     can('prices', 'view') && { label: 'Saved Composite Items (Custom)', to: '/prices/saved-composite-items-custom' },
     can('prices', 'view') && { label: 'Composite Items Price Reports', to: '/prices/composite-items/reports' },
   ].filter(Boolean)

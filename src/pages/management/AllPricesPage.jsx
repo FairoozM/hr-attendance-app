@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './AllPricesPage.css'
-import { getAllPricesMarket, PRICES_MARKET_UAE } from './allPricesMarket'
+import { getAllPricesMarket, PRICES_MARKET_UAE, PROFIT_POLICY_ANY } from './allPricesMarket'
 import { setAllPricesMarketScope } from './allPricesMarketScope'
 import { AllPricesCogsPanel } from './AllPricesCogsPanel'
 import { AllPricesFormulaView } from './AllPricesFormulaView'
@@ -39,6 +39,7 @@ import {
   makeRowId,
   parseExcelTsvPaste,
   profitMarginDisplayClass,
+  purchaseMarkupPct,
   saveAllPricesEcommerceBundle,
 } from './allPricesEcommerceUtils'
 import { applyUaeWholesaleResetIfNeeded } from './allPricesUaeWholesaleReset'
@@ -85,7 +86,16 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
   const marketCfg = getAllPricesMarket(market)
   const { ready: prefsReady, getPref, setPref, prefsVersion } = useUserPreferences()
 
-  const cogsEnabled = market === PRICES_MARKET_UAE
+  const cogsEnabled = marketCfg.features.cogs
+  const formulaEnabled = marketCfg.features.formulaSandbox
+  const showMarkupColumn = marketCfg.features.purchaseMarkup
+  const profitPolicy = marketCfg.profitPolicy
+  const isOffersMarket = profitPolicy === PROFIT_POLICY_ANY
+  const tableColumnCount = showMarkupColumn ? 14 : 13
+  const exportOptions = useMemo(
+    () => ({ filePrefix: marketCfg.exportFilePrefix, includePurchaseMarkup: showMarkupColumn }),
+    [marketCfg.exportFilePrefix, showMarkupColumn],
+  )
 
   useEffect(() => {
     setAllPricesMarketScope(market)
@@ -99,8 +109,9 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
   const [activeTab, setActiveTab] = useState('prices')
 
   useEffect(() => {
-    if (!cogsEnabled && activeTab !== 'prices') setActiveTab('prices')
-  }, [activeTab, cogsEnabled])
+    if (activeTab === 'cogs' && !cogsEnabled) setActiveTab('prices')
+    if (activeTab === 'formula' && !formulaEnabled) setActiveTab('prices')
+  }, [activeTab, cogsEnabled, formulaEnabled])
   const [prefsLoaded, setPrefsLoaded] = useState(false)
   const [pasteText, setPasteText] = useState('')
   const [pasteFeedback, setPasteFeedback] = useState({ type: '', text: '' })
@@ -598,13 +609,16 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
     [performDeleteList, savedListsStore.savedLists],
   )
 
-  const runExportSavedList = useCallback((list) => {
-    if (!Array.isArray(list?.rows) || list.rows.length === 0) {
-      window.alert('No saved prices available to export.')
-      return
-    }
-    exportSavedListToExcel(list)
-  }, [])
+  const runExportSavedList = useCallback(
+    (list) => {
+      if (!Array.isArray(list?.rows) || list.rows.length === 0) {
+        window.alert('No saved prices available to export.')
+        return
+      }
+      exportSavedListToExcel(list, exportOptions)
+    },
+    [exportOptions],
+  )
 
   const handleExportSavedList = useCallback(
     (list) => {
@@ -629,8 +643,8 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
       window.alert('No rows in the working draft to export.')
       return
     }
-    exportCurrentDraftToExcel({ rates: listRates, rows })
-  }, [listRates, rows])
+    exportCurrentDraftToExcel({ rates: listRates, rows }, exportOptions)
+  }, [exportOptions, listRates, rows])
 
   const persistHistoricalRows = useCallback((historyRows) => {
     if (!historyRows.length) return
@@ -777,14 +791,11 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
       <header className="ap-sc-page-head">
         <div>
           <h1 className="ap-sc-page-head__title">{marketCfg.pageTitle}</h1>
-          <p className="ap-sc-page-head__sub">
-            Ecommerce selling price calculator ({marketCfg.currencyHint}). Enter purchase price and shipping; sales
-            price is derived so marketplace VAT, commission, advertising, and target profit are covered.
-          </p>
+          <p className="ap-sc-page-head__sub">{marketCfg.pageDescription}</p>
         </div>
       </header>
 
-      {cogsEnabled ? (
+      {formulaEnabled || cogsEnabled ? (
         <div className="ap-tabs" role="tablist" aria-label="All Prices views">
           <button
             type="button"
@@ -795,33 +806,37 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
           >
             Price list
           </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'formula'}
-            className={`ap-tab${activeTab === 'formula' ? ' ap-tab--active' : ''}`}
-            onClick={() => {
-              captureFormulaSnapshot()
-              setActiveTab('formula')
-            }}
-          >
-            Price formula change
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'cogs'}
-            className={`ap-tab${activeTab === 'cogs' ? ' ap-tab--active' : ''}`}
-            onClick={() => setActiveTab('cogs')}
-          >
-            COGS
-          </button>
+          {formulaEnabled ? (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'formula'}
+              className={`ap-tab${activeTab === 'formula' ? ' ap-tab--active' : ''}`}
+              onClick={() => {
+                captureFormulaSnapshot()
+                setActiveTab('formula')
+              }}
+            >
+              Price formula change
+            </button>
+          ) : null}
+          {cogsEnabled ? (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'cogs'}
+              className={`ap-tab${activeTab === 'cogs' ? ' ap-tab--active' : ''}`}
+              onClick={() => setActiveTab('cogs')}
+            >
+              COGS
+            </button>
+          ) : null}
         </div>
       ) : null}
 
-      {activeTab === 'cogs' ? (
+      {activeTab === 'cogs' && cogsEnabled ? (
         <AllPricesCogsPanel rows={rows} currencyLabel="AED" />
-      ) : activeTab === 'formula' && cogsEnabled ? (
+      ) : activeTab === 'formula' && formulaEnabled ? (
         <AllPricesFormulaView
           rates={formulaRates}
           rows={formulaRows}
@@ -829,6 +844,7 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
           rowCount={rows.length}
           sumTakePct={formulaSumTakePct}
           ratesInvalid={formulaRatesInvalid}
+          profitPolicy={profitPolicy}
           onRatesChange={(patch) => setFormulaRates((r) => ({ ...r, ...patch }))}
           onResetRates={resetFormulaRates}
           onRefreshSnapshot={captureFormulaSnapshot}
@@ -838,19 +854,27 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
         {duplicateScan.summary.duplicateItemCount > 0 ? (
           <div className="ap-ec-warning-banner" role="alert">
             <div>
-              <strong>{duplicateScan.summary.duplicateItemCount} duplicate item numbers found in All Prices.</strong>
-              <p>Resolve duplicates before using composite pricing or importing new production prices.</p>
+              <strong>
+                {duplicateScan.summary.duplicateItemCount} duplicate item numbers found in {marketCfg.pageTitle}.
+              </strong>
+              <p>
+                {isOffersMarket
+                  ? 'Keep one offer row per item so the offer price is unambiguous.'
+                  : 'Resolve duplicates before using composite pricing or importing new production prices.'}
+              </p>
             </div>
             <div className="ap-ec-warning-banner__actions">
-              <button
-                type="button"
-                className="btn btn--primary"
-                onClick={() => {
-                  window.location.assign('/prices/duplicate-cleanup')
-                }}
-              >
-                Review Duplicates
-              </button>
+              {marketCfg.routeDuplicateCleanup ? (
+                <button
+                  type="button"
+                  className="btn btn--primary"
+                  onClick={() => {
+                    window.location.assign(marketCfg.routeDuplicateCleanup)
+                  }}
+                >
+                  Review Duplicates
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="btn btn--ghost"
@@ -983,8 +1007,9 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
             <div>
               <h3>Bulk paste from Excel</h3>
               <p className="ap-ec-paste__hint">
-                Paste tab-separated rows from the wholesales Excel export. Full rows must include sales price
-                (column 2), shipping, and purchase price — sales price is kept exactly as pasted.
+                Paste tab-separated rows from the {isOffersMarket ? 'special offers' : 'wholesales'} Excel export.
+                Full rows must include sales price (column 2), shipping, and purchase price — sales price is kept
+                exactly as pasted.
               </p>
             </div>
           </div>
@@ -1103,6 +1128,7 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
                   Purchase + VAT + comm. + adv. + shipping
                 </th>
                 <th scope="col">Sales − costs (profit)</th>
+                {showMarkupColumn ? <th scope="col">Profit % of purchase</th> : null}
                 <th scope="col" className="col-accent">
                   Profit % of sales
                 </th>
@@ -1115,8 +1141,9 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
             <tbody>
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan={13} className="ap-ec-empty">
-                    No rows in the table. Paste or import your price list, then save it as a named list.
+                  <td colSpan={tableColumnCount} className="ap-ec-empty">
+                    No rows in the table. Paste or import your {isOffersMarket ? 'offer prices' : 'price list'}, then
+                    save it as a named list.
                   </td>
                 </tr>
               ) : (
@@ -1133,6 +1160,9 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
                     Number.isFinite(purchaseNum) &&
                     Number.isFinite(shipNum)
                   const editCosts = editingRowId === row.id
+                  const markupPct = showMarkupColumn
+                    ? purchaseMarkupPct(computed.salesPrice, row.purchasePrice)
+                    : null
 
                   return (
                     <tr key={row.id}>
@@ -1219,11 +1249,20 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
                           {hasInputs && !computed.denominatorInvalid ? fmtMoney(computed.profit) : '—'}
                         </span>
                       </td>
+                      {showMarkupColumn ? (
+                        <td>
+                          <span className="ap-ec-num">
+                            {hasInputs && !computed.denominatorInvalid && markupPct != null
+                              ? fmtPct(markupPct, 2)
+                              : '—'}
+                          </span>
+                        </td>
+                      ) : null}
                       <td className="col-accent">
                         <span
                           className={`ap-ec-num ${
                             hasInputs && !computed.denominatorInvalid
-                              ? profitMarginDisplayClass(computed.profitPct)
+                              ? profitMarginDisplayClass(computed.profitPct, profitPolicy)
                               : ''
                           }`}
                         >

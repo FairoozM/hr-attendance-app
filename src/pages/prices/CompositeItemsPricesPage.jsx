@@ -9,19 +9,20 @@ import {
   DEFAULT_RATES,
   fmtMoney,
   fmtPct,
-  loadRates,
-  loadRows,
+  loadRatesForMarket,
+  loadRowsForMarket,
   STORAGE_KEY_RATES,
   STORAGE_KEY_ROWS,
 } from '../management/allPricesEcommerceUtils'
-import {
-  buildPurchasePriceMap,
-  computeBundleEconomics,
-  saveSavedCompositeItem,
-} from './compositeBundlePricingUtils'
+import { buildPurchasePriceMap, computeBundleEconomics } from './compositeBundlePricingUtils'
+import { COMPOSITE_PRICES_STANDARD, getCompositePricesVariant } from './compositePricesVariants'
 import { resolveCompositeComponentPricing } from './compositeComponentPricingResolver'
 
-export function CompositeItemsPricesPage() {
+/**
+ * @param {{ variant?: import('./compositePricesVariants').CompositePricesVariantId }} props
+ */
+export function CompositeItemsPricesPage({ variant = COMPOSITE_PRICES_STANDARD }) {
+  const variantCfg = getCompositePricesVariant(variant)
   const [priceTick, setPriceTick] = useState(0)
   const [skuInput, setSkuInput] = useState('')
   const [fetching, setFetching] = useState(false)
@@ -50,12 +51,12 @@ export function CompositeItemsPricesPage() {
 
   const ecommerceRows = useMemo(() => {
     void priceTick
-    return loadRows() || []
-  }, [priceTick])
+    return loadRowsForMarket(variantCfg.pricesMarket) || []
+  }, [priceTick, variantCfg.pricesMarket])
 
   const rates = useMemo(() => {
     void priceTick
-    const r = loadRates()
+    const r = loadRatesForMarket(variantCfg.pricesMarket)
     return {
       vatPct: Number.isFinite(Number(r.vatPct)) ? Number(r.vatPct) : DEFAULT_RATES.vatPct,
       commissionPct: Number.isFinite(Number(r.commissionPct)) ? Number(r.commissionPct) : DEFAULT_RATES.commissionPct,
@@ -64,7 +65,7 @@ export function CompositeItemsPricesPage() {
         ? Number(r.requiredProfitPct)
         : DEFAULT_RATES.requiredProfitPct,
     }
-  }, [priceTick])
+  }, [priceTick, variantCfg.pricesMarket])
 
   const purchaseMap = useMemo(() => buildPurchasePriceMap(ecommerceRows), [ecommerceRows])
 
@@ -159,7 +160,7 @@ export function CompositeItemsPricesPage() {
   const handleSaveComposite = useCallback(() => {
     if (!bundle || !economics.ok) return
     try {
-      saveSavedCompositeItem({
+      variantCfg.savedStore.save({
         sku: String(bundle.sku || '').trim(),
         name: bundle.name || '',
         composite_item_id: bundle.composite_item_id || '',
@@ -186,11 +187,11 @@ export function CompositeItemsPricesPage() {
         totalPurchaseCost,
         economics,
       })
-      setSaveMessage(`Saved ${bundle.sku} to Saved Composite Items.`)
+      setSaveMessage(`Saved ${bundle.sku} to ${variantCfg.savedTitle}.`)
     } catch (err) {
       setSaveMessage(err?.message || 'Could not save this composite item.')
     }
-  }, [bundle, economics, bundleShipping, dateOfPrice, rates, componentRows, totalPurchaseCost])
+  }, [bundle, economics, bundleShipping, dateOfPrice, rates, componentRows, totalPurchaseCost, variantCfg])
 
   const sumTakePct =
     (Number(rates.vatPct) || 0) +
@@ -203,12 +204,12 @@ export function CompositeItemsPricesPage() {
     <div className="page composite-prices-page ap-ec-page">
       <div className="doc-page-hero">
         <div>
-          <h1 className="doc-page-title">Composite Items Prices</h1>
+          <h1 className="doc-page-title">{variantCfg.calculatorTitle}</h1>
           <p className="doc-page-subtitle">
             Fetch a <strong>single</strong> composite bundle from Zoho by SKU (one search + one composite detail + one
             call per component to read real Inventory SKUs). Component purchase prices come from your saved{' '}
-            <NavLink to="/prices/all-prices">All Prices (UAE)</NavLink> list (this browser). Use one bundle
-            shipping figure (e.g. FBA).
+            <NavLink to={variantCfg.catalogRoute}>{variantCfg.catalogLabel}</NavLink> list. Use one bundle shipping
+            figure (e.g. FBA).
           </p>
         </div>
       </div>
@@ -235,7 +236,7 @@ export function CompositeItemsPricesPage() {
           <button type="button" className="btn btn--ghost" onClick={() => setPriceTick((t) => t + 1)}>
             Reload price list
           </button>
-          <NavLink className="btn btn--ghost" to="/prices/saved-composite-items">
+          <NavLink className="btn btn--ghost" to={variantCfg.savedRoute}>
             Saved list
           </NavLink>
         </div>
@@ -247,7 +248,7 @@ export function CompositeItemsPricesPage() {
         ) : null}
 
         <div className="cb-bundle-rates" role="note">
-          Rates (from All Prices): VAT <strong>{fmtMoney(rates.vatPct, 1)}%</strong> · Commission{' '}
+          Rates (from {variantCfg.catalogLabel}): VAT <strong>{fmtMoney(rates.vatPct, 1)}%</strong> · Commission{' '}
           <strong>{fmtMoney(rates.commissionPct, 1)}%</strong> · Advertising{' '}
           <strong>{fmtMoney(rates.advertisingPct, 1)}%</strong> · Required profit{' '}
           <strong>{fmtMoney(rates.requiredProfitPct, 1)}%</strong> · Effective divisor{' '}
@@ -279,14 +280,15 @@ export function CompositeItemsPricesPage() {
 
             {missingCount > 0 ? (
               <p className="cb-bundle-warn" role="status">
-                {missingCount} component SKU(s) are not matched cleanly in your ecommerce price list — purchase columns show “—” and
-                do not contribute to the purchase total until you add or resolve them under{' '}
-                <NavLink to="/prices/all-prices">All Prices</NavLink>.
+                {missingCount} component SKU(s) are not matched cleanly in your price list — purchase columns show “—”
+                and do not contribute to the purchase total until you add or resolve them under{' '}
+                <NavLink to={variantCfg.catalogRoute}>{variantCfg.catalogLabel}</NavLink>.
               </p>
             ) : null}
             {duplicateActiveCount > 0 ? (
               <p className="cb-bundle-warn" role="alert">
-                Duplicate active price found. Resolve in <NavLink to="/prices/duplicate-cleanup">Duplicate Price Cleanup</NavLink>.
+                Duplicate active price found. Resolve in{' '}
+                <NavLink to={variantCfg.duplicateFixRoute}>{variantCfg.duplicateFixLabel}</NavLink>.
               </p>
             ) : null}
 
@@ -303,7 +305,7 @@ export function CompositeItemsPricesPage() {
                   <tr>
                     <th scope="col">Composite item no.</th>
                     <th scope="col">Component item no.</th>
-                    <th scope="col">Matched All Prices SKU</th>
+                    <th scope="col">Matched {variantCfg.catalogShortLabel} SKU</th>
                     <th scope="col">Qty</th>
                     <th scope="col">Purchase price ecommerce</th>
                     <th scope="col">Total component purchase</th>
@@ -341,7 +343,7 @@ export function CompositeItemsPricesPage() {
                         ) : (
                           <span className="cb-missing">
                             {row.resolvedPricing?.matchStatus === 'DUPLICATE_ACTIVE_PRICE'
-                              ? 'Duplicate active price found. Resolve in Duplicate Price Cleanup.'
+                              ? `Duplicate active price found. Resolve in ${variantCfg.duplicateFixLabel}.`
                               : '—'}
                           </span>
                         )}

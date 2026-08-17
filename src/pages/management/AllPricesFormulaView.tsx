@@ -4,6 +4,7 @@ import {
   fmtPct,
   profitMarginDisplayClass,
 } from './allPricesEcommerceUtils'
+import { PROFIT_POLICY_ANY, PROFIT_POLICY_TARGET, type ProfitPolicy } from './allPricesMarket'
 
 export interface AllPricesRates {
   vatPct: number | string
@@ -28,6 +29,7 @@ interface AllPricesFormulaViewProps {
   rowCount: number
   sumTakePct: number
   ratesInvalid: boolean
+  profitPolicy?: ProfitPolicy
   onRatesChange: (patch: Partial<AllPricesRates>) => void
   onResetRates: () => void
   onRefreshSnapshot: () => void
@@ -47,6 +49,7 @@ export function AllPricesFormulaView({
   rowCount,
   sumTakePct,
   ratesInvalid,
+  profitPolicy = PROFIT_POLICY_TARGET,
   onRatesChange,
   onResetRates,
   onRefreshSnapshot,
@@ -110,7 +113,9 @@ export function AllPricesFormulaView({
         </p>
       ) : (
         <p className="ap-formula-panel__hint">
-          Profit % uses wholesales sales price as-is. Red below 25%, green above 26%.
+          {profitPolicy === PROFIT_POLICY_ANY
+            ? 'Profit % uses the offer sales price as-is. Any margin is valid; only a loss is shown in red.'
+            : 'Profit % uses wholesales sales price as-is. Red below 25%, green above 26%.'}
         </p>
       )}
 
@@ -211,7 +216,7 @@ export function AllPricesFormulaView({
                       <span
                         className={`ap-ec-num ${
                           hasInputs && !computed.denominatorInvalid
-                            ? profitMarginDisplayClass(computed.profitPct)
+                            ? profitMarginDisplayClass(computed.profitPct, profitPolicy)
                             : ''
                         }`}
                       >

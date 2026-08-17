@@ -1,6 +1,7 @@
 /** Ecommerce price list — persisted per user via API (see PREF_ALL_PRICES_EC). */
 
 import { getUserPrefKey, requestUserPrefSave } from '../../lib/userPreferencesBridge'
+import { getAllPricesMarket, PROFIT_POLICY_ANY, PROFIT_POLICY_TARGET } from './allPricesMarket'
 import { getAllPricesPrefsScope } from './allPricesMarketScope'
 
 export const STORAGE_KEY_RATES = 'hr-all-prices-ecommerce-rates-v1'
@@ -134,6 +135,9 @@ export function areCustomUaeRatesValid(vatPct, advertisingPct, requiredProfitPct
  * VAT, commission, and advertising are derived from that sales price; profit % is informational.
  *
  * Legacy rows without salesPrice still use the old cost-based formula as a fallback.
+ *
+ * @param {{ salesPrice?: unknown, purchasePrice?: unknown, shipping?: unknown }} row
+ * @param {{ vatPct?: unknown, commissionPct?: unknown, advertisingPct?: unknown, requiredProfitPct?: unknown }} [rates]
  */
 export function computeEcommercePriceRow(row, rates = DEFAULT_RATES) {
   const purchase = Number(row.purchasePrice)
@@ -260,6 +264,40 @@ export function normalizeAllPricesRates(raw) {
 function readBundle() {
   const b = getUserPrefKey(getAllPricesPrefsScope().ec, null)
   return b && typeof b === 'object' ? b : {}
+}
+
+/**
+ * Read a market's bundle without switching the active scope — for pages that consume another
+ * market's catalog (e.g. composite pricing reading All Prices (UAE) Special Offers).
+ *
+ * @param {import('./allPricesMarket').PricesMarketId} marketId
+ */
+function readBundleForMarket(marketId) {
+  const b = getUserPrefKey(getAllPricesMarket(marketId).prefs.ec, null)
+  return b && typeof b === 'object' ? b : {}
+}
+
+/**
+ * @param {import('./allPricesMarket').PricesMarketId} marketId
+ * @returns {ReturnType<typeof normalizeAllPricesRows>}
+ */
+export function loadRowsForMarket(marketId) {
+  try {
+    return resolveAllPricesRowsFromBundle(readBundleForMarket(marketId))
+  } catch {
+    return null
+  }
+}
+
+/**
+ * @param {import('./allPricesMarket').PricesMarketId} marketId
+ */
+export function loadRatesForMarket(marketId) {
+  try {
+    return normalizeAllPricesRates(readBundleForMarket(marketId).rates)
+  } catch {
+    return { ...DEFAULT_RATES }
+  }
 }
 
 /**
@@ -397,13 +435,36 @@ export function fmtPct(n, digits = 1) {
   return `${x.toFixed(digits)}%`
 }
 
-/** Profit % of sales — red below 25%, green above 26%. */
-export function profitMarginDisplayClass(profitPct) {
+/**
+ * Profit % of sales colouring.
+ * - `target` policy: red below 25%, green above 26%.
+ * - `any` policy (special offers): only a loss is red, every positive margin is acceptable.
+ *
+ * @param {unknown} profitPct
+ * @param {import('./allPricesMarket').ProfitPolicy} [policy]
+ */
+export function profitMarginDisplayClass(profitPct, policy = PROFIT_POLICY_TARGET) {
   const n = Number(profitPct)
   if (!Number.isFinite(n)) return ''
+  if (policy === PROFIT_POLICY_ANY) return n < 0 ? 'ap-ec-profit--low' : ''
   if (n < 25) return 'ap-ec-profit--low'
   if (n > 26) return 'ap-ec-profit--high'
   return ''
+}
+
+/**
+ * Markup of sales price over purchase price, ignoring VAT/commission/advertising/shipping.
+ * Matches the "profit % of purchase" column of the wholesales offer sheets.
+ *
+ * @param {unknown} salesPrice
+ * @param {unknown} purchasePrice
+ * @returns {number | null} null when purchase price is missing or zero
+ */
+export function purchaseMarkupPct(salesPrice, purchasePrice) {
+  const sales = Number(salesPrice)
+  const purchase = Number(purchasePrice)
+  if (!Number.isFinite(sales) || !Number.isFinite(purchase) || purchase <= 0) return null
+  return ((sales - purchase) / purchase) * 100
 }
 
 /** Split Excel clipboard row into cells (tab-separated). */

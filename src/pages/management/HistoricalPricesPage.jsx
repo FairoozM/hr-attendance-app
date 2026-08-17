@@ -2,7 +2,12 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import '../Page.css'
 import './AllPricesPage.css'
-import { getAllPricesMarket, PRICES_MARKET_KSA, PRICES_MARKET_UAE } from './allPricesMarket'
+import {
+  getAllPricesMarket,
+  PRICES_MARKET_KSA,
+  PRICES_MARKET_UAE,
+  PRICES_MARKET_UAE_SPECIAL_OFFERS,
+} from './allPricesMarket'
 import { ModernSelect } from '../../components/ui/ModernSelect'
 import { ModernSearchInput } from '../../components/ui/ModernSearchInput'
 import { useUserPreferences } from '../../contexts/UserPreferencesContext'
@@ -70,19 +75,14 @@ export function HistoricalPricesPage() {
 
   const activeItemsByMarket = useMemo(() => {
     void prefsVersion
-    const uae = hydrateAllPricesStateFromBundle(
-      getPref(getAllPricesMarket(PRICES_MARKET_UAE).prefs.ec, null),
-    )
-    const ksa = hydrateAllPricesStateFromBundle(
-      getPref(getAllPricesMarket(PRICES_MARKET_KSA).prefs.ec, null),
-    )
+    const activeItemsFor = (marketId) => {
+      const state = hydrateAllPricesStateFromBundle(getPref(getAllPricesMarket(marketId).prefs.ec, null))
+      return new Set(state.rows.map((row) => normalizeItemNo(row.itemNo)).filter(Boolean))
+    }
     return {
-      [PRICES_MARKET_UAE]: new Set(
-        uae.rows.map((row) => normalizeItemNo(row.itemNo)).filter(Boolean),
-      ),
-      [PRICES_MARKET_KSA]: new Set(
-        ksa.rows.map((row) => normalizeItemNo(row.itemNo)).filter(Boolean),
-      ),
+      [PRICES_MARKET_UAE]: activeItemsFor(PRICES_MARKET_UAE),
+      [PRICES_MARKET_UAE_SPECIAL_OFFERS]: activeItemsFor(PRICES_MARKET_UAE_SPECIAL_OFFERS),
+      [PRICES_MARKET_KSA]: activeItemsFor(PRICES_MARKET_KSA),
     }
   }, [getPref, prefsVersion])
 
@@ -115,8 +115,8 @@ export function HistoricalPricesPage() {
         <div>
           <h1 className="doc-page-title">Historical Prices</h1>
           <p className="doc-page-subtitle">
-            Audit old, replaced, imported older, and duplicate-cleaned prices for UAE and KSA. These rows are never used
-            for active composite pricing.
+            Audit old, replaced, imported older, and duplicate-cleaned prices for UAE, UAE special offers, and KSA.
+            These rows are never used for active composite pricing.
           </p>
         </div>
       </div>
@@ -126,9 +126,10 @@ export function HistoricalPricesPage() {
           <ModernSelect
             value={regionFilter}
             options={[
-              { value: 'all',              label: 'All markets' },
-              { value: PRICES_MARKET_UAE,  label: 'UAE'         },
-              { value: PRICES_MARKET_KSA,  label: 'KSA'         },
+              { value: 'all',                              label: 'All markets'        },
+              { value: PRICES_MARKET_UAE,                  label: 'UAE'                },
+              { value: PRICES_MARKET_UAE_SPECIAL_OFFERS,   label: 'UAE Special Offers' },
+              { value: PRICES_MARKET_KSA,                  label: 'KSA'                },
             ]}
             onChange={setRegionFilter}
             aria-label="Market"
@@ -197,6 +198,13 @@ export function HistoricalPricesPage() {
           </button>
           <button type="button" className="btn btn--ghost" onClick={() => navigate('/prices/all-prices')}>
             All Prices (UAE)
+          </button>
+          <button
+            type="button"
+            className="btn btn--ghost"
+            onClick={() => navigate('/prices/all-prices-special-offers')}
+          >
+            All Prices (UAE) Special Offers
           </button>
           <button type="button" className="btn btn--ghost" onClick={() => navigate('/prices/all-prices-ksa')}>
             All Prices (KSA)

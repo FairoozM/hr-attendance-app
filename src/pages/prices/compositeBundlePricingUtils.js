@@ -1,6 +1,10 @@
 /** Composite bundle economics — mirrors All Prices formula with single bundle shipping. */
 
-import { PREF_SAVED_COMPOSITES, PREF_SAVED_COMPOSITES_CUSTOM } from '../../constants/userPreferenceKeys'
+import {
+  PREF_SAVED_COMPOSITES,
+  PREF_SAVED_COMPOSITES_CUSTOM,
+  PREF_SAVED_COMPOSITES_SPECIAL_OFFERS,
+} from '../../constants/userPreferenceKeys'
 import { getUserPrefKey, requestUserPrefSave } from '../../lib/userPreferencesBridge'
 import {
   buildPurchasePriceMap as buildResolverPurchasePriceMap,
@@ -11,6 +15,8 @@ export const STORAGE_KEY_SAVED_COMPOSITES = 'hr-saved-composite-items-v1'
 export const SAVED_COMPOSITES_UPDATED_EVENT = 'hr-saved-composite-items-updated'
 export const STORAGE_KEY_SAVED_COMPOSITES_CUSTOM = 'hr-saved-composite-items-custom-v1'
 export const SAVED_COMPOSITES_CUSTOM_UPDATED_EVENT = 'hr-saved-composite-items-custom-updated'
+export const STORAGE_KEY_SAVED_COMPOSITES_SPECIAL_OFFERS = 'hr-saved-composite-items-special-offers-v1'
+export const SAVED_COMPOSITES_SPECIAL_OFFERS_UPDATED_EVENT = 'hr-saved-composite-items-special-offers-updated'
 
 function toDec(pct) {
   const n = Number(pct)
@@ -35,6 +41,15 @@ function notifySavedCompositeItemsCustomChanged() {
   if (typeof window === 'undefined') return
   try {
     window.dispatchEvent(new CustomEvent(SAVED_COMPOSITES_CUSTOM_UPDATED_EVENT))
+  } catch {
+    /* ignore */
+  }
+}
+
+function notifySavedCompositeItemsSpecialOffersChanged() {
+  if (typeof window === 'undefined') return
+  try {
+    window.dispatchEvent(new CustomEvent(SAVED_COMPOSITES_SPECIAL_OFFERS_UPDATED_EVENT))
   } catch {
     /* ignore */
   }
@@ -373,6 +388,48 @@ export function removeSavedCompositeItemCustom(sku) {
   const next = loadSavedCompositeItemsCustom().filter((item) => makeSavedCompositeKey(item.sku) !== key)
   requestUserPrefSave(PREF_SAVED_COMPOSITES_CUSTOM, next)
   notifySavedCompositeItemsCustomChanged()
+  return next
+}
+
+/** Composites priced from the All Prices (UAE) Special Offers catalog. */
+export function loadSavedCompositeItemsSpecialOffers() {
+  try {
+    return normalizeSavedCompositeList(getUserPrefKey(PREF_SAVED_COMPOSITES_SPECIAL_OFFERS, []))
+  } catch {
+    return []
+  }
+}
+
+export function saveSavedCompositeItemSpecialOffers(record) {
+  const sku = String(record?.sku || '').trim()
+  if (!sku) throw new Error('Composite SKU is required before saving.')
+  const now = new Date().toISOString()
+  const key = makeSavedCompositeKey(sku)
+  const current = loadSavedCompositeItemsSpecialOffers()
+  const existing = current.find((item) => makeSavedCompositeKey(item.sku) === key)
+  const nextRecord = {
+    ...record,
+    sku,
+    saved_at: existing?.saved_at || record?.saved_at || now,
+    updated_at: now,
+  }
+  const next = [
+    nextRecord,
+    ...current.filter((item) => makeSavedCompositeKey(item.sku) !== key),
+  ]
+  requestUserPrefSave(PREF_SAVED_COMPOSITES_SPECIAL_OFFERS, next)
+  notifySavedCompositeItemsSpecialOffersChanged()
+  return nextRecord
+}
+
+export function removeSavedCompositeItemSpecialOffers(sku) {
+  const key = makeSavedCompositeKey(sku)
+  if (!key) return loadSavedCompositeItemsSpecialOffers()
+  const next = loadSavedCompositeItemsSpecialOffers().filter(
+    (item) => makeSavedCompositeKey(item.sku) !== key,
+  )
+  requestUserPrefSave(PREF_SAVED_COMPOSITES_SPECIAL_OFFERS, next)
+  notifySavedCompositeItemsSpecialOffersChanged()
   return next
 }
 

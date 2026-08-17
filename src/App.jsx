@@ -378,6 +378,14 @@ function AppContent() {
           }
         />
         <Route
+          path="prices/all-prices-special-offers"
+          element={
+            <PermissionGuard module="prices" action="view">
+              <AllPricesPage market="uae-special-offers" />
+            </PermissionGuard>
+          }
+        />
+        <Route
           path="prices/all-prices-custom"
           element={
             <PermissionGuard module="prices" action="view">
@@ -426,6 +434,14 @@ function AppContent() {
           }
         />
         <Route
+          path="prices/composite-items-special-offers"
+          element={
+            <PermissionGuard module="prices" action="view">
+              <CompositeItemsPricesPage variant="special-offers" />
+            </PermissionGuard>
+          }
+        />
+        <Route
           path="prices/composite-items-custom"
           element={
             <PermissionGuard module="prices" action="view">
@@ -438,6 +454,14 @@ function AppContent() {
           element={
             <PermissionGuard module="prices" action="view">
               <SavedCompositeItemsPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="prices/saved-composite-items-special-offers"
+          element={
+            <PermissionGuard module="prices" action="view">
+              <SavedCompositeItemsPage variant="special-offers" />
             </PermissionGuard>
           }
         />
