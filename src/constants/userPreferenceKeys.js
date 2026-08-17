@@ -25,6 +25,8 @@ export const PREF_ALL_PRICES_RECOVERY_SNAPSHOTS_SPECIAL_OFFERS = 'all_prices_rec
 export const PREF_ALL_PRICES_HISTORY_SPECIAL_OFFERS = 'all_prices_history_special_offers_v1'
 export const PREF_ALL_PRICES_CLEANUP_BATCHES_SPECIAL_OFFERS = 'all_prices_cleanup_batches_special_offers_v1'
 export const PREF_ALL_PRICES_IMPORT_BATCHES_SPECIAL_OFFERS = 'all_prices_import_batches_special_offers_v1'
+/** One-time clear of the special offers draft that inherited the standard UAE table. */
+export const PREF_ALL_PRICES_SPECIAL_OFFERS_DRAFT_RESET = 'all_prices_special_offers_draft_reset_20260817_v1'
 /** KSA shipment-batch landed-cost pricing (separate from UAE ecommerce calculator). */
 export const PREF_KSA_PRICING_STORE = 'ksa_pricing_store_v1'
 export const PREF_KSA_PRICING_HISTORY = 'ksa_pricing_history_v1'

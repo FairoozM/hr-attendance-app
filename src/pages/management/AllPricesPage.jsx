@@ -43,6 +43,7 @@ import {
   saveAllPricesEcommerceBundle,
 } from './allPricesEcommerceUtils'
 import { applyUaeWholesaleResetIfNeeded } from './allPricesUaeWholesaleReset'
+import { applySpecialOffersDraftResetIfNeeded } from './allPricesSpecialOffersReset'
 import {
   appendCleanupBatch,
   appendHistoricalPrices,
@@ -136,6 +137,7 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
   })
   const lastUndoSnapshotIdRef = useRef(null)
   const draftAutosaveTimerRef = useRef(null)
+  const hydratedMarketRef = useRef(null)
 
   const applyBundleToState = useCallback((bundle) => {
     const hydrated = hydrateAllPricesStateFromBundle(bundle)
@@ -186,7 +188,7 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
       setPref(marketCfg.prefs.savedLists, normalized)
       return normalized
     },
-    [setPref],
+    [marketCfg.prefs.savedLists, setPref],
   )
 
   const showActionToast = useCallback((message, { actionLabel = 'undo', onAction } = {}) => {
@@ -206,7 +208,7 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
       skipNextAutosaveRef.current = true
       setDraftSaveStatus('saved')
     },
-    [listRates, rows, setPref],
+    [listRates, marketCfg.prefs.ec, rows, setPref],
   )
 
   const captureFormulaSnapshot = useCallback(() => {
@@ -258,7 +260,27 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
   )
 
   useEffect(() => {
-    if (!prefsReady || prefsLoaded) return
+    if (!prefsReady) return
+    if (hydratedMarketRef.current === market) return
+    hydratedMarketRef.current = market
+
+    // Every market route renders this same component instance, so the previous market's table
+    // is still in state here. Clear it before hydrating or it autosaves into this market's draft.
+    setRows([])
+    setListRates({ ...DEFAULT_RATES })
+    setFormulaRows([])
+    setFormulaRates({ ...DEFAULT_RATES })
+    setLastSavedAt(null)
+    setEditingRowId(null)
+    setPasteText('')
+    setPasteFeedback({ type: '', text: '' })
+    setActionToast(null)
+    setConfirmModal(null)
+    setImportReview(null)
+    setRevisionConflict(null)
+    setLoadGuardTargetId(null)
+    setDraftSaveStatus('idle')
+    lastUndoSnapshotIdRef.current = null
 
     applyUaeWholesaleResetIfNeeded({
       market,
@@ -267,7 +289,15 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
       prefs: marketCfg.prefs,
     })
 
-    const legacy = readLegacySavedListsFromLocalStorage()
+    applySpecialOffersDraftResetIfNeeded({
+      market,
+      getPref,
+      setPref,
+      prefs: marketCfg.prefs,
+    })
+
+    // The legacy localStorage lists predate multi-market support, so they belong to UAE only.
+    const legacy = market === PRICES_MARKET_UAE ? readLegacySavedListsFromLocalStorage() : null
     let listsStore = legacy?.savedLists?.length
       ? legacy
       : normalizeSavedListsStore(getPref(marketCfg.prefs.savedLists, null))
@@ -295,7 +325,7 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
 
     skipNextAutosaveRef.current = true
     setPrefsLoaded(true)
-  }, [applyBundleToState, applyTableFromList, getPref, market, marketCfg.prefs, prefsLoaded, prefsReady, setLoadedBaseline, setPref])
+  }, [applyBundleToState, applyTableFromList, getPref, market, marketCfg.prefs, prefsReady, setLoadedBaseline, setPref])
 
   useEffect(() => {
     void prefsVersion
@@ -363,7 +393,7 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
     } catch {
       setDraftSaveStatus('error')
     }
-  }, [lastSavedAt, listRates, rows, setPref])
+  }, [lastSavedAt, listRates, marketCfg.prefs.ec, rows, setPref])
 
   const sortedSavedLists = useMemo(
     () =>
