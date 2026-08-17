@@ -48,6 +48,8 @@ function addExactMatchVariants(set, raw) {
   set.add(t.replace(/_/g, '-'))
   set.add(normalizeSeparators(t))
   set.add(t.replace(/\s+/g, ''))
+  // Zoho names drop the hyphen the price list keeps: LIFEP12SHR32SILVER ≡ LIFEP12SHR-32SILVER.
+  set.add(t.replace(/[-_\s]+/g, ''))
 }
 
 function expandExactMatchVariants(raw) {
