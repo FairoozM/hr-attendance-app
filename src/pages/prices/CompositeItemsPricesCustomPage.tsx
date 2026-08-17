@@ -10,9 +10,10 @@ import './CompositeItemsPricesPage.css'
 import {
   fmtMoney,
   fmtPct,
-  loadRows,
   STORAGE_KEY_ROWS,
 } from '../management/allPricesEcommerceUtils'
+import { PRICES_MARKET_UAE } from '../management/allPricesMarket'
+import { resolveAllPricesCatalog } from './allPricesCatalogSource'
 import {
   buildPurchasePriceMap,
   computeBundleEconomics,
@@ -145,7 +146,7 @@ export function CompositeItemsPricesCustomPage() {
   const ecommerceRows = useMemo(() => {
     void priceTick
     void prefsVersion
-    return loadRows() || []
+    return resolveAllPricesCatalog(PRICES_MARKET_UAE).rows
   }, [prefsVersion, priceTick])
 
   const draftVatN = parseDraftPct(draftVat)

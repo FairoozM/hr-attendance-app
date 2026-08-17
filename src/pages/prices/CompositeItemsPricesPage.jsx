@@ -10,11 +10,10 @@ import {
   DEFAULT_RATES,
   fmtMoney,
   fmtPct,
-  loadRatesForMarket,
-  loadRowsForMarket,
   STORAGE_KEY_RATES,
   STORAGE_KEY_ROWS,
 } from '../management/allPricesEcommerceUtils'
+import { resolveAllPricesCatalog } from './allPricesCatalogSource'
 import { buildPurchasePriceMap, computeBundleEconomics } from './compositeBundlePricingUtils'
 import { COMPOSITE_PRICES_STANDARD, getCompositePricesVariant } from './compositePricesVariants'
 import { resolveCompositeComponentPricing } from './compositeComponentPricingResolver'
@@ -53,16 +52,16 @@ export function CompositeItemsPricesPage({ variant = COMPOSITE_PRICES_STANDARD }
 
   // prefsVersion covers price-list edits made elsewhere in this session; the window listeners
   // above only fire for other tabs.
-  const ecommerceRows = useMemo(() => {
+  const catalog = useMemo(() => {
     void priceTick
     void prefsVersion
-    return loadRowsForMarket(variantCfg.pricesMarket) || []
+    return resolveAllPricesCatalog(variantCfg.pricesMarket)
   }, [prefsVersion, priceTick, variantCfg.pricesMarket])
 
+  const ecommerceRows = catalog.rows
+
   const rates = useMemo(() => {
-    void priceTick
-    void prefsVersion
-    const r = loadRatesForMarket(variantCfg.pricesMarket)
+    const r = catalog.rates
     return {
       vatPct: Number.isFinite(Number(r.vatPct)) ? Number(r.vatPct) : DEFAULT_RATES.vatPct,
       commissionPct: Number.isFinite(Number(r.commissionPct)) ? Number(r.commissionPct) : DEFAULT_RATES.commissionPct,
@@ -71,7 +70,7 @@ export function CompositeItemsPricesPage({ variant = COMPOSITE_PRICES_STANDARD }
         ? Number(r.requiredProfitPct)
         : DEFAULT_RATES.requiredProfitPct,
     }
-  }, [prefsVersion, priceTick, variantCfg.pricesMarket])
+  }, [catalog.rates])
 
   const purchaseMap = useMemo(() => buildPurchasePriceMap(ecommerceRows), [ecommerceRows])
 
@@ -262,6 +261,16 @@ export function CompositeItemsPricesPage({ variant = COMPOSITE_PRICES_STANDARD }
           {sumTakePct >= 100 ? (
             <span className="cb-bundle-rates--bad"> — rates must sum under 100%.</span>
           ) : null}
+          <span className="cb-bundle-meta__name">
+            {' '}
+            · Pricing from{' '}
+            <strong>
+              {catalog.source === 'saved-list'
+                ? `saved list “${catalog.savedListName}”`
+                : 'the working draft'}
+            </strong>{' '}
+            ({ecommerceRows.length} rows)
+          </span>
         </div>
 
         {bundle ? (

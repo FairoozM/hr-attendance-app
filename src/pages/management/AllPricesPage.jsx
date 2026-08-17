@@ -42,6 +42,7 @@ import {
   purchaseMarkupPct,
   saveAllPricesEcommerceBundle,
 } from './allPricesEcommerceUtils'
+import { allPricesBundleStamp } from '../prices/allPricesCatalogSource'
 import { applyUaeWholesaleResetIfNeeded } from './allPricesUaeWholesaleReset'
 import { applySpecialOffersDraftResetIfNeeded } from './allPricesSpecialOffersReset'
 import {
@@ -130,6 +131,7 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
   const [revisionConflict, setRevisionConflict] = useState(null)
   const [importReview, setImportReview] = useState(null)
   const skipNextAutosaveRef = useRef(true)
+  const knownDraftStampRef = useRef(0)
   const [loadedBaseline, setLoadedBaselineState] = useState({
     listId: null,
     fingerprint: null,
@@ -204,6 +206,7 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
         preserveLastSavedAt: false,
       })
       setPref(marketCfg.prefs.ec, bundle)
+      knownDraftStampRef.current = allPricesBundleStamp(bundle)
       setLastSavedAt(savedAt)
       skipNextAutosaveRef.current = true
       setDraftSaveStatus('saved')
@@ -315,6 +318,8 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
       ? listsStore.savedLists.find((l) => l.id === listsStore.activeSavedListId)
       : null
 
+    knownDraftStampRef.current = allPricesBundleStamp(getPref(marketCfg.prefs.ec, null))
+
     if (activeListOnLoad) {
       applyTableFromList(activeListOnLoad)
     } else {
@@ -350,15 +355,24 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
 
     draftAutosaveTimerRef.current = setTimeout(() => {
       try {
-        const result = saveAllPricesEcommerceBundle(
-          buildAllPricesBundle(listRates, rows, lastSavedAt || undefined),
-          { source: 'AllPricesPage', action: 'autosave', preserveLastSavedAt: true },
-        )
+        // Another tab may hold a newer table for this market; autosaving our older rows over it
+        // silently loses their edits.
+        if (allPricesBundleStamp(getPref(marketCfg.prefs.ec, null)) > knownDraftStampRef.current) {
+          setDraftSaveStatus('stale')
+          return
+        }
+        const bundle = buildAllPricesBundle(listRates, rows, lastSavedAt || undefined)
+        const result = saveAllPricesEcommerceBundle(bundle, {
+          source: 'AllPricesPage',
+          action: 'autosave',
+          preserveLastSavedAt: true,
+        })
         if (result.blocked) {
           setDraftSaveStatus('error')
           return
         }
-        setPref(marketCfg.prefs.ec, buildAllPricesBundle(listRates, rows, lastSavedAt || undefined))
+        setPref(marketCfg.prefs.ec, bundle)
+        knownDraftStampRef.current = allPricesBundleStamp(bundle)
         setDraftSaveStatus('saved')
       } catch {
         setDraftSaveStatus('error')
@@ -368,7 +382,7 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
     return () => {
       if (draftAutosaveTimerRef.current) clearTimeout(draftAutosaveTimerRef.current)
     }
-  }, [lastSavedAt, marketCfg.prefs.ec, prefsLoaded, prefsReady, listRates, rows, setPref])
+  }, [getPref, lastSavedAt, marketCfg.prefs.ec, prefsLoaded, prefsReady, listRates, rows, setPref])
 
   useEffect(
     () => () => {
@@ -380,15 +394,18 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
   const retryDraftSave = useCallback(() => {
     setDraftSaveStatus('saving')
     try {
-      const result = saveAllPricesEcommerceBundle(
-        buildAllPricesBundle(listRates, rows, lastSavedAt || undefined),
-        { source: 'AllPricesPage', action: 'autosave-retry', preserveLastSavedAt: true },
-      )
+      const bundle = buildAllPricesBundle(listRates, rows, lastSavedAt || undefined)
+      const result = saveAllPricesEcommerceBundle(bundle, {
+        source: 'AllPricesPage',
+        action: 'autosave-retry',
+        preserveLastSavedAt: true,
+      })
       if (result.blocked) {
         setDraftSaveStatus('error')
         return
       }
-      setPref(marketCfg.prefs.ec, buildAllPricesBundle(listRates, rows, lastSavedAt || undefined))
+      setPref(marketCfg.prefs.ec, bundle)
+      knownDraftStampRef.current = allPricesBundleStamp(bundle)
       setDraftSaveStatus('saved')
     } catch {
       setDraftSaveStatus('error')
@@ -945,7 +962,12 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
         </div>
 
         <div className="ap-ec-save-meta" aria-live="polite">
-          {draftSaveStatus === 'error' ? (
+          {draftSaveStatus === 'stale' ? (
+            <p className="ap-ec-save-notice ap-ec-save-notice--warn" role="alert">
+              This table is older than the one saved from another tab, so it was not autosaved.
+              Reload the page to get the current list.
+            </p>
+          ) : draftSaveStatus === 'error' ? (
             <p className="ap-ec-save-notice ap-ec-save-notice--error" role="alert">
               Draft save failed.{' '}
               <button type="button" className="btn btn--ghost btn--sm" onClick={retryDraftSave}>

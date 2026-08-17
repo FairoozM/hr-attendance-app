@@ -272,7 +272,7 @@ function readBundle() {
  *
  * @param {import('./allPricesMarket').PricesMarketId} marketId
  */
-function readBundleForMarket(marketId) {
+export function readBundleForMarket(marketId) {
   const b = getUserPrefKey(getAllPricesMarket(marketId).prefs.ec, null)
   return b && typeof b === 'object' ? b : {}
 }
@@ -309,6 +309,9 @@ export function buildAllPricesBundle(rates, rows, lastSavedAt) {
   const bundle = {
     rates: normalizeAllPricesRates(rates),
     rows: normalizeAllPricesRows(rows) || [],
+    // lastSavedAt only moves on named saves, so autosaved drafts need their own stamp to tell
+    // readers (and other tabs) how fresh this copy is.
+    draftUpdatedAt: new Date().toISOString(),
   }
   if (lastSavedAt) bundle.lastSavedAt = String(lastSavedAt)
   return bundle
