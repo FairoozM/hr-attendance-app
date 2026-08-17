@@ -28,6 +28,14 @@ export type CompositePricesVariantId = 'standard' | 'special-offers'
 
 export type SavedCompositeRecord = Record<string, any>
 
+/**
+ * How the bundle sales price is decided.
+ * - `target-profit`: derive it from component cost so the bundle clears the required profit %.
+ * - `sum-component-sales`: sell for the sum of the components' own list sales prices and report
+ *   the resulting blended margin.
+ */
+export type CompositeBundlePricingMode = 'target-profit' | 'sum-component-sales'
+
 export interface SavedCompositeStore {
   load: () => SavedCompositeRecord[]
   save: (record: SavedCompositeRecord) => SavedCompositeRecord
@@ -40,6 +48,7 @@ export interface CompositePricesVariant {
   id: CompositePricesVariantId
   /** All Prices market the component purchase prices and rates are read from. */
   pricesMarket: PricesMarketId
+  bundlePricing: CompositeBundlePricingMode
   calculatorTitle: string
   calculatorRoute: string
   savedTitle: string
@@ -58,6 +67,7 @@ export const COMPOSITE_PRICES_VARIANTS: Record<CompositePricesVariantId, Composi
   [COMPOSITE_PRICES_STANDARD]: {
     id: COMPOSITE_PRICES_STANDARD,
     pricesMarket: PRICES_MARKET_UAE as PricesMarketId,
+    bundlePricing: 'target-profit',
     calculatorTitle: 'Composite Items Prices',
     calculatorRoute: '/prices/composite-items',
     savedTitle: 'Saved Composite Items',
@@ -78,6 +88,7 @@ export const COMPOSITE_PRICES_VARIANTS: Record<CompositePricesVariantId, Composi
   [COMPOSITE_PRICES_SPECIAL_OFFERS]: {
     id: COMPOSITE_PRICES_SPECIAL_OFFERS,
     pricesMarket: PRICES_MARKET_UAE_SPECIAL_OFFERS as PricesMarketId,
+    bundlePricing: 'sum-component-sales',
     calculatorTitle: 'Composite Items Prices — Special Offers',
     calculatorRoute: '/prices/composite-items-special-offers',
     savedTitle: 'Saved Composite Items (Special Offers)',

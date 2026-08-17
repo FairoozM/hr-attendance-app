@@ -15,6 +15,7 @@ import {
 } from '../management/allPricesEcommerceUtils'
 import { resolveAllPricesCatalog } from './allPricesCatalogSource'
 import { buildPurchasePriceMap, computeBundleEconomics } from './compositeBundlePricingUtils'
+import { computeOfferBundleEconomics, computeOfferLineEconomics } from './compositeOffersBundlePricing'
 import { COMPOSITE_PRICES_STANDARD, getCompositePricesVariant } from './compositePricesVariants'
 import { resolveCompositeComponentPricing } from './compositeComponentPricingResolver'
 
@@ -74,6 +75,8 @@ export function CompositeItemsPricesPage({ variant = COMPOSITE_PRICES_STANDARD }
 
   const purchaseMap = useMemo(() => buildPurchasePriceMap(ecommerceRows), [ecommerceRows])
 
+  const sumsComponentSales = variantCfg.bundlePricing === 'sum-component-sales'
+
   const componentRows = useMemo(() => {
     if (!bundle?.components) return []
     return bundle.components.map((c) => {
@@ -90,39 +93,74 @@ export function CompositeItemsPricesPage({ variant = COMPOSITE_PRICES_STANDARD }
             matchKind: resolved.matchKind,
           }
         : null
+      const listSalesPrice = resolved.matchedAllPricesRecord?.salesPrice
       const matchedListRow = purchaseMatch
         ? {
             itemNo: purchaseMatch.itemNo,
             sku: purchaseMatch.sku || purchaseMatch.itemNo,
             purchasePrice: purchaseMatch.purchasePrice,
             shipping: purchaseMatch.shipping ?? '',
+            salesPrice: listSalesPrice ?? '',
             dateOfPrices: purchaseMatch.dateOfPrices || '',
           }
         : null
-      const matchedEconomics = resolved.matchedAllPricesRecordFound
-        ? {
-            denominatorInvalid: resolved.pricingStatus !== 'complete',
-            salesPrice: resolved.salesPriceAed,
-            vatAmount: resolved.vat5,
-            commissionAmount: resolved.commission15,
-            advertisingAmount: resolved.advertising15,
-            totalCost: resolved.totalCost,
-            profit: resolved.profitAed,
-            profitPct: resolved.profitPercent,
-          }
+
+      // Offers sell for the components' own offer prices, so the line economics come off the list
+      // row rather than being derived from cost and a required profit.
+      const offerLine = sumsComponentSales && resolved.matchedAllPricesRecordFound
+        ? computeOfferLineEconomics(
+            {
+              quantity: c.quantity,
+              salesPrice: listSalesPrice,
+              purchasePrice: purchaseMatch?.purchasePrice,
+              shipping: purchaseMatch?.shipping,
+            },
+            rates,
+          )
         : null
+
+      let matchedEconomics = null
+      if (sumsComponentSales) {
+        matchedEconomics = offerLine
+          ? {
+              denominatorInvalid: false,
+              salesPrice: offerLine.salesPrice,
+              vatAmount: offerLine.vatAmount,
+              commissionAmount: offerLine.commissionAmount,
+              advertisingAmount: offerLine.advertisingAmount,
+              totalCost: offerLine.totalCost,
+              profit: offerLine.profit,
+              profitPct: offerLine.profitPct,
+            }
+          : null
+      } else if (resolved.matchedAllPricesRecordFound) {
+        matchedEconomics = {
+          denominatorInvalid: resolved.pricingStatus !== 'complete',
+          salesPrice: resolved.salesPriceAed,
+          vatAmount: resolved.vat5,
+          commissionAmount: resolved.commission15,
+          advertisingAmount: resolved.advertising15,
+          totalCost: resolved.totalCost,
+          profit: resolved.profitAed,
+          profitPct: resolved.profitPercent,
+        }
+      }
+
       return {
         ...c,
         resolvedPricing: resolved,
         purchaseMatch,
         matchedListRow,
         matchedEconomics,
+        offerLine,
         purchaseFromList: purchase,
         lineTotal: resolved.linePurchaseTotal,
         missing: !resolved.matchedAllPricesRecordFound,
+        // An offer row without a sales price cannot join the bundle total.
+        missingOfferSalesPrice: sumsComponentSales && resolved.matchedAllPricesRecordFound && !offerLine,
       }
     })
-  }, [bundle, purchaseMap, rates])
+  }, [bundle, purchaseMap, rates, sumsComponentSales])
 
   const missingCount = useMemo(() => componentRows.filter((r) => r.missing).length, [componentRows])
   const duplicateActiveCount = useMemo(
@@ -136,10 +174,27 @@ export function CompositeItemsPricesPage({ variant = COMPOSITE_PRICES_STANDARD }
   )
 
   const economics = useMemo(() => {
+    if (sumsComponentSales) {
+      const lines = componentRows.map((r) => r.offerLine).filter(Boolean)
+      return computeOfferBundleEconomics(lines, rates, bundleShipping === '' ? null : bundleShipping)
+    }
     const ship = Number(bundleShipping)
     const shipN = Number.isFinite(ship) ? Math.max(0, ship) : 0
     return computeBundleEconomics(totalPurchaseCost, shipN, rates)
-  }, [totalPurchaseCost, bundleShipping, rates])
+  }, [componentRows, sumsComponentSales, totalPurchaseCost, bundleShipping, rates])
+
+  const offerShippingFromList = useMemo(
+    () =>
+      sumsComponentSales
+        ? componentRows.reduce((sum, r) => sum + (r.offerLine ? r.offerLine.lineShipping : 0), 0)
+        : 0,
+    [componentRows, sumsComponentSales],
+  )
+
+  const missingOfferPriceCount = useMemo(
+    () => componentRows.filter((r) => r.missingOfferSalesPrice).length,
+    [componentRows],
+  )
 
   const handleFetch = useCallback(async () => {
     setFetchError('')
@@ -169,7 +224,9 @@ export function CompositeItemsPricesPage({ variant = COMPOSITE_PRICES_STANDARD }
         sku: String(bundle.sku || '').trim(),
         name: bundle.name || '',
         composite_item_id: bundle.composite_item_id || '',
-        bundleShipping: Number(bundleShipping) || 0,
+        bundleShipping:
+          sumsComponentSales && economics.ok ? economics.shipping : Number(bundleShipping) || 0,
+        bundlePricing: variantCfg.bundlePricing,
         dateOfPrice: dateOfPrice || '',
         rates,
         components: componentRows.map((row) => ({
@@ -196,13 +253,21 @@ export function CompositeItemsPricesPage({ variant = COMPOSITE_PRICES_STANDARD }
     } catch (err) {
       setSaveMessage(err?.message || 'Could not save this composite item.')
     }
-  }, [bundle, economics, bundleShipping, dateOfPrice, rates, componentRows, totalPurchaseCost, variantCfg])
+  }, [
+    bundle,
+    economics,
+    bundleShipping,
+    dateOfPrice,
+    rates,
+    componentRows,
+    sumsComponentSales,
+    totalPurchaseCost,
+    variantCfg,
+  ])
 
-  const sumTakePct =
-    (Number(rates.vatPct) || 0) +
-    (Number(rates.commissionPct) || 0) +
-    (Number(rates.advertisingPct) || 0) +
-    (Number(rates.requiredProfitPct) || 0)
+  const feePct =
+    (Number(rates.vatPct) || 0) + (Number(rates.commissionPct) || 0) + (Number(rates.advertisingPct) || 0)
+  const sumTakePct = feePct + (Number(rates.requiredProfitPct) || 0)
   const divisorPct = Math.max(0, 100 - sumTakePct)
 
   return (
@@ -212,9 +277,16 @@ export function CompositeItemsPricesPage({ variant = COMPOSITE_PRICES_STANDARD }
           <h1 className="doc-page-title">{variantCfg.calculatorTitle}</h1>
           <p className="doc-page-subtitle">
             Fetch a <strong>single</strong> composite bundle from Zoho by SKU (one search + one composite detail + one
-            call per component to read real Inventory SKUs). Component purchase prices come from your saved{' '}
-            <NavLink to={variantCfg.catalogRoute}>{variantCfg.catalogLabel}</NavLink> list. Use one bundle shipping
-            figure (e.g. FBA).
+            call per component to read real Inventory SKUs). Component prices come from your saved{' '}
+            <NavLink to={variantCfg.catalogRoute}>{variantCfg.catalogLabel}</NavLink> list.{' '}
+            {sumsComponentSales ? (
+              <>
+                The bundle sells for the <strong>sum of its components&rsquo; offer sales prices</strong>, so its profit
+                % is the blend of their individual margins.
+              </>
+            ) : (
+              <>Use one bundle shipping figure (e.g. FBA).</>
+            )}
           </p>
         </div>
       </div>
@@ -255,10 +327,15 @@ export function CompositeItemsPricesPage({ variant = COMPOSITE_PRICES_STANDARD }
         <div className="cb-bundle-rates" role="note">
           Rates (from {variantCfg.catalogLabel}): VAT <strong>{fmtMoney(rates.vatPct, 1)}%</strong> · Commission{' '}
           <strong>{fmtMoney(rates.commissionPct, 1)}%</strong> · Advertising{' '}
-          <strong>{fmtMoney(rates.advertisingPct, 1)}%</strong> · Required profit{' '}
-          <strong>{fmtMoney(rates.requiredProfitPct, 1)}%</strong> · Effective divisor{' '}
-          <strong>{fmtMoney(divisorPct, 2)}%</strong>
-          {sumTakePct >= 100 ? (
+          <strong>{fmtMoney(rates.advertisingPct, 1)}%</strong>
+          {sumsComponentSales ? null : (
+            <>
+              {' '}
+              · Required profit <strong>{fmtMoney(rates.requiredProfitPct, 1)}%</strong> · Effective divisor{' '}
+              <strong>{fmtMoney(divisorPct, 2)}%</strong>
+            </>
+          )}
+          {(sumsComponentSales ? feePct >= 100 : sumTakePct >= 100) ? (
             <span className="cb-bundle-rates--bad"> — rates must sum under 100%.</span>
           ) : null}
           <span className="cb-bundle-meta__name">
@@ -300,6 +377,13 @@ export function CompositeItemsPricesPage({ variant = COMPOSITE_PRICES_STANDARD }
                 <NavLink to={variantCfg.catalogRoute}>{variantCfg.catalogLabel}</NavLink>.
               </p>
             ) : null}
+            {missingOfferPriceCount > 0 ? (
+              <p className="cb-bundle-warn" role="status">
+                {missingOfferPriceCount} matched component(s) have no sales price in{' '}
+                <NavLink to={variantCfg.catalogRoute}>{variantCfg.catalogLabel}</NavLink>, so they are left out of the
+                bundle price.
+              </p>
+            ) : null}
             {duplicateActiveCount > 0 ? (
               <p className="cb-bundle-warn" role="alert">
                 Duplicate active price found. Resolve in{' '}
@@ -324,8 +408,10 @@ export function CompositeItemsPricesPage({ variant = COMPOSITE_PRICES_STANDARD }
                     <th scope="col">Qty</th>
                     <th scope="col">Purchase price ecommerce</th>
                     <th scope="col">Total component purchase</th>
-                    <th scope="col">Manual shipping</th>
-                    <th scope="col" className="cb-sales-price-cell">Suggested sales price</th>
+                    <th scope="col">{sumsComponentSales ? 'Shipping' : 'Manual shipping'}</th>
+                    <th scope="col" className="cb-sales-price-cell">
+                      {sumsComponentSales ? 'Offer sales price' : 'Suggested sales price'}
+                    </th>
                     <th scope="col">{rates.vatPct}% VAT</th>
                     <th scope="col">{rates.commissionPct}% commission</th>
                     <th scope="col">{rates.advertisingPct}% advertising</th>
@@ -372,9 +458,13 @@ export function CompositeItemsPricesPage({ variant = COMPOSITE_PRICES_STANDARD }
                           : '—'}
                       </td>
                       <td className="cb-sales-price-cell">
-                        {row.matchedEconomics && !row.matchedEconomics.denominatorInvalid
-                          ? fmtMoney(row.matchedEconomics.salesPrice, 0)
-                          : '—'}
+                        {row.matchedEconomics && !row.matchedEconomics.denominatorInvalid ? (
+                          fmtMoney(row.matchedEconomics.salesPrice, sumsComponentSales ? 2 : 0)
+                        ) : row.missingOfferSalesPrice ? (
+                          <span className="cb-missing">No offer price</span>
+                        ) : (
+                          '—'
+                        )}
                       </td>
                       <td>
                         {row.matchedEconomics && !row.matchedEconomics.denominatorInvalid
@@ -426,13 +516,17 @@ export function CompositeItemsPricesPage({ variant = COMPOSITE_PRICES_STANDARD }
                         step={0.01}
                         value={bundleShipping}
                         onChange={(e) => setBundleShipping(e.target.value)}
-                        placeholder="0.00"
-                        aria-label="Bundle manual shipping"
+                        placeholder={sumsComponentSales ? fmtMoney(offerShippingFromList, 2) : '0.00'}
+                        aria-label={
+                          sumsComponentSales
+                            ? 'Bundle shipping override — blank uses the components’ shipping from the offer list'
+                            : 'Bundle manual shipping'
+                        }
                       />
                     </td>
                     <td className="cb-sales-price-cell">
                       {economics.ok ? (
-                        fmtMoney(economics.salesPrice, 0)
+                        fmtMoney(economics.salesPrice, sumsComponentSales ? 2 : 0)
                       ) : (
                         <span className="cb-missing">—</span>
                       )}
@@ -455,10 +549,19 @@ export function CompositeItemsPricesPage({ variant = COMPOSITE_PRICES_STANDARD }
               </p>
             ) : null}
 
-            <p className="cb-bundle-footnote">
-              Suggested price rounds <strong>up</strong> to the nearest whole AED, then bumps if needed so profit % is
-              at least <strong>{fmtMoney(rates.requiredProfitPct, 1)}%</strong> of sales.
-            </p>
+            {sumsComponentSales ? (
+              <p className="cb-bundle-footnote">
+                Bundle price is the sum of the components&rsquo; offer sales prices × qty, with VAT, commission and
+                advertising taken on that total. Profit % is therefore the blend of the component margins — a 30% and a
+                20% component of equal value give 25%. Shipping uses each component&rsquo;s figure from the offer list;
+                enter a bundle shipping figure above to replace it (e.g. one FBA parcel).
+              </p>
+            ) : (
+              <p className="cb-bundle-footnote">
+                Suggested price rounds <strong>up</strong> to the nearest whole AED, then bumps if needed so profit % is
+                at least <strong>{fmtMoney(rates.requiredProfitPct, 1)}%</strong> of sales.
+              </p>
+            )}
           </>
         ) : (
           <p className="composite-prices-placeholder">
