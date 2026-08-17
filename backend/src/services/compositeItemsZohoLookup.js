@@ -27,16 +27,27 @@ function looksLikeCatalogCode(s) {
   return /[A-Za-z]/.test(t)
 }
 
+/** Rack/bin codes like A-J-2 or B-1 are all single-character segments — never item codes. */
+function countTinySegments(s) {
+  const parts = trimStr(s).split(/[-_/\s]+/).filter(Boolean)
+  if (parts.length < 2) return 0
+  return parts.filter((part) => part.length <= 1).length
+}
+
 /** Prefer hyphenated letter+digit codes (e.g. LIFEP17S-24-BEIGE) over long marketing titles. */
 function scoreCatalogCandidate(s) {
   const t = trimStr(s)
   if (!looksLikeCatalogCode(t)) return -1
   let score = 0
   if (/^[A-Za-z]{2,}/.test(t)) score += 40
+  if (/^[A-Za-z]{3,}/.test(t)) score += 20
+  if (/\d/.test(t)) score += 10
   if (/-/.test(t)) score += 35
   if (/^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+$/i.test(t)) score += 30
   if (/\s{2,}/.test(t)) score -= 20
   if (/\s/.test(t)) score -= 12
+  // Without this, A-J-2 (hyphen bonuses) outranks a hyphen-less code like LIFEP12SHR32SILVER.
+  score -= 30 * countTinySegments(t)
   score -= Math.min(35, Math.max(0, t.length - 28))
   return score
 }
@@ -58,6 +69,17 @@ function pickDisplaySku(identifiers) {
 }
 
 /**
+ * Custom fields that describe an item (where it sits, which family it belongs to) rather than
+ * identify it. Matching a price row on a rack location or a family code prices the wrong item.
+ */
+const ATTRIBUTE_CUSTOM_FIELD_PATTERN =
+  /warehouse|location|shelf|rack|bin|aisle|family|category|brand|supplier|vendor|remark|note/i
+
+function isAttributeCustomField(name) {
+  return ATTRIBUTE_CUSTOM_FIELD_PATTERN.test(trimStr(name))
+}
+
+/**
  * Every string we might match against All Prices "Item no." (case-insensitive on client).
  */
 function collectRawIdentifiers(item, mappedSku, mappedName) {
@@ -74,13 +96,15 @@ function collectRawIdentifiers(item, mappedSku, mappedName) {
     push(item.item_name)
     if (Array.isArray(item.custom_fields)) {
       for (const cf of item.custom_fields) {
-        if (cf && cf.value != null) push(cf.value)
+        if (!cf || cf.value == null) continue
+        if (isAttributeCustomField(cf.label) || isAttributeCustomField(cf.api_name)) continue
+        push(cf.value)
       }
     }
     for (const k of Object.keys(item)) {
-      if (k.startsWith('cf_') && item[k] != null && typeof item[k] !== 'object') {
-        push(item[k])
-      }
+      if (!k.startsWith('cf_') || item[k] == null || typeof item[k] === 'object') continue
+      if (isAttributeCustomField(k)) continue
+      push(item[k])
     }
   }
   push(mappedSku)
@@ -283,4 +307,5 @@ module.exports = {
   lookupCompositeItemBySku,
   resolveComponentsFromMappedItems,
   collectRawIdentifiers,
+  pickDisplaySku,
 }
