@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { api } from '../../api/client'
 import { useAuth } from '../../contexts/AuthContext'
+import { useUserPreferences } from '../../contexts/UserPreferencesContext'
 import '../Page.css'
 import '../management/DocumentExpiryPage.css'
 import '../management/AllPricesPage.css'
@@ -70,6 +71,7 @@ function areCompositeCustomRatesValid(
 export function CompositeItemsPricesCustomPage() {
   const { user } = useAuth()
   const isAdmin = user?.role === 'admin'
+  const { prefsVersion } = useUserPreferences()
 
   const [priceTick, setPriceTick] = useState(0)
   const [skuInput, setSkuInput] = useState('')
@@ -138,10 +140,13 @@ export function CompositeItemsPricesCustomPage() {
     return () => window.removeEventListener('focus', onFocus)
   }, [])
 
+  // prefsVersion covers price-list edits made elsewhere in this session; the window listeners
+  // above only fire for other tabs.
   const ecommerceRows = useMemo(() => {
     void priceTick
+    void prefsVersion
     return loadRows() || []
-  }, [priceTick])
+  }, [prefsVersion, priceTick])
 
   const draftVatN = parseDraftPct(draftVat)
   const draftCommN = parseDraftPct(draftComm)

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { api } from '../../api/client'
+import { useUserPreferences } from '../../contexts/UserPreferencesContext'
 import '../Page.css'
 import '../management/DocumentExpiryPage.css'
 import '../management/AllPricesPage.css'
@@ -23,6 +24,7 @@ import { resolveCompositeComponentPricing } from './compositeComponentPricingRes
  */
 export function CompositeItemsPricesPage({ variant = COMPOSITE_PRICES_STANDARD }) {
   const variantCfg = getCompositePricesVariant(variant)
+  const { prefsVersion } = useUserPreferences()
   const [priceTick, setPriceTick] = useState(0)
   const [skuInput, setSkuInput] = useState('')
   const [fetching, setFetching] = useState(false)
@@ -49,13 +51,17 @@ export function CompositeItemsPricesPage({ variant = COMPOSITE_PRICES_STANDARD }
     return () => window.removeEventListener('focus', onFocus)
   }, [])
 
+  // prefsVersion covers price-list edits made elsewhere in this session; the window listeners
+  // above only fire for other tabs.
   const ecommerceRows = useMemo(() => {
     void priceTick
+    void prefsVersion
     return loadRowsForMarket(variantCfg.pricesMarket) || []
-  }, [priceTick, variantCfg.pricesMarket])
+  }, [prefsVersion, priceTick, variantCfg.pricesMarket])
 
   const rates = useMemo(() => {
     void priceTick
+    void prefsVersion
     const r = loadRatesForMarket(variantCfg.pricesMarket)
     return {
       vatPct: Number.isFinite(Number(r.vatPct)) ? Number(r.vatPct) : DEFAULT_RATES.vatPct,
@@ -65,7 +71,7 @@ export function CompositeItemsPricesPage({ variant = COMPOSITE_PRICES_STANDARD }
         ? Number(r.requiredProfitPct)
         : DEFAULT_RATES.requiredProfitPct,
     }
-  }, [priceTick, variantCfg.pricesMarket])
+  }, [prefsVersion, priceTick, variantCfg.pricesMarket])
 
   const purchaseMap = useMemo(() => buildPurchasePriceMap(ecommerceRows), [ecommerceRows])
 
