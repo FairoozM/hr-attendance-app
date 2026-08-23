@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "lifesmile-website-readonly": {
+      "command": "bash",
+      "args": [
+        "-lc",
+        "export NODE_EXTRA_CA_CERTS=\"$PWD/.cursor/aws-rds-ca.pem\"; set -a; source .cursor/mcp.env; set +a; DB_URL=$(node -e 'const e=encodeURIComponent; process.stdout.write(`postgresql://${e(process.env.DB_USER)}:${e(process.env.DB_PASSWORD)}@${process.env.DB_HOST}:${process.env.DB_PORT}/${e(process.env.DB_NAME)}?sslmode=require`)'); exec npx -y @modelcontextprotocol/server-postgres \"$DB_URL\""
+      ]
+    }
+  }
+}

@@ -16,3 +16,5 @@ backend/secrets/*
 !backend/secrets/README.md
 *service-account*.json
 *.pem
+
+.cursor/mcp.env
