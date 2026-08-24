@@ -766,25 +766,39 @@ What it does:
   `orders`, `login_credentials`, `tokens`, `carts` and `users`. It aborts before storing
   anything if any check fails.
 - Writes the credential to Secrets Manager as
-  `lifesmile-website/rds/amazon-catalog-reader`, piped over stdin so it never appears in a
-  process list.
+  `hr-bi/production/lifesmile-website-catalog-reader`, piped over stdin so it never appears
+  in a process list.
+
+Two attribute caveats, both discovered while running this for real:
+
+- PostgreSQL only lets a true superuser *name* the `SUPERUSER`, `REPLICATION` or `BYPASSRLS`
+  attributes, and an RDS master user is a member of `rds_superuser` rather than a superuser.
+  All three are off by default for a new role, so the script attempts the explicit
+  tightening, tolerates a refusal, and then verifies `pg_roles` and aborts if any of them is
+  actually set. The role is judged by its state, not by whether one `ALTER` succeeded.
+- The write checks run twice: once with the role's `default_transaction_read_only=on`
+  default, and once with it deliberately turned off. The second pass is the one that proves
+  least privilege, because it shows the writes fail on missing grants
+  (`permission denied for table products`) and not merely on a session switch the
+  application could have flipped.
 
 Then grant the backend read access to that one secret and nothing else. The backend runs
 under the EC2 role `c2-hr-attendance-s3` (instance `i-00f9451138c169214`):
 
 ```bash
 SECRET_ARN=$(AWS_PROFILE=abdullah-deploy aws secretsmanager describe-secret \
-  --region eu-central-1 --secret-id lifesmile-website/rds/amazon-catalog-reader \
+  --region eu-central-1 --secret-id hr-bi/production/lifesmile-website-catalog-reader \
   --query ARN --output text)
 
 AWS_PROFILE=abdullah-deploy aws iam put-role-policy \
   --role-name c2-hr-attendance-s3 \
-  --policy-name ReadAmazonCatalogReaderSecret \
-  --policy-document "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"secretsmanager:GetSecretValue\"],\"Resource\":\"${SECRET_ARN}\"}]}"
+  --policy-name hr-bi-lifesmile-catalog-reader-secret-read \
+  --policy-document "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"ReadLifesmileWebsiteCatalogReaderSecretOnly\",\"Effect\":\"Allow\",\"Action\":[\"secretsmanager:GetSecretValue\",\"secretsmanager:DescribeSecret\"],\"Resource\":[\"${SECRET_ARN}\"]}]}"
 ```
 
 Scoped to that single ARN, so it grants no access to the website master credential or to
-`hr-attendance/rds/master`.
+`hr-attendance/rds/master`. It is a separate inline policy from the pre-existing
+`hr-attendance-rds-secrets-read`, so either can be removed without touching the other.
 
 Finally set `LIFESMILE_WEBSITE_DATABASE_URL` in the backend's environment file on the
 instance from the secret's `LIFESMILE_WEBSITE_DATABASE_URL` field. The existing
@@ -797,14 +811,85 @@ host and uses the pinned `backend/src/db/certs/eu-central-1-bundle.pem` with
 nowhere in the codebase, and any `sslmode` in the URL is ignored rather than allowed to
 weaken this.
 
-## 21. Remaining blocker
+## 21. Runtime provisioning (complete, 2026-08-24)
 
-The `amazon_catalog_reader` role still does not exist on `lifesmiledbnew`, because no
-master credential for that instance is available to this workspace: the only channel is the
-`cursor_readonly` role (`NOSUPERUSER`, `NOCREATEROLE`), there is no AWS-managed master
-secret on the instance, and Secrets Manager holds entries only for
-`hr-attendance-production`. Section 20 is the runbook for whoever holds that password.
+The blocker in earlier revisions of this document — no master credential for
+`lifesmiledbnew` in this workspace — was resolved without any password leaving its host. The
+website backend EC2 instance already holds the admin database variables in
+`/home/ubuntu/LifesmileBackend/.env.production`, so the provisioning ran *there*, over SSM,
+using those variables in place. The password was generated on that instance and went
+straight into Secrets Manager from the same process.
 
-Until it is run, the code fails closed: without `LIFESMILE_WEBSITE_DATABASE_URL` the API
-answers `503 CATALOG_DB_NOT_CONFIGURED` and the admin page shows "Catalog unavailable".
-Nothing else in the application is affected.
+### 21.1 What exists now
+
+| | |
+|---|---|
+| Role | `amazon_catalog_reader` on `lifesmiledbnew` |
+| Attributes | `LOGIN`, `NOSUPERUSER`, `NOCREATEDB`, `NOCREATEROLE`, `NOREPLICATION`, `NOBYPASSRLS`, `CONNECTION LIMIT 5` |
+| Role settings | `default_transaction_read_only=on`, `statement_timeout=30s`, `idle_in_transaction_session_timeout=60s`, `lock_timeout=5s` |
+| Grants | `CONNECT` on `lifesmiledbnew`; `USAGE` on `public`; `SELECT` on `products`, `product_variants`, `product_specifications`, `product_categories`, `sub_categories` — nothing else |
+| Secret | `hr-bi/production/lifesmile-website-catalog-reader` (resolve the ARN with `describe-secret`) |
+| Secret readers | EC2 role `c2-hr-attendance-s3` only, via inline policy `hr-bi-lifesmile-catalog-reader-secret-read` |
+| Backend config | `LIFESMILE_WEBSITE_DATABASE_URL` in `/home/ubuntu/hr-attendance-app/backend/.env` (mode 600) |
+
+The website EC2 role `EC2-S3-App-Role` was granted a temporary, ARN-scoped
+`CreateSecret`/`PutSecretValue`/`DescribeSecret` policy for the duration of provisioning and
+nothing else. It was removed afterwards; that role is back to having no inline policies.
+
+### 21.2 Safety gates that ran before any SQL
+
+The provisioning script read `DB_HOST` and `DB_NAME` from `.env.production` and compared them
+in place, reporting only `host_match=YES db_match=YES`. No value from that file was printed,
+copied off the instance or logged, and the website master password was never transferred
+anywhere. The script aborts before connecting if either comparison fails.
+
+The website EC2 instance has no AWS CLI installed. Rather than install one on a live
+application server, the credential was stored using the `aws-sdk` already present in the
+website application's `node_modules`, reached through the instance role.
+
+### 21.3 Verified privileges
+
+Re-connecting as `amazon_catalog_reader`, seventeen checks passed: the approved five-table
+catalog join and the variant join succeed; `INSERT`, `UPDATE` and `DELETE` are refused by the
+read-only session default; the same three plus `TRUNCATE`, `CREATE TABLE`, `CREATE ROLE` and
+`CREATE DATABASE` are still refused with `permission denied` once the session default is
+deliberately turned off; and `SELECT` is refused on `customers`, `orders`,
+`login_credentials` and `tokens`.
+
+### 21.4 Production-equivalent pipeline run
+
+The whole pipeline was then run on the HR backend instance itself, against the live catalog,
+as `amazon_catalog_reader` — in a throwaway `/tmp` directory that borrowed the deployed
+`node_modules`, leaving the deployed application tree untouched and restarting nothing. The
+template came from the committed test fixture so no workbook needed shipping; the connection,
+the role, the catalog data and the pipeline code were all the real ones.
+
+Thirty-four checks passed. Ten SKU rows produced nine matches (one of them through the
+case-insensitive fallback) and one honest "not in the catalog"; 134 cells were written,
+including 27 bullet-point cells filling the numbered run from its first column with no gaps,
+with 88 surplus features reported rather than dropped. Nothing was written to the product
+type, image, price, quantity, material or variation-theme columns. Only
+`xl/worksheets/sheet1.xml` changed; the other seven package parts, including the macro
+binary, were unchanged, and the validations, conditional formatting, frozen pane and Amazon's
+example row all survived. The report workbook built with eleven sheets. Every write attempt
+was rejected, and `SELECT` on `customers` was refused by PostgreSQL with `42501`.
+
+TLS resolved to `verified-rds` with three pinned CAs and `rejectUnauthorized: true`, and the
+connection URL carried no TLS-weakening parameters.
+
+### 21.5 Untouched
+
+`hr-attendance-production` was not touched: the existing `DATABASE_URL` line in the backend
+environment file is byte-identical (verified by fingerprint before and after), and exactly one
+key was added. Neither RDS instance has any pending configuration change. No website data was
+read beyond the catalog tables and none was modified.
+
+### 21.6 Relationship to the application deploy
+
+Provisioning is independent of deployment, and deliberately so. The credential is configured
+on the instance and survives deploys because the deploy tarball excludes `.env`, but the
+admin page and the `/api/amazon-initial-draft/*` routes only exist once the application
+itself is deployed. A backend running older code simply ignores
+`LIFESMILE_WEBSITE_DATABASE_URL`; a backend running this code without it answers
+`503 CATALOG_DB_NOT_CONFIGURED` and the admin page shows "Catalog unavailable". Neither
+half can break the other.
