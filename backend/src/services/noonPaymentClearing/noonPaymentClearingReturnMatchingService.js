@@ -165,7 +165,13 @@ function buildMatchedReturnFromCreditNote(base, invoice, creditNote, productRefu
         zohoInvoiceTotal: invoice.zohoInvoiceTotal,
         matchType: 'order_number',
       }
-    : {}
+    : clean(creditNote.invoiceIds?.[0])
+      ? {
+          zohoInvoiceId: clean(creditNote.invoiceIds[0]),
+          zohoInvoiceNumber: '',
+          matchType: 'credit_note_link',
+        }
+      : {}
 
   const out = {
     ...base,

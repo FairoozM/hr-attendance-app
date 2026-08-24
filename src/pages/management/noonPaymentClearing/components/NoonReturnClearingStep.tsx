@@ -181,8 +181,15 @@ export function NoonReturnClearingStep({
                     <code className="npc-ref">{String(row.itemOrderId || '—')}</code>
                   </td>
                   <td>{String(row.zohoCreditNoteNumber || row.creditNoteNumber || '—')}</td>
-                  <td className="npc-money">{money(Number(row.amount ?? row.creditNoteAmount))}</td>
-                  <td>{String(row.action || row.creditNoteAction || '—')}</td>
+                  <td className="npc-money">{money(Number(row.refundAmount ?? row.amount ?? row.creditNoteAmount))}</td>
+                  <td>
+                    {String(row.action || row.creditNoteAction || '—')}
+                    {row.action === 'blocked' && row.blockingReason ? (
+                      <div className="npc-muted" style={{ fontSize: '0.85em', marginTop: 2 }}>
+                        {String(row.blockingReason)}
+                      </div>
+                    ) : null}
+                  </td>
                 </tr>
               ))}
             </tbody>

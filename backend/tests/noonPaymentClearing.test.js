@@ -2694,6 +2694,55 @@ describe('Noon cross-week product returns (PS-11752-AE20260729 row 16)', () => {
     assert.equal(plan.planRows[0].refundAmount, 84)
   })
 
+  it('buildCreditNoteApplyPlan refunds CN matched by item order id without stored productRefundAmount', async () => {
+    const [row] = reclassifyReturnRows([returnRow])
+    const batch = {
+      batchId: 99,
+      allRows: [row],
+      matchedReturns: [
+        {
+          itemOrderId: 'NAEI70013425039-4',
+          status: 'matched',
+          creditNoteAction: 'matched_existing',
+          zohoCreditNoteId: 'cn-ret',
+          zohoCreditNoteNumber: 'NAEI70013425039-4',
+          creditNoteAmount: 84,
+        },
+      ],
+      reportSnapshot: { referenceNr: 'PS-11752-AE20260729' },
+      zohoCustomerId: 'cust-noon',
+    }
+    const plan = await buildCreditNoteApplyPlan(batch, {
+      listRefunds: async () => [],
+    })
+    assert.equal(plan.planRows[0].action, 'refund_existing')
+    assert.equal(plan.planRows[0].refundAmount, 84)
+    assert.equal(plan.planRows[0].blockingReason, '')
+  })
+
+  it('buildCreditNoteApplyPlan does not require zohoInvoiceId when credit note id is present', async () => {
+    const batch = {
+      batchId: 1,
+      matchedReturns: [
+        {
+          itemOrderId: 'NAEI50038787447-2',
+          status: 'matched',
+          creditNoteAction: 'matched_existing',
+          zohoCreditNoteId: 'cn-683',
+          zohoCreditNoteNumber: 'NAEI50038787447-2',
+          creditNoteAmount: 683,
+          productRefundAmount: 683,
+        },
+      ],
+      reportSnapshot: { referenceNr: 'PS-11752-AE20260527' },
+    }
+    const plan = await buildCreditNoteApplyPlan(batch, {
+      listRefunds: async () => [],
+    })
+    assert.equal(plan.planRows[0].action, 'refund_existing')
+    assert.equal(plan.planRows[0].refundAmount, 683)
+  })
+
   it('payment preview reconciles return principal and commission reversal on 1066', () => {
     const [row] = reclassifyReturnRows([returnRow])
     const batch = {

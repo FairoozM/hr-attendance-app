@@ -3,7 +3,12 @@ const { buildSettlementReference, buildEntryReference } = require('./noonPayment
 const { round2, num, clean } = require('./noonPaymentClearingCategoryService')
 const { positiveAmount } = require('./noonPaymentClearingRowPredicates')
 const { getNoonPaymentClearingMarketplaceConfig } = require('./noonPaymentClearingMarketplaceConfig')
-const { buildReturnDescription, TOLERANCE } = require('./noonPaymentClearingReturnService')
+const {
+  buildReturnDescription,
+  buildNoonReturnFeeBreakdown,
+  collectReturnRows,
+  TOLERANCE,
+} = require('./noonPaymentClearingReturnService')
 const store = require('./noonPaymentClearingStore')
 const zohoPaymentService = require('../amazonPaymentClearingZohoPaymentService')
 
@@ -21,16 +26,61 @@ async function creditNoteRefundTotal(creditNoteId, referenceNumber = '', listRef
   return total
 }
 
+function resolveProductRefundAmount(row, batch) {
+  const fromProduct = positiveAmount(row.productRefundAmount)
+  if (fromProduct >= TOLERANCE) return fromProduct
+  const fromCn = positiveAmount(row.creditNoteAmount)
+  if (fromCn >= TOLERANCE) return fromCn
+  const itemKey = clean(row.itemOrderId)
+  if (!itemKey) return 0
+  const returnRow = collectReturnRows(batch?.allRows || []).find(
+    (candidate) => clean(candidate.itemOrderId) === itemKey
+  )
+  if (returnRow) {
+    return buildNoonReturnFeeBreakdown(returnRow).productRefundAmount
+  }
+  const refundRow = (batch?.refundReturnRows || []).find(
+    (candidate) => clean(candidate.itemOrderId) === itemKey
+  )
+  return positiveAmount(refundRow?.productRefundAmount)
+}
+
 function collectReturnRowsForApply(batch) {
-  return (batch?.matchedReturns || []).filter((row) => clean(row.itemOrderId))
+  const byItem = new Map()
+  for (const row of batch?.refundReturnRows || []) {
+    const key = clean(row.itemOrderId)
+    if (!key) continue
+    byItem.set(key, { ...byItem.get(key), ...row, itemOrderId: key })
+  }
+  for (const row of batch?.matchedReturns || []) {
+    const key = clean(row.itemOrderId)
+    if (!key) continue
+    const existing = byItem.get(key) || {}
+    byItem.set(key, {
+      ...existing,
+      ...row,
+      itemOrderId: key,
+      productRefundAmount:
+        positiveAmount(row.productRefundAmount) >= TOLERANCE
+          ? row.productRefundAmount
+          : existing.productRefundAmount,
+      creditNoteAmount:
+        positiveAmount(row.creditNoteAmount) >= TOLERANCE
+          ? row.creditNoteAmount
+          : existing.creditNoteAmount,
+      zohoInvoiceId: clean(row.zohoInvoiceId) || clean(existing.zohoInvoiceId),
+      zohoCreditNoteId: clean(row.zohoCreditNoteId) || clean(existing.zohoCreditNoteId),
+    })
+  }
+  return [...byItem.values()]
 }
 
 async function resolvePlanRowAction(row, batch, opts = {}) {
   const cfg = getNoonPaymentClearingMarketplaceConfig()
   const undeposited = cfg.undepositedFundsAccount
-  const invoiceId = clean(row.zohoInvoiceId)
   const creditNoteId = clean(row.zohoCreditNoteId)
-  const refundAmount = positiveAmount(row.productRefundAmount)
+  const invoiceId = clean(row.zohoInvoiceId)
+  const refundAmount = resolveProductRefundAmount(row, batch)
   const metadata = batch?.reportSnapshot || batch?.metadata || {}
   const itemOrderId = clean(row.itemOrderId)
   const settlementReference = buildSettlementReference(metadata)
@@ -69,16 +119,6 @@ async function resolvePlanRowAction(row, batch, opts = {}) {
     }
   }
 
-  if (!invoiceId) {
-    return {
-      ...baseFields,
-      action: 'blocked',
-      status: 'blocked',
-      blockingReason: 'No Zoho invoice found for this return.',
-      refundAmount,
-    }
-  }
-
   if (!creditNoteId) {
     return {
       ...baseFields,
@@ -87,6 +127,11 @@ async function resolvePlanRowAction(row, batch, opts = {}) {
       blockingReason: 'No Zoho Credit Note found for this return.',
       refundAmount,
     }
+  }
+
+  if (!invoiceId) {
+    // Zoho CN refund API needs only creditnote_id; invoice link is audit metadata.
+    baseFields.zohoInvoiceId = ''
   }
 
   if (refundAmount <= TOLERANCE) {
