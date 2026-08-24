@@ -110,6 +110,7 @@ import { AmazonSpApiTestPage } from './pages/AmazonSpApiTestPage'
 import { AmazonOrdersPage } from './pages/AmazonOrdersPage'
 import { AmazonOrdersDashboardPage } from './pages/AmazonOrdersDashboardPage'
 import { AmazonSyncHealthPage } from './pages/AmazonSyncHealthPage'
+import AmazonInitialDraftPage from './pages/AmazonInitialDraftPage'
 import { AmazonZohoStockPage } from './pages/AmazonZohoStockPage'
 import { SkuChannelCoveragePage } from './pages/SkuChannelCoveragePage'
 import { AmazonOutOfStockClearancePage } from './pages/AmazonOutOfStockClearancePage'
@@ -553,6 +554,14 @@ function AppContent() {
           element={
             <AdminOnly>
               <AmazonSyncHealthPage />
+            </AdminOnly>
+          }
+        />
+        <Route
+          path="ai/amazon-initial-draft"
+          element={
+            <AdminOnly>
+              <AmazonInitialDraftPage />
             </AdminOnly>
           }
         />

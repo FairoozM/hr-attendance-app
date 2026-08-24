@@ -272,20 +272,25 @@ export async function fetchBinary(path) {
   return { blob, filename, contentType: res.headers.get('content-type') }
 }
 
-/** POST JSON and receive a binary response (CSV, ZIP, XLSX, etc.) with auth. */
+/**
+ * POST and receive a binary response (CSV, ZIP, XLSX, etc.) with auth.
+ * Accepts a JSON-serialisable body, or a FormData for file uploads — in which case the
+ * browser sets the multipart Content-Type with its own boundary.
+ */
 export async function postBinary(path, body = null, opts = {}) {
   const p = normalizeApiPath(path)
   const url = p.startsWith('http') ? p : resolveApiUrl(p)
   const timeoutMs = timeoutMsForPath(p, opts.timeoutMs)
+  const isFormData = typeof FormData !== 'undefined' && body instanceof FormData
   const res = await fetchWithTimeout(url, {
     ...defaultFetchOpts,
     method: 'POST',
     headers: {
       Accept: '*/*',
-      'Content-Type': 'application/json',
+      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
       ...getAuthHeaders(),
     },
-    body: body == null ? undefined : JSON.stringify(body),
+    body: body == null ? undefined : isFormData ? body : JSON.stringify(body),
     cache: 'no-store',
   }, timeoutMs)
   if (!res.ok) {

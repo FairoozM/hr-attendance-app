@@ -74,6 +74,12 @@ const AMAZON_NAV_ITEMS = [
     label: 'Amazon KSA RTO Labeling',
     searchHint: 'amazon ksa rto fnsku label upload pdf sheet agent warehouse lifesmile',
   },
+  {
+    to: '/ai/amazon-initial-draft',
+    label: 'Initial Draft Generator',
+    adminOnly: true,
+    searchHint: 'amazon uae initial draft flat file template xlsm seller sku catalog preview report',
+  },
   { to: '/ai/amazon-listing', label: 'Amazon Listing' },
   { to: '/ai/amazon-bulk-listing', label: 'Amazon Bulk Generator' },
   { to: '/ai/listing-batches', label: 'Listing Batches' },
@@ -466,6 +472,7 @@ export function Layout() {
     if (location.pathname.startsWith('/admin/item-report-groups')) return 'Item Report Groups'
     if (location.pathname.startsWith('/ai/noon-integration')) return 'Noon API Integration'
     if (location.pathname.startsWith('/ai/usage')) return 'AI Usage'
+    if (location.pathname.startsWith('/ai/amazon-initial-draft')) return 'Initial Draft Generator'
     if (location.pathname.startsWith('/ai/amazon-sync-health')) return 'Amazon Sync Health'
     if (location.pathname.startsWith('/ai/amazon-dashboard')) return 'Amazon BI Dashboard'
     if (location.pathname.startsWith('/ai/amazon-orders')) return 'Amazon Orders'
