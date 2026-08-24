@@ -18,6 +18,7 @@
 
 const path = require('path')
 const { Client } = require('pg')
+const { buildPoolConfig } = require('../src/db/dbConnectionConfig')
 
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') })
 
@@ -45,8 +46,8 @@ async function main() {
     process.exit(1)
   }
 
-  const src = new Client({ connectionString: sourceUrl })
-  const dst = new Client({ connectionString: targetUrl })
+  const src = new Client(buildPoolConfig(sourceUrl).poolConfig)
+  const dst = new Client(buildPoolConfig(targetUrl).poolConfig)
   await src.connect()
   await dst.connect()
 

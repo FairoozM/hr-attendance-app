@@ -1,15 +1,29 @@
 const { Pool } = require('pg')
 const bcrypt = require('bcrypt')
+const {
+  buildPoolConfig,
+  DEFAULT_CONNECTION_STRING,
+  sanitizeDbError,
+} = require('./dbConnectionConfig')
 
-const connectionString =
-  process.env.DATABASE_URL || 'postgres://localhost:5432/hr_attendance'
+const { poolConfig, describe: connectionDescription } = buildPoolConfig(
+  process.env.DATABASE_URL || DEFAULT_CONNECTION_STRING
+)
 
-const pool = new Pool({
-  connectionString,
-  ssl: connectionString.includes('localhost')
-    ? false
-    : { rejectUnauthorized: false },
-})
+const pool = new Pool(poolConfig)
+
+if (connectionDescription.ignoredSslUrlParams.length > 0) {
+  console.warn(
+    '[db] Ignoring SSL parameter(s) in DATABASE_URL (%s); TLS is configured in code so the URL cannot weaken it',
+    connectionDescription.ignoredSslUrlParams.join(', ')
+  )
+}
+if (connectionDescription.unsupportedUrlParams.length > 0) {
+  console.warn(
+    '[db] Ignoring unsupported DATABASE_URL parameter(s): %s',
+    connectionDescription.unsupportedUrlParams.join(', ')
+  )
+}
 
 function query(text, params) {
   return pool.query(text, params)
@@ -1051,9 +1065,31 @@ async function grantAliHassanInfluencerPerformancePermissionOnce() {
 }
 
 async function testConnection() {
-  const result = await query('SELECT NOW()')
+  let result
+  try {
+    result = await query('SELECT NOW()')
+  } catch (e) {
+    const safe = sanitizeDbError(e)
+    console.error(
+      '[db] Connection to %s:%s/%s failed (tls=%s): %s',
+      connectionDescription.host,
+      connectionDescription.port,
+      connectionDescription.database,
+      connectionDescription.tls,
+      safe.message
+    )
+    throw new Error(`Database connection failed: ${safe.message}`)
+  }
   const now = result.rows[0]?.now
-  console.log('Database connected successfully. Server time:', now)
+  console.log(
+    '[db] Connected to %s:%s/%s (tls=%s, caCertificates=%d). Server time: %s',
+    connectionDescription.host,
+    connectionDescription.port,
+    connectionDescription.database,
+    connectionDescription.tls,
+    connectionDescription.caCertificates,
+    now
+  )
   await ensureEmployeesTable()
   await ensureEmployeeExtendedColumns()
   await ensureEmployeesAlternateEmployeeColumn()
@@ -1830,6 +1866,8 @@ async function ensureTeamPlannerTables() {
 module.exports = {
   query,
   pool,
+  connectionDescription,
+  sanitizeDbError,
   testConnection,
   ensureShopVisitSchemaOnly,
   ensureEmployeesTable,

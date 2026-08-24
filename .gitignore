@@ -16,5 +16,9 @@ backend/secrets/*
 !backend/secrets/README.md
 *service-account*.json
 *.pem
+# Exception: Amazon's public RDS eu-central-1 root CA bundle (certificates only, no key
+# material). Required at runtime to verify TLS to hr-attendance-production.
+!backend/src/db/certs/eu-central-1-bundle.pem
 
 .cursor/mcp.env
+.migration-local/

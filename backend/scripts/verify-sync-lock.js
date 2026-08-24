@@ -10,19 +10,21 @@
  */
 const assert = require('node:assert/strict')
 const { Pool } = require('pg')
+const { buildPoolConfig } = require('../src/db/dbConnectionConfig')
 
 const connectionString = process.env.DATABASE_URL
 if (!connectionString) {
   console.error('DATABASE_URL is required (use a scratch database — this script writes and drops rows).')
   process.exit(1)
 }
+const { poolConfig } = buildPoolConfig(connectionString)
 
 const NAMESPACE = 4242
 const LOCK_ID = 2
 const SYNC_NAME = 'subscription'
 
 function makeWorker(tag) {
-  const pool = new Pool({ connectionString, ssl: false })
+  const pool = new Pool(poolConfig)
 
   async function withLock(run) {
     const client = await pool.connect()
@@ -133,7 +135,7 @@ async function main() {
     results.push('lock released even when the sync throws')
 
     // 8. A crashed process must not wedge the fleet: session-level locks die with the backend.
-    const orphan = new Pool({ connectionString, ssl: false })
+    const orphan = new Pool(poolConfig)
     const orphanClient = await orphan.connect()
     const grabbed = await orphanClient.query(
       'SELECT pg_try_advisory_lock($1, $2) AS locked, pg_backend_pid() AS pid',
