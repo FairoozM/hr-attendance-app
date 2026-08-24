@@ -174,6 +174,18 @@ function buildReturnDescription(row, metadata = {}, kind = 'return') {
   return `Noon return | ${item} | ${ref} | Gross ${gross}`
 }
 
+/**
+ * Residual 1066 effect for a matched return after CN principal and commission reversal.
+ * Noon row Total is authoritative; this captures fulfillment/shipping and any other fee
+ * components not covered by commissionReversalGross alone.
+ */
+function returnFulfillment1066Impact(row, breakdown, matched) {
+  if (!matched || matched.status !== 'matched') return 0
+  return round2(
+    num(row.total) + num(breakdown.productRefundAmount) - num(breakdown.commissionReversalGross)
+  )
+}
+
 module.exports = {
   RETURN_BLOCK_CODES,
   TOLERANCE,
@@ -189,4 +201,5 @@ module.exports = {
   collectReturnRows,
   buildNoonReturnFeeBreakdown,
   buildReturnDescription,
+  returnFulfillment1066Impact,
 }

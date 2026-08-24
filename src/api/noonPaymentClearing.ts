@@ -479,6 +479,7 @@ export interface NoonPaymentPreview {
     settlementAdjustment1066?: number
     returnPrincipal1066?: number
     returnFeeReversal1066?: number
+    returnFulfillment1066?: number
     returnBlocked?: boolean
     returnRowCount?: number
     settlementAdjustmentLineCount?: number

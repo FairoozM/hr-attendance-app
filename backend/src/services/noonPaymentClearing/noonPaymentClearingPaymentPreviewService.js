@@ -41,6 +41,7 @@ const {
   collectReturnRows,
   buildNoonReturnFeeBreakdown,
   reclassifyReturnRows,
+  returnFulfillment1066Impact,
 } = require('./noonPaymentClearingReturnService')
 const { summarizeReturnFeeReversals } = require('./noonPaymentClearingReturnFeeService')
 
@@ -807,12 +808,27 @@ function buildPaymentPreviewFromBatch(batch, mappingRules = [], inputVatAccount 
   const returnFeeReversal1066 = round2(
     returnFeeReversals.reduce((sum, row) => sum + num(row.commissionReversalGross), 0)
   )
+  const matchedReturnByItem = new Map(
+    matchedReturns.map((row) => [clean(row.itemOrderId), row])
+  )
+  const returnFulfillment1066 = round2(
+    returnRows.reduce((sum, row) => {
+      const matched = matchedReturnByItem.get(clean(row.itemOrderId))
+      if (!matched || matched.status !== 'matched') return sum
+      const breakdown = buildNoonReturnFeeBreakdown(row)
+      return sum + returnFulfillment1066Impact(row, breakdown, matched)
+    }, 0)
+  )
   const returnBlocked =
     (batch.creditNoteBlockingRows || []).some((row) => row.blockCode) ||
     matchedReturns.some((row) => row.status === 'blocked')
   const settlementAdjustmentBlocked = Boolean(settlementAdjustmentJournal?.blocked)
   const plannedUndeposited1066 = round2(
-    recordPayment1066 + settlementAdjustment1066 + returnPrincipal1066 + returnFeeReversal1066
+    recordPayment1066 +
+      settlementAdjustment1066 +
+      returnPrincipal1066 +
+      returnFeeReversal1066 +
+      returnFulfillment1066
   )
   const undepositedPlanningDifference = round2(targetUndeposited1066 - plannedUndeposited1066)
   const undepositedPlanningBlocked =
@@ -836,6 +852,7 @@ function buildPaymentPreviewFromBatch(batch, mappingRules = [], inputVatAccount 
         settlementAdjustment1066,
         returnPrincipal1066,
         returnFeeReversal1066,
+        returnFulfillment1066,
         plannedUndeposited1066,
         undepositedPlanningDifference,
       },
@@ -879,6 +896,7 @@ function buildPaymentPreviewFromBatch(batch, mappingRules = [], inputVatAccount 
       settlementAdjustment1066,
       returnPrincipal1066,
       returnFeeReversal1066,
+      returnFulfillment1066,
       returnBlocked,
       settlementAdjustmentBlocked,
       settlementAdjustmentJournalBalanced: settlementAdjustmentJournal?.journalAudit?.balanced ?? true,

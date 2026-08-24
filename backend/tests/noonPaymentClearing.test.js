@@ -2977,6 +2977,70 @@ describe('Noon cross-week product returns (PS-11752-AE20260729 row 16)', () => {
   })
 })
 
+describe('Noon return fulfillment 1066 undeposited recon (PS-11752-AE20260527)', () => {
+  it('plans fulfillment/shipping residual on 1066 so return rows reconcile to net settlement', () => {
+    const rows = [
+      {
+        rowNumber: 51,
+        parentOrderId: 'NAEI50038787447',
+        itemOrderId: 'NAEI50038787447-2',
+        transactionType: 'order_update',
+        rowClass: ROW_CLASS.ORDER_ADJUSTMENT,
+        netProceed: -683,
+        referralFee: 107.57,
+        fulfillmentFee: -15.75,
+        shippingCharges: 0,
+        total: -591.18,
+      },
+      {
+        rowNumber: 66,
+        parentOrderId: 'NAEI50061425179',
+        itemOrderId: 'NAEI50061425179-1',
+        transactionType: 'order_update',
+        rowClass: ROW_CLASS.ORDER_ADJUSTMENT,
+        netProceed: -168,
+        referralFee: 26.46,
+        fulfillmentFee: -5.29,
+        shippingCharges: 0,
+        total: -146.83,
+      },
+      {
+        rowNumber: 77,
+        parentOrderId: 'NAEI50082661829',
+        itemOrderId: 'NAEI50082661829-1',
+        transactionType: 'order_update',
+        rowClass: ROW_CLASS.ORDER_ADJUSTMENT,
+        netProceed: -191,
+        referralFee: 30.08,
+        fulfillmentFee: -15.75,
+        shippingCharges: 0,
+        total: -176.67,
+      },
+    ]
+    const batch = {
+      batchId: 1,
+      status: 'approved',
+      allRows: rows,
+      matchedOrders: [],
+      unmatchedOrders: [],
+      multipleMatchItems: [],
+      reconciliationSummary: { expectedSettlement: -914.68, reconciliationStatus: 'matched' },
+      reportSnapshot: { referenceNr: 'PS-11752-AE20260527' },
+      matchedReturns: rows.map((row) => ({ itemOrderId: row.itemOrderId, status: 'matched' })),
+      creditNoteBlockingRows: [],
+    }
+    const preview = buildPaymentPreviewFromBatch(batch, [], NOON_INPUT_VAT)
+    assert.equal(preview.summary.returnFulfillment1066, -36.79)
+    assert.equal(preview.summary.undepositedPlanningDifference, 0)
+    assert.equal(preview.undepositedReconciliation.difference, 0)
+    assert.equal(preview.undepositedReconciliation.nonZeroDeltas.length, 0)
+    const row51 = preview.undepositedReconciliation.candidateRows.find((row) => row.rowNumber === 51)
+    assert.equal(row51.planned1066Contribution, -591.18)
+    assert.equal(row51.returnFulfillment1066, -15.75)
+    assert.equal(row51.delta, 0)
+  })
+})
+
 describe('Noon return matching refresh and approval gates', () => {
   const { validateBatchReadyForApproval, refreshReturnMatchingForBatch } = require('../src/services/noonPaymentClearing/noonPaymentClearingService')
   const { RETURN_BLOCK_CODES } = require('../src/services/noonPaymentClearing/noonPaymentClearingReturnService')

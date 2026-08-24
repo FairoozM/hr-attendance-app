@@ -9,7 +9,11 @@ const {
   isZeroSaleCrossWeekLogisticsSettlementRow,
   collectSettlementAdjustmentSourceRows,
 } = require('./noonPaymentClearingSettlementAdjustmentService')
-const { buildNoonReturnFeeBreakdown, reclassifyReturnRows } = require('./noonPaymentClearingReturnService')
+const {
+  buildNoonReturnFeeBreakdown,
+  reclassifyReturnRows,
+  returnFulfillment1066Impact,
+} = require('./noonPaymentClearingReturnService')
 
 function signedParentRowFulfillment(row) {
   if (Math.abs(num(row.total)) >= 0.01) {
@@ -78,7 +82,9 @@ function classifyRowAccounting(row, ctx) {
     const blocked = matched?.status === 'blocked' || Boolean(matched?.blockCode)
     const cnRefund1066 = matched?.status === 'matched' ? round2(-breakdown.productRefundAmount) : 0
     const commissionRev1066 = breakdown.commissionReversalGross
-    const planned1066 = round2(cnRefund1066 + commissionRev1066)
+    const fulfillment1066 = returnFulfillment1066Impact(row, breakdown, matched)
+    const planned1066 = round2(cnRefund1066 + commissionRev1066 + fulfillment1066)
+    const hasFulfillment1066 = Math.abs(fulfillment1066) >= 0.01
     return {
       classification: blocked ? 'return_blocked' : 'return_settlement',
       recordPayment1066: 0,
@@ -86,10 +92,13 @@ function classifyRowAccounting(row, ctx) {
       settlementAdjustment1066: 0,
       returnCreditNote1066: cnRefund1066,
       returnCommissionReversal1066: commissionRev1066,
+      returnFulfillment1066: fulfillment1066,
       expected1066,
       reason: blocked
         ? matched?.blockCode || 'RETURN_BLOCKED'
-        : 'Product refund via CN + commission reversal journal',
+        : hasFulfillment1066
+          ? 'Product refund via CN + commission / fulfillment return journals'
+          : 'Product refund via CN + commission reversal journal',
       planned1066Contribution: planned1066,
     }
   }
@@ -247,11 +256,13 @@ function buildUndepositedReconciliation(batch, preview, planExclusions = null) {
   const settlementAdjustment1066Impact = round2(num(preview?.summary?.settlementAdjustment1066))
   const returnPrincipal1066 = round2(num(preview?.summary?.returnPrincipal1066))
   const returnFeeReversal1066 = round2(num(preview?.summary?.returnFeeReversal1066))
+  const returnFulfillment1066 = round2(num(preview?.summary?.returnFulfillment1066))
   const plannedBeforeAdvertising = round2(
     recordPayment1066 +
       settlementAdjustment1066Impact +
       returnPrincipal1066 +
-      returnFeeReversal1066
+      returnFeeReversal1066 +
+      returnFulfillment1066
   )
   const difference = round2(targetBeforeAdvertising - plannedBeforeAdvertising)
 
@@ -304,6 +315,7 @@ function buildUndepositedReconciliation(batch, preview, planExclusions = null) {
         settlementAdjustment1066: round2(cls.settlementAdjustment1066),
         returnCreditNote1066: round2(cls.returnCreditNote1066 || 0),
         returnCommissionReversal1066: round2(cls.returnCommissionReversal1066 || 0),
+        returnFulfillment1066: round2(cls.returnFulfillment1066 || 0),
         delta,
         reason: cls.reason,
       }
@@ -329,6 +341,7 @@ function buildUndepositedReconciliation(batch, preview, planExclusions = null) {
       settlementAdjustment1066Impact,
       returnPrincipal1066,
       returnFeeReversal1066,
+      returnFulfillment1066,
     },
     candidateRows,
     nonZeroDeltas: filterActionableNonZeroDeltas(candidateRows),
