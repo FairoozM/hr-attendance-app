@@ -201,7 +201,7 @@ Five CloudWatch alarms, all scoped to `DBInstanceIdentifier=hr-attendance-produc
 | Alarm | Condition |
 | --- | --- |
 | `hr-attendance-production-cpu-high` | `CPUUtilization` > 80% for 3×5 min |
-| `hr-attendance-production-memory-low` | `FreeableMemory` < 200 MB for 2×5 min |
+| `hr-attendance-production-memory-low` | `FreeableMemory` < 50 MB for 3×5 min |
 | `hr-attendance-production-connections-high` | `DatabaseConnections` > 60 for 2×5 min |
 | `hr-attendance-production-storage-low` | `FreeStorageSpace` < 4 GB for 1×5 min |
 | `hr-attendance-production-cpucredit-low` | `CPUCreditBalance` < 30 for 2×5 min |
@@ -209,6 +209,39 @@ Five CloudWatch alarms, all scoped to `DBInstanceIdentifier=hr-attendance-produc
 The first 10 CloudWatch alarms are free, so these cost nothing. Performance Insights uses
 the free 7-day retention; Enhanced Monitoring is off (`MonitoringInterval=0`); no paid
 dashboards were created.
+
+### Why the memory threshold is 50 MB, not 200 MB
+
+`FreeableMemory` on this instance settles at 77–86 MB and stays flat: a 1 GB instance runs
+PostgreSQL with `shared_buffers` at 25% of RAM and lets the OS use the rest as page cache,
+so RDS reports little "freeable" memory even when idle with zero connections. A 200 MB
+threshold would sit permanently in `ALARM` and mask a genuine incident, so the paging
+threshold is 50 MB — below the observed steady state, meaning it can only fire on real
+pressure.
+
+The ~200 MB figure from the operating brief is retained as the **upgrade-review** criterion
+below, which is a different question from when to page.
+
+### Instance sizing: measured, no upgrade needed
+
+Measured over the first hours on RDS, against the five upgrade criteria:
+
+| Signal | Observed | Verdict |
+| --- | --- | --- |
+| `FreeableMemory` | flat 77–86 MB, not declining | below 200 MB, but stable and expected for 1 GB |
+| `CPUUtilization` | 5.6–8.6% steady (34% during the migration itself) | far below the 10% baseline |
+| `CPUCreditBalance` | rising: 0.00 → 4.40, about +4.8/hour | accruing, not declining |
+| Query latency | no elevated latency observed | fine |
+| `DatabaseConnections` | 0–2 of roughly 112 available | no pressure |
+
+Only the memory figure is below its criterion, and it is stable rather than trending down,
+so `db.t4g.micro` is retained. Nothing was upgraded.
+
+The instance launched with zero CPU credits and spent them on the dump/restore work, so
+`CPUCreditBalance` starts near zero and climbs. Steady usage is ~7.2 credits/hour against
+12 earned, so the balance grows toward the 288 cap and the credit alarm clears on its own
+roughly five hours after cutover. A sustained *decline* in this metric is the real warning
+sign; growth from a cold start is not.
 
 Cost, from the AWS Pricing API for `eu-central-1`:
 
