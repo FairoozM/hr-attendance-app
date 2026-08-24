@@ -4,8 +4,7 @@ const {
   canManageCycles,
   canViewLinear,
 } = require('../utils/linearPermissions')
-
-const JWT_SECRET = process.env.JWT_SECRET || 'hr-attendance-dev-secret-change-me'
+const { getJwtSecret } = require('../config/jwtSecret')
 
 /**
  * Verify the Bearer JWT and load FRESH permissions from the DB on every
@@ -27,8 +26,19 @@ async function attachAuth(req, res, next) {
     req.user = null
     return next()
   }
+
+  // Resolved outside the catch below: a missing or published signing key is a server
+  // misconfiguration, not an unauthenticated request, and must not be quietly turned into
+  // one. Startup refuses to boot without a usable key, so this is a backstop.
+  let secret
   try {
-    const payload = jwt.verify(token, JWT_SECRET)
+    secret = getJwtSecret()
+  } catch (err) {
+    return next(err)
+  }
+
+  try {
+    const payload = jwt.verify(token, secret)
 
     // Always fetch fresh permissions from DB so changes apply immediately
     const { query } = require('../db')
@@ -179,7 +189,6 @@ function requirePermission(module, action) {
 }
 
 module.exports = {
-  JWT_SECRET,
   attachAuth,
   requireAuth,
   requireAdmin,

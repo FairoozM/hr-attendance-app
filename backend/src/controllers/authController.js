@@ -1,7 +1,7 @@
 const bcrypt = require('bcrypt')
 const jwt = require('jsonwebtoken')
 const usersService = require('../services/usersService')
-const { JWT_SECRET } = require('../middleware/auth')
+const { getJwtSecret } = require('../config/jwtSecret')
 const { serializeAccessToken, serializeClearAccess } = require('../utils/authCookie')
 
 function buildUserPayload(row) {
@@ -49,7 +49,7 @@ async function login(req, res) {
         employeeId: row.employee_id != null ? String(row.employee_id) : null,
         permissions: row.permissions || {},
       },
-      JWT_SECRET,
+      getJwtSecret(),
       { expiresIn: '7d' }
     )
 

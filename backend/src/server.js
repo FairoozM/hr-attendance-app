@@ -1,6 +1,21 @@
 require('dotenv').config()
 const http = require('http')
 const { Server } = require('socket.io')
+
+// Before anything else, and before any port is opened: a session signing key that is
+// published in this repository protects nothing, so production refuses to run without a real
+// one rather than accept forged administrator tokens.
+{
+  const { assertJwtSecretConfigured } = require('./config/jwtSecret')
+  try {
+    const { source, environment } = assertJwtSecretConfigured()
+    console.log(`[auth] session signing key loaded from ${source} (${environment})`)
+  } catch (err) {
+    console.error(`[auth] ${err.message}`)
+    process.exit(1)
+  }
+}
+
 const app = require('./app')
 const { testConnection } = require('./db')
 const { getOptionalFlagDecision } = require('./services/weeklyReportReportVendor')
