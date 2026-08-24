@@ -108,12 +108,87 @@ round-trip re-renders `col IN ('a','b')` on a `varchar` column from
 parentheses and spaces are stripped before diffing, which still exposes any real change
 to columns, operators or allowed values.
 
+## Outcome
+
+Migrated 2026-08-24. Endpoint
+`hr-attendance-production.c2omi1mf46ou.eu-central-1.rds.amazonaws.com:5432`, resolving to
+the private address `172.31.39.5`.
+
+### Timings (UTC)
+
+| Phase | Measurement |
+| --- | --- |
+| Rehearsal, production online | dump complete 05:18:36, restore complete 05:18:43, fingerprint validation complete 05:18:55 |
+| Cutover attempt 1 | 05:55:43.02 → 05:55:56.81, **13.8 s** — aborted at the S3 upload and auto-rolled back to localhost |
+| Cutover attempt 2, authoritative | 06:04:14.78 → 06:04:48.27, **33.5 s** |
+| **Total downtime** | **47.3 s** |
+| Deploy restart | 06:14:31.324 → 06:14:31.330, 6 ms |
+
+Attempt 1 failed because the checksum file was written under `umask 077` as root while
+`aws s3 cp` runs as `ubuntu`, so the upload could not read it. The rollback path worked as
+designed: the backend was returned to localhost automatically and no data was lost. The
+cutover script now `chown`s the dump and checksum to `ubuntu` before uploading, and the
+orphaned attempt-1 dump was retro-fitted with its checksum so both S3 objects verify.
+
+The 33.5 s window covers the authoritative dump, checksum, encrypted S3 upload, RDS schema
+reset, restore, full fingerprint validation and the configuration swap.
+
+### Validation result
+
+Source and target fingerprints are byte-identical: both 194,244 bytes,
+SHA-256 `393cb5e8b97b5ebbe84806e0be62d278ef434349499c2b4f69a5c4abdfac0858`, empty diff.
+That covers 113 tables, 283 per-table row counts, 321 constraints, 324 indexes, 1,496
+column definitions, all sequences and current values, and the `plpgsql` extension.
+
+Spot figures, identical on both sides: 13 employees, 1,971 attendance rows, 15 users,
+latest attendance date 2026-10-14.
+
+### Final S3 artefacts
+
+Both under `s3://hr-lifesmile-artifacts/hr-attendance-db/`, `AES256`, checksum
+independently re-verified after upload and confirmed restorable (1,056 TOC entries each):
+
+- `hr_attendance_final_rds_cutover_2026-08-24T06-04-14Z.dump` (21,671,017 bytes) —
+  authoritative cutover dump, SHA-256 `928cd009…e527`
+- `hr_attendance_final_rds_cutover_2026-08-24T05-55-42Z.dump` (21,670,977 bytes) —
+  attempt-1 dump, SHA-256 `72d85df2…8f39`
+
+### Application verification
+
+Verified through the real HTTP API with a temporary admin user that was deleted afterwards:
+login and wrong-password rejection, `/api/employees`, `/api/attendance?month=&year=` (286
+rows for the current month), `/api/annual-leave`, `/api/notifications`,
+`/api/subscriptions`, `/api/document-expiry`, `/api/sim-cards`, `/api/projects`,
+`/api/team/members`, `/api/purchase-planning/plans` and the Zoho-backed
+`/api/zoho/inventory-health`, `/api/zoho/usage/today`, `/api/zoho/usage/summary`,
+`/api/zoho/cache/stats`. A safe write (`PUT /api/user-preferences`) through CloudFront
+persisted in RDS and did **not** appear in the EC2-local database, confirming the
+application reads and writes RDS only. `pg_stat_ssl` reports the backend session as
+TLS 1.3 with `hr_app` owning the database.
+
+### Post-migration hardening
+
+The EC2 instance role's inline policy was narrowed after setup to the application secret
+only; it no longer grants access to the master secret. Migration helper files holding
+credential material (`pgpass` and the bcrypt/password scratch files) were shredded on the
+host, and the local dump copies were removed now that the S3 copies are verified.
+
 ## Rollback
 
-The previous `backend/.env` is preserved on the host as a root-owned `0600` backup. To
-roll back: restore that file, `systemctl restart hr-attendance-backend.service`, confirm
-`/api/health`. EC2-local PostgreSQL stays installed, running and untouched, so a rollback
-needs no data movement.
+The previous `backend/.env` is preserved on the host as a root-owned `0600` backup at
+`/home/ubuntu/.hr-migration/env.localhost.bak`, verified to carry all 45 configuration
+keys including `DATABASE_URL`. To roll back:
+
+```sh
+sudo install -o ubuntu -g ubuntu -m 600 \
+  /home/ubuntu/.hr-migration/env.localhost.bak \
+  /home/ubuntu/hr-attendance-app/backend/.env
+sudo systemctl restart hr-attendance-backend
+curl -sf http://127.0.0.1:5001/api/health
+```
+
+EC2-local PostgreSQL stays installed, running and untouched — 16.15, 113 tables, 112 MB,
+same row counts as RDS — so a rollback needs no data movement.
 
 Retained after the migration: EC2-local PostgreSQL and its `hr_attendance` database, the
 S3 dumps under `s3://hr-lifesmile-artifacts/hr-attendance-db/`, and EBS snapshot
@@ -121,11 +196,33 @@ S3 dumps under `s3://hr-lifesmile-artifacts/hr-attendance-db/`, and EBS snapshot
 
 ## Monitoring and cost
 
-CloudWatch alarms on `CPUUtilization`, `FreeableMemory`, `DatabaseConnections`,
-`FreeStorageSpace` and `CPUCreditBalance`. Performance Insights uses the free 7-day
-retention; Enhanced Monitoring is off; no paid dashboards were created.
+Five CloudWatch alarms, all scoped to `DBInstanceIdentifier=hr-attendance-production`:
 
-Expected cost is roughly USD 18–25/month (db.t4g.micro, Single-AZ, 20 GB gp3, Frankfurt).
+| Alarm | Condition |
+| --- | --- |
+| `hr-attendance-production-cpu-high` | `CPUUtilization` > 80% for 3×5 min |
+| `hr-attendance-production-memory-low` | `FreeableMemory` < 200 MB for 2×5 min |
+| `hr-attendance-production-connections-high` | `DatabaseConnections` > 60 for 2×5 min |
+| `hr-attendance-production-storage-low` | `FreeStorageSpace` < 4 GB for 1×5 min |
+| `hr-attendance-production-cpucredit-low` | `CPUCreditBalance` < 30 for 2×5 min |
+
+The first 10 CloudWatch alarms are free, so these cost nothing. Performance Insights uses
+the free 7-day retention; Enhanced Monitoring is off (`MonitoringInterval=0`); no paid
+dashboards were created.
+
+Cost, from the AWS Pricing API for `eu-central-1`:
+
+| Component | Rate | Monthly |
+| --- | --- | --- |
+| `db.t4g.micro` PostgreSQL Single-AZ | USD 0.019/hr × 730 | 13.87 |
+| 20 GB gp3 Single-AZ SSD | USD 0.137/GB-month | 2.74 |
+| Backups (112 MB database, 14 days) | within the free allowance equal to allocated storage | 0.00 |
+| Performance Insights, Enhanced Monitoring, alarms | free tiers | 0.00 |
+| EC2 ↔ RDS traffic | same AZ (`eu-central-1b`) | 0.00 |
+| **Total** | | **≈ USD 16.61** |
+
+That is below the USD 25/month gate. gp3's included 3,000 IOPS and 125 MB/s baseline is
+used; no IOPS or throughput was purchased.
 
 Consider `db.t4g.small` only on evidence of sustained pressure: `FreeableMemory`
 persistently below ~200 MB, sustained high CPU, a declining `CPUCreditBalance`, elevated
