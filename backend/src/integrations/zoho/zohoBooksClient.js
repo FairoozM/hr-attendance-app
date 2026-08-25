@@ -333,6 +333,24 @@ async function createCreditNote(payload) {
   }
 }
 
+/**
+ * Credit note refunds require a Banking module account (bank/cash), not a CoA GL.
+ * Zoho error 11016 ("Involved account types are not applicable") means a non-bank account was used.
+ */
+async function listBankAccounts() {
+  const json = await zohoApiRequest(
+    `${BOOKS_V3}/bankaccounts`,
+    new URLSearchParams(),
+    'GET',
+    undefined,
+    { source: 'noon_payment_clearing_bank_accounts', skipCache: false }
+  )
+  if (Array.isArray(json?.bankaccounts)) return json.bankaccounts
+  if (Array.isArray(json?.bank_accounts)) return json.bank_accounts
+  if (Array.isArray(json?.accounts)) return json.accounts
+  return []
+}
+
 module.exports = {
   fetchCustomers,
   fetchInvoices,
@@ -346,5 +364,6 @@ module.exports = {
   applyCreditNoteToInvoice,
   refundCreditNote,
   createCreditNote,
+  listBankAccounts,
   BOOKS_V3,
 }

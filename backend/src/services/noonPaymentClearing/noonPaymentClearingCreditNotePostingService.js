@@ -1,4 +1,8 @@
-const { listCreditNoteRefunds, refundCreditNote } = require('../../integrations/zoho/zohoBooksClient')
+const {
+  listCreditNoteRefunds,
+  refundCreditNote,
+  listBankAccounts,
+} = require('../../integrations/zoho/zohoBooksClient')
 const { buildSettlementReference, buildEntryReference } = require('./noonPaymentClearingReferenceService')
 const { round2, num, clean } = require('./noonPaymentClearingCategoryService')
 const { positiveAmount } = require('./noonPaymentClearingRowPredicates')
@@ -13,6 +17,92 @@ const store = require('./noonPaymentClearingStore')
 const zohoPaymentService = require('../amazonPaymentClearingZohoPaymentService')
 
 const PAYMENT_TYPE = 'credit_note_refund'
+
+/** Zoho CN refunds only accept Banking accounts (bank/cash). CoA 1066 as other asset → error 11016. */
+let cachedRefundBankAccount = null
+
+function bankAccountId(row) {
+  return clean(row?.account_id || row?.accountId || row?.bankaccount_id || row?.bank_account_id || row?.id)
+}
+
+function bankAccountName(row) {
+  return clean(row?.account_name || row?.accountName || row?.bankaccount_name || row?.bank_account_name || row?.name)
+}
+
+/**
+ * Resolve a Zoho Banking account for credit-note refunds.
+ * Prefer explicit bank env, then bank list match on Noon Undeposited name/code, then configured id if it is a bank.
+ */
+async function resolveCreditNoteRefundBankAccount(opts = {}) {
+  if (cachedRefundBankAccount?.accountId && !opts.forceRefresh) return cachedRefundBankAccount
+
+  const cfg = getNoonPaymentClearingMarketplaceConfig()
+  const undeposited = cfg.undepositedFundsAccount || {}
+  const explicitBankId = clean(
+    process.env.NOON_AE_ZOHO_CN_REFUND_BANK_ACCOUNT_ID ||
+      process.env.NOON_AE_ZOHO_UNDEPOSITED_FUNDS_BANK_ACCOUNT_ID ||
+      ''
+  )
+  const listBanks = opts.listBankAccounts || listBankAccounts
+  let banks = []
+  try {
+    banks = await listBanks()
+  } catch (err) {
+    banks = []
+    if (!explicitBankId && !clean(undeposited.accountId)) {
+      const e = new Error(
+        `Cannot list Zoho bank accounts for CN refunds: ${err.message || err}. Set NOON_AE_ZOHO_CN_REFUND_BANK_ACCOUNT_ID to a Banking account.`
+      )
+      e.code = 'NOON_CN_REFUND_BANK_ACCOUNT_UNRESOLVED'
+      e.status = 422
+      throw e
+    }
+  }
+
+  const byId = new Map()
+  for (const row of banks) {
+    const id = bankAccountId(row)
+    if (id) byId.set(id, row)
+  }
+
+  const targetName = clean(undeposited.accountName || 'Noon Undeposited Funds').toLowerCase()
+  const targetCode = clean(undeposited.accountCode || '1066')
+
+  let chosen = null
+  if (explicitBankId) {
+    chosen = byId.get(explicitBankId) || { account_id: explicitBankId, account_name: undeposited.accountName }
+  }
+  if (!chosen && clean(undeposited.accountId) && byId.has(clean(undeposited.accountId))) {
+    chosen = byId.get(clean(undeposited.accountId))
+  }
+  if (!chosen) {
+    chosen =
+      banks.find((row) => bankAccountName(row).toLowerCase() === targetName) ||
+      banks.find((row) => bankAccountName(row).toLowerCase().includes('noon') && bankAccountName(row).toLowerCase().includes('undeposited')) ||
+      banks.find((row) => clean(row?.account_code || row?.accountCode) === targetCode) ||
+      null
+  }
+
+  const accountId = bankAccountId(chosen)
+  if (!accountId) {
+    const e = new Error(
+      `Zoho CN refund needs a Banking account (cash/bank), not CoA GL ${targetCode}. ` +
+        `Create/open "Noon Undeposited Funds" under Banking, or set NOON_AE_ZOHO_CN_REFUND_BANK_ACCOUNT_ID. ` +
+        `(Zoho 11016 = involved account types are not applicable.)`
+    )
+    e.code = 'NOON_CN_REFUND_BANK_ACCOUNT_UNRESOLVED'
+    e.status = 422
+    throw e
+  }
+
+  cachedRefundBankAccount = {
+    accountId,
+    accountName: bankAccountName(chosen) || undeposited.accountName || 'Noon Undeposited Funds',
+    accountCode: clean(chosen?.account_code || chosen?.accountCode || undeposited.accountCode || '1066'),
+    source: explicitBankId ? 'env' : 'bankaccounts',
+  }
+  return cachedRefundBankAccount
+}
 
 async function creditNoteRefundTotal(creditNoteId, referenceNumber = '', listRefunds = listCreditNoteRefunds) {
   const refunds = await listRefunds(creditNoteId)
@@ -173,7 +263,20 @@ async function resolvePlanRowAction(row, batch, opts = {}) {
   }
 
   const remaining = round2(refundAmount - refunded)
-  const accountId = clean(undeposited.accountId)
+  let bankAccount
+  try {
+    bankAccount = await resolveCreditNoteRefundBankAccount(opts)
+  } catch (err) {
+    return {
+      ...baseFields,
+      action: 'blocked',
+      status: 'blocked',
+      blockingReason: err.message || String(err),
+      blockCode: err.code || 'NOON_CN_REFUND_BANK_ACCOUNT_UNRESOLVED',
+      refundAmount: remaining,
+    }
+  }
+  const accountId = clean(bankAccount.accountId)
   return {
     ...baseFields,
     action: 'refund_existing',
@@ -181,6 +284,8 @@ async function resolvePlanRowAction(row, batch, opts = {}) {
     refundAmount: remaining,
     amountAlreadyRefunded: refunded,
     refundAccountId: accountId,
+    refundAccountCode: bankAccount.accountCode || undeposited.accountCode,
+    refundAccountName: bankAccount.accountName || undeposited.accountName,
     zohoRefundRequest: {
       date: opts.paymentDate || zohoPaymentService.todayLocalDate(),
       refund_mode: 'Bank Transfer',
@@ -290,4 +395,5 @@ module.exports = {
   isCreditNoteApplyComplete,
   creditNoteRefundTotal,
   collectReturnRowsForApply,
+  resolveCreditNoteRefundBankAccount,
 }
