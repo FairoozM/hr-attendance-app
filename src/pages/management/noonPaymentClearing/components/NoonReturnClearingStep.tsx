@@ -15,11 +15,36 @@ function money(n: number | null | undefined) {
   return v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+type LocalStatus = { kind: 'info' | 'ok' | 'error'; text: string }
+
+function summarizeCnResult(result: Record<string, unknown>, dryRun: boolean): LocalStatus {
+  const results = (result.results as Array<Record<string, unknown>> | undefined) || []
+  const wouldPost = results.filter((r) => r.dryRun || r.action === 'refund_existing').length
+  const posted = results.filter((r) => r.posted === true).length
+  const skipped = results.filter((r) => r.skipped === true).length
+  const failed = results.filter((r) => r.error)
+  if (failed.length) {
+    return {
+      kind: 'error',
+      text: `${failed.length} credit note refund(s) failed. First: ${String(failed[0].error || 'Unknown error')}`,
+    }
+  }
+  if (dryRun) {
+    return {
+      kind: 'ok',
+      text: `Dry run OK — ${wouldPost || results.length} credit note refund(s) ready for Undeposited (1066). Now click “Refund credit notes”.`,
+    }
+  }
+  return {
+    kind: 'ok',
+    text: `Posted ${posted} credit note refund(s) to Undeposited (1066)${skipped ? `, skipped ${skipped}` : ''}.`,
+  }
+}
+
 export function NoonReturnClearingStep({
   preview,
   paymentPreview,
   isPosted,
-  loading: parentLoading,
   onPlanChange,
   onNotice,
   onError,
@@ -27,7 +52,8 @@ export function NoonReturnClearingStep({
   preview: NoonPaymentClearingPreview
   paymentPreview: NoonPaymentPreview | null
   isPosted: boolean
-  loading: boolean
+  /** Parent page loading — do not block CN refund buttons with this. */
+  loading?: boolean
   onPlanChange?: (plan: NoonReturnFeePlan | null) => void
   onNotice: (msg: string) => void
   onError: (msg: string) => void
@@ -38,14 +64,15 @@ export function NoonReturnClearingStep({
 
   const [returnFeePlan, setReturnFeePlan] = useState<NoonReturnFeePlan | null>(null)
   const [cnPlanRows, setCnPlanRows] = useState<Array<Record<string, unknown>>>([])
-  const [loading, setLoading] = useState(false)
+  const [loadingPlans, setLoadingPlans] = useState(false)
   const [working, setWorking] = useState(false)
   const [cnApplyResult, setCnApplyResult] = useState<Record<string, unknown> | null>(null)
   const [returnFeeResult, setReturnFeeResult] = useState<Record<string, unknown> | null>(null)
+  const [localStatus, setLocalStatus] = useState<LocalStatus | null>(null)
 
   const loadPlans = useCallback(async () => {
     if (!batchId) return
-    setLoading(true)
+    setLoadingPlans(true)
     try {
       const [cnPlan, feePlan] = await Promise.all([
         fetchNoonCreditNoteApplyPlan(batchId),
@@ -55,9 +82,11 @@ export function NoonReturnClearingStep({
       setReturnFeePlan(feePlan)
       onPlanChange?.(feePlan)
     } catch (err) {
-      onError(err instanceof Error ? err.message : 'Failed to load return clearing plans')
+      const msg = err instanceof Error ? err.message : 'Failed to load return clearing plans'
+      setLocalStatus({ kind: 'error', text: msg })
+      onError(msg)
     } finally {
-      setLoading(false)
+      setLoadingPlans(false)
     }
   }, [batchId, onError, onPlanChange])
 
@@ -93,47 +122,84 @@ export function NoonReturnClearingStep({
 
   const creditNotesDone = returnFeePlan?.creditNoteApplyComplete === true
   const returnFeesDone = returnFeePlan?.returnFeePostComplete === true
+  // Never gate refund buttons on parent page loading — that made clicks look dead.
+  const busy = loadingPlans || working
 
   async function onApplyCreditNotes(dryRun: boolean) {
-    if (!batchId) return
+    if (!batchId) {
+      const msg = 'Missing batch id — reload this statement batch.'
+      setLocalStatus({ kind: 'error', text: msg })
+      onError(msg)
+      return
+    }
     if (!dryRun && !window.confirm('Refund matched return Credit Notes to Noon Undeposited (1066)?')) return
+
     setWorking(true)
+    setLocalStatus({
+      kind: 'info',
+      text: dryRun ? 'Running credit note refund dry run…' : 'Posting credit note refunds to Zoho…',
+    })
     onError('')
+
     try {
       const result = await applyNoonCreditNotes(batchId, dryRun)
-      setCnApplyResult(result)
-      onNotice(dryRun ? 'Credit note refund dry run complete.' : 'Credit note refunds posted.')
+      setCnApplyResult(result as Record<string, unknown>)
+      const summary = summarizeCnResult(result as Record<string, unknown>, dryRun)
+      setLocalStatus(summary)
+      if (summary.kind === 'error') onError(summary.text)
+      else onNotice(summary.text)
       await loadPlans()
     } catch (err) {
-      onError(err instanceof Error ? err.message : 'Credit note apply failed')
+      const msg = err instanceof Error ? err.message : 'Credit note apply failed'
+      setLocalStatus({ kind: 'error', text: msg })
+      onError(msg)
     } finally {
       setWorking(false)
     }
   }
 
   async function onPostReturnFees(dryRun: boolean) {
-    if (!batchId) return
-    if (!dryRun && !window.confirm('Post return fee clearing journals (settlement + expense/VAT reversal) to Zoho?')) return
+    if (!batchId) {
+      const msg = 'Missing batch id — reload this statement batch.'
+      setLocalStatus({ kind: 'error', text: msg })
+      onError(msg)
+      return
+    }
+    if (!dryRun && !window.confirm('Post return fee clearing journals (settlement + expense/VAT reversal) to Zoho?')) {
+      return
+    }
+
     setWorking(true)
+    setLocalStatus({
+      kind: 'info',
+      text: dryRun ? 'Running return fee journal dry run…' : 'Posting return fee journals to Zoho…',
+    })
     onError('')
+
     try {
       const plan = await fetchNoonReturnFeePlan(batchId)
       if (!plan.creditNoteApplyComplete && !dryRun) {
-        onError('Refund all matched return credit notes before posting return fee journals.')
+        const msg = 'Refund all matched return credit notes before posting return fee journals.'
+        setLocalStatus({ kind: 'error', text: msg })
+        onError(msg)
         return
       }
       const result = await postNoonReturnFeeJournals(batchId, dryRun)
-      setReturnFeeResult(result)
-      onNotice(dryRun ? 'Return fee journal dry run complete.' : 'Return fee journals posted.')
+      setReturnFeeResult(result as Record<string, unknown>)
+      const msg = dryRun
+        ? 'Return fee journal dry run complete.'
+        : 'Return fee journals posted.'
+      setLocalStatus({ kind: 'ok', text: msg })
+      onNotice(msg)
       await loadPlans()
     } catch (err) {
-      onError(err instanceof Error ? err.message : 'Return fee journal post failed')
+      const msg = err instanceof Error ? err.message : 'Return fee journal post failed'
+      setLocalStatus({ kind: 'error', text: msg })
+      onError(msg)
     } finally {
       setWorking(false)
     }
   }
-
-  const busy = parentLoading || loading || working
 
   return (
     <div className="npc-step-stack">
@@ -151,7 +217,7 @@ export function NoonReturnClearingStep({
 
       <div className="npc-button-row">
         <button type="button" className="ainv-btn ainv-btn--sm" disabled={busy} onClick={() => void loadPlans()}>
-          {loading ? 'Loading…' : 'Refresh plans'}
+          {loadingPlans ? 'Loading…' : 'Refresh plans'}
         </button>
       </div>
 
@@ -163,6 +229,7 @@ export function NoonReturnClearingStep({
       ) : (
         <p className="npc-muted">Refund each matched CN so product return flows into 1066.</p>
       )}
+
       {cnPlanRows.length > 0 ? (
         <div className="npc-table-wrap">
           <table className="npc-table">
@@ -195,7 +262,10 @@ export function NoonReturnClearingStep({
             </tbody>
           </table>
         </div>
-      ) : null}
+      ) : (
+        <p className="npc-muted">No credit note plan rows loaded — click Refresh plans.</p>
+      )}
+
       <div className="npc-button-row">
         <button
           type="button"
@@ -203,7 +273,7 @@ export function NoonReturnClearingStep({
           disabled={busy || returnBlocked}
           onClick={() => void onApplyCreditNotes(true)}
         >
-          Dry run CN refunds
+          {working ? 'Working…' : 'Dry run CN refunds'}
         </button>
         <button
           type="button"
@@ -211,9 +281,56 @@ export function NoonReturnClearingStep({
           disabled={busy || returnBlocked || creditNotesDone}
           onClick={() => void onApplyCreditNotes(false)}
         >
-          Refund credit notes
+          {working ? 'Working…' : 'Refund credit notes'}
         </button>
       </div>
+
+      {localStatus ? (
+        <div
+          className={`npc-alert ${
+            localStatus.kind === 'error'
+              ? 'npc-alert--error'
+              : localStatus.kind === 'ok'
+                ? 'npc-approved-panel'
+                : ''
+          }`}
+          role={localStatus.kind === 'error' ? 'alert' : 'status'}
+          style={{ marginTop: 8, fontWeight: 600 }}
+        >
+          {localStatus.text}
+        </div>
+      ) : (
+        <p className="npc-muted" style={{ marginTop: 8 }}>
+          After you click Dry run / Refund, status appears here (not only at the top of the page).
+        </p>
+      )}
+
+      {cnApplyResult ? (
+        <div className="npc-alert npc-approved-panel" style={{ marginTop: 8 }}>
+          Last CN API result: dryRun={String((cnApplyResult as { dryRun?: boolean }).dryRun)} · rows=
+          {Array.isArray((cnApplyResult as { results?: unknown[] }).results)
+            ? (cnApplyResult as { results: unknown[] }).results.length
+            : 0}
+          {Array.isArray((cnApplyResult as { results?: Array<Record<string, unknown>> }).results) ? (
+            <ul style={{ margin: '8px 0 0', paddingLeft: '1.2rem', fontWeight: 400 }}>
+              {((cnApplyResult as { results: Array<Record<string, unknown>> }).results || []).map((row, idx) => (
+                <li key={`cn-res-${idx}`}>
+                  {String(row.itemOrderId || '—')}:{' '}
+                  {row.error
+                    ? `ERROR ${String(row.error)}`
+                    : row.posted
+                      ? 'posted'
+                      : row.dryRun
+                        ? 'dry-run ok'
+                        : row.skipped
+                          ? 'skipped'
+                          : String(row.action || 'done')}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
 
       <h3>Return fee reversal journals</h3>
       {!creditNotesDone ? (
@@ -236,14 +353,18 @@ export function NoonReturnClearingStep({
           <ul style={{ margin: '8px 0 0', paddingLeft: '1.2rem' }}>
             <li>
               1067 Commission:{' '}
-              {returnFeePlan.unclearedAccountProof.commission1067.allNetToZero ? 'nets to zero' : 'does not net to zero'}
+              {returnFeePlan.unclearedAccountProof.commission1067.allNetToZero
+                ? 'nets to zero'
+                : 'does not net to zero'}
               {returnFeePlan.unclearedAccountProof.commission1067.affectedItemCount > 0
                 ? ` (${returnFeePlan.unclearedAccountProof.commission1067.affectedItemCount} return(s))`
                 : ''}
             </li>
             <li>
               1068 Shipping:{' '}
-              {returnFeePlan.unclearedAccountProof.shipping1068.allNetToZero ? 'nets to zero' : 'does not net to zero'}
+              {returnFeePlan.unclearedAccountProof.shipping1068.allNetToZero
+                ? 'nets to zero'
+                : 'does not net to zero'}
               {returnFeePlan.unclearedAccountProof.shipping1068.affectedItemCount > 0
                 ? ` (${returnFeePlan.unclearedAccountProof.shipping1068.affectedItemCount} return(s))`
                 : ''}
@@ -265,7 +386,7 @@ export function NoonReturnClearingStep({
           disabled={busy || returnBlocked || !creditNotesDone}
           onClick={() => void onPostReturnFees(true)}
         >
-          Dry run return fees
+          {working ? 'Working…' : 'Dry run return fees'}
         </button>
         <button
           type="button"
@@ -273,30 +394,13 @@ export function NoonReturnClearingStep({
           disabled={busy || returnBlocked || !creditNotesDone || returnFeesDone}
           onClick={() => void onPostReturnFees(false)}
         >
-          Post return fee journals
+          {working ? 'Working…' : 'Post return fee journals'}
         </button>
       </div>
 
-      {cnApplyResult ? (
-        <div className="npc-alert npc-approved-panel" style={{ marginTop: 8 }}>
-          Credit note apply: {String((cnApplyResult as { status?: string }).status || 'done')}
-        </div>
-      ) : null}
       {returnFeeResult ? (
         <div className="npc-alert npc-approved-panel" style={{ marginTop: 8 }}>
           Return fees: {String((returnFeeResult as { status?: string }).status || 'done')}
-          {(() => {
-            const summary = (returnFeeResult as { summary?: Record<string, number> }).summary
-            if (!summary) return null
-            const parts = [
-              summary.settlementJournalsCreated ? `${summary.settlementJournalsCreated} settlement` : '',
-              summary.expenseReversalJournalsCreated
-                ? `${summary.expenseReversalJournalsCreated} expense/VAT reversal`
-                : '',
-              summary.journalsSkipped ? `${summary.journalsSkipped} skipped` : '',
-            ].filter(Boolean)
-            return parts.length ? ` (${parts.join(', ')})` : null
-          })()}
         </div>
       ) : null}
     </div>
