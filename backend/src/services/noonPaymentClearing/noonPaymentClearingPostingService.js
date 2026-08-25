@@ -1136,6 +1136,9 @@ async function ensureCanPostReturnFeeJournals(batch, options = {}) {
     err.status = 422
     throw err
   }
+  // Escape hatch for when the refunds already exist in Zoho but the plan cannot
+  // detect them. The journals are independently idempotent via posting_group_key.
+  if (options.skipCreditNoteGate === true) return
   if (!dryRun && batch.batchId != null) {
     const cnPlan = await buildCreditNoteApplyPlan(batch)
     if (!isCreditNoteApplyComplete(batch, cnPlan)) {
@@ -1164,10 +1167,11 @@ async function postReturnFeeJournalsForBatch({
   batch,
   dryRun = true,
   postedBy,
+  skipCreditNoteGate = false,
   createManualJournal = zohoPaymentService.createZohoManualJournal,
   buildJournalPayloadPreview = zohoPaymentService.buildManualJournalPayloadPreview,
 } = {}) {
-  await ensureCanPostReturnFeeJournals(batch, { dryRun })
+  await ensureCanPostReturnFeeJournals(batch, { dryRun, skipCreditNoteGate })
   const paymentDate = zohoPaymentService.todayLocalDate()
   const metadata = batch.reportSnapshot || batch.metadata || {}
   const returnFeePlan = buildReturnFeePlan(batch, batch.allRows || [])

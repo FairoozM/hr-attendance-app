@@ -141,9 +141,13 @@ async function ensureNoonPaymentClearingTables() {
     `CREATE INDEX IF NOT EXISTS idx_noon_payment_clearing_rows_batch
      ON noon_payment_clearing_rows (batch_id, parent_order_id, item_order_id)`
   )
+  // The original index omitted posting_group_key, so it allowed only one posting
+  // per (batch, payment type) — which broke every flow that posts one row per
+  // item (credit note refunds, per-item return fee journals, split payments).
+  await query(`DROP INDEX IF EXISTS uq_noon_payment_clearing_postings_group`)
   await query(
-    `CREATE UNIQUE INDEX IF NOT EXISTS uq_noon_payment_clearing_postings_group
-     ON noon_payment_clearing_postings (batch_id, payment_type)
+    `CREATE UNIQUE INDEX IF NOT EXISTS uq_noon_payment_clearing_postings_group_key
+     ON noon_payment_clearing_postings (batch_id, payment_type, posting_group_key)
      WHERE posting_group_key IS NOT NULL`
   )
   await query(

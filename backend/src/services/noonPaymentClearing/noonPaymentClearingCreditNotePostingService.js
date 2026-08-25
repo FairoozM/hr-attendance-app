@@ -348,8 +348,18 @@ async function applyCreditNotesForBatch(batch, opts = {}) {
       continue
     }
 
+    let refund
     try {
-      const refund = await refundCreditNote(row.zohoCreditNoteId, row.zohoRefundRequest)
+      refund = await refundCreditNote(row.zohoCreditNoteId, row.zohoRefundRequest)
+    } catch (err) {
+      results.push({ ...row, posted: false, error: err.message || String(err) })
+      continue
+    }
+
+    // The refund already exists in Zoho at this point. A failure to record it
+    // locally must not be reported as a failed refund, or a retry looks safe
+    // when it would actually be a second refund.
+    try {
       await store.insertPosting({
         batchId: batch.batchId,
         invoiceId: row.zohoInvoiceId,
@@ -366,7 +376,12 @@ async function applyCreditNotesForBatch(batch, opts = {}) {
       })
       results.push({ ...row, posted: true, zohoRefundId: refund })
     } catch (err) {
-      results.push({ ...row, posted: false, error: err.message || String(err) })
+      results.push({
+        ...row,
+        posted: true,
+        zohoRefundId: refund,
+        warning: `Refunded in Zoho but not recorded locally: ${err.message || String(err)}`,
+      })
     }
   }
 

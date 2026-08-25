@@ -41,6 +41,29 @@ function summarizeCnResult(result: Record<string, unknown>, dryRun: boolean): Lo
   }
 }
 
+function summarizeReturnFeeResult(result: Record<string, unknown>, dryRun: boolean): LocalStatus {
+  const summary = (result.summary as Record<string, number> | undefined) || {}
+  const errors = (result.errors as Array<Record<string, unknown>> | undefined) || []
+  const created = Number(summary.journalsCreated ?? 0)
+  const skipped = Number(summary.journalsSkipped ?? 0)
+  if (errors.length) {
+    return {
+      kind: 'error',
+      text: `${errors.length} journal(s) failed. First: ${String(errors[0].error || 'Unknown error')}`,
+    }
+  }
+  if (dryRun) {
+    return {
+      kind: 'ok',
+      text: `Dry run OK — ${created} journal(s) ready. Now click “Post return fee journals”.`,
+    }
+  }
+  return {
+    kind: 'ok',
+    text: `Posted ${created} return fee journal(s)${skipped ? `, skipped ${skipped} already posted` : ''}.`,
+  }
+}
+
 export function NoonReturnClearingStep({
   preview,
   paymentPreview,
@@ -69,6 +92,7 @@ export function NoonReturnClearingStep({
   const [cnApplyResult, setCnApplyResult] = useState<Record<string, unknown> | null>(null)
   const [returnFeeResult, setReturnFeeResult] = useState<Record<string, unknown> | null>(null)
   const [localStatus, setLocalStatus] = useState<LocalStatus | null>(null)
+  const [skipCnGate, setSkipCnGate] = useState(false)
 
   const loadPlans = useCallback(async () => {
     if (!batchId) return
@@ -178,19 +202,18 @@ export function NoonReturnClearingStep({
 
     try {
       const plan = await fetchNoonReturnFeePlan(batchId)
-      if (!plan.creditNoteApplyComplete && !dryRun) {
+      if (!plan.creditNoteApplyComplete && !dryRun && !skipCnGate) {
         const msg = 'Refund all matched return credit notes before posting return fee journals.'
         setLocalStatus({ kind: 'error', text: msg })
         onError(msg)
         return
       }
-      const result = await postNoonReturnFeeJournals(batchId, dryRun)
+      const result = await postNoonReturnFeeJournals(batchId, dryRun, skipCnGate)
       setReturnFeeResult(result as Record<string, unknown>)
-      const msg = dryRun
-        ? 'Return fee journal dry run complete.'
-        : 'Return fee journals posted.'
-      setLocalStatus({ kind: 'ok', text: msg })
-      onNotice(msg)
+      const summary = summarizeReturnFeeResult(result as Record<string, unknown>, dryRun)
+      setLocalStatus(summary)
+      if (summary.kind === 'error') onError(summary.text)
+      else onNotice(summary.text)
       await loadPlans()
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Return fee journal post failed'
@@ -334,7 +357,20 @@ export function NoonReturnClearingStep({
 
       <h3>Return fee reversal journals</h3>
       {!creditNotesDone ? (
-        <p className="npc-muted">Complete credit note refunds above before posting return fee journals.</p>
+        <div className="npc-alert" style={{ marginBottom: 8 }}>
+          <p className="npc-muted" style={{ marginTop: 0 }}>
+            Credit note refunds are not confirmed here. If the refunds already exist in Zoho, tick the box to post the
+            expense-reversal journals anyway. Journals already posted for this batch are skipped automatically.
+          </p>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600 }}>
+            <input
+              type="checkbox"
+              checked={skipCnGate}
+              onChange={(e) => setSkipCnGate(e.target.checked)}
+            />
+            Credit note refunds are already done in Zoho — post journals only
+          </label>
+        </div>
       ) : returnFeesDone ? (
         <div className="npc-alert npc-approved-panel" role="status">
           Return fee journals have been posted.
@@ -383,7 +419,7 @@ export function NoonReturnClearingStep({
         <button
           type="button"
           className="ainv-btn"
-          disabled={busy || returnBlocked || !creditNotesDone}
+          disabled={busy || returnBlocked}
           onClick={() => void onPostReturnFees(true)}
         >
           {working ? 'Working…' : 'Dry run return fees'}
@@ -391,7 +427,7 @@ export function NoonReturnClearingStep({
         <button
           type="button"
           className="ainv-btn ainv-btn--danger"
-          disabled={busy || returnBlocked || !creditNotesDone || returnFeesDone}
+          disabled={busy || returnBlocked || (!creditNotesDone && !skipCnGate) || returnFeesDone}
           onClick={() => void onPostReturnFees(false)}
         >
           {working ? 'Working…' : 'Post return fee journals'}

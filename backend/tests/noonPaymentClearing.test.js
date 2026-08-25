@@ -2689,6 +2689,7 @@ describe('Noon cross-week product returns (PS-11752-AE20260729 row 16)', () => {
     }
     const plan = await buildCreditNoteApplyPlan(batch, {
       listRefunds: async () => [],
+      listBankAccounts: async () => [{ account_id: 'bank-1066', account_name: 'Noon Undeposited Funds', account_code: '1066' }],
     })
     assert.equal(plan.planRows[0].action, 'refund_existing')
     assert.equal(plan.planRows[0].refundAmount, 84)
@@ -2714,6 +2715,7 @@ describe('Noon cross-week product returns (PS-11752-AE20260729 row 16)', () => {
     }
     const plan = await buildCreditNoteApplyPlan(batch, {
       listRefunds: async () => [],
+      listBankAccounts: async () => [{ account_id: 'bank-1066', account_name: 'Noon Undeposited Funds', account_code: '1066' }],
     })
     assert.equal(plan.planRows[0].action, 'refund_existing')
     assert.equal(plan.planRows[0].refundAmount, 84)
@@ -2738,6 +2740,7 @@ describe('Noon cross-week product returns (PS-11752-AE20260729 row 16)', () => {
     }
     const plan = await buildCreditNoteApplyPlan(batch, {
       listRefunds: async () => [],
+      listBankAccounts: async () => [{ account_id: 'bank-1066', account_name: 'Noon Undeposited Funds', account_code: '1066' }],
     })
     assert.equal(plan.planRows[0].action, 'refund_existing')
     assert.equal(plan.planRows[0].refundAmount, 683)

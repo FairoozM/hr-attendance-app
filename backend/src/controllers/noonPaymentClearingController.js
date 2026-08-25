@@ -347,6 +347,7 @@ async function postReturnFeeJournals(req, res) {
     const json = await service.postReturnFeeJournalsForBatchId(req.params.id, {
       dryRun: req.body?.dryRun !== false,
       postedBy: userId(req),
+      skipCreditNoteGate: req.body?.skipCreditNoteGate === true,
     })
     return res.json(json)
   } catch (err) {

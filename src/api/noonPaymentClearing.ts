@@ -811,10 +811,14 @@ export async function refreshNoonReturnMatching(batchId: string | number) {
   return unwrap(data)
 }
 
-export async function postNoonReturnFeeJournals(batchId: string | number, dryRun = true) {
+export async function postNoonReturnFeeJournals(
+  batchId: string | number,
+  dryRun = true,
+  skipCreditNoteGate = false
+) {
   const data = await api.post<{ success: boolean } & Record<string, unknown>>(
     `${BASE}/batches/${batchId}/post-return-fee-journals`,
-    { dryRun },
+    { dryRun, skipCreditNoteGate },
     longOpts
   )
   return unwrap(data)

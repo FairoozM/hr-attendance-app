@@ -1221,6 +1221,7 @@ async function postReturnFeeJournalsForBatchId(batchId, options = {}) {
     batch,
     dryRun: options.dryRun !== false,
     postedBy: options.postedBy,
+    skipCreditNoteGate: options.skipCreditNoteGate === true,
   })
 }
 
