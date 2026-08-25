@@ -67,6 +67,7 @@ export type PreviewSummary = {
   preservedCells: number
   conflictCells: number
   missingCells: number
+  notApplicableCells?: number
   surplusListValueCount: number
   ignoredColumnCount: number
   additionalSlotColumnCount: number
@@ -122,6 +123,7 @@ export type InitialDraftPreview = {
   conflicts: Truncated<CellRecord>
   preservedIdentical: Truncated<CellRecord>
   missingValues: Truncated<CellRecord>
+  notApplicable?: Truncated<CellRecord>
   surplusListValues: Truncated<SurplusListValue>
   ignoredColumns: Truncated<ColumnRecord>
   additionalSlotColumns: Truncated<ColumnRecord>

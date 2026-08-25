@@ -126,7 +126,7 @@ describe('initial draft pipeline — populating blank cells', () => {
     assert.equal(cell('K', 8), '18/10 stainless steel pot.\nInduction ready.')
     assert.equal(cell('L', 8), 'Silver')
     assert.equal(cell('M', 8), '24 cm')
-    assert.equal(cell('O', 8), '1 Year')
+    assert.equal(cell('O', 8), '', 'warranty is never written')
     assert.equal(result.summary.matched, 1)
     assert.equal(result.summary.conflictCells, 0)
   })
@@ -222,15 +222,31 @@ describe('initial draft pipeline — never overwriting the seller', () => {
     assert.equal(cell('R', 8), 'Kilograms')
   })
 
-  it('fills only the first slot of an attribute that spans several columns', async () => {
+  it('never writes warranty fields, even when the catalog stores a Guarantee', async () => {
     const { result, cell } = await generate({
       dataRows: { 8: { A: 'LS-POT-24' } },
       catalog: { 'LS-POT-24': matched(catalogItem()) },
     })
 
-    assert.equal(cell('O', 8), '1 Year')
+    assert.equal(cell('O', 8), '', 'warranty description must stay blank')
     assert.equal(cell('P', 8), '', 'the second warranty slot must stay blank')
-    assert.ok(result.additionalSlotColumns.some((column) => column.column === 'P'))
+    const byColumn = new Map(result.neverWriteColumns.map((column) => [column.column, column.reason]))
+    assert.equal(byColumn.get('O'), 'warranty-never-write')
+    assert.equal(byColumn.get('P'), 'warranty-never-write')
+  })
+
+  it('preserves a seller-entered warranty without reporting a conflict', async () => {
+    const { result, cell } = await generate({
+      dataRows: { 8: { A: 'LS-POT-24', O: 'Seller warranty text' } },
+      catalog: { 'LS-POT-24': matched(catalogItem()) },
+    })
+
+    assert.equal(cell('O', 8), 'Seller warranty text')
+    assert.equal(
+      result.conflicts.filter((entry) => entry.column === 'O').length,
+      0,
+      'warranty is never-write, so no conflict is proposed'
+    )
   })
 })
 
@@ -269,6 +285,7 @@ describe('initial draft pipeline — columns that are never written', () => {
     assert.equal(neverWriteReason('item_type_keyword#1.value'), 'subtype-column')
     assert.equal(neverWriteReason('standard_price#1.value'), 'price-never-populated')
     assert.equal(neverWriteReason('fulfillment_availability#1.quantity'), 'quantity-never-populated')
+    assert.equal(neverWriteReason('warranty_description[marketplace_id=X]#1.value'), 'warranty-never-write')
     assert.equal(neverWriteReason('item_name[marketplace_id=X]#1.value'), null)
   })
 
@@ -688,7 +705,7 @@ describe('initial draft pipeline — SKU resolution', () => {
     const row = result.rows.find((entry) => entry.rowNumber === 9)
     assert.equal(row.status, 'unmatched')
     assert.equal(row.reason, 'not-in-catalog')
-    assert.deepEqual(row.counts, { populated: 0, preserved: 0, conflicts: 0, missing: 0 })
+    assert.deepEqual(row.counts, { populated: 0, preserved: 0, conflicts: 0, missing: 0, notApplicable: 0 })
     assert.equal(cell('G', 9), '')
     assert.equal(cell('A', 9), 'NOT-IN-CATALOG')
     assert.equal(result.summary.unmatched, 1)

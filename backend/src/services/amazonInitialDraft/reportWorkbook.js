@@ -65,6 +65,7 @@ function buildReportWorkbook(result, { filename, generatedAt = new Date(), catal
     ['Existing values preserved (identical)', s.preservedCells],
     ['Conflicts preserved (never overwritten)', s.conflictCells],
     ['Mapped cells left blank (no data)', s.missingCells],
+    ['Cells left untouched (not applicable / blacked out)', s.notApplicableCells || 0],
     ['Website features with no template column', s.surplusListValueCount || 0],
     ['Template columns with no universal mapping', s.ignoredColumnCount],
     ['Additional attribute slots left untouched', s.additionalSlotColumnCount],
@@ -99,6 +100,7 @@ function buildReportWorkbook(result, { filename, generatedAt = new Date(), catal
       { header: 'Preserved', key: 'preserved', width: 11 },
       { header: 'Conflicts', key: 'conflicts', width: 11 },
       { header: 'Missing', key: 'missing', width: 11 },
+      { header: 'Not applicable', key: 'notApplicable', width: 14 },
       { header: 'Duplicate SKU in upload', key: 'duplicate', width: 22 },
     ],
     result.rows
@@ -114,6 +116,7 @@ function buildReportWorkbook(result, { filename, generatedAt = new Date(), catal
         preserved: row.counts.preserved,
         conflicts: row.counts.conflicts,
         missing: row.counts.missing,
+        notApplicable: row.counts.notApplicable || 0,
         duplicate: row.duplicateSkuInUpload ? 'YES' : '',
       }))
   )
@@ -201,6 +204,21 @@ function buildReportWorkbook(result, { filename, generatedAt = new Date(), catal
       { header: 'Unusable stored value', key: 'rawValue', width: 54 },
     ],
     result.missingValues
+  )
+
+  addSheet(
+    workbook,
+    'Not applicable cells',
+    [
+      { header: 'Row', key: 'rowNumber', width: 8 },
+      { header: 'Seller SKU', key: 'sku', width: 26 },
+      { header: 'Col', key: 'column', width: 7 },
+      { header: 'Field', key: 'displayLabel', width: 28 },
+      { header: 'Technical header', key: 'technicalHeader', width: 66 },
+      { header: 'Why not written', key: 'reason', width: 34 },
+      { header: 'Existing value kept', key: 'existingValue', width: 40 },
+    ],
+    result.notApplicable || []
   )
 
   addSheet(

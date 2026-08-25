@@ -160,6 +160,7 @@ async function postPreview(req, res) {
       conflicts: truncate(result.conflicts),
       preservedIdentical: truncate(result.preservedIdentical),
       missingValues: truncate(result.missingValues),
+      notApplicable: truncate(result.notApplicable),
       surplusListValues: truncate(result.surplusListValues),
       ignoredColumns: truncate(result.ignoredColumns),
       additionalSlotColumns: truncate(result.additionalSlotColumns),

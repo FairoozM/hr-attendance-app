@@ -47,6 +47,13 @@ const NEVER_WRITE_PATTERNS = [
   { pattern: /price/i, reason: 'price-never-populated' },
   { pattern: /quantity/i, reason: 'quantity-never-populated' },
   { pattern: /contribution_sku|item_sku|seller_sku/i, reason: 'seller-sku-column' },
+  // Life Smile does not offer an explicit Amazon warranty. Website "guarantee" wording
+  // that appears inside a title or bullet is left alone; it must never become a warranty
+  // field. Every warranty-shaped header is therefore a hard never-write.
+  {
+    pattern: /warranty|guarantee_description|warranty_description|warranty_type|warranty_duration/i,
+    reason: 'warranty-never-write',
+  },
 ]
 
 function neverWriteReason(technicalHeader) {
@@ -54,12 +61,30 @@ function neverWriteReason(technicalHeader) {
   return match ? match.reason : null
 }
 
-function value(result, source, { numeric = false, constant = false } = {}) {
-  return { ok: true, value: result, numeric, source, constant }
+function value(result, source, { numeric = false, constant = false, preferredLabels = null } = {}) {
+  return {
+    ok: true,
+    value: result,
+    numeric,
+    source,
+    constant,
+    // When set, the generator must replace `value` with the workbook's exact accepted
+    // option that represents one of these labels before writing.
+    preferredLabels,
+  }
 }
 
 function missing(reason, detail) {
   return { ok: false, reason, detail: detail || null }
+}
+
+/**
+ * A listing default whose exact stored string lives in the workbook's validation list.
+ * The placeholder `value` is only a semantic hint; the generator writes the workbook's
+ * own spelling after confirming it against the dropdown.
+ */
+function validatedDefault(preferredLabels, source) {
+  return value(preferredLabels[0], source, { constant: true, preferredLabels })
 }
 
 /**
@@ -125,10 +150,34 @@ function resolveFieldsForItem(item) {
     size ? value(size, item.matchSource === 'variant' ? 'product_variants.size' : 'products.size') : missing('no-database-value')
   )
 
-  const guarantee = readSpec(item.specs, 'Guarantee')
+  // --- Universal listing defaults (validated against the workbook) ----------
+  // These are marketplace-level constants for Life Smile UAE, not catalog lookups
+  // and not subtype branches. The generator confirms each against the template's
+  // own dropdown before writing; see validationOptions.js.
   setField(
-    'warranty_description.value',
-    guarantee ? value(guarantee, 'en_specifications.Guarantee') : missing('no-database-value')
+    'amzn1.volt.ca.product_id_type',
+    validatedDefault(['GTIN'], 'constant:product-identifier-type-gtin')
+  )
+  setField(
+    'supplier_declared_dg_hz_regulation.value',
+    validatedDefault(['Not Applicable'], 'constant:dangerous-goods-not-applicable')
+  )
+  setField('condition_type.value', validatedDefault(['New'], 'constant:item-condition-new'))
+  setField(
+    'fulfillment_availability.fulfillment_channel_code',
+    validatedDefault(
+      ['Fulfilment by Amazon', 'Fulfillment by Amazon', 'AMAZON_NA', 'AMAZON_EU'],
+      'constant:fulfillment-by-amazon'
+    )
+  )
+  setField('country_of_origin.value', validatedDefault(['China', 'CN'], 'constant:country-of-origin-china'))
+  setField(
+    'batteries_required.value',
+    validatedDefault(['No', 'False', '0'], 'constant:batteries-required-no')
+  )
+  setField(
+    'contains_liquid_contents.value',
+    validatedDefault(['No', 'False', '0'], 'constant:contains-liquid-no')
   )
 
   const capacityRaw = readSpec(item.specs, 'Capacity')
@@ -207,7 +256,13 @@ const MAPPED_KEYS = new Set([
   'manufacturer.value',
   'color.value',
   'size.value',
-  'warranty_description.value',
+  'amzn1.volt.ca.product_id_type',
+  'supplier_declared_dg_hz_regulation.value',
+  'condition_type.value',
+  'fulfillment_availability.fulfillment_channel_code',
+  'country_of_origin.value',
+  'batteries_required.value',
+  'contains_liquid_contents.value',
   'capacity.value',
   'capacity.unit',
   'number_of_items.value',

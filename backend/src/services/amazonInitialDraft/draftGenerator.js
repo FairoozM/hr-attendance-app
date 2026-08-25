@@ -14,6 +14,14 @@ const { openTemplateWorkbook } = require('./amazonTemplateWorkbook')
 const { LIST_KEYS, MAPPED_KEYS, REPORT_ONLY_NOTES, neverWriteReason, resolveFieldsForItem } = require('./fieldMapping')
 const { applyCellWrites } = require('./worksheetXml')
 const { cleanText } = require('./specParsers')
+const {
+  assessCellApplicability,
+  parseConditionalFormatting,
+  parseDefinedNames,
+  parseSheetProtection,
+  parseStyles,
+} = require('./cellApplicability')
+const { buildValidationContext, pickAcceptedOption, resolveValidationOptions } = require('./validationOptions')
 
 const DRAFT_NOTICE = 'Initial Draft — requires content enhancement and final Amazon validation before upload.'
 
@@ -51,9 +59,8 @@ const PAIRED_VALUE_KEY = new Map([
 
 /**
  * Groups the workbook's columns by normalised key so multi-slot attributes can be
- * recognised. `warranty_description` occupies HR–HV and `material` AK–AO in the real
- * template. Only the first slot of an attribute is filled, except for the numbered runs
- * in `LIST_KEYS` such as `bullet_point`, where each slot takes the next list entry.
+ * recognised. Only the first slot of an attribute is filled, except for the numbered
+ * runs in `LIST_KEYS` such as `bullet_point`, where each slot takes the next list entry.
  */
 function groupColumnsByKey(columns) {
   const grouped = new Map()
@@ -104,6 +111,16 @@ async function runInitialDraftPipeline({ buffer, filename = 'template.xlsm', res
   const { writable, neverWrite } = classifyColumns(workbook)
   const columnsByKey = groupColumnsByKey(writable)
 
+  const stylesEntry = opc.findEntry(workbook.package, 'xl/styles.xml')
+  const styles = parseStyles(stylesEntry ? opc.readEntryContent(stylesEntry).toString('utf8') : '')
+  const sheetProtection = parseSheetProtection(workbook.sheetXml)
+  const conditionalFormatting = parseConditionalFormatting(workbook.sheetXml)
+  const workbookXmlEntry = opc.findEntry(workbook.package, 'xl/workbook.xml')
+  const namedFormulas = parseDefinedNames(
+    workbookXmlEntry ? opc.readEntryContent(workbookXmlEntry).toString('utf8') : ''
+  )
+  const validationContext = buildValidationContext(workbook)
+
   // Every distinct SKU in the sheet, resolved in a single round trip.
   const skusInOrder = []
   const skuRowCount = new Map()
@@ -122,6 +139,7 @@ async function runInitialDraftPipeline({ buffer, filename = 'template.xlsm', res
   const conflicts = []
   const preservedIdentical = []
   const missingValues = []
+  const notApplicable = []
   const surplusListValues = []
 
   for (const row of workbook.dataRows) {
@@ -159,6 +177,11 @@ async function runInitialDraftPipeline({ buffer, filename = 'template.xlsm', res
 
     const fieldValues = resolveFieldsForItem(resolution.item)
 
+    const cellValueAt = (columnIndex) => {
+      const cell = row.cells.get(columnIndex)
+      return cell ? String(cell.value || '').trim() : ''
+    }
+
     // Decide every cell first, so paired value/unit cells can be reconciled before
     // anything is written.
     const decisions = []
@@ -166,14 +189,114 @@ async function runInitialDraftPipeline({ buffer, filename = 'template.xlsm', res
       const existingCell = row.cells.get(target.column)
       const existingValue = existingCell ? cleanText(existingCell.value) : ''
 
+      const applicability = assessCellApplicability({
+        styles,
+        sheetProtection,
+        conditionalFormatting,
+        namedFormulas,
+        column: target,
+        rowNumber: row.rowNumber,
+        existingCell,
+        cellValueAt,
+      })
+
+      if (!applicability.applicable) {
+        decisions.push({
+          normalizedKey,
+          target,
+          existingValue,
+          resolvedField: {
+            ok: false,
+            reason: 'not-applicable',
+            detail: applicability.reason,
+          },
+          outcome: 'not-applicable',
+        })
+        return
+      }
+
+      let field = resolvedField
+      if (field.ok && Array.isArray(field.preferredLabels) && field.preferredLabels.length) {
+        const validation = resolveValidationOptions(validationContext, target, row)
+        if (!validation.options) {
+          const notApplicableReason =
+            validation.reason === 'validation-options-unresolved' ||
+            validation.reason === 'product-type-required-for-validation'
+          decisions.push({
+            normalizedKey,
+            target,
+            existingValue,
+            resolvedField: {
+              ok: false,
+              reason: notApplicableReason ? 'not-applicable' : validation.reason || 'validation-options-unresolved',
+              detail: validation.reason || validation.source,
+            },
+            outcome: notApplicableReason ? 'not-applicable' : 'missing',
+          })
+          return
+        }
+        const accepted = pickAcceptedOption(validation.options, field.preferredLabels)
+        if (!accepted) {
+          decisions.push({
+            normalizedKey,
+            target,
+            existingValue,
+            resolvedField: {
+              ok: false,
+              reason: 'accepted-option-not-in-workbook',
+              detail: field.preferredLabels.join(' | '),
+            },
+            outcome: 'missing',
+          })
+          return
+        }
+        field = { ...field, value: accepted }
+      } else if (field.ok) {
+        // Catalog-derived values: when the cell has a list validation, confirm the
+        // proposed string is one of the accepted options before writing it.
+        const validation = resolveValidationOptions(validationContext, target, row)
+        if (validation.reason !== 'no-list-validation') {
+          if (!validation.options) {
+            decisions.push({
+              normalizedKey,
+              target,
+              existingValue,
+              resolvedField: {
+                ok: false,
+                reason: validation.reason || 'validation-options-unresolved',
+                detail: validation.source,
+              },
+              outcome: 'missing',
+            })
+            return
+          }
+          const accepted = pickAcceptedOption(validation.options, [String(field.value)])
+          if (!accepted) {
+            decisions.push({
+              normalizedKey,
+              target,
+              existingValue,
+              resolvedField: {
+                ok: false,
+                reason: 'value-not-in-workbook-validation',
+                detail: String(field.value),
+              },
+              outcome: 'missing',
+            })
+            return
+          }
+          field = { ...field, value: accepted }
+        }
+      }
+
       let outcome
-      if (!resolvedField.ok) outcome = 'missing'
+      if (!field.ok) outcome = 'missing'
       else if (existingCell && existingCell.hasFormula) outcome = 'formula'
       else if (existingValue === '') outcome = 'populate'
-      else if (isSameValue(existingValue, resolvedField.value)) outcome = 'identical'
+      else if (isSameValue(existingValue, field.value)) outcome = 'identical'
       else outcome = 'conflict'
 
-      decisions.push({ normalizedKey, target, existingValue, resolvedField, outcome })
+      decisions.push({ normalizedKey, target, existingValue, resolvedField: field, outcome })
     }
 
     for (const [normalizedKey, slots] of columnsByKey) {
@@ -234,7 +357,14 @@ async function runInitialDraftPipeline({ buffer, filename = 'template.xlsm', res
         group: target.groupLabel,
       }
 
-      if (outcome === 'missing') {
+      if (outcome === 'not-applicable') {
+        notApplicable.push({
+          ...record,
+          reason: resolvedField.detail || resolvedField.reason || 'not-applicable',
+          existingValue,
+        })
+        rowRecord.counts.notApplicable += 1
+      } else if (outcome === 'missing') {
         missingValues.push({ ...record, reason: resolvedField.reason, rawValue: resolvedField.detail })
         rowRecord.counts.missing += 1
       } else if (outcome === 'formula') {
@@ -316,6 +446,7 @@ async function runInitialDraftPipeline({ buffer, filename = 'template.xlsm', res
     preservedCells: preservedIdentical.length,
     conflictCells: conflicts.length,
     missingCells: missingValues.length,
+    notApplicableCells: notApplicable.length,
     surplusListValueCount: surplusListValues.length,
     ignoredColumnCount: ignoredColumns.length,
     additionalSlotColumnCount: additionalSlotColumns.length,
@@ -331,6 +462,7 @@ async function runInitialDraftPipeline({ buffer, filename = 'template.xlsm', res
     conflicts,
     preservedIdentical,
     missingValues,
+    notApplicable,
     surplusListValues,
     ignoredColumns,
     additionalSlotColumns,
@@ -347,7 +479,7 @@ async function runInitialDraftPipeline({ buffer, filename = 'template.xlsm', res
 }
 
 function emptyCounts() {
-  return { populated: 0, preserved: 0, conflicts: 0, missing: 0 }
+  return { populated: 0, preserved: 0, conflicts: 0, missing: 0, notApplicable: 0 }
 }
 
 /**
