@@ -989,6 +989,18 @@ async function clearPostingForPaymentType(batchId, paymentType) {
   )
 }
 
+/** Return fee journals only — leaves the customer payment, fee journals and CN refunds intact. */
+async function clearReturnFeePostingsForBatch(batchId) {
+  await ensureNoonPaymentClearingTables()
+  const result = await query(
+    `DELETE FROM noon_payment_clearing_postings
+     WHERE batch_id = $1 AND posting_group_key LIKE 'return_fee_%'
+     RETURNING *`,
+    [batchId]
+  )
+  return result.rows.map(mapPosting)
+}
+
 async function clearPostingByGroupKey(batchId, postingGroupKey) {
   await ensureNoonPaymentClearingTables()
   await query(
@@ -1140,6 +1152,7 @@ module.exports = {
   listPostingsForBatch,
   clearPostingsForBatch,
   clearPostingForPaymentType,
+  clearReturnFeePostingsForBatch,
   clearPostingByGroupKey,
   insertAudit,
   withBatchPostingLock,

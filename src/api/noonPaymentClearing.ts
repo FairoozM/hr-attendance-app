@@ -824,6 +824,15 @@ export async function postNoonReturnFeeJournals(
   return unwrap(data)
 }
 
+export async function resetNoonReturnFeeJournals(batchId: string | number, reason?: string) {
+  const data = await api.post<{
+    success: boolean
+    clearedCount?: number
+    clearedJournalNumbers?: string[]
+  }>(`${BASE}/batches/${batchId}/reset-return-fee-journals`, { reason }, longOpts)
+  return unwrap(data)
+}
+
 export async function forceRepostNoonPaymentClearing(batchId: string | number, reason: string) {
   const started = await api.post<{
     success: boolean

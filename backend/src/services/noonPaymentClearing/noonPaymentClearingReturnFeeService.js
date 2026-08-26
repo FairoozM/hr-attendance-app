@@ -21,6 +21,17 @@ function returnFeeAccounts(cfg) {
   }
 }
 
+function journalItem(account, debitOrCredit, amount, description) {
+  return {
+    debitOrCredit,
+    accountId: account?.accountId,
+    accountName: account?.accountName,
+    accountCode: account?.accountCode,
+    amount,
+    description,
+  }
+}
+
 function buildSettlementReversalLine({
   row,
   metadata,
@@ -31,36 +42,59 @@ function buildSettlementReversalLine({
   net,
   vat,
   creditAccountKey,
+  direction = 'reversal',
 }) {
   const itemOrderId = breakdown.itemOrderId
   const settlementReference = buildSettlementReference(metadata)
-  const entry = buildEntryReference(settlementReference, `return_${feeKind}_settlement`, itemOrderId)
-  const normalizedFeeType =
-    feeKind === 'commission' ? 'RETURN_COMMISSION_SETTLEMENT' : 'RETURN_FULFILLMENT_SETTLEMENT'
-  const creditAccount = accounts[creditAccountKey]
+  const isCharge = direction === 'charge'
+  const feeLabel = isCharge ? `${feeKind}_charge` : feeKind
+  const entry = buildEntryReference(settlementReference, `return_${feeLabel}_settlement`, itemOrderId)
+  const normalizedFeeType = isCharge
+    ? 'RETURN_FULFILLMENT_CHARGE'
+    : feeKind === 'commission'
+      ? 'RETURN_COMMISSION_SETTLEMENT'
+      : 'RETURN_FULFILLMENT_SETTLEMENT'
+  const unclearedAccount = accounts[creditAccountKey]
+  const description = isCharge
+    ? `Noon return fee charged | ${itemOrderId} | ${clean(metadata.referenceNr)} | Gross ${gross}`
+    : feeKind === 'commission'
+      ? buildReturnDescription(row, metadata, 'commission')
+      : `Noon fulfillment reversal | ${itemOrderId} | ${clean(metadata.referenceNr)} | Gross ${gross}`
+
+  // A charge is the mirror of a reversal: Noon kept the fee, so undeposited drops.
+  const debitAccount = isCharge ? unclearedAccount : accounts.UNDEPOSITED
+  const creditAccount = isCharge ? accounts.UNDEPOSITED : unclearedAccount
+
   return {
     phase: 'settlement',
-    key: `return-${feeKind}-settlement-${itemOrderId}`,
-    postingGroupKey: `return_fee_settlement:${feeKind}:${itemOrderId}`,
+    direction,
+    key: `return-${feeLabel}-settlement-${itemOrderId}`,
+    postingGroupKey: `return_fee_settlement:${feeLabel}:${itemOrderId}`,
     rowNumber: row.rowNumber,
     itemOrderId,
     parentOrderId: breakdown.parentOrderId,
-    feeType: `return_${feeKind}_settlement`,
+    feeType: `return_${feeLabel}_settlement`,
     normalizedFeeType,
     grossAmount: gross,
     netAmount: net,
     vatAmount: vat,
-    undepositedImpact: gross,
+    undepositedImpact: isCharge ? round2(-gross) : gross,
     referenceNumber: entry.referenceNumber,
-    description:
-      feeKind === 'commission'
-        ? buildReturnDescription(row, metadata, 'commission')
-        : `Noon fulfillment reversal | ${itemOrderId} | ${clean(metadata.referenceNr)} | Gross ${gross}`,
+    description,
     status: 'ready',
-    debit: { ...accounts.UNDEPOSITED, amount: gross },
-    creditCommission: creditAccountKey === 'COMMISSION' ? { ...creditAccount, amount: gross } : null,
-    creditShipping: creditAccountKey === 'SHIPPING' ? { ...creditAccount, amount: gross } : null,
+    debit: { ...debitAccount, amount: gross },
+    creditUndeposited: isCharge ? { ...accounts.UNDEPOSITED, amount: gross } : null,
+    creditCommission:
+      !isCharge && creditAccountKey === 'COMMISSION' ? { ...unclearedAccount, amount: gross } : null,
+    creditShipping:
+      !isCharge && creditAccountKey === 'SHIPPING' ? { ...unclearedAccount, amount: gross } : null,
     creditVat: null,
+    primaryDebitAccount: debitAccount,
+    primaryCreditAccount: creditAccount,
+    journalItems: [
+      journalItem(debitAccount, 'debit', gross, description),
+      journalItem(creditAccount, 'credit', gross, description),
+    ],
   }
 }
 
@@ -75,38 +109,71 @@ function buildExpenseReversalLine({
   vat,
   unclearedAccountKey,
   expenseAccountKey,
+  direction = 'reversal',
 }) {
   const itemOrderId = breakdown.itemOrderId
   const settlementReference = buildSettlementReference(metadata)
-  const entry = buildEntryReference(settlementReference, `return_${feeKind}_expense_reversal`, itemOrderId)
-  const normalizedFeeType =
-    feeKind === 'commission' ? 'RETURN_COMMISSION_EXPENSE_REVERSAL' : 'RETURN_FULFILLMENT_EXPENSE_REVERSAL'
+  const isCharge = direction === 'charge'
+  const feeLabel = isCharge ? `${feeKind}_charge` : feeKind
+  const entry = buildEntryReference(settlementReference, `return_${feeLabel}_expense_reversal`, itemOrderId)
+  const normalizedFeeType = isCharge
+    ? 'RETURN_FULFILLMENT_EXPENSE'
+    : feeKind === 'commission'
+      ? 'RETURN_COMMISSION_EXPENSE_REVERSAL'
+      : 'RETURN_FULFILLMENT_EXPENSE_REVERSAL'
+  const unclearedAccount = accounts[unclearedAccountKey]
+  const expenseAccount = accounts[expenseAccountKey]
+  const description = isCharge
+    ? `Noon return fee expense | ${itemOrderId} | ${clean(metadata.referenceNr)} | Gross ${gross}`
+    : feeKind === 'commission'
+      ? `Noon commission expense reversal | ${itemOrderId} | ${clean(metadata.referenceNr)} | Gross ${gross}`
+      : `Noon shipping expense reversal | ${itemOrderId} | ${clean(metadata.referenceNr)} | Gross ${gross}`
+  const vatDescription = isCharge
+    ? `Noon return fee VAT | ${itemOrderId} | ${clean(metadata.referenceNr)} | Gross ${gross}`
+    : feeKind === 'commission'
+      ? buildReturnDescription(row, metadata, 'vat')
+      : `Noon VAT reversal | ${itemOrderId} | ${clean(metadata.referenceNr)} | Gross ${gross}`
+  const hasVat = vat >= TOLERANCE
+
+  const journalItems = isCharge
+    ? [
+        journalItem(expenseAccount, 'debit', hasVat ? net : gross, description),
+        ...(hasVat ? [journalItem(accounts.INPUT_VAT, 'debit', vat, vatDescription)] : []),
+        journalItem(unclearedAccount, 'credit', gross, description),
+      ]
+    : [
+        journalItem(unclearedAccount, 'debit', gross, description),
+        journalItem(expenseAccount, 'credit', hasVat ? net : gross, description),
+        ...(hasVat ? [journalItem(accounts.INPUT_VAT, 'credit', vat, vatDescription)] : []),
+      ]
+
   return {
     phase: 'expense_reversal',
-    key: `return-${feeKind}-expense-${itemOrderId}`,
-    postingGroupKey: `return_fee_expense_reversal:${feeKind}:${itemOrderId}`,
+    direction,
+    key: `return-${feeLabel}-expense-${itemOrderId}`,
+    postingGroupKey: `return_fee_expense_reversal:${feeLabel}:${itemOrderId}`,
     rowNumber: row.rowNumber,
     itemOrderId,
     parentOrderId: breakdown.parentOrderId,
-    feeType: `return_${feeKind}_expense_reversal`,
+    feeType: `return_${feeLabel}_expense_reversal`,
     normalizedFeeType,
     grossAmount: gross,
     netAmount: net,
     vatAmount: vat,
     undepositedImpact: 0,
     referenceNumber: entry.referenceNumber,
-    description:
-      feeKind === 'commission'
-        ? `Noon commission expense reversal | ${itemOrderId} | ${clean(metadata.referenceNr)} | Gross ${gross}`
-        : `Noon shipping expense reversal | ${itemOrderId} | ${clean(metadata.referenceNr)} | Gross ${gross}`,
-    vatDescription:
-      feeKind === 'commission'
-        ? buildReturnDescription(row, metadata, 'vat')
-        : `Noon VAT reversal | ${itemOrderId} | ${clean(metadata.referenceNr)} | Gross ${gross}`,
+    description,
+    vatDescription,
     status: 'ready',
-    debitUncleared: { ...accounts[unclearedAccountKey], amount: gross },
-    creditExpense: { ...accounts[expenseAccountKey], amount: net },
-    creditVat: vat >= TOLERANCE ? { ...accounts.INPUT_VAT, amount: vat } : null,
+    debitUncleared: isCharge ? null : { ...unclearedAccount, amount: gross },
+    creditUncleared: isCharge ? { ...unclearedAccount, amount: gross } : null,
+    debitExpense: isCharge ? { ...expenseAccount, amount: hasVat ? net : gross } : null,
+    debitVat: isCharge && hasVat ? { ...accounts.INPUT_VAT, amount: vat } : null,
+    creditExpense: isCharge ? null : { ...expenseAccount, amount: hasVat ? net : gross },
+    creditVat: !isCharge && hasVat ? { ...accounts.INPUT_VAT, amount: vat } : null,
+    primaryDebitAccount: isCharge ? expenseAccount : unclearedAccount,
+    primaryCreditAccount: isCharge ? unclearedAccount : expenseAccount,
+    journalItems,
   }
 }
 
@@ -175,60 +242,58 @@ function buildReturnFeeJournalLinesForRow(row, batch, metadata = {}, cfg = null)
     )
   }
 
+  // Noon charged a return fee (return shipping, other order fees) instead of
+  // giving one back. Same pair of journals, mirrored, so 1068 still nets to zero.
+  if (breakdown.fulfillmentChargeGross >= TOLERANCE) {
+    const gross = breakdown.fulfillmentChargeGross
+    lines.push(
+      buildSettlementReversalLine({
+        row,
+        metadata: meta,
+        accounts,
+        breakdown,
+        feeKind: 'fulfillment',
+        gross,
+        net: breakdown.fulfillmentChargeNet,
+        vat: breakdown.fulfillmentChargeVat,
+        creditAccountKey: 'SHIPPING',
+        direction: 'charge',
+      }),
+      buildExpenseReversalLine({
+        row,
+        metadata: meta,
+        accounts,
+        breakdown,
+        feeKind: 'fulfillment',
+        gross,
+        net: breakdown.fulfillmentChargeNet,
+        vat: breakdown.fulfillmentChargeVat,
+        unclearedAccountKey: 'SHIPPING',
+        expenseAccountKey: 'SHIPPING_EXPENSE',
+        direction: 'charge',
+      })
+    )
+  }
+
   return { breakdown, lines }
 }
 
-function appendJournalLineToZohoItems(zohoLineItems, line) {
-  if (line.phase === 'expense_reversal') {
-    zohoLineItems.push({
-      account_id: line.debitUncleared.accountId,
-      account_name: line.debitUncleared.accountName,
-      debit_or_credit: 'debit',
-      amount: line.debitUncleared.amount,
-      description: line.description,
-    })
-    zohoLineItems.push({
-      account_id: line.creditExpense.accountId,
-      account_name: line.creditExpense.accountName,
-      debit_or_credit: 'credit',
-      amount: line.creditExpense.amount,
-      description: line.description,
-    })
-    if (line.creditVat) {
-      zohoLineItems.push({
-        account_id: line.creditVat.accountId,
-        account_name: line.creditVat.accountName,
-        debit_or_credit: 'credit',
-        amount: line.creditVat.amount,
-        description: line.vatDescription || line.description,
-      })
-    }
-    return
-  }
+/**
+ * Canonical debit/credit items for a return fee journal line. Preview and posting
+ * both read this so they cannot disagree about direction.
+ */
+function returnFeeLineJournalItems(line) {
+  return Array.isArray(line?.journalItems) ? line.journalItems : []
+}
 
-  zohoLineItems.push({
-    account_id: line.debit.accountId,
-    account_name: line.debit.accountName,
-    debit_or_credit: 'debit',
-    amount: line.debit.amount,
-    description: line.description,
-  })
-  if (line.creditCommission) {
+function appendJournalLineToZohoItems(zohoLineItems, line) {
+  for (const item of returnFeeLineJournalItems(line)) {
     zohoLineItems.push({
-      account_id: line.creditCommission.accountId,
-      account_name: line.creditCommission.accountName,
-      debit_or_credit: 'credit',
-      amount: line.creditCommission.amount,
-      description: line.description,
-    })
-  }
-  if (line.creditShipping) {
-    zohoLineItems.push({
-      account_id: line.creditShipping.accountId,
-      account_name: line.creditShipping.accountName,
-      debit_or_credit: 'credit',
-      amount: line.creditShipping.amount,
-      description: line.description,
+      account_id: item.accountId,
+      account_name: item.accountName,
+      debit_or_credit: item.debitOrCredit,
+      amount: item.amount,
+      description: item.description,
     })
   }
 }
@@ -292,28 +357,38 @@ function summarizeReturnFeeReversals(allRows = []) {
       commissionReversalNet: b.commissionReversalNet,
       commissionReversalVat: b.commissionReversalVat,
       fulfillmentReversalGross: b.fulfillmentReversalGross,
+      fulfillmentChargeGross: b.fulfillmentChargeGross,
+      returnFeeResidual: b.returnFeeResidual,
       netSettlementEffect: b.netSettlementEffect,
     }
   })
 }
 
+/** Signed movement on one GL account for a line, debits positive. */
+function accountMovement(line, accountCode) {
+  const code = clean(accountCode)
+  let total = 0
+  for (const item of returnFeeLineJournalItems(line)) {
+    if (clean(item.accountCode) !== code) continue
+    total += item.debitOrCredit === 'debit' ? num(item.amount) : -num(item.amount)
+  }
+  return round2(total)
+}
+
 /**
  * Shared ledger simulation for uncleared GL after sale reclass + Phase 3 return clearing.
+ * Reads the posted debit/credit items so a charge (mirrored direction) proves out too.
  */
 function proveUnclearedAccountNetsToZero({
   accountCode,
   saleGrossAmount,
   settlementLine,
   expenseLine,
-  settlementCreditAccessor,
-  expenseDebitAccessor,
-  expenseCreditField,
-  vatCreditField,
   assumeSaleReclassApplied = true,
 }) {
   const saleGross = round2(Math.abs(num(saleGrossAmount)))
-  const returnCredit = round2(num(settlementCreditAccessor(settlementLine)))
-  const expenseDebit = round2(num(expenseDebitAccessor(expenseLine)))
+  const returnCredit = round2(-accountMovement(settlementLine, accountCode))
+  const expenseDebit = accountMovement(expenseLine, accountCode)
   const startingBalance = assumeSaleReclassApplied ? 0 : saleGross
   const balanceAfterSettlement = round2(startingBalance - returnCredit)
   const balanceAfterReturn = round2(balanceAfterSettlement + expenseDebit)
@@ -322,13 +397,15 @@ function proveUnclearedAccountNetsToZero({
     saleGrossAmount: saleGross,
     returnCredit,
     expenseDebit,
-    expenseCredit: round2(num(expenseLine?.[expenseCreditField]?.amount)),
-    expenseCreditVat: round2(num(expenseLine?.[vatCreditField]?.amount)),
+    expenseCredit: round2(
+      num(expenseLine?.creditExpense?.amount ?? expenseLine?.debitExpense?.amount)
+    ),
+    expenseCreditVat: round2(num(expenseLine?.creditVat?.amount ?? expenseLine?.debitVat?.amount)),
     startingBalance,
     balanceAfterSettlement,
     balanceAfterReturn,
     returnCreditMatchesSaleGross:
-      saleGross < TOLERANCE || Math.abs(returnCredit - saleGross) < TOLERANCE,
+      saleGross < TOLERANCE || Math.abs(Math.abs(returnCredit) - saleGross) < TOLERANCE,
     netsToZero: Math.abs(balanceAfterReturn) < TOLERANCE,
     settlementLine,
     expenseLine,
@@ -352,10 +429,6 @@ function proveUnclearedCommission1067NetsToZero(saleReferralFee, returnRow, batc
     saleGrossAmount: saleReferralFee,
     settlementLine,
     expenseLine,
-    settlementCreditAccessor: (line) => line?.creditCommission?.amount,
-    expenseDebitAccessor: (line) => line?.debitUncleared?.amount,
-    expenseCreditField: 'creditExpense',
-    vatCreditField: 'creditVat',
     assumeSaleReclassApplied: options.assumeSaleReclassApplied !== false,
   })
   return {
@@ -382,20 +455,20 @@ function proveUnclearedCommission1067NetsToZero(saleReferralFee, returnRow, batc
 function proveUnclearedShipping1068NetsToZero(saleFulfillmentFee, returnRow, batch = {}, options = {}) {
   const plan = buildReturnFeePlan(batch, [returnRow])
   const settlementLine = (plan.settlementJournalLines || []).find(
-    (line) => line.normalizedFeeType === 'RETURN_FULFILLMENT_SETTLEMENT'
+    (line) =>
+      line.normalizedFeeType === 'RETURN_FULFILLMENT_SETTLEMENT' ||
+      line.normalizedFeeType === 'RETURN_FULFILLMENT_CHARGE'
   )
   const expenseLine = (plan.expenseReversalJournalLines || []).find(
-    (line) => line.normalizedFeeType === 'RETURN_FULFILLMENT_EXPENSE_REVERSAL'
+    (line) =>
+      line.normalizedFeeType === 'RETURN_FULFILLMENT_EXPENSE_REVERSAL' ||
+      line.normalizedFeeType === 'RETURN_FULFILLMENT_EXPENSE'
   )
   const proof = proveUnclearedAccountNetsToZero({
     accountCode: '1068',
     saleGrossAmount: saleFulfillmentFee,
     settlementLine,
     expenseLine,
-    settlementCreditAccessor: (line) => line?.creditShipping?.amount,
-    expenseDebitAccessor: (line) => line?.debitUncleared?.amount,
-    expenseCreditField: 'creditExpense',
-    vatCreditField: 'creditVat',
     assumeSaleReclassApplied: options.assumeSaleReclassApplied !== false,
   })
   return {
@@ -437,11 +510,16 @@ function proveUnclearedReturnAccountsNetToZero(batch, allRows = null, options = 
         ...proveUnclearedCommission1067NetsToZero(breakdown.commissionReversalGross, row, batch, options),
       })
     }
-    if (breakdown.fulfillmentReversalGross >= TOLERANCE) {
+    const shippingGross =
+      breakdown.fulfillmentReversalGross >= TOLERANCE
+        ? breakdown.fulfillmentReversalGross
+        : breakdown.fulfillmentChargeGross
+    if (shippingGross >= TOLERANCE) {
       shippingProofs.push({
         itemOrderId: breakdown.itemOrderId,
-        grossAmount: breakdown.fulfillmentReversalGross,
-        ...proveUnclearedShipping1068NetsToZero(breakdown.fulfillmentReversalGross, row, batch, options),
+        grossAmount: shippingGross,
+        direction: breakdown.fulfillmentReversalGross >= TOLERANCE ? 'reversal' : 'charge',
+        ...proveUnclearedShipping1068NetsToZero(shippingGross, row, batch, options),
       })
     }
   }
@@ -470,6 +548,7 @@ function proveUnclearedReturnAccountsNetToZero(batch, allRows = null, options = 
 
 module.exports = {
   buildReturnFeeJournalLinesForRow,
+  returnFeeLineJournalItems,
   buildReturnFeePlan,
   summarizeReturnFeeReversals,
   proveUnclearedCommission1067NetsToZero,

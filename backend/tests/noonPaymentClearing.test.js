@@ -2843,9 +2843,11 @@ describe('Noon cross-week product returns (PS-11752-AE20260729 row 16)', () => {
       rowClass: ROW_CLASS.ORDER_ADJUSTMENT,
       netProceed: -10,
       referralFee: 0,
-      fulfillmentFee: -5.25,
+      // Noon handed the fulfilment fee back, so the column is positive and
+      // Total ties out to the component sum, exactly as the statement exports it.
+      fulfillmentFee: 5.25,
       shippingCharges: 0,
-      total: -5.25,
+      total: -4.75,
     }
     const [row] = reclassifyReturnRows([fulfillmentReturnRow])
     const batch = {
@@ -2926,9 +2928,11 @@ describe('Noon cross-week product returns (PS-11752-AE20260729 row 16)', () => {
       rowClass: ROW_CLASS.ORDER_ADJUSTMENT,
       netProceed: -10,
       referralFee: 0,
-      fulfillmentFee: -5.25,
+      // Noon handed the fulfilment fee back, so the column is positive and
+      // Total ties out to the component sum, exactly as the statement exports it.
+      fulfillmentFee: 5.25,
       shippingCharges: 0,
-      total: -5.25,
+      total: -4.75,
     }
     const [returnClassified] = reclassifyReturnRows([fulfillmentReturnRow])
     const batchCtx = {
@@ -2971,9 +2975,11 @@ describe('Noon cross-week product returns (PS-11752-AE20260729 row 16)', () => {
       rowClass: ROW_CLASS.ORDER_ADJUSTMENT,
       netProceed: -10,
       referralFee: 0,
-      fulfillmentFee: -5.25,
+      // Noon handed the fulfilment fee back, so the column is positive and
+      // Total ties out to the component sum, exactly as the statement exports it.
+      fulfillmentFee: 5.25,
       shippingCharges: 0,
-      total: -5.25,
+      total: -4.75,
     }
     const [row] = reclassifyReturnRows([fulfillmentReturnRow])
     const batch = {
@@ -3090,6 +3096,137 @@ describe('Noon return fulfillment 1066 undeposited recon (PS-11752-AE20260527)',
     assert.equal(row51.planned1066Contribution, -591.18)
     assert.equal(row51.returnFulfillment1066, -15.75)
     assert.equal(row51.delta, 0)
+  })
+})
+
+describe('Noon return fees charged by Noon (PS-11752-AE20260527)', () => {
+  const {
+    buildReturnFeePlan: buildPlan,
+    proveUnclearedReturnAccountsNetToZero: proveUncleared,
+  } = require('../src/services/noonPaymentClearing/noonPaymentClearingReturnFeeService')
+  const {
+    buildNoonReturnFeeBreakdown: breakdownOf,
+  } = require('../src/services/noonPaymentClearing/noonPaymentClearingReturnService')
+
+  // Real statement shape: the fee Noon charged sits in "Other Order Fees" on two
+  // rows and in "Fulfilment & Logistics" on the third.
+  const returnRows = [
+    { rowNumber: 20, itemOrderId: 'NAEI50031648956-1', netProceed: -133, referralFee: 20.95, total: -112.05 },
+    { rowNumber: 21, itemOrderId: 'NAEI50031648956-2', netProceed: -379, referralFee: 59.69, total: -319.31 },
+    { rowNumber: 51, itemOrderId: 'NAEI50038787447-2', netProceed: -683, referralFee: 107.57, otherOrderFees: -15.75, total: -591.18 },
+    { rowNumber: 66, itemOrderId: 'NAEI50061425179-1', netProceed: -168, referralFee: 26.46, otherOrderFees: -5.29, total: -146.83 },
+    { rowNumber: 77, itemOrderId: 'NAEI50082661829-1', netProceed: -191, referralFee: 30.08, fulfillmentFee: -15.75, total: -176.67 },
+  ].map((row) => ({
+    parentOrderId: row.itemOrderId.split('-')[0],
+    transactionType: 'order_update',
+    rowClass: ROW_CLASS.ORDER_ADJUSTMENT,
+    fulfillmentFee: 0,
+    shippingCharges: 0,
+    otherOrderFees: 0,
+    ...row,
+  }))
+
+  const batch = {
+    batchId: 1,
+    allRows: returnRows,
+    reportSnapshot: { referenceNr: 'PS-11752-AE20260527' },
+    matchedReturns: returnRows.map((row) => ({ itemOrderId: row.itemOrderId, status: 'matched' })),
+  }
+
+  function settlementFor(plan, itemOrderId, direction) {
+    return (plan.settlementJournalLines || []).find(
+      (line) => line.itemOrderId === itemOrderId && line.direction === direction
+    )
+  }
+
+  it('journals Other Order Fees on a return instead of dropping the column', () => {
+    const b = breakdownOf(returnRows[2])
+    assert.equal(b.returnFeeResidual, -15.75)
+    assert.equal(b.fulfillmentChargeGross, 15.75)
+    assert.equal(b.fulfillmentChargeNet, 15)
+    assert.equal(b.fulfillmentChargeVat, 0.75)
+
+    const plan = buildPlan(batch, returnRows)
+    const charge = settlementFor(plan, 'NAEI50038787447-2', 'charge')
+    assert.ok(charge, 'expected a charge settlement line for the other-order-fee')
+    assert.equal(charge.grossAmount, 15.75)
+  })
+
+  it('credits 1066 when Noon charges a return fee rather than reversing it', () => {
+    const plan = buildPlan(batch, returnRows)
+    const charge = settlementFor(plan, 'NAEI50082661829-1', 'charge')
+    assert.ok(charge)
+    assert.equal(charge.undepositedImpact, -15.75)
+    const undeposited = charge.journalItems.find((item) => item.accountCode === '1066')
+    assert.equal(undeposited.debitOrCredit, 'credit')
+    assert.equal(undeposited.amount, 15.75)
+    const uncleared = charge.journalItems.find((item) => item.accountCode === '1068')
+    assert.equal(uncleared.debitOrCredit, 'debit')
+
+    // The commission on the same row is still a reversal debiting 1066.
+    const reversal = settlementFor(plan, 'NAEI50082661829-1', 'reversal')
+    assert.equal(reversal.undepositedImpact, 30.08)
+    assert.equal(reversal.journalItems.find((item) => item.accountCode === '1066').debitOrCredit, 'debit')
+  })
+
+  it('posts the return fee expense net of VAT to 2162 and 1085', () => {
+    const plan = buildPlan(batch, returnRows)
+    const expense = (plan.expenseReversalJournalLines || []).find(
+      (line) => line.itemOrderId === 'NAEI50061425179-1' && line.direction === 'charge'
+    )
+    assert.ok(expense)
+    const byCode = Object.fromEntries(expense.journalItems.map((item) => [item.accountCode, item]))
+    assert.equal(byCode['2162'].debitOrCredit, 'debit')
+    assert.equal(byCode['2162'].amount, 5.04)
+    assert.equal(byCode['1085'].debitOrCredit, 'debit')
+    assert.equal(byCode['1085'].amount, 0.25)
+    assert.equal(byCode['1068'].debitOrCredit, 'credit')
+    assert.equal(byCode['1068'].amount, 5.29)
+  })
+
+  it('ties the whole return block back to the statement', () => {
+    const plan = buildPlan(batch, returnRows)
+    assert.equal(plan.summary.settlementJournalCount, 8)
+    assert.equal(plan.summary.expenseReversalJournalCount, 8)
+
+    const chargeImpact = (plan.settlementJournalLines || [])
+      .filter((line) => line.direction === 'charge')
+      .reduce((sum, line) => sum + line.undepositedImpact, 0)
+    assert.equal(Math.round(chargeImpact * 100) / 100, -36.79)
+
+    // Commission reversals 244.75 less the 36.79 Noon kept.
+    assert.equal(plan.totalUndepositedImpact, 207.96)
+
+    // Credit note refunds of 1554.00 take the block to the statement's -1346.04.
+    const productRefunds = returnRows.reduce((sum, row) => sum - Math.abs(row.netProceed), 0)
+    assert.equal(Math.round((productRefunds + plan.totalUndepositedImpact) * 100) / 100, -1346.04)
+  })
+
+  it('keeps every return fee journal balanced and 1068 netting to zero', () => {
+    const plan = buildPlan(batch, returnRows)
+    for (const line of plan.journalLines) {
+      const balance = line.journalItems.reduce(
+        (sum, item) => sum + (item.debitOrCredit === 'debit' ? item.amount : -item.amount),
+        0
+      )
+      assert.ok(
+        Math.abs(balance) < 0.005,
+        `${line.postingGroupKey} is unbalanced by ${balance}`
+      )
+    }
+    const proof = proveUncleared(batch, returnRows)
+    assert.equal(proof.shipping1068.affectedItemCount, 3)
+    assert.equal(proof.shipping1068.allNetToZero, true)
+    assert.equal(proof.commission1067.allNetToZero, true)
+    assert.equal(proof.allUnclearedAccountsNetToZero, true)
+  })
+
+  it('gives charge lines their own posting group keys', () => {
+    const plan = buildPlan(batch, returnRows)
+    const keys = plan.journalLines.map((line) => line.postingGroupKey)
+    assert.equal(new Set(keys).size, keys.length)
+    assert.ok(keys.includes('return_fee_settlement:fulfillment_charge:NAEI50082661829-1'))
+    assert.ok(keys.includes('return_fee_expense_reversal:fulfillment_charge:NAEI50082661829-1'))
   })
 })
 

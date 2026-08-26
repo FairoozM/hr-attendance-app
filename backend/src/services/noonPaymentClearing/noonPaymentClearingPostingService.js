@@ -5,7 +5,7 @@ const { buildPaymentPreviewFromBatch, PAYMENT_PREVIEW_TOLERANCE, assertNoStateme
 const { isNoonSettlementReconciliationAcceptable } = require('./noonPaymentClearingReconciliationService')
 const { buildSettlementReference, buildEntryReference, truncateZohoReference } = require('./noonPaymentClearingReferenceService')
 const store = require('./noonPaymentClearingStore')
-const { buildReturnFeePlan } = require('./noonPaymentClearingReturnFeeService')
+const { buildReturnFeePlan, returnFeeLineJournalItems } = require('./noonPaymentClearingReturnFeeService')
 const {
   buildCreditNoteApplyPlan,
   isCreditNoteApplyComplete,
@@ -1047,79 +1047,7 @@ async function forceRepostBatch({
 }
 
 function returnFeeLineToJournalItems(line) {
-  if (line.phase === 'expense_reversal') {
-    const items = [
-      {
-        debitOrCredit: 'debit',
-        accountId: line.debitUncleared?.accountId,
-        accountName: line.debitUncleared?.accountName,
-        accountCode: line.debitUncleared?.accountCode,
-        amount: line.debitUncleared?.amount,
-        description: line.description,
-      },
-      {
-        debitOrCredit: 'credit',
-        accountId: line.creditExpense?.accountId,
-        accountName: line.creditExpense?.accountName,
-        accountCode: line.creditExpense?.accountCode,
-        amount: line.creditExpense?.amount,
-        description: line.description,
-      },
-    ]
-    if (line.creditVat) {
-      items.push({
-        debitOrCredit: 'credit',
-        accountId: line.creditVat.accountId,
-        accountName: line.creditVat.accountName,
-        accountCode: line.creditVat.accountCode,
-        amount: line.creditVat.amount,
-        description: line.vatDescription || line.description,
-      })
-    }
-    return items
-  }
-
-  const items = [
-    {
-      debitOrCredit: 'debit',
-      accountId: line.debit?.accountId,
-      accountName: line.debit?.accountName,
-      accountCode: line.debit?.accountCode,
-      amount: line.debit?.amount,
-      description: line.description,
-    },
-  ]
-  if (line.creditCommission) {
-    items.push({
-      debitOrCredit: 'credit',
-      accountId: line.creditCommission.accountId,
-      accountName: line.creditCommission.accountName,
-      accountCode: line.creditCommission.accountCode,
-      amount: line.creditCommission.amount,
-      description: line.description,
-    })
-  }
-  if (line.creditShipping) {
-    items.push({
-      debitOrCredit: 'credit',
-      accountId: line.creditShipping.accountId,
-      accountName: line.creditShipping.accountName,
-      accountCode: line.creditShipping.accountCode,
-      amount: line.creditShipping.amount,
-      description: line.description,
-    })
-  }
-  if (line.creditVat) {
-    items.push({
-      debitOrCredit: 'credit',
-      accountId: line.creditVat.accountId,
-      accountName: line.creditVat.accountName,
-      accountCode: line.creditVat.accountCode,
-      amount: line.creditVat.amount,
-      description: line.vatDescription || line.description,
-    })
-  }
-  return items
+  return returnFeeLineJournalItems(line).map((item) => ({ ...item }))
 }
 
 async function ensureCanPostReturnFeeJournals(batch, options = {}) {
@@ -1211,9 +1139,15 @@ async function postReturnFeeJournalsForBatch({
 
     const lineItems = returnFeeLineToJournalItems(line)
     const enrichedLineItems = await enrichJournalLineItems(lineItems)
-    const debit = await resolveNoonGlAccount(line.debit || line.debitUncleared || {})
+    const debit = await resolveNoonGlAccount(
+      line.primaryDebitAccount || line.debit || line.debitUncleared || {}
+    )
     const credit = await resolveNoonGlAccount(
-      line.creditCommission || line.creditShipping || line.creditExpense || {}
+      line.primaryCreditAccount ||
+        line.creditCommission ||
+        line.creditShipping ||
+        line.creditExpense ||
+        {}
     )
     const journalRequest = {
       feeType: line.feeType,

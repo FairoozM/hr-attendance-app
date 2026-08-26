@@ -4,6 +4,7 @@ import {
   fetchNoonCreditNoteApplyPlan,
   fetchNoonReturnFeePlan,
   postNoonReturnFeeJournals,
+  resetNoonReturnFeeJournals,
   type NoonPaymentClearingPreview,
   type NoonPaymentPreview,
   type NoonReturnFeePlan,
@@ -175,6 +176,43 @@ export function NoonReturnClearingStep({
       await loadPlans()
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Credit note apply failed'
+      setLocalStatus({ kind: 'error', text: msg })
+      onError(msg)
+    } finally {
+      setWorking(false)
+    }
+  }
+
+  async function onResetReturnFees() {
+    if (!batchId) {
+      const msg = 'Missing batch id — reload this statement batch.'
+      setLocalStatus({ kind: 'error', text: msg })
+      onError(msg)
+      return
+    }
+    if (
+      !window.confirm(
+        'Forget the posted return fee journals so they can be posted again?\n\n' +
+          'Delete those journals in Zoho first, or you will end up with duplicates. ' +
+          'Sales payments, fee journals and credit note refunds are not affected.'
+      )
+    ) {
+      return
+    }
+
+    setWorking(true)
+    setLocalStatus({ kind: 'info', text: 'Resetting return fee journals…' })
+    onError('')
+
+    try {
+      const result = await resetNoonReturnFeeJournals(batchId, 'Repost return fee journals')
+      const msg = `Reset ${result.clearedCount ?? 0} return fee journal posting(s). Dry run, then post again.`
+      setLocalStatus({ kind: 'ok', text: msg })
+      onNotice(msg)
+      setReturnFeeResult(null)
+      await loadPlans()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Return fee journal reset failed'
       setLocalStatus({ kind: 'error', text: msg })
       onError(msg)
     } finally {
@@ -431,6 +469,15 @@ export function NoonReturnClearingStep({
           onClick={() => void onPostReturnFees(false)}
         >
           {working ? 'Working…' : 'Post return fee journals'}
+        </button>
+        <button
+          type="button"
+          className="ainv-btn ainv-btn--sm"
+          disabled={busy}
+          onClick={() => void onResetReturnFees()}
+          title="Delete the journals in Zoho first, then reset so they can be posted again."
+        >
+          {working ? 'Working…' : 'Reset return fee journals'}
         </button>
       </div>
 

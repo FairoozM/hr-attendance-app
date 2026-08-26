@@ -12,6 +12,7 @@ const {
   itemOrderIdForRow,
 } = require('./noonPaymentClearingRowPredicates')
 const { applyVatPolicy, VAT_POLICY } = require('./lineTypes/noonLineTypeVatPolicy')
+const { splitVatInclusiveAmount } = require('./noonPaymentClearingVatService')
 
 const RETURN_BLOCK_CODES = Object.freeze({
   RETURN_CREDIT_NOTE_MISSING: 'RETURN_CREDIT_NOTE_MISSING',
@@ -110,9 +111,14 @@ function buildNoonReturnFeeBreakdown(row) {
   const netProceed = round2(num(row.netProceed))
   const productRefundAmount = round2(Math.abs(Math.min(0, netProceed)))
   const commissionReversalGross = round2(Math.max(0, num(row.referralFee)))
-  const fulfillmentReversalGross = round2(
-    Math.abs(Math.min(0, round2(num(row.fulfillmentFee) + num(row.shippingCharges))))
+  // Statement Total is authoritative, so everything that is neither product principal
+  // nor commission reversal falls out here: fulfillment, shipping and other order fees.
+  // A positive residual is a fee Noon gave back; a negative one is a fee Noon charged.
+  const returnFeeResidual = round2(
+    num(row.total) + productRefundAmount - commissionReversalGross
   )
+  const fulfillmentReversalGross = round2(Math.max(0, returnFeeResidual))
+  const fulfillmentChargeGross = round2(Math.abs(Math.min(0, returnFeeResidual)))
   const netSettlementEffect = round2(num(row.total))
 
   // Fee reversals are COMPONENT_SUM. The product principal above is deliberately
@@ -131,13 +137,17 @@ function buildNoonReturnFeeBreakdown(row) {
   let fulfillmentReversalNet = fulfillmentReversalGross
   let fulfillmentReversalVat = 0
   if (fulfillmentReversalGross >= TOLERANCE) {
-    const gross = -fulfillmentReversalGross
-    const vat = applyVatPolicy(
-      { fulfillmentFee: gross, shippingCharges: 0, total: gross },
-      VAT_POLICY.COMPONENT_SUM
-    )
+    const vat = splitVatInclusiveAmount(fulfillmentReversalGross)
     fulfillmentReversalNet = round2(Math.abs(vat.netAmount))
     fulfillmentReversalVat = round2(Math.abs(vat.vatAmount))
+  }
+
+  let fulfillmentChargeNet = fulfillmentChargeGross
+  let fulfillmentChargeVat = 0
+  if (fulfillmentChargeGross >= TOLERANCE) {
+    const vat = splitVatInclusiveAmount(fulfillmentChargeGross)
+    fulfillmentChargeNet = round2(Math.abs(vat.netAmount))
+    fulfillmentChargeVat = round2(Math.abs(vat.vatAmount))
   }
 
   return {
@@ -151,11 +161,16 @@ function buildNoonReturnFeeBreakdown(row) {
     fulfillmentReversalGross,
     fulfillmentReversalNet,
     fulfillmentReversalVat,
+    fulfillmentChargeGross,
+    fulfillmentChargeNet,
+    fulfillmentChargeVat,
+    returnFeeResidual,
     netSettlementEffect,
     netProceed,
     referralFee: round2(num(row.referralFee)),
     fulfillmentFee: round2(num(row.fulfillmentFee)),
     shippingCharges: round2(num(row.shippingCharges)),
+    otherOrderFees: round2(num(row.otherOrderFees)),
   }
 }
 

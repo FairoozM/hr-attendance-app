@@ -1209,6 +1209,39 @@ async function getReturnFeePlanForBatch(batchId) {
   }
 }
 
+/**
+ * Forget the return fee journal postings so they can be posted again after the
+ * Zoho journals are deleted. Sales payments, fee journals and credit note
+ * refunds are untouched.
+ */
+async function resetReturnFeeJournalsForBatch(batchId, options = {}) {
+  const batch = await store.getBatchById(batchId)
+  if (!batch) {
+    const err = new Error('Noon payment clearing batch not found.')
+    err.code = 'NOON_PAYMENT_CLEARING_BATCH_NOT_FOUND'
+    err.status = 404
+    throw err
+  }
+  const cleared = await store.clearReturnFeePostingsForBatch(batch.batchId)
+  await store.insertAudit({
+    batchId: batch.batchId,
+    action: 'reset_return_fee_journals',
+    reason: clean(options.reason) || 'Return fee journals reset for repost.',
+    actorUserId: options.actorUserId,
+    previousZohoPaymentIds: cleared.map((row) => row.zohoPaymentId).filter(Boolean),
+    details: {
+      clearedCount: cleared.length,
+      clearedGroupKeys: cleared.map((row) => row.postingGroupKey).filter(Boolean),
+    },
+  })
+  return {
+    success: true,
+    batchId: batch.batchId,
+    clearedCount: cleared.length,
+    clearedJournalNumbers: cleared.map((row) => row.zohoJournalNumber).filter(Boolean),
+  }
+}
+
 async function postReturnFeeJournalsForBatchId(batchId, options = {}) {
   const batch = await store.getBatchById(batchId)
   if (!batch) {
@@ -1253,6 +1286,7 @@ module.exports = {
   applyCreditNotesForBatchId,
   getReturnFeePlanForBatch,
   postReturnFeeJournalsForBatchId,
+  resetReturnFeeJournalsForBatch,
   refreshReturnMatchingForBatch,
   listSavedBatches: store.listSavedBatches,
   listFeeJournalMappings: store.listFeeJournalMappings,

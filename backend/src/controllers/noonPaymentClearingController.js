@@ -355,6 +355,18 @@ async function postReturnFeeJournals(req, res) {
   }
 }
 
+async function postResetReturnFeeJournals(req, res) {
+  try {
+    const json = await service.resetReturnFeeJournalsForBatch(req.params.id, {
+      reason: req.body?.reason,
+      actorUserId: userId(req),
+    })
+    return res.json(json)
+  } catch (err) {
+    return sendError(res, err)
+  }
+}
+
 async function postRefreshReturnMatching(req, res) {
   try {
     const preview = await service.refreshReturnMatchingForBatch(req.params.id)
@@ -397,5 +409,6 @@ module.exports = {
   postApplyCreditNotes,
   getReturnFeePlan,
   postReturnFeeJournals,
+  postResetReturnFeeJournals,
   postRefreshReturnMatching,
 }
