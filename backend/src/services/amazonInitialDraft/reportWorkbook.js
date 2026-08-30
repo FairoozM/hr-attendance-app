@@ -66,6 +66,7 @@ function buildReportWorkbook(result, { filename, generatedAt = new Date(), catal
     ['Conflicts preserved (never overwritten)', s.conflictCells],
     ['Mapped cells left blank (no data)', s.missingCells],
     ['Cells left untouched (not applicable / blacked out)', s.notApplicableCells || 0],
+    ['Zoho barcode → Amazon GTIN rows reviewed', s.gtinTransformationCount || 0],
     ['Website features with no template column', s.surplusListValueCount || 0],
     ['Template columns with no universal mapping', s.ignoredColumnCount],
     ['Additional attribute slots left untouched', s.additionalSlotColumnCount],
@@ -219,6 +220,24 @@ function buildReportWorkbook(result, { filename, generatedAt = new Date(), catal
       { header: 'Existing value kept', key: 'existingValue', width: 40 },
     ],
     result.notApplicable || []
+  )
+
+  addSheet(
+    workbook,
+    'Zoho barcode to GTIN',
+    [
+      { header: 'Row', key: 'rowNumber', width: 8 },
+      { header: 'Seller SKU', key: 'sku', width: 26 },
+      { header: 'Original Zoho barcode', key: 'originalZohoBarcode', width: 22 },
+      { header: 'Final Amazon GTIN', key: 'finalAmazonGtin', width: 22 },
+      { header: 'Leading zero added', key: 'leadingZeroAdded', width: 18 },
+      { header: 'GTIN length', key: 'gtinLength', width: 12 },
+      { header: 'Check-digit status', key: 'checkDigitStatus', width: 18 },
+      { header: 'Duplicate status', key: 'duplicateStatus', width: 16 },
+      { header: 'Population status', key: 'populationStatus', width: 34 },
+      { header: 'Warning/conflict', key: 'warningOrConflict', width: 60 },
+    ],
+    result.gtinTransformations || []
   )
 
   addSheet(

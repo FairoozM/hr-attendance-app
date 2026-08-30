@@ -68,6 +68,7 @@ export type PreviewSummary = {
   conflictCells: number
   missingCells: number
   notApplicableCells?: number
+  gtinTransformationCount?: number
   surplusListValueCount: number
   ignoredColumnCount: number
   additionalSlotColumnCount: number
@@ -89,6 +90,19 @@ export type CellRecord = {
   databaseValue?: string
   reason?: string
   rawValue?: string | null
+}
+
+export type GtinTransformationRecord = {
+  rowNumber: number
+  sku: string
+  originalZohoBarcode: string
+  finalAmazonGtin: string
+  leadingZeroAdded: string
+  gtinLength: number | string
+  checkDigitStatus: string
+  duplicateStatus?: string
+  populationStatus: string
+  warningOrConflict: string
 }
 
 export type ColumnRecord = {
@@ -124,6 +138,7 @@ export type InitialDraftPreview = {
   preservedIdentical: Truncated<CellRecord>
   missingValues: Truncated<CellRecord>
   notApplicable?: Truncated<CellRecord>
+  gtinTransformations?: Truncated<GtinTransformationRecord>
   surplusListValues: Truncated<SurplusListValue>
   ignoredColumns: Truncated<ColumnRecord>
   additionalSlotColumns: Truncated<ColumnRecord>

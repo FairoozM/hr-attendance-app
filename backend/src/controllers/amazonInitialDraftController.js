@@ -16,6 +16,7 @@ const lifesmileWebsiteDb = require('../db/lifesmileWebsiteDb')
 const { runInitialDraftPipeline } = require('../services/amazonInitialDraft/draftGenerator')
 const { buildReportBuffer } = require('../services/amazonInitialDraft/reportWorkbook')
 const { findCatalogItemsBySku } = require('../services/amazonInitialDraft/websiteCatalogRepository')
+const { lookupZohoBarcodesByExactSkus } = require('../services/amazonInitialDraft/zohoBarcodeLookup')
 
 const UPLOAD_LIMIT_BYTES = Number(process.env.AMAZON_INITIAL_DRAFT_UPLOAD_LIMIT_BYTES || 25 * 1024 * 1024)
 const ALLOWED_EXTENSIONS = new Set(['.xlsm', '.xlsx'])
@@ -100,6 +101,7 @@ async function runPipeline(req) {
     buffer: req.file.buffer,
     filename: req.file.originalname,
     resolveCatalog: (skus) => findCatalogItemsBySku(skus),
+    resolveZohoBarcodes: (skus) => lookupZohoBarcodesByExactSkus(skus),
   })
 }
 
@@ -161,6 +163,7 @@ async function postPreview(req, res) {
       preservedIdentical: truncate(result.preservedIdentical),
       missingValues: truncate(result.missingValues),
       notApplicable: truncate(result.notApplicable),
+      gtinTransformations: truncate(result.gtinTransformations || []),
       surplusListValues: truncate(result.surplusListValues),
       ignoredColumns: truncate(result.ignoredColumns),
       additionalSlotColumns: truncate(result.additionalSlotColumns),

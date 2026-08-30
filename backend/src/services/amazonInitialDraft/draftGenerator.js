@@ -22,23 +22,43 @@ const {
   parseStyles,
 } = require('./cellApplicability')
 const { buildValidationContext, pickAcceptedOption, resolveValidationOptions } = require('./validationOptions')
+const { transformZohoBarcodeToGtin } = require('./gtinTransform')
 
 const DRAFT_NOTICE = 'Initial Draft — requires content enhancement and final Amazon validation before upload.'
+
+async function defaultResolveZohoBarcodes(skus) {
+  // Controller injects the real Zoho lookup. Tests and dry runs leave barcodes blank.
+  const map = new Map()
+  for (const sku of skus || []) {
+    map.set(sku, {
+      sku,
+      status: 'not-found',
+      zohoSku: '',
+      itemId: '',
+      barcode: '',
+      reason: 'zoho-barcode-unavailable',
+    })
+  }
+  return map
+}
 
 /**
  * Whether an existing cell already says the same thing. Whitespace and letter case are
  * normalised, and numerals are compared numerically so `16.60` matches `16.6`. A cell
  * that already agrees is left exactly as it is rather than rewritten.
+ * Pass `compareAsText: true` for barcode/GTIN values so a leading zero is never ignored.
  */
-function isSameValue(existing, incoming) {
+function isSameValue(existing, incoming, { compareAsText = false } = {}) {
   const left = cleanText(existing)
   const right = cleanText(incoming)
   if (!left && !right) return true
 
-  const leftNumber = Number(left)
-  const rightNumber = Number(right)
-  if (left !== '' && right !== '' && Number.isFinite(leftNumber) && Number.isFinite(rightNumber)) {
-    return leftNumber === rightNumber
+  if (!compareAsText) {
+    const leftNumber = Number(left)
+    const rightNumber = Number(right)
+    if (left !== '' && right !== '' && Number.isFinite(leftNumber) && Number.isFinite(rightNumber)) {
+      return leftNumber === rightNumber
+    }
   }
 
   return left.toLowerCase() === right.toLowerCase()
@@ -99,8 +119,14 @@ function classifyColumns(workbook) {
  * @param {Buffer} options.buffer the uploaded workbook, treated as read-only
  * @param {string} [options.filename]
  * @param {(skus: string[]) => Promise<Map<string, object>>} options.resolveCatalog
+ * @param {(skus: string[]) => Promise<Map<string, object>>} [options.resolveZohoBarcodes]
  */
-async function runInitialDraftPipeline({ buffer, filename = 'template.xlsm', resolveCatalog }) {
+async function runInitialDraftPipeline({
+  buffer,
+  filename = 'template.xlsm',
+  resolveCatalog,
+  resolveZohoBarcodes = defaultResolveZohoBarcodes,
+}) {
   if (!Buffer.isBuffer(buffer) || !buffer.length) {
     const error = new Error('Upload an Amazon template workbook.')
     error.code = 'FILE_REQUIRED'
@@ -133,6 +159,68 @@ async function runInitialDraftPipeline({ buffer, filename = 'template.xlsm', res
 
   const catalog = skusInOrder.length ? await resolveCatalog(skusInOrder) : new Map()
 
+  // Exact-SKU Zoho barcode lookup for every matched website catalog row.
+  const matchedSkus = skusInOrder.filter((sku) => {
+    const resolution = catalog.get(sku)
+    return resolution && resolution.status === 'matched' && resolution.item
+  })
+  const zohoBarcodeBySku = matchedSkus.length ? await resolveZohoBarcodes(matchedSkus) : new Map()
+  const gtinBySku = new Map()
+  for (const sku of matchedSkus) {
+    const zoho = zohoBarcodeBySku.get(sku) || {
+      status: 'not-found',
+      barcode: '',
+      reason: 'zoho-sku-not-found',
+    }
+    let gtin
+    if (zoho.status === 'found') {
+      gtin = transformZohoBarcodeToGtin(zoho.barcode)
+    } else {
+      gtin = {
+        originalZohoBarcode: zoho.barcode || '',
+        amazonGtin: null,
+        leadingZeroAdded: '',
+        gtinLength: null,
+        checkDigitStatus: 'not-checked',
+        ok: false,
+        reason: zoho.reason || zoho.status,
+        warning: null,
+      }
+    }
+    gtinBySku.set(sku, { ...gtin, zohoStatus: zoho.status, zohoItemId: zoho.itemId || '' })
+  }
+
+  // Duplicate GTINs are still written for every exact SKU match; the report only warns.
+  const gtinOwners = new Map()
+  for (const [sku, gtin] of gtinBySku) {
+    if (!gtin.amazonGtin) continue
+    if (!gtinOwners.has(gtin.amazonGtin)) gtinOwners.set(gtin.amazonGtin, [])
+    gtinOwners.get(gtin.amazonGtin).push(sku)
+  }
+  for (const [gtinValue, owners] of gtinOwners) {
+    const isDuplicate = owners.length > 1
+    for (const sku of owners) {
+      const previous = gtinBySku.get(sku)
+      gtinBySku.set(sku, {
+        ...previous,
+        duplicateStatus: isDuplicate ? 'Yes' : 'No',
+        duplicateDetail: isDuplicate
+          ? `GTIN ${gtinValue} also resolved for: ${owners.filter((s) => s !== sku).join(', ')}`
+          : null,
+      })
+    }
+  }
+  for (const [sku, gtin] of gtinBySku) {
+    if (gtin.duplicateStatus) continue
+    gtinBySku.set(sku, { ...gtin, duplicateStatus: 'No', duplicateDetail: null })
+  }
+
+  for (const sku of matchedSkus) {
+    const resolution = catalog.get(sku)
+    if (!resolution || !resolution.item) continue
+    resolution.item = { ...resolution.item, zohoGtin: gtinBySku.get(sku) }
+  }
+
   const writes = []
   const rows = []
   const populated = []
@@ -141,6 +229,7 @@ async function runInitialDraftPipeline({ buffer, filename = 'template.xlsm', res
   const missingValues = []
   const notApplicable = []
   const surplusListValues = []
+  const gtinTransformations = []
 
   for (const row of workbook.dataRows) {
     if (!row.sku) {
@@ -293,8 +382,9 @@ async function runInitialDraftPipeline({ buffer, filename = 'template.xlsm', res
       if (!field.ok) outcome = 'missing'
       else if (existingCell && existingCell.hasFormula) outcome = 'formula'
       else if (existingValue === '') outcome = 'populate'
-      else if (isSameValue(existingValue, field.value)) outcome = 'identical'
-      else outcome = 'conflict'
+      else if (isSameValue(existingValue, field.value, { compareAsText: Boolean(field.compareAsText) })) {
+        outcome = 'identical'
+      } else outcome = 'conflict'
 
       decisions.push({ normalizedKey, target, existingValue, resolvedField: field, outcome })
     }
@@ -371,11 +461,13 @@ async function runInitialDraftPipeline({ buffer, filename = 'template.xlsm', res
         preservedIdentical.push({ ...record, existingValue, reason: 'formula-cell-preserved' })
         rowRecord.counts.preserved += 1
       } else if (outcome === 'populate') {
+        // Barcode/GTIN must always be stored as text so Excel keeps a leading zero.
+        const forceText = Boolean(resolvedField.compareAsText)
         writes.push({
           row: row.rowNumber,
           column: target.column,
           value: String(resolvedField.value),
-          numeric: Boolean(resolvedField.numeric) && Number.isFinite(Number(resolvedField.value)),
+          numeric: !forceText && Boolean(resolvedField.numeric) && Number.isFinite(Number(resolvedField.value)),
         })
         populated.push({
           ...record,
@@ -396,6 +488,78 @@ async function runInitialDraftPipeline({ buffer, filename = 'template.xlsm', res
         })
         rowRecord.counts.conflicts += 1
       }
+    }
+
+    const gtinInfo = gtinBySku.get(row.sku)
+    if (gtinInfo) {
+      const productIdDecision = decisions.find((d) => d.normalizedKey === 'amzn1.volt.ca.product_id_value')
+      const duplicateStatus = gtinInfo.duplicateStatus || 'No'
+      const isDuplicate = duplicateStatus === 'Yes'
+      const checkDigitInvalid = gtinInfo.checkDigitStatus === 'invalid'
+      const warnings = []
+      if (gtinInfo.warning) warnings.push(gtinInfo.warning)
+      if (isDuplicate && gtinInfo.duplicateDetail) warnings.push(gtinInfo.duplicateDetail)
+      else if (isDuplicate) warnings.push('zoho-barcode-duplicated')
+
+      let populationStatus = 'not-attempted'
+      let warningOrConflict = warnings.join('; ')
+
+      if (!productIdDecision) {
+        populationStatus = 'column-missing'
+        warningOrConflict = warningOrConflict || 'product-id-column-not-in-template'
+      } else if (productIdDecision.outcome === 'populate') {
+        if (checkDigitInvalid) populationStatus = 'populated-with-check-digit-warning'
+        else if (isDuplicate) populationStatus = 'populated-with-duplicate-warning'
+        else populationStatus = 'populated'
+      } else if (productIdDecision.outcome === 'identical' || productIdDecision.outcome === 'conflict') {
+        populationStatus = 'existing-value-preserved'
+        if (productIdDecision.outcome === 'conflict') {
+          warningOrConflict = [
+            `Existing workbook value kept: ${productIdDecision.existingValue}`,
+            ...warnings,
+          ]
+            .filter(Boolean)
+            .join('; ')
+        }
+      } else if (productIdDecision.outcome === 'not-applicable') {
+        populationStatus = 'not-applicable'
+        warningOrConflict =
+          productIdDecision.resolvedField.detail ||
+          productIdDecision.resolvedField.reason ||
+          'not-applicable'
+      } else {
+        const reason = gtinInfo.reason || productIdDecision.resolvedField.reason || ''
+        if (
+          reason === 'zoho-barcode-blank' ||
+          reason === 'zoho-sku-not-found' ||
+          reason === 'zoho-not-configured' ||
+          reason === 'zoho-barcode-unavailable' ||
+          reason === 'not-found'
+        ) {
+          populationStatus = 'missing-zoho-barcode'
+        } else if (
+          reason === 'zoho-barcode-non-numeric' ||
+          reason === 'zoho-barcode-unexpected-length'
+        ) {
+          populationStatus = 'unusable-format'
+        } else {
+          populationStatus = 'missing-zoho-barcode'
+        }
+        warningOrConflict = warningOrConflict || reason || 'zoho-barcode-unavailable'
+      }
+
+      gtinTransformations.push({
+        rowNumber: row.rowNumber,
+        sku: row.sku,
+        originalZohoBarcode: gtinInfo.originalZohoBarcode || '',
+        finalAmazonGtin: gtinInfo.amazonGtin || '',
+        leadingZeroAdded: gtinInfo.leadingZeroAdded || '',
+        gtinLength: gtinInfo.gtinLength == null ? '' : gtinInfo.gtinLength,
+        checkDigitStatus: gtinInfo.checkDigitStatus || 'not-checked',
+        duplicateStatus,
+        populationStatus,
+        warningOrConflict,
+      })
     }
 
     rows.push(rowRecord)
@@ -447,6 +611,7 @@ async function runInitialDraftPipeline({ buffer, filename = 'template.xlsm', res
     conflictCells: conflicts.length,
     missingCells: missingValues.length,
     notApplicableCells: notApplicable.length,
+    gtinTransformationCount: gtinTransformations.length,
     surplusListValueCount: surplusListValues.length,
     ignoredColumnCount: ignoredColumns.length,
     additionalSlotColumnCount: additionalSlotColumns.length,
@@ -463,6 +628,7 @@ async function runInitialDraftPipeline({ buffer, filename = 'template.xlsm', res
     preservedIdentical,
     missingValues,
     notApplicable,
+    gtinTransformations,
     surplusListValues,
     ignoredColumns,
     additionalSlotColumns,

@@ -61,7 +61,7 @@ function neverWriteReason(technicalHeader) {
   return match ? match.reason : null
 }
 
-function value(result, source, { numeric = false, constant = false, preferredLabels = null } = {}) {
+function value(result, source, { numeric = false, constant = false, preferredLabels = null, compareAsText = false } = {}) {
   return {
     ok: true,
     value: result,
@@ -71,6 +71,8 @@ function value(result, source, { numeric = false, constant = false, preferredLab
     // When set, the generator must replace `value` with the workbook's exact accepted
     // option that represents one of these labels before writing.
     preferredLabels,
+    // GTIN values must not be compared numerically or a leading zero is treated as identical.
+    compareAsText,
   }
 }
 
@@ -158,6 +160,23 @@ function resolveFieldsForItem(item) {
     'amzn1.volt.ca.product_id_type',
     validatedDefault(['GTIN'], 'constant:product-identifier-type-gtin')
   )
+
+  // Product ID / GTIN number comes from Zoho's barcode (upc), never invented here.
+  // The pipeline attaches `item.zohoGtin` after an exact-SKU Zoho lookup + transform.
+  if (item.zohoGtin && item.zohoGtin.ok && item.zohoGtin.amazonGtin) {
+    setField(
+      'amzn1.volt.ca.product_id_value',
+      value(item.zohoGtin.amazonGtin, 'zoho.upc→gtin', { compareAsText: true })
+    )
+  } else {
+    setField(
+      'amzn1.volt.ca.product_id_value',
+      missing(
+        (item.zohoGtin && item.zohoGtin.reason) || 'zoho-barcode-unavailable',
+        item.zohoGtin ? item.zohoGtin.originalZohoBarcode : null
+      )
+    )
+  }
   setField(
     'supplier_declared_dg_hz_regulation.value',
     validatedDefault(['Not Applicable'], 'constant:dangerous-goods-not-applicable')
@@ -257,6 +276,7 @@ const MAPPED_KEYS = new Set([
   'color.value',
   'size.value',
   'amzn1.volt.ca.product_id_type',
+  'amzn1.volt.ca.product_id_value',
   'supplier_declared_dg_hz_regulation.value',
   'condition_type.value',
   'fulfillment_availability.fulfillment_channel_code',
