@@ -32,6 +32,29 @@ function jpegHeader(width = 4000, height = 3000) {
 }
 
 /**
+ * A JPEG whose start-of-frame sits behind `metadataBytes` of APP1 metadata, mirroring the
+ * approved photos where EXIF/XMP blocks precede the frame header.
+ */
+function jpegWithMetadata(width, height, metadataBytes) {
+  const parts = [Buffer.from([0xff, 0xd8])]
+  let remaining = metadataBytes
+
+  // APP1 length is a 16-bit field, so large metadata arrives as several segments.
+  while (remaining > 0) {
+    const payload = Math.min(remaining, 65_533)
+    const segment = Buffer.alloc(payload + 4, 0x20)
+    segment[0] = 0xff
+    segment[1] = 0xe1
+    segment.writeUInt16BE(payload + 2, 2)
+    parts.push(segment)
+    remaining -= payload
+  }
+
+  parts.push(jpegHeader(width, height).subarray(2))
+  return Buffer.concat(parts)
+}
+
+/**
  * Stub S3 that records every command. Object bodies are never rewritten, so a test can
  * assert the delivery copy is a `CopyObject` rather than an upload of new bytes.
  */
@@ -198,8 +221,56 @@ describe('marketplace image S3 — keys, URLs and metadata', () => {
 
   it('reads pixel dimensions from a JPEG header', () => {
     const dimensions = s3.readJpegDimensions(jpegHeader(4000, 3000))
-    assert.deepEqual(dimensions, { width: 4000, height: 3000, valid: true })
+    assert.deepEqual(dimensions, { width: 4000, height: 3000, valid: true, needsMoreBytes: false })
     assert.equal(s3.readJpegDimensions(Buffer.from('not a jpeg')).valid, false)
+    assert.equal(s3.readJpegDimensions(Buffer.from('not a jpeg')).needsMoreBytes, false)
+  })
+
+  it('asks for more bytes when the frame header is beyond the window, without claiming invalid', () => {
+    // Approved photos carry EXIF/XMP blocks large enough to push SOF past the first probe.
+    const truncated = jpegWithMetadata(2400, 2700, 200_000).subarray(0, 96 * 1024)
+    const result = s3.readJpegDimensions(truncated)
+
+    assert.equal(result.valid, true, 'a real JPEG must not be reported invalid')
+    assert.equal(result.needsMoreBytes, true)
+    assert.equal(result.width, null)
+  })
+
+  it('widens the probe once so a late frame header still yields real dimensions', async () => {
+    const full = jpegWithMetadata(2400, 2700, 200_000)
+    const ranges = []
+    s3.setClientForTests({
+      async send(command) {
+        const name = command.constructor.name
+        if (name !== 'GetObjectCommand') throw new Error(`unexpected ${name}`)
+        const range = command.input.Range
+        ranges.push(range)
+        const end = Number(String(range).match(/bytes=0-(\d+)/)[1])
+        const slice = full.subarray(0, Math.min(end + 1, full.length))
+        return { Body: { transformToByteArray: async () => slice } }
+      },
+    })
+
+    const dimensions = await s3.readSourceDimensions('batch/late-header.jpg', s3.readConfig(ENV))
+
+    assert.deepEqual(dimensions, { width: 2400, height: 2700, valid: true, needsMoreBytes: false })
+    assert.deepEqual(ranges, ['bytes=0-98303', 'bytes=0-524287'], 'exactly two bounded ranged reads')
+  })
+
+  it('stops after a short body instead of re-reading an already complete object', async () => {
+    const small = jpegHeader(800, 600)
+    const ranges = []
+    s3.setClientForTests({
+      async send(command) {
+        ranges.push(command.input.Range)
+        return { Body: { transformToByteArray: async () => small } }
+      },
+    })
+
+    const dimensions = await s3.readSourceDimensions('batch/small.jpg', s3.readConfig(ENV))
+
+    assert.equal(dimensions.width, 800)
+    assert.equal(ranges.length, 1, 'a body shorter than the window means there is nothing more to read')
   })
 
   it('keeps AWS errors free of anything credential-shaped', () => {

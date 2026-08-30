@@ -36,8 +36,12 @@ const DEFAULT_DELIVERY_PREFIX = 'amazon-public/amazon-ae/'
  */
 const DEFAULT_SOURCE_ROOTS = 'marketplace-originals/amazon-ae/,Amazon_169_Matched_Images/'
 
-/** Enough for the JPEG start-of-frame header without pulling a multi-megabyte body. */
-const DIMENSION_PROBE_BYTES = 96 * 1024
+/**
+ * Probe windows for the JPEG start-of-frame header. The first covers ordinary photos; the
+ * second covers approved images whose EXIF/XMP blocks push the frame header further in.
+ * Both stay far below a full multi-megabyte download.
+ */
+const DIMENSION_PROBE_WINDOWS = [96 * 1024, 512 * 1024]
 const LIST_PAGE_SIZE = 1000
 const MAX_SOURCE_OBJECTS = Number(process.env.AMAZON_IMAGE_MAX_SOURCE_OBJECTS || 5000)
 const URL_CHECK_TIMEOUT_MS = Number(process.env.AMAZON_IMAGE_URL_CHECK_TIMEOUT_MS || 8000)
@@ -265,18 +269,30 @@ async function headObject(bucket, key) {
 
 /**
  * Reads pixel dimensions from the JPEG header without altering or fully downloading the
- * object. Returns nulls when the frame header sits beyond the probe window.
+ * object. Approved photos carry large EXIF/XMP blocks that can push the frame header past
+ * the first window, so the probe widens once before giving up rather than downloading a
+ * multi-megabyte body.
  */
 async function readSourceDimensions(key, config = readConfig()) {
-  const response = await getClient().send(
-    new GetObjectCommand({
-      Bucket: config.sourceBucket,
-      Key: key,
-      Range: `bytes=0-${DIMENSION_PROBE_BYTES - 1}`,
-    })
-  )
-  const bytes = await response.Body.transformToByteArray()
-  return readJpegDimensions(Buffer.from(bytes))
+  let last = { width: null, height: null, valid: false, needsMoreBytes: true }
+
+  for (const window of DIMENSION_PROBE_WINDOWS) {
+    const response = await getClient().send(
+      new GetObjectCommand({
+        Bucket: config.sourceBucket,
+        Key: key,
+        Range: `bytes=0-${window - 1}`,
+      })
+    )
+    const bytes = Buffer.from(await response.Body.transformToByteArray())
+    last = readJpegDimensions(bytes)
+
+    if (!last.needsMoreBytes) return last
+    // A short body means the whole object was already read; a wider range cannot help.
+    if (bytes.length < window) return last
+  }
+
+  return last
 }
 
 /**
@@ -284,8 +300,12 @@ async function readSourceDimensions(key, config = readConfig()) {
  * the stored height and width. Purely a read; no decoding of image data.
  */
 function readJpegDimensions(buffer) {
-  if (!Buffer.isBuffer(buffer) || buffer.length < 4) return { width: null, height: null, valid: false }
-  if (buffer[0] !== 0xff || buffer[1] !== 0xd8) return { width: null, height: null, valid: false }
+  if (!Buffer.isBuffer(buffer) || buffer.length < 4) {
+    return { width: null, height: null, valid: false, needsMoreBytes: false }
+  }
+  if (buffer[0] !== 0xff || buffer[1] !== 0xd8) {
+    return { width: null, height: null, valid: false, needsMoreBytes: false }
+  }
 
   let offset = 2
   while (offset + 3 < buffer.length) {
@@ -313,20 +333,23 @@ function readJpegDimensions(buffer) {
       (marker >= 0xcd && marker <= 0xcf)
 
     if (isStartOfFrame) {
-      if (offset + 9 > buffer.length) break
+      // The frame header itself straddles the end of the window.
+      if (offset + 9 > buffer.length) return { width: null, height: null, valid: true, needsMoreBytes: true }
       return {
         height: buffer.readUInt16BE(offset + 5),
         width: buffer.readUInt16BE(offset + 7),
         valid: true,
+        needsMoreBytes: false,
       }
     }
 
-    if (length < 2) break
+    // A declared length below the two length bytes themselves means the stream is corrupt.
+    if (length < 2) return { width: null, height: null, valid: true, needsMoreBytes: false }
     offset += 2 + length
   }
 
-  // A valid SOI was present, so treat it as a JPEG even if the frame header was not reached.
-  return { width: null, height: null, valid: true }
+  // A valid SOI was present, so this is a JPEG; the frame header is simply further in.
+  return { width: null, height: null, valid: true, needsMoreBytes: true }
 }
 
 /**
