@@ -59,6 +59,30 @@ function extractBarcodeText(item) {
   return ''
 }
 
+/**
+ * The item cache is keyed on the Zoho SKU, which here is the barcode, so changing an
+ * item's barcode in Zoho leaves the old row behind under the same item name. Rows left
+ * over from an earlier sync are dropped rather than reported as ambiguous: a row is stale
+ * when it was last synced well before the freshest row for the same name. The window is
+ * generous because one sync run timestamps its rows seconds apart, and two genuinely
+ * distinct items sharing a name must still come out ambiguous.
+ */
+const STALE_ROW_WINDOW_MS = 60 * 60 * 1000
+
+function syncedAtMs(row) {
+  const value = row && row.last_synced_at ? new Date(row.last_synced_at).getTime() : NaN
+  return Number.isFinite(value) ? value : null
+}
+
+function dropStaleDuplicates(rows) {
+  if (rows.length < 2) return rows
+  const timestamps = rows.map(syncedAtMs).filter((value) => value !== null)
+  if (timestamps.length !== rows.length) return rows
+
+  const newest = Math.max(...timestamps)
+  return rows.filter((row) => newest - syncedAtMs(row) <= STALE_ROW_WINDOW_MS)
+}
+
 /** Cached rows whose Zoho item name equals `sellerSku`. */
 function pickExactNameMatches(items, sellerSku) {
   const needle = matchKey(sellerSku)
@@ -111,7 +135,7 @@ async function lookupZohoBarcodesByExactSkus(sellerSkus) {
   }
 
   for (const sellerSku of unique) {
-    const matches = pickExactNameMatches(rows, sellerSku)
+    const matches = dropStaleDuplicates(pickExactNameMatches(rows, sellerSku))
 
     if (matches.length > 1) {
       map.set(sellerSku, result(sellerSku, 'ambiguous', { reason: 'zoho-item-name-ambiguous' }))

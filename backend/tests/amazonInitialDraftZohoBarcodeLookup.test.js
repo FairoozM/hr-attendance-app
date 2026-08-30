@@ -15,8 +15,8 @@ const { mockModule, freshRequire } = require('./_helpers')
 const LOOKUP_PATH = '../src/services/amazonInitialDraft/zohoBarcodeLookup'
 
 /** A row as `findItemsByNames` returns it: name is the seller SKU, sku is the barcode. */
-function cachedRow({ name, sku, itemId = `id-${name}` }) {
-  return { name, sku, item_id: itemId }
+function cachedRow({ name, sku, itemId = `id-${name}`, lastSyncedAt = null }) {
+  return { name, sku, item_id: itemId, last_synced_at: lastSyncedAt }
 }
 
 function loadLookup({ rows = [], findItemsByNames = null } = {}) {
@@ -133,6 +133,43 @@ test('amazon initial draft — zoho barcode lookup', async (t) => {
 
       assert.equal(map.get('LIFEP22-10SILVER').status, 'ambiguous')
       assert.equal(map.get('LIFEP22-10SILVER').barcode, '')
+    } finally {
+      ctx.restore()
+    }
+  })
+
+  await t.test('ignores a row left behind by an earlier sync when the barcode changed', async () => {
+    const now = new Date()
+    const twoMonthsAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000)
+    const ctx = loadLookup({
+      rows: [
+        cachedRow({ name: 'LIFEP22-10SILVER', sku: '6294021008389', itemId: 'old', lastSyncedAt: twoMonthsAgo }),
+        cachedRow({ name: 'LIFEP22-10SILVER', sku: '6294021009999', itemId: 'new', lastSyncedAt: now }),
+      ],
+    })
+    try {
+      const map = await ctx.lookup.lookupZohoBarcodesByExactSkus(['LIFEP22-10SILVER'])
+
+      assert.equal(map.get('LIFEP22-10SILVER').status, 'found')
+      assert.equal(map.get('LIFEP22-10SILVER').barcode, '6294021009999')
+    } finally {
+      ctx.restore()
+    }
+  })
+
+  await t.test('still reports two items from the same sync sharing a name as ambiguous', async () => {
+    const now = new Date()
+    const secondsLater = new Date(now.getTime() + 4000)
+    const ctx = loadLookup({
+      rows: [
+        cachedRow({ name: 'LIFEP22-10SILVER', sku: '6294021008389', itemId: 'a', lastSyncedAt: now }),
+        cachedRow({ name: 'LIFEP22-10SILVER', sku: '6294021009999', itemId: 'b', lastSyncedAt: secondsLater }),
+      ],
+    })
+    try {
+      const map = await ctx.lookup.lookupZohoBarcodesByExactSkus(['LIFEP22-10SILVER'])
+
+      assert.equal(map.get('LIFEP22-10SILVER').status, 'ambiguous')
     } finally {
       ctx.restore()
     }
