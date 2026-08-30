@@ -17,6 +17,8 @@ const { runInitialDraftPipeline } = require('../services/amazonInitialDraft/draf
 const { buildReportBuffer } = require('../services/amazonInitialDraft/reportWorkbook')
 const { findCatalogItemsBySku } = require('../services/amazonInitialDraft/websiteCatalogRepository')
 const { lookupZohoBarcodesByExactSkus } = require('../services/amazonInitialDraft/zohoBarcodeLookup')
+const marketplaceImageS3 = require('../services/amazonInitialDraft/marketplaceImageS3')
+const { resolveProductImages } = require('../services/amazonInitialDraft/productImageResolver')
 
 const UPLOAD_LIMIT_BYTES = Number(process.env.AMAZON_INITIAL_DRAFT_UPLOAD_LIMIT_BYTES || 25 * 1024 * 1024)
 const ALLOWED_EXTENSIONS = new Set(['.xlsm', '.xlsx'])
@@ -97,11 +99,18 @@ async function runPipeline(req) {
     throw error
   }
 
+  // The batch folder is the only image input the browser supplies, and it is confined to
+  // the configured bucket and approved root prefixes inside the resolver.
+  const imageBatch = String((req.body && req.body.imageBatch) || '').trim()
+
   return runInitialDraftPipeline({
     buffer: req.file.buffer,
     filename: req.file.originalname,
     resolveCatalog: (skus) => findCatalogItemsBySku(skus),
     resolveZohoBarcodes: (skus) => lookupZohoBarcodesByExactSkus(skus),
+    resolveImages: imageBatch
+      ? ({ workbookSkus, columns }) => resolveProductImages({ workbookSkus, columns, batchPrefix: imageBatch })
+      : undefined,
   })
 }
 
@@ -149,6 +158,29 @@ async function getHealth(req, res) {
   }
 }
 
+/**
+ * The approved image batches an operator may choose from. Only prefixes inside the
+ * configured allowed roots are returned, so the browser never names a bucket or a path.
+ */
+async function getImageBatches(req, res) {
+  try {
+    const configuration = marketplaceImageS3.describeConfiguration()
+    if (configuration.problem) {
+      return res.json({ success: true, configuration, batches: [] })
+    }
+    const batches = await marketplaceImageS3.listImageBatches()
+    return res.json({ success: true, configuration, batches })
+  } catch (err) {
+    // AWS being unavailable must not take the page down; the section reports it instead.
+    return res.json({
+      success: true,
+      configuration: marketplaceImageS3.describeConfiguration(),
+      batches: [],
+      error: marketplaceImageS3.sanitizeAwsError(err),
+    })
+  }
+}
+
 async function postPreview(req, res) {
   try {
     const result = await runPipeline(req)
@@ -169,6 +201,7 @@ async function postPreview(req, res) {
       additionalSlotColumns: truncate(result.additionalSlotColumns),
       neverWriteColumns: truncate(result.neverWriteColumns),
       reportOnlyFields: truncate(result.reportOnlyFields),
+      images: result.images,
     })
   } catch (err) {
     return fail(res, err, 'preview')
@@ -210,6 +243,7 @@ module.exports = {
   PREVIEW_DETAIL_LIMIT,
   UPLOAD_LIMIT_BYTES,
   getHealth,
+  getImageBatches,
   postDraft,
   postPreview,
   postReport,

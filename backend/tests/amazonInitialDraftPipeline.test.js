@@ -251,13 +251,13 @@ describe('initial draft pipeline — never overwriting the seller', () => {
 })
 
 describe('initial draft pipeline — columns that are never written', () => {
-  it('never writes images, price, quantity, listing action, product type or the SKU', async () => {
+  it('never writes price, quantity, listing action, product type or the SKU', async () => {
     const { result, cell } = await generate({
       dataRows: { 8: { A: 'LS-POT-24' } },
       catalog: { 'LS-POT-24': matched(catalogItem()) },
       extraHeaders: {
         AG: 'standard_price#1.value',
-        AH: 'other_image_url#3.media_location',
+        AH: 'swatch_product_image_locator#1.media_location',
         AI: 'list_price[marketplace_id=A2VIGQ35RCS4UG]#1.value',
       },
     })
@@ -270,15 +270,31 @@ describe('initial draft pipeline — columns that are never written', () => {
     assert.equal(byColumn.get('A'), 'seller-sku-column')
     assert.equal(byColumn.get('B'), 'subtype-column')
     assert.equal(byColumn.get('C'), 'listing-action-column')
-    assert.equal(byColumn.get('H'), 'images-out-of-scope')
     assert.equal(byColumn.get('Y'), 'price-never-populated')
     assert.equal(byColumn.get('Z'), 'quantity-never-populated')
     assert.equal(byColumn.get('AG'), 'price-never-populated')
     assert.equal(byColumn.get('AH'), 'images-out-of-scope')
   })
 
+  it('leaves the main and secondary image columns blank when no image batch was selected', async () => {
+    const { result, cell } = await generate({
+      dataRows: { 8: { A: 'LS-POT-24' } },
+      catalog: { 'LS-POT-24': matched(catalogItem()) },
+      extraHeaders: { AH: 'other_image_url#3.media_location' },
+    })
+
+    assert.equal(cell('H', 8), '', 'main image column stays blank without an image batch')
+    assert.equal(cell('AH', 8), '', 'secondary image column stays blank without an image batch')
+
+    // In scope for the image feature, so no longer reported as a never-write column.
+    const neverWriteLetters = new Set(result.neverWriteColumns.map((column) => column.column))
+    assert.equal(neverWriteLetters.has('H'), false)
+    assert.equal(neverWriteLetters.has('AH'), false)
+    assert.equal(result.summary.imageColumnCount, 2)
+    assert.equal(result.images.enabled, false)
+  })
+
   it('classifies the never-write patterns directly', () => {
-    assert.equal(neverWriteReason('main_product_image_locator#1.media_location'), 'images-out-of-scope')
     assert.equal(neverWriteReason('swatch_product_image_locator#1.media_location'), 'images-out-of-scope')
     assert.equal(neverWriteReason('product_type#1.value'), 'subtype-column')
     assert.equal(neverWriteReason('feed_product_type'), 'subtype-column')
@@ -705,7 +721,7 @@ describe('initial draft pipeline — SKU resolution', () => {
     const row = result.rows.find((entry) => entry.rowNumber === 9)
     assert.equal(row.status, 'unmatched')
     assert.equal(row.reason, 'not-in-catalog')
-    assert.deepEqual(row.counts, { populated: 0, preserved: 0, conflicts: 0, missing: 0, notApplicable: 0 })
+    assert.deepEqual(row.counts, { populated: 0, preserved: 0, conflicts: 0, missing: 0, notApplicable: 0, images: 0 })
     assert.equal(cell('G', 9), '')
     assert.equal(cell('A', 9), 'NOT-IN-CATALOG')
     assert.equal(result.summary.unmatched, 1)

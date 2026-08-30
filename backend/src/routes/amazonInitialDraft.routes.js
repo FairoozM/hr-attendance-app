@@ -11,6 +11,7 @@ const router = express.Router()
 router.use(requireAuth, requireAdmin)
 
 router.get('/health', ctrl.getHealth)
+router.get('/image-batches', ctrl.getImageBatches)
 router.post('/preview', ctrl.uploadMiddleware, ctrl.postPreview)
 router.post('/draft', ctrl.uploadMiddleware, ctrl.postDraft)
 router.post('/report', ctrl.uploadMiddleware, ctrl.postReport)

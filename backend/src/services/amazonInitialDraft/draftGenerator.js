@@ -23,6 +23,8 @@ const {
 } = require('./cellApplicability')
 const { buildValidationContext, pickAcceptedOption, resolveValidationOptions } = require('./validationOptions')
 const { transformZohoBarcodeToGtin } = require('./gtinTransform')
+const { isInScopeImageColumn } = require('./imageColumnMapping')
+const { IMAGE_STATUS, emptyResult: emptyImageResult } = require('./productImageResolver')
 
 const DRAFT_NOTICE = 'Initial Draft — requires content enhancement and final Amazon validation before upload.'
 
@@ -95,10 +97,18 @@ function groupColumnsByKey(columns) {
 function classifyColumns(workbook) {
   const writable = []
   const neverWrite = []
+  const imageColumns = []
 
   for (const column of workbook.columns) {
     if (column.column === workbook.skuColumn) {
       neverWrite.push({ ...column, reason: 'seller-sku-column' })
+      continue
+    }
+    // Main and numbered secondary image locators are filled from the approved AWS batch,
+    // not from the catalog mapping, so they get their own bucket. Every other
+    // image-shaped column stays a never-write.
+    if (isInScopeImageColumn(column.technicalHeader)) {
+      imageColumns.push(column)
       continue
     }
     const reason = neverWriteReason(column.technicalHeader)
@@ -109,7 +119,27 @@ function classifyColumns(workbook) {
     writable.push(column)
   }
 
-  return { writable, neverWrite }
+  return { writable, neverWrite, imageColumns }
+}
+
+async function defaultResolveImages() {
+  // Controller injects the AWS lookup. Without a chosen batch the draft runs unchanged.
+  return emptyImageResult()
+}
+
+/** Most severe wins, so a duplicated SKU row cannot hide a conflict behind a populate. */
+const IMAGE_POPULATION_SEVERITY = new Map([
+  ['existing-identical-value', 1],
+  ['populated', 2],
+  ['not-applicable', 3],
+  ['existing-value-preserved', 4],
+])
+
+function moreSevereImageStatus(current, next) {
+  if (!current) return next
+  const left = IMAGE_POPULATION_SEVERITY.get(current) || 0
+  const right = IMAGE_POPULATION_SEVERITY.get(next) || 0
+  return right > left ? next : current
 }
 
 /**
@@ -120,12 +150,14 @@ function classifyColumns(workbook) {
  * @param {string} [options.filename]
  * @param {(skus: string[]) => Promise<Map<string, object>>} options.resolveCatalog
  * @param {(skus: string[]) => Promise<Map<string, object>>} [options.resolveZohoBarcodes]
+ * @param {(input: { workbookSkus: string[], columns: object[] }) => Promise<object>} [options.resolveImages]
  */
 async function runInitialDraftPipeline({
   buffer,
   filename = 'template.xlsm',
   resolveCatalog,
   resolveZohoBarcodes = defaultResolveZohoBarcodes,
+  resolveImages = defaultResolveImages,
 }) {
   if (!Buffer.isBuffer(buffer) || !buffer.length) {
     const error = new Error('Upload an Amazon template workbook.')
@@ -134,7 +166,7 @@ async function runInitialDraftPipeline({
   }
 
   const workbook = openTemplateWorkbook(buffer)
-  const { writable, neverWrite } = classifyColumns(workbook)
+  const { writable, neverWrite, imageColumns: imageTemplateColumns } = classifyColumns(workbook)
   const columnsByKey = groupColumnsByKey(writable)
 
   const stylesEntry = opc.findEntry(workbook.package, 'xl/styles.xml')
@@ -227,6 +259,18 @@ async function runInitialDraftPipeline({
     resolution.item = { ...resolution.item, zohoGtin: gtinBySku.get(sku) }
   }
 
+  // Approved AWS marketplace images. Independent of the website catalog and of Zoho: a
+  // SKU the catalog could not match still gets its image URLs, and an AWS failure only
+  // costs the image columns.
+  let imageResult
+  try {
+    imageResult = await resolveImages({ workbookSkus: skusInOrder, columns: workbook.columns })
+  } catch (err) {
+    imageResult = emptyImageResult({ enabled: true, error: `image-resolution-failed: ${cleanText(err?.message)}` })
+  }
+  if (!imageResult || typeof imageResult !== 'object') imageResult = emptyImageResult()
+  const imagesBySku = indexImagesBySku(imageResult)
+
   const writes = []
   const rows = []
   const populated = []
@@ -236,6 +280,85 @@ async function runInitialDraftPipeline({
   const notApplicable = []
   const surplusListValues = []
   const gtinTransformations = []
+
+  const imageColumnByLetters = new Map(imageTemplateColumns.map((column) => [column.letters, column]))
+
+  /**
+   * Writes the approved image URLs for one workbook row, following the same blank /
+   * identical / conflict policy as every other cell: a blank cell is filled, an identical
+   * value is left alone, and anything else the user typed is preserved and reported.
+   */
+  const applyImageCells = (row, rowRecord) => {
+    const images = imagesBySku.get(imageSkuKey(row.sku))
+    if (!images || !images.length) return
+
+    const cellValueAt = (columnIndex) => {
+      const cell = row.cells.get(columnIndex)
+      return cell ? String(cell.value || '').trim() : ''
+    }
+
+    for (const image of images) {
+      const target = imageColumnByLetters.get(image.destinationColumn)
+      if (!target) continue
+
+      const existingCell = row.cells.get(target.column)
+      const existingValue = existingCell ? cleanText(existingCell.value) : ''
+      const base = {
+        rowNumber: row.rowNumber,
+        sku: row.sku,
+        column: target.letters,
+        technicalHeader: target.technicalHeader,
+        displayLabel: target.displayLabel,
+        group: target.groupLabel,
+      }
+
+      const applicability = assessCellApplicability({
+        styles,
+        sheetProtection,
+        conditionalFormatting,
+        namedFormulas,
+        column: target,
+        rowNumber: row.rowNumber,
+        existingCell,
+        cellValueAt,
+      })
+
+      let status
+      if (!applicability.applicable) {
+        notApplicable.push({
+          ...base,
+          reason: applicability.detail || applicability.reason || 'not-applicable',
+          existingValue,
+        })
+        rowRecord.counts.notApplicable += 1
+        status = 'not-applicable'
+      } else if (existingCell && existingCell.hasFormula) {
+        preservedIdentical.push({ ...base, existingValue, reason: 'formula-cell-preserved' })
+        rowRecord.counts.preserved += 1
+        status = 'existing-value-preserved'
+      } else if (existingValue === '') {
+        writes.push({ row: row.rowNumber, column: target.column, value: image.publicUrl, numeric: false })
+        populated.push({ ...base, value: image.publicUrl, source: 'aws-marketplace-image', isConstant: false })
+        rowRecord.counts.populated += 1
+        rowRecord.counts.images += 1
+        status = 'populated'
+      } else if (existingValue === image.publicUrl) {
+        // Exact comparison: an image URL that differs only in case is a different object.
+        preservedIdentical.push({ ...base, existingValue, reason: 'already-identical' })
+        rowRecord.counts.preserved += 1
+        status = 'existing-identical-value'
+      } else {
+        conflicts.push({ ...base, existingValue, databaseValue: image.publicUrl, source: 'aws-marketplace-image' })
+        rowRecord.counts.conflicts += 1
+        status = 'existing-value-preserved'
+      }
+
+      image.populationStatus = moreSevereImageStatus(image.populationStatus, status)
+      if (status === 'existing-value-preserved' || status === 'existing-identical-value') {
+        image.existingExcelValue = existingValue
+      }
+    }
+  }
 
   for (const row of workbook.dataRows) {
     if (!row.sku) {
@@ -264,6 +387,10 @@ async function runInitialDraftPipeline({
       candidates: resolution.candidates || [],
       counts: emptyCounts(),
     }
+
+    // Image URLs depend only on the workbook SKU, so they are written even for a row the
+    // website catalog could not match.
+    applyImageCells(row, rowRecord)
 
     if (resolution.status !== 'matched' || !resolution.item) {
       rows.push(rowRecord)
@@ -597,6 +724,7 @@ async function runInitialDraftPipeline({
     }
   }
 
+  const imageMappings = buildImageMappingRows(imageResult, catalog)
   const draftBuffer = buildDraftBuffer(workbook, writes)
 
   const summary = {
@@ -624,6 +752,9 @@ async function runInitialDraftPipeline({
     ignoredColumnCount: ignoredColumns.length,
     additionalSlotColumnCount: additionalSlotColumns.length,
     neverWriteColumnCount: neverWrite.length,
+    imageColumnCount: imageTemplateColumns.length,
+    imageCellsPopulated: populated.filter((cell) => cell.source === 'aws-marketplace-image').length,
+    imageCellConflicts: conflicts.filter((cell) => cell.source === 'aws-marketplace-image').length,
     notice: DRAFT_NOTICE,
   }
 
@@ -647,13 +778,191 @@ async function runInitialDraftPipeline({
       reason: column.reason,
     })),
     reportOnlyFields: collectReportOnlyFields(rows, catalog),
+    images: buildImagePreview(imageResult, catalog),
+    imageMappings,
     draftBuffer,
     sheets: workbook.sheets.map((sheet) => ({ name: sheet.name, state: sheet.state })),
   }
 }
 
+/**
+ * The image section as the UI needs it: overall status, counts, and every SKU grouped with
+ * its main image first and its secondary images in numeric order.
+ */
+function buildImagePreview(imageResult, catalog) {
+  const forApi = (image) => ({
+    sourceKey: image.sourceKey,
+    filename: image.filename,
+    sku: image.sku || '',
+    detectedSku: image.detectedSku || '',
+    detectedPosition: image.detectedPosition || '',
+    positionSlot: image.positionSlot || '',
+    positionNumber: image.positionNumber,
+    classification: image.classification || '',
+    matchStatus: image.matchStatus || '',
+    status: image.status,
+    populationStatus: image.status === IMAGE_STATUS.READY ? image.populationStatus || 'not-attempted' : image.status,
+    publicUrl: image.publicUrl || '',
+    deliveryKey: image.deliveryKey || '',
+    deliveryAction: image.deliveryAction || '',
+    sourceSize: image.sourceSize || 0,
+    width: image.width,
+    height: image.height,
+    httpStatus: image.httpStatus,
+    contentType: image.contentType || '',
+    existingExcelValue: image.existingExcelValue || '',
+    candidates: image.candidates || [],
+    warning: image.warning || '',
+  })
+
+  const skus = (imageResult.skus || []).map((group) => {
+    const resolution = catalog.get(group.sku) || null
+    const item = resolution && resolution.item ? resolution.item : null
+    return {
+      sku: group.sku,
+      productName: item ? cleanText(item.productName) : '',
+      main: group.main ? forApi(group.main) : null,
+      secondary: group.secondary.map(forApi),
+      problems: group.problems.map(forApi),
+      hasMainImage: Boolean(group.main),
+    }
+  })
+
+  return {
+    enabled: Boolean(imageResult.enabled),
+    configured: Boolean(imageResult.configured),
+    error: imageResult.error || null,
+    batchPrefix: imageResult.batchPrefix || '',
+    retentionNote: imageResult.retentionNote || '',
+    publicBaseUrl: imageResult.configuration ? imageResult.configuration.publicBaseUrl : '',
+    sourceBucket: imageResult.configuration ? imageResult.configuration.sourceBucket : '',
+    sourceTruncated: Boolean(imageResult.sourceTruncated),
+    urlChecksSkipped: imageResult.urlChecksSkipped || 0,
+    imageColumns: imageResult.imageColumns || null,
+    summary: imageResult.summary,
+    skus,
+    unassigned: (imageResult.images || [])
+      .filter((image) => !image.sku && image.status !== IMAGE_STATUS.READY)
+      .map(forApi),
+  }
+}
+
 function emptyCounts() {
-  return { populated: 0, preserved: 0, conflicts: 0, missing: 0, notApplicable: 0 }
+  return { populated: 0, preserved: 0, conflicts: 0, missing: 0, notApplicable: 0, images: 0 }
+}
+
+function imageSkuKey(value) {
+  return String(value == null ? '' : value).trim().toLowerCase()
+}
+
+/**
+ * Deliverable images per SKU, in position order: main first, then secondary images by
+ * number so a gap in the sequence stays a gap.
+ */
+function indexImagesBySku(imageResult) {
+  const index = new Map()
+  for (const image of imageResult.images || []) {
+    if (image.status !== IMAGE_STATUS.READY || !image.publicUrl || !image.destinationColumn) continue
+    const key = imageSkuKey(image.sku)
+    if (!key) continue
+    if (!index.has(key)) index.set(key, [])
+    index.get(key).push(image)
+  }
+  for (const images of index.values()) {
+    images.sort((a, b) => {
+      if (a.classification === b.classification) return (a.positionNumber || 0) - (b.positionNumber || 0)
+      return a.classification === 'main' ? -1 : 1
+    })
+  }
+  return index
+}
+
+/**
+ * One report row per approved source file, plus a row for each image the workbook expects
+ * but the batch does not provide. Missing secondary images are only reported inside the
+ * supplied range, so a SKU with `Main, 1, 2, 4` reports position 3 and stops there.
+ */
+function buildImageMappingRows(imageResult, catalog) {
+  const rows = []
+  const itemFor = (sku) => {
+    const resolution = catalog.get(sku) || null
+    return resolution && resolution.item ? resolution.item : null
+  }
+
+  for (const image of imageResult.images || []) {
+    const item = itemFor(image.sku)
+    rows.push({
+      sku: image.sku || '',
+      productName: item ? cleanText(item.productName) : '',
+      productId: item && item.productId != null ? item.productId : '',
+      variantId: item && item.variantId != null ? item.variantId : '',
+      sourceKey: image.sourceKey,
+      filename: image.filename,
+      detectedSku: image.detectedSku || '',
+      detectedPosition: image.detectedPosition || '',
+      classification: image.classification || '',
+      sourceSize: image.sourceSize || '',
+      width: image.width == null ? '' : image.width,
+      height: image.height == null ? '' : image.height,
+      deliveryKey: image.deliveryKey || '',
+      publicUrl: image.publicUrl || '',
+      httpStatus: image.httpStatus == null ? '' : image.httpStatus,
+      contentType: image.contentType || '',
+      destinationColumn: image.destinationColumn || '',
+      matchStatus: image.matchStatus || '',
+      populationStatus:
+        image.status === IMAGE_STATUS.READY ? image.populationStatus || 'not-attempted' : image.status,
+      existingExcelValue: image.existingExcelValue || '',
+      warning: image.warning || '',
+    })
+  }
+
+  for (const group of imageResult.skus || []) {
+    const item = itemFor(group.sku)
+    const shared = {
+      sku: group.sku,
+      productName: item ? cleanText(item.productName) : '',
+      productId: item && item.productId != null ? item.productId : '',
+      variantId: item && item.variantId != null ? item.variantId : '',
+      sourceKey: '',
+      filename: '',
+      detectedSku: '',
+      classification: '',
+      sourceSize: '',
+      width: '',
+      height: '',
+      deliveryKey: '',
+      publicUrl: '',
+      httpStatus: '',
+      contentType: '',
+      destinationColumn: '',
+      matchStatus: 'no-source-file',
+      existingExcelValue: '',
+    }
+
+    if (!group.main) {
+      rows.push({
+        ...shared,
+        detectedPosition: 'Main',
+        populationStatus: 'missing-main-image',
+        warning: 'No approved main image was found for this SKU.',
+      })
+    }
+
+    const supplied = new Set(group.secondary.map((image) => image.positionNumber))
+    const highest = group.secondary.reduce((max, image) => Math.max(max, image.positionNumber || 0), 0)
+    for (let position = 1; position < highest; position += 1) {
+      if (supplied.has(position)) continue
+      rows.push({
+        ...shared,
+        detectedPosition: String(position),
+        populationStatus: 'missing-secondary-image',
+        warning: `Secondary position ${position} has no approved image; later positions were not shifted.`,
+      })
+    }
+  }
+
+  return rows
 }
 
 /**
@@ -712,6 +1021,7 @@ function buildDraftBuffer(workbook, writes) {
 module.exports = {
   DRAFT_NOTICE,
   buildDraftBuffer,
+  buildImageMappingRows,
   classifyColumns,
   groupColumnsByKey,
   isSameValue,

@@ -30,6 +30,29 @@ function addSheet(workbook, name, columns, rows) {
   return sheet
 }
 
+/** One-line description of the image stage for the Summary sheet. */
+function imageSummaryLine(result) {
+  const images = result.images
+  if (!images || !images.enabled) {
+    return 'No approved image batch was selected. Image columns were left exactly as uploaded.'
+  }
+  if (images.error) {
+    return `Image batch could not be processed (${images.error}). Image columns were left exactly as uploaded.`
+  }
+
+  const s = images.summary || {}
+  return [
+    `Batch ${images.batchPrefix || 'n/a'}: ${s.sourceFiles || 0} approved files, `,
+    `${s.matchedFiles || 0} matched to a workbook SKU across ${s.matchedSkus || 0} SKUs `,
+    `(${s.skusWithMainImage || 0} with a main image, ${s.skusMissingMainImage || 0} missing one). `,
+    `Unmatched ${s.unmatchedFiles || 0}, ambiguous ${s.ambiguousFiles || 0}, duplicate positions ${s.duplicatePositions || 0}, `,
+    `unsupported positions ${s.unsupportedPositions || 0}, delivery failures ${s.deliveryFailures || 0}, `,
+    `unreachable URLs ${s.brokenUrls || 0}. `,
+    'Approved JPEGs were copied byte-for-byte; none were resized, recompressed or deleted. ',
+    images.retentionNote || '',
+  ].join('')
+}
+
 function buildReportWorkbook(result, { filename, generatedAt = new Date(), catalogConnection = null } = {}) {
   const workbook = new ExcelJS.Workbook()
   workbook.creator = 'HR & BI — Amazon UAE Initial Draft Generator'
@@ -72,7 +95,9 @@ function buildReportWorkbook(result, { filename, generatedAt = new Date(), catal
     ['Additional attribute slots left untouched', s.additionalSlotColumnCount],
     ['Columns never written by policy', s.neverWriteColumnCount],
     ['Product subtype / product type', 'Never read, inferred, defaulted or validated. Preserved exactly as uploaded.'],
-    ['Images', 'Not included. Upload product images separately.'],
+    ['Image cells populated', s.imageCellsPopulated || 0],
+    ['Image cells with a preserved conflict', s.imageCellConflicts || 0],
+    ['Images', imageSummaryLine(result)],
     ['Price and quantity', 'Never populated.'],
     ['Brand / manufacturer', 'Written as fixed constants, not fetched from the catalog.'],
   ]
@@ -239,6 +264,35 @@ function buildReportWorkbook(result, { filename, generatedAt = new Date(), catal
       { header: 'Warning/conflict', key: 'warningOrConflict', width: 60 },
     ],
     result.gtinTransformations || []
+  )
+
+  addSheet(
+    workbook,
+    'Amazon Image Mapping',
+    [
+      { header: 'Seller SKU', key: 'sku', width: 26 },
+      { header: 'Product name', key: 'productName', width: 46 },
+      { header: 'Product DB ID', key: 'productId', width: 14 },
+      { header: 'Variant DB ID', key: 'variantId', width: 14 },
+      { header: 'Original S3 key', key: 'sourceKey', width: 70 },
+      { header: 'Original filename', key: 'filename', width: 56 },
+      { header: 'Detected SKU', key: 'detectedSku', width: 22 },
+      { header: 'Detected position', key: 'detectedPosition', width: 16 },
+      { header: 'Main/secondary', key: 'classification', width: 15 },
+      { header: 'Source size (bytes)', key: 'sourceSize', width: 18 },
+      { header: 'Pixel width', key: 'width', width: 12 },
+      { header: 'Pixel height', key: 'height', width: 12 },
+      { header: 'Delivery S3 key', key: 'deliveryKey', width: 56 },
+      { header: 'Permanent CloudFront URL', key: 'publicUrl', width: 78 },
+      { header: 'HTTP status', key: 'httpStatus', width: 12 },
+      { header: 'Content-Type', key: 'contentType', width: 16 },
+      { header: 'Amazon column', key: 'destinationColumn', width: 14 },
+      { header: 'Match status', key: 'matchStatus', width: 20 },
+      { header: 'Population status', key: 'populationStatus', width: 26 },
+      { header: 'Existing Excel value', key: 'existingExcelValue', width: 60 },
+      { header: 'Warning/conflict', key: 'warning', width: 70 },
+    ],
+    result.imageMappings || []
   )
 
   addSheet(

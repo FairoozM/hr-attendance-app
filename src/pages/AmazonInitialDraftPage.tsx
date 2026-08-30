@@ -3,13 +3,16 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   downloadInitialDraft,
   downloadInitialDraftReport,
+  getImageBatches,
   getInitialDraftHealth,
   previewInitialDraft,
   type CellRecord,
+  type ImageBatchesResponse,
   type InitialDraftHealth,
   type InitialDraftPreview,
   type PreviewRow,
 } from '../api/amazonInitialDraft'
+import AmazonProductImagesSection from './amazonInitialDraft/AmazonProductImagesSection'
 
 type RowFilter = 'all' | 'matched' | 'unmatched' | 'ambiguous' | 'duplicates' | 'conflicts'
 type DetailTab = 'populated' | 'conflicts' | 'preserved' | 'missing' | 'columns' | 'surplus' | 'backend'
@@ -70,6 +73,8 @@ export default function AmazonInitialDraftPage() {
   const [rowFilter, setRowFilter] = useState<RowFilter>('all')
   const [search, setSearch] = useState('')
   const [tab, setTab] = useState<DetailTab>('populated')
+  const [imageBatches, setImageBatches] = useState<ImageBatchesResponse | null>(null)
+  const [imageBatch, setImageBatch] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -79,6 +84,21 @@ export default function AmazonInitialDraftPage() {
       })
       .catch(() => {
         if (!cancelled) setHealth(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    getImageBatches()
+      .then((result) => {
+        if (!cancelled) setImageBatches(result)
+      })
+      .catch(() => {
+        // The image section is optional; the draft still generates without it.
+        if (!cancelled) setImageBatches(null)
       })
     return () => {
       cancelled = true
@@ -113,7 +133,7 @@ export default function AmazonInitialDraftPage() {
 
   const handlePreview = async () => {
     if (!file) return
-    const result = await run('preview', () => previewInitialDraft(file))
+    const result = await run('preview', () => previewInitialDraft(file, imageBatch))
     if (result) {
       setPreview(result)
       setRowFilter('all')
@@ -201,8 +221,8 @@ export default function AmazonInitialDraftPage() {
       <section className={CARD}>
         <h2 className="text-lg font-bold text-white">1 · Upload the Amazon template</h2>
         <p className="mt-1 text-sm text-slate-400">
-          The file you upload is never modified or stored. Product images are not included — you will upload them
-          separately. Price and quantity are always left blank.
+          The file you upload is never modified or stored. Choose an approved image batch to fill the main and secondary
+          image URL columns as well. Price and quantity are always left blank.
         </p>
         <div className="mt-4 flex flex-wrap items-end gap-4">
           <label className="flex min-w-[22rem] flex-1 flex-col text-sm">
@@ -235,6 +255,47 @@ export default function AmazonInitialDraftPage() {
               : 'The website catalog connection is not configured on this server yet, so SKUs cannot be matched.'}
           </p>
         ) : null}
+
+        <div className="mt-5 border-t border-white/10 pt-4">
+          <label className="flex max-w-2xl flex-col text-sm">
+            <span className="mb-1 font-semibold text-slate-300">Approved Amazon image batch (optional)</span>
+            <select
+              value={imageBatch}
+              onChange={(event) => setImageBatch(event.target.value)}
+              disabled={!imageBatches || Boolean(imageBatches.configuration.problem)}
+              className="rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-sm text-white disabled:opacity-50"
+            >
+              <option value="">No images — leave the image columns unchanged</option>
+              {(imageBatches?.batches || [])
+                .filter((batch) => batch.available)
+                .map((batch) => (
+                  <option key={batch.prefix} value={batch.prefix}>
+                    {batch.label}
+                  </option>
+                ))}
+            </select>
+          </label>
+          {imageBatches?.configuration?.problem ? (
+            <p className="mt-2 text-xs text-amber-300">
+              Image matching is unavailable: {imageBatches.configuration.problem}. The draft still generates and every
+              image cell is left exactly as uploaded.
+            </p>
+          ) : (
+            <p className="mt-2 text-xs text-slate-500">
+              Only folders inside the approved marketplace-image prefix are offered. The batch is the only image input
+              sent from this page.
+            </p>
+          )}
+          {imageBatches?.batches?.some((batch) => !batch.available) ? (
+            <p className="mt-2 text-xs text-rose-300">
+              Some approved prefixes could not be listed:{' '}
+              {imageBatches.batches
+                .filter((batch) => !batch.available)
+                .map((batch) => `${batch.prefix} (${batch.reason})`)
+                .join(', ')}
+            </p>
+          ) : null}
+        </div>
       </section>
 
       {preview ? (
@@ -255,7 +316,7 @@ export default function AmazonInitialDraftPage() {
                   type="button"
                   onClick={() =>
                     file &&
-                    run('draft', () => downloadInitialDraft(file), (name) => `Draft downloaded as ${name}`)
+                    run('draft', () => downloadInitialDraft(file, imageBatch), (name) => `Draft downloaded as ${name}`)
                   }
                   disabled={busy !== ''}
                   className={`${BUTTON} bg-emerald-500 text-white hover:bg-emerald-400`}
@@ -266,7 +327,11 @@ export default function AmazonInitialDraftPage() {
                   type="button"
                   onClick={() =>
                     file &&
-                    run('report', () => downloadInitialDraftReport(file), (name) => `Report downloaded as ${name}`)
+                    run(
+                      'report',
+                      () => downloadInitialDraftReport(file, imageBatch),
+                      (name) => `Report downloaded as ${name}`
+                    )
                   }
                   disabled={busy !== ''}
                   className={`${BUTTON} bg-white/10 text-white ring-1 ring-white/15 hover:bg-white/15`}
@@ -286,6 +351,8 @@ export default function AmazonInitialDraftPage() {
               <Stat label="Duplicate SKU rows" value={preview.summary.duplicateSkuRows} tone="text-amber-300" />
             </div>
           </section>
+
+          <AmazonProductImagesSection images={preview.images} />
 
           <section className={CARD}>
             <div className="flex flex-wrap items-center justify-between gap-3">
