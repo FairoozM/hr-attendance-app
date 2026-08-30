@@ -228,6 +228,7 @@ function buildReportWorkbook(result, { filename, generatedAt = new Date(), catal
     [
       { header: 'Row', key: 'rowNumber', width: 8 },
       { header: 'Seller SKU', key: 'sku', width: 26 },
+      { header: 'Matched Zoho item', key: 'matchedZohoItem', width: 26 },
       { header: 'Original Zoho barcode', key: 'originalZohoBarcode', width: 22 },
       { header: 'Final Amazon GTIN', key: 'finalAmazonGtin', width: 22 },
       { header: 'Leading zero added', key: 'leadingZeroAdded', width: 18 },

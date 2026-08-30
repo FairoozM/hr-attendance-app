@@ -159,7 +159,8 @@ async function runInitialDraftPipeline({
 
   const catalog = skusInOrder.length ? await resolveCatalog(skusInOrder) : new Map()
 
-  // Exact-SKU Zoho barcode lookup for every matched website catalog row.
+  // Zoho barcode lookup for every matched website catalog row. The seller SKU is matched
+  // against the Zoho item name; the barcode comes out of the Zoho SKU field.
   const matchedSkus = skusInOrder.filter((sku) => {
     const resolution = catalog.get(sku)
     return resolution && resolution.status === 'matched' && resolution.item
@@ -170,7 +171,7 @@ async function runInitialDraftPipeline({
     const zoho = zohoBarcodeBySku.get(sku) || {
       status: 'not-found',
       barcode: '',
-      reason: 'zoho-sku-not-found',
+      reason: 'zoho-item-name-not-found',
     }
     let gtin
     if (zoho.status === 'found') {
@@ -187,7 +188,12 @@ async function runInitialDraftPipeline({
         warning: null,
       }
     }
-    gtinBySku.set(sku, { ...gtin, zohoStatus: zoho.status, zohoItemId: zoho.itemId || '' })
+    gtinBySku.set(sku, {
+      ...gtin,
+      zohoStatus: zoho.status,
+      zohoItemId: zoho.itemId || '',
+      zohoItemName: zoho.zohoItemName || '',
+    })
   }
 
   // Duplicate GTINs are still written for every exact SKU match; the report only warns.
@@ -532,8 +538,7 @@ async function runInitialDraftPipeline({
         if (
           reason === 'zoho-barcode-blank' ||
           reason === 'zoho-sku-not-found' ||
-          reason === 'zoho-sku-not-in-cache' ||
-          reason === 'zoho-lookup-budget-exceeded' ||
+          reason === 'zoho-item-name-not-found' ||
           reason === 'zoho-not-configured' ||
           reason === 'zoho-barcode-unavailable' ||
           reason === 'not-found'
@@ -553,6 +558,7 @@ async function runInitialDraftPipeline({
       gtinTransformations.push({
         rowNumber: row.rowNumber,
         sku: row.sku,
+        matchedZohoItem: gtinInfo.zohoItemName || '',
         originalZohoBarcode: gtinInfo.originalZohoBarcode || '',
         finalAmazonGtin: gtinInfo.amazonGtin || '',
         leadingZeroAdded: gtinInfo.leadingZeroAdded || '',

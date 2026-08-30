@@ -95,6 +95,8 @@ export type CellRecord = {
 export type GtinTransformationRecord = {
   rowNumber: number
   sku: string
+  /** Zoho item name the seller SKU matched; the barcode comes from that item's SKU field. */
+  matchedZohoItem?: string
   originalZohoBarcode: string
   finalAmazonGtin: string
   leadingZeroAdded: string
