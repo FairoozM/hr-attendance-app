@@ -532,6 +532,8 @@ async function runInitialDraftPipeline({
         if (
           reason === 'zoho-barcode-blank' ||
           reason === 'zoho-sku-not-found' ||
+          reason === 'zoho-sku-not-in-cache' ||
+          reason === 'zoho-lookup-budget-exceeded' ||
           reason === 'zoho-not-configured' ||
           reason === 'zoho-barcode-unavailable' ||
           reason === 'not-found'
