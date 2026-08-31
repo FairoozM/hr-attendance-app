@@ -13,7 +13,12 @@ const assert = require('node:assert/strict')
 const { runInitialDraftPipeline } = require('../src/services/amazonInitialDraft/draftGenerator')
 const { neverWriteReason, resolveFieldsForItem, MAPPED_KEYS } = require('../src/services/amazonInitialDraft/fieldMapping')
 const { normalizeSpecEntries } = require('../src/services/amazonInitialDraft/specParsers')
-const { fillLooksDisabled, parseStyles, assessCellApplicability } = require('../src/services/amazonInitialDraft/cellApplicability')
+const {
+  assessCellApplicability,
+  createFormulaEvaluator,
+  fillLooksDisabled,
+  parseStyles,
+} = require('../src/services/amazonInitialDraft/cellApplicability')
 const { pickAcceptedOption, resolveIndirectName } = require('../src/services/amazonInitialDraft/validationOptions')
 const { readSheetCells, parseSharedStrings, columnLettersToIndex } = require('../src/services/amazonInitialDraft/worksheetXml')
 const opc = require('../src/services/amazonInitialDraft/opcPackage')
@@ -542,6 +547,56 @@ describe('applicability', () => {
     const { cell } = await runDefaults()
     assert.equal(cell('D'), 'GTIN')
     assert.equal(cell('S'), 'Life Smile')
+  })
+})
+
+/**
+ * Amazon writes its applicability rules as defined names that end in a digit, and the real
+ * UAE template names them `ApplicablePTList1`, `ApplicablePTList2` and so on. A tokenizer
+ * that accepts unlimited column letters reads `ApplicablePTList1` as the cell reference
+ * `t1` — column T, the Main Image URL — and then blacks out every covered column based on
+ * whatever that unrelated cell holds.
+ */
+describe('applicability formula names', () => {
+  const evaluatorFor = (namedFormulas, values) =>
+    createFormulaEvaluator({
+      namedFormulas: new Map(Object.entries(namedFormulas)),
+      rowNumber: 57,
+      cellValueAt: (columnIndex) => values[columnIndex] || '',
+    })
+
+  it('resolves a defined name that ends in a digit instead of reading column T', () => {
+    const evaluator = evaluatorFor(
+      {
+        ApplicablePTList1:
+          'AND(LEN(Template!$B1)>0,NOT(OR(Template!$B1="COOKING_POT",Template!$B1="KITCHEN_TOOLS")))',
+      },
+      // Column 20 is T, the Main Image URL. The misparse used to return this string.
+      { 2: '', 20: 'https://images.lifesmile.ae/amazon-public/amazon-ae/SKU/MAIN.jpg' }
+    )
+
+    assert.equal(evaluator.evaluate('ApplicablePTList1'), false)
+  })
+
+  it('blacks the cell out only when the product type really is unsupported', () => {
+    const formula =
+      'AND(LEN(Template!$B1)>0,NOT(OR(Template!$B1="COOKING_POT",Template!$B1="KITCHEN_TOOLS")))'
+
+    assert.equal(evaluatorFor({ Name1: formula }, { 2: 'KITCHEN_TOOLS' }).evaluate('Name1'), false)
+    assert.equal(evaluatorFor({ Name1: formula }, { 2: 'SOMETHING_ELSE' }).evaluate('Name1'), true)
+  })
+
+  it('still reads genuine A1 references, including sheet-qualified and absolute ones', () => {
+    const values = { 2: 'KITCHEN_TOOLS', 20: 'main.jpg', 1024: 'far-right' }
+    const evaluator = evaluatorFor({}, values)
+
+    assert.equal(evaluator.evaluate('Template!$B1="KITCHEN_TOOLS"'), true)
+    assert.equal(evaluator.evaluate('T57="main.jpg"'), true)
+    assert.equal(evaluator.evaluate('$AMJ$1="far-right"'), true)
+  })
+
+  it('returns null for an unknown name rather than guessing a cell', () => {
+    assert.equal(evaluatorFor({}, { 20: 'main.jpg' }).evaluate('ApplicablePTList1'), null)
   })
 })
 

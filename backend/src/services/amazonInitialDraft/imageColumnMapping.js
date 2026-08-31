@@ -4,39 +4,70 @@
  * Maps the image positions found in filenames onto the image columns the uploaded
  * workbook actually declares.
  *
- * Column letters are never assumed. The technical header decides everything: the main
- * image locator becomes position `Main`, and each numbered secondary locator becomes the
- * position in its `#N` qualifier. Reading the number from `#N` rather than from the slot
- * order is what keeps a gap a gap — a template declaring `#1, #2, #4` must not quietly
+ * Column letters are never assumed and neither is column order. The technical header
+ * decides everything: the main image locator becomes position `Main`, and a secondary
+ * locator takes the number written in its own attribute name, falling back to its `#N`
+ * qualifier. The real UAE template numbers the attribute and leaves every qualifier at
+ * `#1`:
+ *
+ *   other_product_image_locator_1[marketplace_id=A2VIGQ35RCS4UG]#1.media_location
+ *   other_product_image_locator_8[marketplace_id=A2VIGQ35RCS4UG]#1.media_location
+ *
+ * while the older shape numbers the qualifier instead:
+ *
+ *   other_product_image_locator#4.media_location
+ *
+ * Both are read, because taking the number from the header rather than from the order of
+ * appearance is what keeps a gap a gap — a template declaring 1, 2 and 4 must not quietly
  * shift image 4 into position 3.
  *
- * Swatch, parent and any other image-shaped column stays out of scope: it is reported,
- * never written.
+ * Swatch, parent, the offer-image group and any other image-shaped column stays out of
+ * scope: it is reported, never written.
  */
 
-const MAIN_IMAGE_PATTERNS = [/^main_product_image_locator/i, /^main_image_url/i, /^main_offer_image/i]
+const MAIN_IMAGE_PATTERNS = [/^main_product_image_locator/i, /^main_image_url/i]
 
-const SECONDARY_IMAGE_PATTERNS = [
-  /^other_product_image_locator/i,
-  /^other_image_url/i,
-  /^other_offer_image/i,
-]
+const SECONDARY_IMAGE_PATTERNS = [/^other_product_image_locator/i, /^other_image_url/i]
 
-/** Image columns this feature deliberately leaves alone. */
+/**
+ * Image columns this feature deliberately leaves alone. The offer-image locators are a
+ * separate group belonging to the offer rather than the product listing, and they would
+ * otherwise compete with the product locators for the same positions.
+ */
 const OUT_OF_SCOPE_IMAGE_PATTERNS = [
   { pattern: /swatch/i, reason: 'swatch-image-out-of-scope' },
   { pattern: /parent/i, reason: 'parent-image-out-of-scope' },
+  { pattern: /offer_image/i, reason: 'offer-image-out-of-scope' },
 ]
 
 function matchesAny(patterns, technicalHeader) {
   return patterns.some((pattern) => pattern.test(technicalHeader))
 }
 
-/** `other_product_image_locator#4.media_location` → 4 */
+/**
+ * The image position a secondary locator column declares.
+ *
+ *   other_product_image_locator_4[marketplace_id=…]#1.media_location → 4
+ *   other_product_image_locator#4.media_location                     → 4
+ *
+ * The attribute name wins, because the real template numbers there and leaves every
+ * qualifier at `#1`; reading the qualifier first would collapse all eight columns onto
+ * position 1 and discard seven of them.
+ */
 function readSlotNumber(technicalHeader) {
-  const match = String(technicalHeader || '').match(/#(\d+)/)
-  if (!match) return null
-  const number = Number(match[1])
+  const header = String(technicalHeader || '')
+
+  // The attribute name is everything before the first marketplace/qualifier bracket.
+  const attributeName = header.split(/[[#]/)[0]
+  const named = attributeName.match(/_(\d+)$/)
+  if (named) {
+    const number = Number(named[1])
+    if (Number.isInteger(number) && number > 0) return number
+  }
+
+  const qualified = header.match(/#(\d+)/)
+  if (!qualified) return null
+  const number = Number(qualified[1])
   return Number.isInteger(number) && number > 0 ? number : null
 }
 

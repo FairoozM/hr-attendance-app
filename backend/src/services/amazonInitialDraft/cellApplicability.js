@@ -161,7 +161,7 @@ function createFormulaEvaluator({ namedFormulas, rowNumber, cellValueAt }) {
   const cache = new Map()
 
   function cellRef(absoluteRef) {
-    const match = /(?:'[^{']+'|[A-Za-z0-9_]+)!?\$?([A-Za-z]+)\$?(\d+)/.exec(absoluteRef)
+    const match = /^(?:(?:'[^']+'|[A-Za-z_][A-Za-z0-9_]*)!)?\$?([A-Za-z]{1,3})\$?(\d+)$/.exec(absoluteRef)
     if (!match) return null
     const column = columnLettersToIndex(match[1])
     return cellValueAt(column, rowNumber)
@@ -206,8 +206,13 @@ function createFormulaEvaluator({ namedFormulas, rowNumber, cellValueAt }) {
         index += numberLiteral[1].length
         continue
       }
-      const cell = /^((?:'[^']+'|[A-Za-z_][A-Za-z0-9_]*)!)?\$?[A-Za-z]+\$?\d+/.exec(rest)
-      if (cell) {
+      // An A1 reference has at most three column letters and is not glued to further
+      // word characters. Both guards matter: Amazon's applicability names end in a digit,
+      // so without them `ApplicablePTList1` is read as the cell reference `t1` — column T,
+      // the Main Image URL — and the rule then fires off whatever that cell happens to
+      // hold. A name that is also a valid reference stays a name.
+      const cell = /^((?:'[^']+'|[A-Za-z_][A-Za-z0-9_]*)!)?\$?[A-Za-z]{1,3}\$?\d+(?![A-Za-z0-9_.])/.exec(rest)
+      if (cell && !namedFormulas.has(cell[0])) {
         tokens.push({ type: 'cell', value: cell[0] })
         index += cell[0].length
         continue

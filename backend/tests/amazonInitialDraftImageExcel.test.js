@@ -8,6 +8,11 @@ const s3 = require('../src/services/amazonInitialDraft/marketplaceImageS3')
 const { openTemplateWorkbook } = require('../src/services/amazonInitialDraft/amazonTemplateWorkbook')
 const { parseSharedStrings, readSheetCells } = require('../src/services/amazonInitialDraft/worksheetXml')
 const { resolveProductImages } = require('../src/services/amazonInitialDraft/productImageResolver')
+const {
+  buildImageColumnMap,
+  isInScopeImageColumn,
+  readSlotNumber,
+} = require('../src/services/amazonInitialDraft/imageColumnMapping')
 const { runInitialDraftPipeline } = require('../src/services/amazonInitialDraft/draftGenerator')
 const { UAE_EXAMPLE, UAE_HEADERS, UAE_LABELS, buildTemplateWorkbook } = require('./helpers/amazonTemplateFixture')
 
@@ -179,6 +184,88 @@ describe('amazon image Excel behaviour — column mapping', () => {
     const row = result.rows.find((entry) => entry.rowNumber === 8)
     assert.equal(row.status, 'unmatched')
     assert.equal(row.counts.images, 4)
+  })
+})
+
+/**
+ * The live UAE template numbers the attribute name and leaves every qualifier at `#1`:
+ *
+ *   other_product_image_locator_1[marketplace_id=A2VIGQ35RCS4UG]#1.media_location
+ *   other_product_image_locator_8[marketplace_id=A2VIGQ35RCS4UG]#1.media_location
+ *
+ * Reading the qualifier first collapses all eight columns onto position 1, so seven of them
+ * are discarded as duplicates and a seven-image SKU only ever gets its main image plus one.
+ */
+describe('amazon image Excel behaviour — real UAE header shape', () => {
+  const MARKETPLACE = '[marketplace_id=A2VIGQ35RCS4UG]'
+  const realHeader = (attribute) => `${attribute}${MARKETPLACE}#1.media_location`
+
+  const columnsFor = (attributes) =>
+    attributes.map((attribute, index) => ({
+      column: index + 1,
+      letters: `C${index + 1}`,
+      technicalHeader: realHeader(attribute),
+      normalizedKey: attribute,
+      displayLabel: attribute,
+      groupLabel: 'Images',
+    }))
+
+  it('reads the position from the attribute name when every qualifier is #1', () => {
+    for (let position = 1; position <= 8; position += 1) {
+      assert.equal(readSlotNumber(realHeader(`other_product_image_locator_${position}`)), position)
+    }
+  })
+
+  it('still reads the position from the #N qualifier when the attribute is unnumbered', () => {
+    assert.equal(readSlotNumber('other_product_image_locator#4.media_location'), 4)
+    assert.equal(readSlotNumber('other_product_image_locator'), null)
+  })
+
+  it('maps all eight secondary columns instead of discarding seven as duplicates', () => {
+    const attributes = ['main_product_image_locator']
+    for (let position = 1; position <= 8; position += 1) {
+      attributes.push(`other_product_image_locator_${position}`)
+    }
+    const columns = columnsFor(attributes)
+    const map = buildImageColumnMap(columns)
+
+    assert.equal(map.main.letters, 'C1')
+    assert.deepEqual(map.supportedSecondaryPositions, [1, 2, 3, 4, 5, 6, 7, 8])
+    for (let position = 1; position <= 8; position += 1) {
+      assert.equal(map.secondary.get(position).letters, `C${position + 1}`)
+    }
+    assert.deepEqual(map.outOfScope, [])
+  })
+
+  it('keeps the offer-image group out of scope so it cannot claim the product positions', () => {
+    const columns = columnsFor([
+      'main_product_image_locator',
+      'other_product_image_locator_1',
+      'swatch_product_image_locator',
+      'main_offer_image_locator',
+      'other_offer_image_locator_1',
+      'other_offer_image_locator_2',
+    ])
+    const map = buildImageColumnMap(columns)
+
+    assert.equal(map.main.letters, 'C1')
+    assert.deepEqual(map.supportedSecondaryPositions, [1])
+    assert.equal(map.secondary.get(1).letters, 'C2')
+
+    assert.deepEqual(
+      map.outOfScope.map((entry) => [entry.column.letters, entry.reason]),
+      [
+        ['C3', 'swatch-image-out-of-scope'],
+        ['C4', 'offer-image-out-of-scope'],
+        ['C5', 'offer-image-out-of-scope'],
+        ['C6', 'offer-image-out-of-scope'],
+      ]
+    )
+
+    for (const attribute of ['main_offer_image_locator', 'other_offer_image_locator_1']) {
+      assert.equal(isInScopeImageColumn(realHeader(attribute)), false)
+    }
+    assert.equal(isInScopeImageColumn(realHeader('other_product_image_locator_8')), true)
   })
 })
 
