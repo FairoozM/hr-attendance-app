@@ -253,6 +253,27 @@ function colourSeparatorAlias(sku, colour) {
   return ''
 }
 
+/**
+ * The same rewrite when no variant colour is on hand: the separator before the *last*
+ * hyphenated token becomes an underscore, and nothing else changes.
+ *
+ *   LIFEP17S-16P-BEIGE → LIFEP17S-16P_BEIGE
+ *   LIFEP17-MIX-19-1   → LIFEP17-MIX-19_1
+ *
+ * The second alias looks wrong but is harmless: it is only ever used as a candidate that
+ * must equal a whole underscore-delimited run ending the filename's identity area. The
+ * Quick Action writes that SKU as `LIFEP17-MIX-19-1`, which the exact SKU already matches
+ * and which the alias cannot match. A candidate that collides with another workbook SKU is
+ * reported as ambiguous and populates nothing, so the guard rails do not depend on knowing
+ * the colour — the colour only upgrades the match from structural to confirmed.
+ */
+function trailingSeparatorAlias(sku) {
+  const text = cleanText(sku)
+  const cut = text.lastIndexOf('-')
+  if (cut <= 0 || cut === text.length - 1) return ''
+  return `${text.slice(0, cut)}_${text.slice(cut + 1)}`
+}
+
 function readColour(colours, sku) {
   if (!colours) return ''
   if (typeof colours.get === 'function') {
@@ -284,10 +305,19 @@ function buildSkuIdentities(workbookSkus, coloursBySku) {
 
     identities.push({ sku, identity: sku, kind: 'exact', colour: '' })
 
+    // The colour confirms the rewrite when the catalog knows it. It is not required:
+    // making images depend on a catalog field would silently drop every SKU the website
+    // catalog cannot match, which is exactly what images must keep working without.
     const colour = readColour(coloursBySku, sku)
-    const alias = colourSeparatorAlias(sku, colour)
+    const confirmed = colourSeparatorAlias(sku, colour)
+    const alias = confirmed || trailingSeparatorAlias(sku)
     if (alias && alias.toLowerCase() !== key) {
-      identities.push({ sku, identity: alias, kind: 'colour-alias', colour })
+      identities.push({
+        sku,
+        identity: alias,
+        kind: confirmed ? 'colour-alias' : 'separator-alias',
+        colour: confirmed ? colour : '',
+      })
     }
   }
 
@@ -399,6 +429,7 @@ module.exports = {
   buildSkuIdentities,
   candidateSegments,
   colourSeparatorAlias,
+  trailingSeparatorAlias,
   matchWorkbookSku,
   parseImageFilename,
   resolveImageKey,

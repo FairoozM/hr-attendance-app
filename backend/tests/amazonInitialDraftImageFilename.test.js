@@ -221,10 +221,21 @@ describe('Quick Action naming — controlled colour separator', () => {
     )
   })
 
-  it('does not treat underscores and hyphens as interchangeable in general', () => {
-    // No colour, so no alias: an underscore filename must not match a hyphen SKU.
-    const match = matchWorkbookSku('CONTENT_LIFEP29-6_2', ['LIFEP29-6-2'])
-    assert.equal(match.status, 'unmatched')
+  it('rewrites only the final separator, never an internal one', () => {
+    // `LIFEP29-6-2` may appear as `LIFEP29-6_2`, which is the one alias it gets.
+    assert.equal(matchWorkbookSku('CONTENT_LIFEP29-6_2', ['LIFEP29-6-2']).sku, 'LIFEP29-6-2')
+    // Swapping an earlier hyphen is not a name this SKU can ever have.
+    assert.equal(matchWorkbookSku('CONTENT_LIFEP29_6-2', ['LIFEP29-6-2']).status, 'unmatched')
+    assert.equal(matchWorkbookSku('CONTENT_LIFEP29_6_2', ['LIFEP29-6-2']).status, 'unmatched')
+  })
+
+  it('gives each SKU exactly one alias, never a set of permutations', () => {
+    const identities = buildSkuIdentities(['LIFEP17-MIX-19-1-BEIGE'], {})
+    assert.equal(identities.length, 2)
+    assert.deepEqual(
+      identities.map((entry) => entry.identity),
+      ['LIFEP17-MIX-19-1-BEIGE', 'LIFEP17-MIX-19-1_BEIGE']
+    )
   })
 })
 
@@ -288,9 +299,27 @@ describe('Quick Action naming — real filename structure', () => {
     assert.equal(resolved.sku, 'LIFEP17S-16P-BEIGE')
   })
 
-  it('populates nothing when the colour is unavailable', () => {
-    const resolved = resolveImageKey('CONTENT_LIFEP17S-16P_BEIGE_WEBSITE_Main.jpg', SKUS, {})
+  /**
+   * The website catalog cannot match every seller SKU, and matching one is not a
+   * precondition for having approved photographs. Images must never depend on it.
+   */
+  it('still matches when no variant colour is available, marking the match structural', () => {
+    for (const colours of [{}, { 'LIFEP17S-16P-BEIGE': '' }, null]) {
+      const resolved = resolveImageKey('CONTENT_LIFEP17S-16P_BEIGE_WEBSITE_Main.jpg', SKUS, colours)
+      assert.equal(resolved.matchStatus, 'matched')
+      assert.equal(resolved.sku, 'LIFEP17S-16P-BEIGE')
+      assert.equal(resolved.matchKind, 'separator-alias')
+    }
+  })
+
+  it('keeps the safety rules with no colour: the parent still cannot take the child image', () => {
+    const resolved = resolveImageKey('CONTENT_LIFEP17S-16P_BEIGE_WEBSITE_Main.jpg', ['LIFEP17S-16P'], {})
     assert.equal(resolved.matchStatus, 'unmatched-filename')
+  })
+
+  it('keeps the safety rules with no colour: the longest child still wins', () => {
+    const skus = ['LIFEP17S-16P-BEIGE', 'LIFEP17S-16P', 'LIFEP17S']
+    assert.equal(resolveImageKey('CONTENT_LIFEP17S-16P_BEIGE_WEBSITE_Main.jpg', skus, {}).sku, 'LIFEP17S-16P-BEIGE')
   })
 })
 

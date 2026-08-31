@@ -109,7 +109,7 @@ export type ImageRecord = {
   channel: string
   /** The name the SKU was matched under: the SKU itself or its colour alias. */
   matchedIdentity: string
-  matchKind: 'exact' | 'colour-alias' | ''
+  matchKind: 'exact' | 'colour-alias' | 'separator-alias' | ''
   suffixQuality: 'clean' | 'normalized' | ''
   status: ImageStatus
   populationStatus: string
