@@ -9,6 +9,7 @@ export type ImageFilter =
   | 'unmatched'
   | 'ambiguous'
   | 'duplicate'
+  | 'website-missing'
   | 'conflicts'
   | 'warnings'
 
@@ -19,6 +20,7 @@ const IMAGE_FILTERS: Array<{ id: ImageFilter; label: string }> = [
   { id: 'unmatched', label: 'Unmatched files' },
   { id: 'ambiguous', label: 'Ambiguous' },
   { id: 'duplicate', label: 'Duplicate positions' },
+  { id: 'website-missing', label: 'No WEBSITE images' },
   { id: 'conflicts', label: 'Conflicts' },
   { id: 'warnings', label: 'Warnings' },
 ]
@@ -127,7 +129,9 @@ function recordMatchesFilter(record: ImageRecord, filter: ImageFilter): boolean 
     case 'ambiguous':
       return record.status === 'ambiguous-sku'
     case 'duplicate':
-      return record.status === 'duplicate-position'
+      return record.status.startsWith('duplicate-position')
+    case 'website-missing':
+      return record.status === 'website-images-missing' || record.status === 'noon-not-used'
     case 'conflicts':
       return record.populationStatus === 'existing-value-preserved'
     case 'warnings':
@@ -140,6 +144,7 @@ function recordMatchesFilter(record: ImageRecord, filter: ImageFilter): boolean 
 function groupMatchesFilter(group: ImageSkuGroup, filter: ImageFilter): boolean {
   if (filter === 'all') return true
   if (filter === 'missing-main') return !group.hasMainImage
+  if (filter === 'website-missing' && group.websiteImagesMissing) return true
   if (filter === 'ready') return group.hasMainImage && group.problems.length === 0
   const records = [group.main, ...group.secondary, ...group.problems].filter(Boolean) as ImageRecord[]
   return records.some((record) => recordMatchesFilter(record, filter))
@@ -210,6 +215,9 @@ export default function AmazonProductImagesSection({ images }: { images: ImagePr
             <Stat label="Unmatched files" value={summary.unmatchedFiles} tone="text-rose-300" />
             <Stat label="Ambiguous" value={summary.ambiguousFiles} tone="text-amber-300" />
             <Stat label="Duplicate positions" value={summary.duplicatePositions} tone="text-amber-300" />
+            <Stat label="No WEBSITE images" value={summary.skusWithoutWebsiteImages} tone="text-amber-300" />
+            <Stat label="NOON files not used" value={summary.noonFilesNotUsed} tone="text-slate-300" />
+            <Stat label="Identical duplicates removed" value={summary.duplicatesDeduplicated} tone="text-slate-300" />
             <Stat label="Unsupported" value={summary.unsupportedFiles + summary.unsupportedPositions} tone="text-amber-300" />
             <Stat label="Broken URLs" value={summary.brokenUrls} tone="text-rose-300" />
             <Stat label="Delivery failures" value={summary.deliveryFailures} tone="text-rose-300" />

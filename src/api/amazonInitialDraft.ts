@@ -85,6 +85,11 @@ export type ImageStatus =
   | 'unmatched-filename'
   | 'ambiguous-sku'
   | 'duplicate-position'
+  | 'duplicate-position-conflict'
+  | 'duplicate-position-identical'
+  | 'duplicate-position-superseded'
+  | 'noon-not-used'
+  | 'website-images-missing'
   | 'unsupported-position'
   | 'unsupported-file'
   | 'delivery-copy-failed'
@@ -100,6 +105,12 @@ export type ImageRecord = {
   positionNumber: number | null
   classification: 'main' | 'secondary' | ''
   matchStatus: string
+  /** `WEBSITE`, `NOON`, or empty for a legacy name with no channel token. */
+  channel: string
+  /** The name the SKU was matched under: the SKU itself or its colour alias. */
+  matchedIdentity: string
+  matchKind: 'exact' | 'colour-alias' | ''
+  suffixQuality: 'clean' | 'normalized' | ''
   status: ImageStatus
   populationStatus: string
   publicUrl: string
@@ -122,6 +133,7 @@ export type ImageSkuGroup = {
   secondary: ImageRecord[]
   problems: ImageRecord[]
   hasMainImage: boolean
+  websiteImagesMissing: boolean
 }
 
 export type ImageSummary = {
@@ -139,6 +151,11 @@ export type ImageSummary = {
   deliveryFailures: number
   brokenUrls: number
   workbookSkusWithoutImages: number
+  colourAliasMatches: number
+  duplicatesDeduplicated: number
+  duplicatesSuperseded: number
+  noonFilesNotUsed: number
+  skusWithoutWebsiteImages: number
 }
 
 export type ImagePreview = {

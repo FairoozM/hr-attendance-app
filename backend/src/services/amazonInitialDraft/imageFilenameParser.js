@@ -3,27 +3,32 @@
 /**
  * Filename parsing and exact-SKU matching for approved Amazon marketplace images.
  *
- * The content team's convention, confirmed against the approved S3 batch:
+ * Filenames come from a fixed macOS Quick Action and are never renamed by hand, so the
+ * convention below is permanent:
+ *
+ *   CONTENT_{SKU-WITH-UNDERSCORE-BEFORE-COLOUR}_{CHANNEL}_{POSITION}.jpg
+ *
+ *   CONTENT_LIFEP17S-16P_BEIGE_WEBSITE_Main.jpg
+ *   CONTENT_LIFEP17-MIX-19-1_BEIGE_WEBSITE_3.jpg
+ *
+ * The earlier convention is still supported:
  *
  *   1. LIFESMILE_LIFEP29_LIFEP29-6-2_WEBSITE_Main.jpg
- *   1. LIFESMILE_LIFEP29_LIFEP29-6-2_WEBSITE_1.jpg
  *
- * `LIFESMILE` is branding, `LIFEP29` is the family code, `LIFEP29-6-2` is the seller SKU,
- * `WEBSITE` is naming metadata and the final token is the Amazon image position. The
- * leading `1. ` is a manual sort prefix and means nothing.
- *
- * Two rules matter more than the rest:
+ * Three rules matter more than the rest:
  *
  *   - Position comes from the filename, never from S3 listing order, upload time or
  *     alphabetical order. `Main, 1, 2, 4` stays `Main, 1, 2, 4`.
- *   - A SKU is only matched when it equals a whole underscore-delimited segment of the
- *     filename. Substring matching would let the family code `LIFEP29` claim an image
- *     that belongs to `LIFEP29-6-2`, and would let `NSEL` claim an `NSEL-20` image. When
- *     several workbook SKUs match, the longest wins, so a child SKU always beats the
- *     family code it starts with.
- *
- * Adding a further consistent naming convention means adding a marker to
- * `POSITION_MARKERS`; nothing else here needs to change.
+ *   - A SKU is only matched when it equals a whole underscore-delimited run that *ends*
+ *     the identity area. That is what stops the family code `LIFEP29` claiming an image
+ *     belonging to `LIFEP29-6-2`, and stops the parent `LIFEP17S-16P` claiming the
+ *     colour-specific `LIFEP17S-16P_BEIGE`. When several identities match, the longest
+ *     wins, so a child SKU always beats the family code it starts with.
+ *   - The Quick Action rewrites exactly one character: the separator immediately before
+ *     the colour. `LIFEP17S-16P-BEIGE` is written `LIFEP17S-16P_BEIGE`. That single
+ *     controlled alias is generated from the *verified* variant colour, so internal
+ *     hyphens such as those in `LIFEP17-MIX-19-1` are never touched. Underscores and
+ *     hyphens are not interchangeable anywhere else.
  */
 
 /** Amazon UAE flat files expose one main image plus eight numbered secondary slots. */
@@ -34,14 +39,27 @@ const SUPPORTED_EXTENSIONS = new Set(['.jpg', '.jpeg'])
 /** A manual ordering prefix such as `1. ` or `12.` that is not part of the SKU. */
 const SORT_PREFIX = /^\s*\d+\s*[.)-]\s*/
 
+/** Sales channels the Quick Action stamps into the name. */
+const CHANNEL = {
+  WEBSITE: 'WEBSITE',
+  NOON: 'NOON',
+  /** Older names carry no channel token at all. */
+  UNSPECIFIED: '',
+}
+
 /**
- * Ways the position token can be introduced, tried in order. Each entry captures the
- * token in group 1 and must be anchored to the end of the base name.
+ * `_WEBSITE_Main`, and the punctuation artifacts the Quick Action can leave behind:
+ * `_WEBSITE__Main`, `_WEBSITE_._Main`, `_WEBSITE_-._Main`. The run of punctuation is
+ * captured so a clean suffix can be preferred over a normalized one, and the cleanup is
+ * confined to this narrow area after the channel — it never touches the SKU identity.
  */
-const POSITION_MARKERS = [
-  { name: 'website-suffix', pattern: /_WEBSITE_([A-Za-z0-9]+)$/i },
-  { name: 'bare-suffix', pattern: /_(MAIN|0?[1-9]|1[0-9])$/i },
-]
+const CHANNEL_SUFFIX = /_(WEBSITE|NOON)([_.\-]+)([A-Za-z0-9]+)$/i
+
+/** Legacy names with no channel token, e.g. `NSEL-20_Main`. */
+const BARE_SUFFIX = /_(MAIN|0?[1-9]|1[0-9])$/i
+
+/** A suffix separator of exactly one underscore is the clean, preferred form. */
+const CLEAN_SEPARATOR = '_'
 
 function cleanText(value) {
   return String(value == null ? '' : value).trim()
@@ -129,6 +147,7 @@ function suffixSegments(baseName) {
  * @returns {{
  *   key: string, filename: string, baseName: string, extension: string,
  *   skuText: string, position: object|null, positionToken: string,
+ *   channel: string, suffixQuality: 'clean'|'normalized'|'', suffixSeparator: string,
  *   ok: boolean, reason: string|null,
  * }}
  */
@@ -145,6 +164,9 @@ function parseImageFilename(key) {
     skuText: withoutSortPrefix,
     position: null,
     positionToken: '',
+    channel: CHANNEL.UNSPECIFIED,
+    suffixQuality: '',
+    suffixSeparator: '',
     ok: false,
     reason: null,
   }
@@ -154,24 +176,26 @@ function parseImageFilename(key) {
     return parsed
   }
 
-  let markerMatch = null
-  for (const marker of POSITION_MARKERS) {
-    const match = withoutSortPrefix.match(marker.pattern)
-    if (match) {
-      markerMatch = { marker, match }
-      break
-    }
-  }
+  const channelMatch = withoutSortPrefix.match(CHANNEL_SUFFIX)
+  const bareMatch = channelMatch ? null : withoutSortPrefix.match(BARE_SUFFIX)
 
-  if (!markerMatch) {
+  if (channelMatch) {
+    parsed.channel = channelMatch[1].toUpperCase()
+    parsed.suffixSeparator = channelMatch[2]
+    parsed.suffixQuality = channelMatch[2] === CLEAN_SEPARATOR ? 'clean' : 'normalized'
+    parsed.positionToken = channelMatch[3]
+    parsed.skuText = withoutSortPrefix.slice(0, channelMatch.index)
+  } else if (bareMatch) {
+    parsed.suffixSeparator = CLEAN_SEPARATOR
+    parsed.suffixQuality = 'clean'
+    parsed.positionToken = bareMatch[1]
+    parsed.skuText = withoutSortPrefix.slice(0, bareMatch.index)
+  } else {
     parsed.reason = 'position-marker-not-found'
     return parsed
   }
 
-  parsed.positionToken = markerMatch.match[1]
-  parsed.skuText = withoutSortPrefix.slice(0, markerMatch.match.index)
-
-  const position = readPositionToken(markerMatch.match[1])
+  const position = readPositionToken(parsed.positionToken)
   if (!position) {
     parsed.reason = 'unsupported-position'
     return parsed
@@ -187,63 +211,158 @@ function parseImageFilename(key) {
   return parsed
 }
 
+function normalizeColourToken(value) {
+  return String(value == null ? '' : value)
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '')
+}
+
+/**
+ * The single controlled alias the Quick Action produces: only the separator immediately
+ * before the *verified* colour becomes an underscore.
+ *
+ *   LIFEP17S-16P-BEIGE     + colour BEIGE → LIFEP17S-16P_BEIGE
+ *   LIFEP17-MIX-19-1-BEIGE + colour BEIGE → LIFEP17-MIX-19-1_BEIGE
+ *   LIFEP17-MIX-19-1       + colour BEIGE → '' (no trailing colour, nothing is rewritten)
+ *
+ * Returns an empty string when the colour is unknown or the SKU does not end with it, so
+ * an unverified colour can never cause a rewrite.
+ *
+ * @param {string} sku the authoritative seller SKU from the workbook
+ * @param {string} colour the variant colour from the exact catalog match
+ */
+function colourSeparatorAlias(sku, colour) {
+  const text = cleanText(sku)
+  const wanted = normalizeColourToken(colour)
+  if (!text || !wanted) return ''
+
+  const parts = text.split('-')
+  if (parts.length < 2) return ''
+
+  // A colour can span more than one hyphenated token, e.g. `-LIGHT-BLUE` for "Light Blue".
+  const maxTokens = Math.min(4, parts.length - 1)
+  for (let count = 1; count <= maxTokens; count += 1) {
+    const tail = parts.slice(parts.length - count)
+    if (normalizeColourToken(tail.join('')) !== wanted) continue
+
+    const head = parts.slice(0, parts.length - count).join('-')
+    if (!head) return ''
+    return `${head}_${tail.join('-')}`
+  }
+
+  return ''
+}
+
+function readColour(colours, sku) {
+  if (!colours) return ''
+  if (typeof colours.get === 'function') {
+    return cleanText(colours.get(sku) || colours.get(String(sku).toLowerCase()) || '')
+  }
+  return cleanText(colours[sku] || colours[String(sku).toLowerCase()] || '')
+}
+
+/**
+ * The names each workbook SKU may legitimately appear under: the SKU itself, plus its one
+ * controlled colour alias when the variant colour is known and confirmed as the SKU's
+ * trailing token. The real seller SKU is carried alongside so it is preserved unchanged
+ * everywhere the match is used.
+ *
+ * @param {string[]} workbookSkus
+ * @param {Map<string,string>|Record<string,string>} [coloursBySku]
+ * @returns {Array<{ sku: string, identity: string, kind: 'exact'|'colour-alias', colour: string }>}
+ */
+function buildSkuIdentities(workbookSkus, coloursBySku) {
+  const identities = []
+  const seen = new Set()
+
+  for (const raw of Array.isArray(workbookSkus) ? workbookSkus : []) {
+    const sku = cleanText(raw)
+    if (!sku) continue
+    const key = sku.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+
+    identities.push({ sku, identity: sku, kind: 'exact', colour: '' })
+
+    const colour = readColour(coloursBySku, sku)
+    const alias = colourSeparatorAlias(sku, colour)
+    if (alias && alias.toLowerCase() !== key) {
+      identities.push({ sku, identity: alias, kind: 'colour-alias', colour })
+    }
+  }
+
+  return identities
+}
+
+/** Accepts either a plain SKU list or a prepared identity list. */
+function toIdentities(workbookSkusOrIdentities, coloursBySku) {
+  const input = Array.isArray(workbookSkusOrIdentities) ? workbookSkusOrIdentities : []
+  if (input.length && typeof input[0] === 'object' && input[0] !== null) return input
+  return buildSkuIdentities(input, coloursBySku)
+}
+
 /**
  * Matches the filename against the workbook's own SKUs — the authoritative candidate set.
  *
- * @param {string} skuText the filename with sort prefix and position marker removed
- * @param {string[]} workbookSkus seller SKUs exactly as they appear in the workbook
- * @returns {{ status: 'matched'|'unmatched'|'ambiguous', sku: string, candidates: string[] }}
+ * Only runs that *end* the identity area are considered. `CONTENT_LIFEP17S-16P_BEIGE`
+ * offers `BEIGE`, `LIFEP17S-16P_BEIGE` and the whole string, but never the bare
+ * `LIFEP17S-16P`, so a parent SKU cannot take a colour-specific child's image.
+ *
+ * @param {string} skuText the filename with sort prefix and position suffix removed
+ * @param {string[]|Array<object>} workbookSkusOrIdentities SKUs, or prepared identities
+ * @param {Map<string,string>|Record<string,string>} [coloursBySku]
+ * @returns {{
+ *   status: 'matched'|'unmatched'|'ambiguous', sku: string, candidates: string[],
+ *   matchedIdentity: string, matchKind: string,
+ * }}
  */
-function matchWorkbookSku(skuText, workbookSkus) {
+function matchWorkbookSku(skuText, workbookSkusOrIdentities, coloursBySku) {
   const text = cleanText(skuText)
-  const skus = (Array.isArray(workbookSkus) ? workbookSkus : []).map((sku) => cleanText(sku)).filter(Boolean)
-  if (!text || !skus.length) return { status: 'unmatched', sku: '', candidates: [] }
+  const identities = toIdentities(workbookSkusOrIdentities, coloursBySku).filter(
+    (entry) => entry && cleanText(entry.identity) && cleanText(entry.sku)
+  )
+  const miss = { status: 'unmatched', sku: '', candidates: [], matchedIdentity: '', matchKind: '' }
+  if (!text || !identities.length) return miss
 
-  const matchAgainst = (runs) => {
-    const lowered = new Set([...runs].map((run) => run.toLowerCase()))
-    return skus.filter((sku) => lowered.has(sku.toLowerCase()))
-  }
+  const runs = new Set([...suffixSegments(text)].map((run) => run.toLowerCase()))
+  const matches = identities.filter((entry) => runs.has(entry.identity.toLowerCase()))
+  if (!matches.length) return miss
 
-  // Preferred reading: the SKU is the token immediately before the position marker.
-  let matches = matchAgainst(suffixSegments(text))
-
-  if (!matches.length) {
-    // Fallback for a name that carries trailing metadata after the SKU. A candidate that
-    // is only the start of another token in the same name is rejected, so `NSEL` can never
-    // stand in for `NSEL-20`.
-    const segments = splitSegments(text)
-    matches = matchAgainst(candidateSegments(text)).filter((sku) => {
-      const lower = sku.toLowerCase()
-      return !segments.some((segment) => {
-        const candidate = segment.toLowerCase()
-        return candidate !== lower && candidate.startsWith(lower)
-      })
-    })
-  }
-
-  if (!matches.length) return { status: 'unmatched', sku: '', candidates: [] }
-
-  // Longest exact match wins: a child SKU must beat the family code it begins with.
+  // Longest identity wins: a child SKU must beat the family code it begins with.
   let longest = 0
-  for (const sku of matches) longest = Math.max(longest, sku.length)
-  const best = matches.filter((sku) => sku.length === longest)
+  for (const entry of matches) longest = Math.max(longest, entry.identity.length)
+  const best = matches.filter((entry) => entry.identity.length === longest)
 
-  // Two different SKUs of equal length both matching is a genuine ambiguity, never a guess.
-  const distinct = [...new Set(best.map((sku) => sku.toLowerCase()))]
-  if (distinct.length > 1) {
-    return { status: 'ambiguous', sku: '', candidates: best.sort() }
+  // Two different SKUs matching equally well is a genuine ambiguity, never a guess.
+  const distinctSkus = [...new Set(best.map((entry) => entry.sku.toLowerCase()))]
+  if (distinctSkus.length > 1) {
+    return {
+      status: 'ambiguous',
+      sku: '',
+      candidates: [...new Set(best.map((entry) => entry.sku))].sort(),
+      matchedIdentity: '',
+      matchKind: '',
+    }
   }
 
-  return { status: 'matched', sku: best[0], candidates: [...new Set(matches)].sort() }
+  const winner = best[0]
+  return {
+    status: 'matched',
+    sku: winner.sku,
+    candidates: [...new Set(matches.map((entry) => entry.sku))].sort(),
+    matchedIdentity: winner.identity,
+    matchKind: winner.kind,
+  }
 }
 
 /**
  * Parses and matches one S3 key in a single step.
  *
  * @param {string} key
- * @param {string[]} workbookSkus
+ * @param {string[]|Array<object>} workbookSkusOrIdentities
+ * @param {Map<string,string>|Record<string,string>} [coloursBySku]
  */
-function resolveImageKey(key, workbookSkus) {
+function resolveImageKey(key, workbookSkusOrIdentities, coloursBySku) {
   const parsed = parseImageFilename(key)
   if (!parsed.ok) {
     return {
@@ -251,24 +370,35 @@ function resolveImageKey(key, workbookSkus) {
       sku: '',
       matchStatus: parsed.reason === 'unsupported-file' ? 'unsupported-file' : 'unsupported-position',
       candidates: [],
+      matchedIdentity: '',
+      matchKind: '',
     }
   }
 
-  const match = matchWorkbookSku(parsed.skuText, workbookSkus)
+  const match = matchWorkbookSku(parsed.skuText, workbookSkusOrIdentities, coloursBySku)
   if (match.status === 'ambiguous') {
-    return { ...parsed, sku: '', matchStatus: 'ambiguous-sku', candidates: match.candidates }
+    return { ...parsed, sku: '', matchStatus: 'ambiguous-sku', candidates: match.candidates, matchedIdentity: '', matchKind: '' }
   }
   if (match.status === 'unmatched') {
-    return { ...parsed, sku: '', matchStatus: 'unmatched-filename', candidates: [] }
+    return { ...parsed, sku: '', matchStatus: 'unmatched-filename', candidates: [], matchedIdentity: '', matchKind: '' }
   }
-  return { ...parsed, sku: match.sku, matchStatus: 'matched', candidates: match.candidates }
+  return {
+    ...parsed,
+    sku: match.sku,
+    matchStatus: 'matched',
+    candidates: match.candidates,
+    matchedIdentity: match.matchedIdentity,
+    matchKind: match.matchKind,
+  }
 }
 
 module.exports = {
+  CHANNEL,
   MAX_SECONDARY_POSITION,
-  POSITION_MARKERS,
   SUPPORTED_EXTENSIONS,
+  buildSkuIdentities,
   candidateSegments,
+  colourSeparatorAlias,
   matchWorkbookSku,
   parseImageFilename,
   resolveImageKey,

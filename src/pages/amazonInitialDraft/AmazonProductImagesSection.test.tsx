@@ -17,6 +17,10 @@ function record(overrides: Partial<ImageRecord> = {}): ImageRecord {
     positionNumber: 0,
     classification: 'main',
     matchStatus: 'matched',
+    channel: 'WEBSITE',
+    matchedIdentity: 'NSEL-20',
+    matchKind: 'exact',
+    suffixQuality: 'clean',
     status: 'ready',
     populationStatus: 'populated',
     publicUrl: `${BASE}/NSEL-20/MAIN.jpg`,
@@ -61,6 +65,11 @@ function preview(overrides: Partial<ImagePreview> = {}): ImagePreview {
       deliveryFailures: 0,
       brokenUrls: 0,
       workbookSkusWithoutImages: 0,
+      colourAliasMatches: 0,
+      duplicatesDeduplicated: 0,
+      duplicatesSuperseded: 0,
+      noonFilesNotUsed: 0,
+      skusWithoutWebsiteImages: 0,
     },
     skus: [
       {
@@ -87,6 +96,7 @@ function preview(overrides: Partial<ImagePreview> = {}): ImagePreview {
         ],
         problems: [],
         hasMainImage: true,
+        websiteImagesMissing: false,
       },
       {
         sku: 'LIFEP29-6',
@@ -104,6 +114,7 @@ function preview(overrides: Partial<ImagePreview> = {}): ImagePreview {
         ],
         problems: [],
         hasMainImage: false,
+        websiteImagesMissing: false,
       },
     ],
     unassigned: [
@@ -238,6 +249,7 @@ describe('AmazonProductImagesSection', () => {
               secondary: [],
               problems: [],
               hasMainImage: true,
+              websiteImagesMissing: false,
             },
           ],
           unassigned: [],

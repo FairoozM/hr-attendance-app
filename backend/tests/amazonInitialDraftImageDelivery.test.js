@@ -424,7 +424,7 @@ describe('marketplace image delivery — matching across a batch', () => {
     assert.equal(result.imageColumns.outOfScope[0].technicalHeader, 'swatch_product_image_locator#1.media_location')
   })
 
-  it('inserts neither file when two claim the same SKU and position', async () => {
+  it('inserts neither file when two claim the same position and their contents differ', async () => {
     stubS3({
       objects: [
         { key: `${BATCH}1. LIFESMILE_NSEL_NSEL-20_WEBSITE_Main.jpg`, etag: 'a' },
@@ -435,9 +435,9 @@ describe('marketplace image delivery — matching across a batch', () => {
     const result = await resolve()
     assert.equal(result.summary.duplicatePositions, 2)
     for (const image of result.images) {
-      assert.equal(image.status, 'duplicate-position')
+      assert.equal(image.status, 'duplicate-position-conflict')
       assert.equal(image.publicUrl, '')
-      assert.match(image.warning, /Duplicate files claim this position/)
+      assert.match(image.warning, /contents differ/)
     }
     assert.equal(result.summary.skusWithMainImage, 0)
   })
@@ -477,5 +477,150 @@ describe('marketplace image delivery — matching across a batch', () => {
       [ROOT, `${ROOT}batch-2026-08/`, `${ROOT}batch-2026-09/`]
     )
     for (const batch of batches) assert.equal(batch.prefix.startsWith(ROOT), true)
+  })
+})
+
+/**
+ * The macOS Quick Action convention, exercised through the resolver so channel choice and
+ * duplicate handling are covered end to end rather than in the parser alone.
+ */
+describe('Quick Action batches — channel selection', () => {
+  const SKU = 'LIFEP17S-16P-BEIGE'
+  const COLOURS = { [SKU]: 'Beige' }
+
+  const resolveQuickAction = (objects, options = {}) => {
+    stubS3({ objects })
+    return resolveProductImages({
+      workbookSkus: [SKU],
+      coloursBySku: COLOURS,
+      columns: imageColumns(),
+      batchPrefix: BATCH,
+      env: ENV,
+      fetchImpl: okFetch(),
+      ...options,
+    })
+  }
+
+  it('uses the WEBSITE image and leaves the NOON file unused', async () => {
+    const result = await resolveQuickAction([
+      { key: `${BATCH}CONTENT_LIFEP17S-16P_BEIGE_WEBSITE_Main.jpg`, etag: 'w' },
+      { key: `${BATCH}CONTENT_LIFEP17S-16P_BEIGE_NOON_Main.jpg`, etag: 'n' },
+    ])
+
+    const byName = new Map(result.images.map((image) => [image.filename, image]))
+    const website = byName.get('CONTENT_LIFEP17S-16P_BEIGE_WEBSITE_Main.jpg')
+    const noon = byName.get('CONTENT_LIFEP17S-16P_BEIGE_NOON_Main.jpg')
+
+    assert.equal(website.status, 'ready')
+    assert.match(website.publicUrl, /LIFEP17S-16P-BEIGE\/MAIN\.jpg$/, 'the real seller SKU names the object')
+    assert.equal(noon.status, 'noon-not-used')
+    assert.equal(noon.publicUrl, '')
+    assert.equal(result.summary.noonFilesNotUsed, 1)
+    assert.equal(result.summary.skusWithMainImage, 1)
+  })
+
+  it('never combines WEBSITE and NOON into one sequence', async () => {
+    const result = await resolveQuickAction([
+      { key: `${BATCH}CONTENT_LIFEP17S-16P_BEIGE_WEBSITE_Main.jpg`, etag: 'w0' },
+      { key: `${BATCH}CONTENT_LIFEP17S-16P_BEIGE_WEBSITE_1.jpg`, etag: 'w1' },
+      // A NOON file for a position the WEBSITE set does not cover must still be excluded.
+      { key: `${BATCH}CONTENT_LIFEP17S-16P_BEIGE_NOON_2.jpg`, etag: 'n2' },
+    ])
+
+    const group = result.skus[0]
+    assert.deepEqual(group.secondary.map((image) => image.positionNumber), [1])
+    assert.equal(group.problems.some((image) => image.status === 'noon-not-used'), true)
+  })
+
+  it('reports website-images-missing when only NOON files exist', async () => {
+    const result = await resolveQuickAction([
+      { key: `${BATCH}CONTENT_LIFEP17S-16P_BEIGE_NOON_Main.jpg`, etag: 'n0' },
+      { key: `${BATCH}CONTENT_LIFEP17S-16P_BEIGE_NOON_1.jpg`, etag: 'n1' },
+    ])
+
+    for (const image of result.images) {
+      assert.equal(image.status, 'website-images-missing')
+      assert.equal(image.publicUrl, '')
+    }
+    assert.equal(result.summary.skusWithoutWebsiteImages, 1)
+    assert.equal(result.skus[0].websiteImagesMissing, true)
+    assert.equal(result.skus[0].main, null)
+  })
+})
+
+describe('Quick Action batches — duplicate positions', () => {
+  const SKU = 'LIFEP17S-16P-BEIGE'
+  const COLOURS = { [SKU]: 'Beige' }
+
+  const resolveQuickAction = (objects) => {
+    stubS3({ objects })
+    return resolveProductImages({
+      workbookSkus: [SKU],
+      coloursBySku: COLOURS,
+      columns: imageColumns(),
+      batchPrefix: BATCH,
+      env: ENV,
+      fetchImpl: okFetch(),
+    })
+  }
+
+  it('prefers the clean suffix over a punctuation-artifact name', async () => {
+    const result = await resolveQuickAction([
+      // Listed artifact-first so a win cannot come from S3 listing order.
+      { key: `${BATCH}CONTENT_LIFEP17S-16P_BEIGE_WEBSITE_._4.jpg`, etag: 'artifact' },
+      { key: `${BATCH}CONTENT_LIFEP17S-16P_BEIGE_WEBSITE_4.jpg`, etag: 'clean' },
+    ])
+
+    const byName = new Map(result.images.map((image) => [image.filename, image]))
+    assert.equal(byName.get('CONTENT_LIFEP17S-16P_BEIGE_WEBSITE_4.jpg').status, 'ready')
+    assert.equal(byName.get('CONTENT_LIFEP17S-16P_BEIGE_WEBSITE_._4.jpg').status, 'duplicate-position-superseded')
+    assert.equal(result.summary.duplicatesSuperseded, 1)
+    assert.equal(result.summary.duplicatePositions, 0, 'a superseded twin is not a conflict')
+  })
+
+  it('deduplicates byte-identical duplicates and still populates the position', async () => {
+    const result = await resolveQuickAction([
+      { key: `${BATCH}CONTENT_LIFEP17S-16P_BEIGE_WEBSITE_._4.jpg`, etag: 'same' },
+      { key: `${BATCH}CONTENT_LIFEP17S-16P_BEIGE_WEBSITE_-._4.jpg`, etag: 'same' },
+    ])
+
+    const ready = result.images.filter((image) => image.status === 'ready')
+    const deduped = result.images.filter((image) => image.status === 'duplicate-position-identical')
+
+    assert.equal(ready.length, 1, 'exactly one of the identical twins is used')
+    assert.equal(deduped.length, 1)
+    assert.match(ready[0].warning, /Identical duplicates deduplicated/)
+    assert.equal(result.summary.duplicatesDeduplicated, 1)
+    assert.equal(result.skus[0].secondary[0].positionNumber, 4)
+  })
+
+  it('picks the same identical twin every time, regardless of listing order', async () => {
+    const forward = await resolveQuickAction([
+      { key: `${BATCH}CONTENT_LIFEP17S-16P_BEIGE_WEBSITE_._4.jpg`, etag: 'same' },
+      { key: `${BATCH}CONTENT_LIFEP17S-16P_BEIGE_WEBSITE_-._4.jpg`, etag: 'same' },
+    ])
+    const reversed = await resolveQuickAction([
+      { key: `${BATCH}CONTENT_LIFEP17S-16P_BEIGE_WEBSITE_-._4.jpg`, etag: 'same' },
+      { key: `${BATCH}CONTENT_LIFEP17S-16P_BEIGE_WEBSITE_._4.jpg`, etag: 'same' },
+    ])
+
+    const winner = (result) => result.images.find((image) => image.status === 'ready').filename
+    assert.equal(winner(forward), winner(reversed))
+  })
+
+  it('populates nothing when same-priority duplicates differ in content', async () => {
+    const result = await resolveQuickAction([
+      { key: `${BATCH}CONTENT_LIFEP17S-16P_BEIGE_WEBSITE_._4.jpg`, etag: 'one' },
+      { key: `${BATCH}CONTENT_LIFEP17S-16P_BEIGE_WEBSITE_-._4.jpg`, etag: 'two' },
+    ])
+
+    assert.equal(result.images.length, 2)
+    for (const image of result.images) {
+      assert.equal(image.status, 'duplicate-position-conflict')
+      assert.equal(image.publicUrl, '')
+      assert.match(image.warning, /contents differ/)
+    }
+    assert.equal(result.summary.duplicatePositions, 2)
+    assert.equal(result.skus[0].secondary.length, 0)
   })
 })

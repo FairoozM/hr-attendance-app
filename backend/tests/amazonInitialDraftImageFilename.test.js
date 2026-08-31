@@ -5,6 +5,8 @@ const { describe, it } = require('node:test')
 
 const {
   MAX_SECONDARY_POSITION,
+  buildSkuIdentities,
+  colourSeparatorAlias,
   matchWorkbookSku,
   parseImageFilename,
   resolveImageKey,
@@ -127,12 +129,25 @@ describe('amazon image filenames — exact SKU matching', () => {
     assert.equal(match.sku, 'GHIJKL')
   })
 
-  it('reports an ambiguity instead of guessing between two equally exact SKUs', () => {
-    // Trailing metadata after the SKU, so neither candidate is the anchoring token.
+  it('matches nothing when an unrecognised token trails the SKU', () => {
+    // The identity has to end the name. Accepting a SKU with something after it is what
+    // would let a parent take a colour-specific child's image.
     const match = matchWorkbookSku('LIFESMILE_ABCDEF_GHIJKL_EXTRA', ['ABCDEF', 'GHIJKL'])
+    assert.equal(match.status, 'unmatched')
+    assert.equal(match.sku, '')
+  })
+
+  it('reports an ambiguity when the controlled alias collides with another workbook SKU', () => {
+    // `LIFEP17S-16P-BEIGE` aliases to `LIFEP17S-16P_BEIGE`, which is also a literal SKU
+    // here. Two different seller SKUs claim the same image, so nothing is populated.
+    const match = matchWorkbookSku(
+      'CONTENT_LIFEP17S-16P_BEIGE',
+      ['LIFEP17S-16P-BEIGE', 'LIFEP17S-16P_BEIGE'],
+      { 'LIFEP17S-16P-BEIGE': 'Beige' }
+    )
     assert.equal(match.status, 'ambiguous')
     assert.equal(match.sku, '')
-    assert.deepEqual(match.candidates, ['ABCDEF', 'GHIJKL'])
+    assert.deepEqual(match.candidates, ['LIFEP17S-16P-BEIGE', 'LIFEP17S-16P_BEIGE'])
   })
 
   it('reports an unmatched filename rather than inserting it somewhere', () => {
@@ -160,5 +175,187 @@ describe('amazon image filenames — combined resolution', () => {
       'LIFEP29-6-2',
       'longest match still wins when both SKUs appear as separate segments'
     )
+  })
+})
+
+/**
+ * The macOS Quick Action convention. These names are generated automatically and are
+ * never renamed by hand, so every case below has to keep working permanently.
+ */
+describe('Quick Action naming — controlled colour separator', () => {
+  it('rewrites only the separator immediately before a verified colour', () => {
+    assert.equal(colourSeparatorAlias('LIFEP17S-16P-BEIGE', 'BEIGE'), 'LIFEP17S-16P_BEIGE')
+    assert.equal(colourSeparatorAlias('LIFEP17-MIX-19-1-BEIGE', 'BEIGE'), 'LIFEP17-MIX-19-1_BEIGE')
+    assert.equal(colourSeparatorAlias('LIFEP17-MIX-19-1-BLACK', 'BLACK'), 'LIFEP17-MIX-19-1_BLACK')
+  })
+
+  it('leaves internal SKU hyphens untouched when the trailing token is not the colour', () => {
+    assert.equal(colourSeparatorAlias('LIFEP17-MIX-19-1', 'BEIGE'), '')
+    assert.equal(colourSeparatorAlias('LIFEP29-6-2', 'BEIGE'), '')
+    assert.equal(colourSeparatorAlias('NSEL-20', 'BEIGE'), '')
+  })
+
+  it('produces no alias at all when the colour is unknown', () => {
+    assert.equal(colourSeparatorAlias('LIFEP17S-16P-BEIGE', ''), '')
+    assert.equal(colourSeparatorAlias('LIFEP17S-16P-BEIGE', null), '')
+  })
+
+  it('matches the colour case-insensitively but keeps the SKU spelling exact', () => {
+    assert.equal(colourSeparatorAlias('LIFEP17S-16P-BEIGE', 'Beige'), 'LIFEP17S-16P_BEIGE')
+    assert.equal(colourSeparatorAlias('LIFEP17S-16P-Beige', 'BEIGE'), 'LIFEP17S-16P_Beige')
+  })
+
+  it('handles a colour written as two hyphenated tokens', () => {
+    assert.equal(colourSeparatorAlias('LIFEX-1-LIGHT-BLUE', 'Light Blue'), 'LIFEX-1_LIGHT-BLUE')
+  })
+
+  it('never turns the whole SKU into a colour', () => {
+    assert.equal(colourSeparatorAlias('BEIGE', 'BEIGE'), '')
+  })
+
+  it('offers the exact SKU and exactly one alias per SKU', () => {
+    const identities = buildSkuIdentities(['LIFEP17S-16P-BEIGE'], { 'LIFEP17S-16P-BEIGE': 'Beige' })
+    assert.deepEqual(
+      identities.map((entry) => `${entry.kind}:${entry.identity}`),
+      ['exact:LIFEP17S-16P-BEIGE', 'colour-alias:LIFEP17S-16P_BEIGE']
+    )
+  })
+
+  it('does not treat underscores and hyphens as interchangeable in general', () => {
+    // No colour, so no alias: an underscore filename must not match a hyphen SKU.
+    const match = matchWorkbookSku('CONTENT_LIFEP29-6_2', ['LIFEP29-6-2'])
+    assert.equal(match.status, 'unmatched')
+  })
+})
+
+describe('Quick Action naming — real filename structure', () => {
+  const COLOURS = { 'LIFEP17S-16P-BEIGE': 'Beige', 'LIFEP17-MIX-19-1-BEIGE': 'Beige' }
+  const SKUS = ['LIFEP17S-16P-BEIGE', 'LIFEP17-MIX-19-1-BEIGE']
+
+  it('matches the real main image for LIFEP17S-16P-BEIGE', () => {
+    const resolved = resolveImageKey('CONTENT_LIFEP17S-16P_BEIGE_WEBSITE_Main.jpg', SKUS, COLOURS)
+    assert.equal(resolved.matchStatus, 'matched')
+    assert.equal(resolved.sku, 'LIFEP17S-16P-BEIGE', 'the real seller SKU is preserved unchanged')
+    assert.equal(resolved.matchedIdentity, 'LIFEP17S-16P_BEIGE')
+    assert.equal(resolved.matchKind, 'colour-alias')
+    assert.equal(resolved.channel, 'WEBSITE')
+    assert.equal(resolved.position.slot, 'MAIN')
+  })
+
+  it('matches every numbered position for the same SKU', () => {
+    for (let position = 1; position <= 6; position += 1) {
+      const resolved = resolveImageKey(
+        `CONTENT_LIFEP17S-16P_BEIGE_WEBSITE_${position}.jpg`,
+        SKUS,
+        COLOURS
+      )
+      assert.equal(resolved.matchStatus, 'matched', `position ${position}`)
+      assert.equal(resolved.sku, 'LIFEP17S-16P-BEIGE')
+      assert.equal(resolved.position.number, position)
+    }
+  })
+
+  it('matches a SKU whose own code contains hyphens', () => {
+    const resolved = resolveImageKey('CONTENT_LIFEP17-MIX-19-1_BEIGE_WEBSITE_3.jpg', SKUS, COLOURS)
+    assert.equal(resolved.sku, 'LIFEP17-MIX-19-1-BEIGE')
+    assert.equal(resolved.position.number, 3)
+  })
+
+  it('keeps the colours apart', () => {
+    const skus = ['LIFEP17-MIX-19-1-BEIGE', 'LIFEP17-MIX-19-1-BLACK']
+    const colours = { 'LIFEP17-MIX-19-1-BEIGE': 'Beige', 'LIFEP17-MIX-19-1-BLACK': 'Black' }
+    assert.equal(
+      resolveImageKey('CONTENT_LIFEP17-MIX-19-1_BLACK_WEBSITE_Main.jpg', skus, colours).sku,
+      'LIFEP17-MIX-19-1-BLACK'
+    )
+    assert.equal(
+      resolveImageKey('CONTENT_LIFEP17-MIX-19-1_BEIGE_WEBSITE_Main.jpg', skus, colours).sku,
+      'LIFEP17-MIX-19-1-BEIGE'
+    )
+  })
+
+  it('never lets the parent SKU take a colour-specific child image', () => {
+    const resolved = resolveImageKey('CONTENT_LIFEP17S-16P_BEIGE_WEBSITE_Main.jpg', ['LIFEP17S-16P'], {})
+    assert.equal(resolved.matchStatus, 'unmatched-filename')
+    assert.equal(resolved.sku, '')
+  })
+
+  it('prefers the longest complete child SKU over a shorter one', () => {
+    const skus = ['LIFEP17S-16P-BEIGE', 'LIFEP17S-16P', 'LIFEP17S']
+    const resolved = resolveImageKey('CONTENT_LIFEP17S-16P_BEIGE_WEBSITE_Main.jpg', skus, {
+      'LIFEP17S-16P-BEIGE': 'Beige',
+    })
+    assert.equal(resolved.sku, 'LIFEP17S-16P-BEIGE')
+  })
+
+  it('populates nothing when the colour is unavailable', () => {
+    const resolved = resolveImageKey('CONTENT_LIFEP17S-16P_BEIGE_WEBSITE_Main.jpg', SKUS, {})
+    assert.equal(resolved.matchStatus, 'unmatched-filename')
+  })
+})
+
+describe('Quick Action naming — punctuation artifacts after the channel', () => {
+  const SKUS = ['LIFEP17S-16P-BEIGE']
+  const COLOURS = { 'LIFEP17S-16P-BEIGE': 'Beige' }
+
+  const MAIN_VARIANTS = [
+    ['CONTENT_LIFEP17S-16P_BEIGE_WEBSITE_Main.jpg', 'clean'],
+    ['CONTENT_LIFEP17S-16P_BEIGE_WEBSITE__Main.jpg', 'normalized'],
+    ['CONTENT_LIFEP17S-16P_BEIGE_WEBSITE_._Main.jpg', 'normalized'],
+    ['CONTENT_LIFEP17S-16P_BEIGE_WEBSITE_-._Main.jpg', 'normalized'],
+  ]
+
+  for (const [filename, quality] of MAIN_VARIANTS) {
+    it(`reads Main from ${filename}`, () => {
+      const resolved = resolveImageKey(filename, SKUS, COLOURS)
+      assert.equal(resolved.matchStatus, 'matched')
+      assert.equal(resolved.sku, 'LIFEP17S-16P-BEIGE')
+      assert.equal(resolved.position.slot, 'MAIN')
+      assert.equal(resolved.suffixQuality, quality)
+    })
+  }
+
+  const NUMBERED_VARIANTS = [
+    ['CONTENT_LIFEP17S-16P_BEIGE_WEBSITE_1.jpg', 'clean'],
+    ['CONTENT_LIFEP17S-16P_BEIGE_WEBSITE__1.jpg', 'normalized'],
+    ['CONTENT_LIFEP17S-16P_BEIGE_WEBSITE_._1.jpg', 'normalized'],
+    ['CONTENT_LIFEP17S-16P_BEIGE_WEBSITE_-._1.jpg', 'normalized'],
+  ]
+
+  for (const [filename, quality] of NUMBERED_VARIANTS) {
+    it(`reads position 1 from ${filename}`, () => {
+      const resolved = resolveImageKey(filename, SKUS, COLOURS)
+      assert.equal(resolved.matchStatus, 'matched')
+      assert.equal(resolved.position.number, 1)
+      assert.equal(resolved.suffixQuality, quality)
+    })
+  }
+
+  it('does not let the cleanup touch the SKU identity', () => {
+    // The artifact rule applies after the channel only, so a stray dot inside the SKU
+    // area is not silently normalized into a match.
+    const resolved = resolveImageKey('CONTENT_LIFEP17S-16P._BEIGE_WEBSITE_Main.jpg', SKUS, COLOURS)
+    assert.equal(resolved.matchStatus, 'unmatched-filename')
+  })
+})
+
+describe('Quick Action naming — channel detection', () => {
+  const SKUS = ['LIFEP17-MIX-19-1-BEIGE']
+  const COLOURS = { 'LIFEP17-MIX-19-1-BEIGE': 'Beige' }
+
+  it('reads the WEBSITE and NOON channels from the filename', () => {
+    const website = resolveImageKey('CONTENT_LIFEP17-MIX-19-1_BEIGE_WEBSITE_Main.jpg', SKUS, COLOURS)
+    const noon = resolveImageKey('CONTENT_LIFEP17-MIX-19-1_BEIGE_NOON_Main.jpg', SKUS, COLOURS)
+
+    assert.equal(website.channel, 'WEBSITE')
+    assert.equal(noon.channel, 'NOON')
+    assert.equal(noon.sku, 'LIFEP17-MIX-19-1-BEIGE', 'a NOON file still resolves to its SKU')
+    assert.equal(noon.position.slot, 'MAIN')
+  })
+
+  it('treats a legacy name with no channel token as unspecified', () => {
+    const resolved = resolveImageKey('NSEL-20_Main.jpg', ['NSEL-20'])
+    assert.equal(resolved.matchStatus, 'matched')
+    assert.equal(resolved.channel, '')
   })
 })

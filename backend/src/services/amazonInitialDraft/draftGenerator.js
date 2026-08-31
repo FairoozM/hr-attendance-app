@@ -262,9 +262,18 @@ async function runInitialDraftPipeline({
   // Approved AWS marketplace images. Independent of the website catalog and of Zoho: a
   // SKU the catalog could not match still gets its image URLs, and an AWS failure only
   // costs the image columns.
+  // The verified variant colour is the only thing that unlocks the controlled
+  // colour-separator alias, so it comes from the exact catalog match and nowhere else.
+  const coloursBySku = new Map()
+  for (const sku of skusInOrder) {
+    const resolution = catalog.get(sku)
+    const colour = resolution && resolution.item ? cleanText(resolution.item.color) : ''
+    if (colour) coloursBySku.set(sku, colour)
+  }
+
   let imageResult
   try {
-    imageResult = await resolveImages({ workbookSkus: skusInOrder, columns: workbook.columns })
+    imageResult = await resolveImages({ workbookSkus: skusInOrder, columns: workbook.columns, coloursBySku })
   } catch (err) {
     imageResult = emptyImageResult({ enabled: true, error: `image-resolution-failed: ${cleanText(err?.message)}` })
   }
@@ -800,6 +809,10 @@ function buildImagePreview(imageResult, catalog) {
     positionNumber: image.positionNumber,
     classification: image.classification || '',
     matchStatus: image.matchStatus || '',
+    channel: image.channel || '',
+    matchedIdentity: image.matchedIdentity || '',
+    matchKind: image.matchKind || '',
+    suffixQuality: image.suffixQuality || '',
     status: image.status,
     populationStatus: image.status === IMAGE_STATUS.READY ? image.populationStatus || 'not-attempted' : image.status,
     publicUrl: image.publicUrl || '',
@@ -825,6 +838,7 @@ function buildImagePreview(imageResult, catalog) {
       secondary: group.secondary.map(forApi),
       problems: group.problems.map(forApi),
       hasMainImage: Boolean(group.main),
+      websiteImagesMissing: Boolean(group.websiteImagesMissing),
     }
   })
 
@@ -901,6 +915,9 @@ function buildImageMappingRows(imageResult, catalog) {
       detectedSku: image.detectedSku || '',
       detectedPosition: image.detectedPosition || '',
       classification: image.classification || '',
+      channel: image.channel || '',
+      matchedIdentity: image.matchedIdentity || '',
+      matchKind: image.matchKind || '',
       sourceSize: image.sourceSize || '',
       width: image.width == null ? '' : image.width,
       height: image.height == null ? '' : image.height,
@@ -928,6 +945,9 @@ function buildImageMappingRows(imageResult, catalog) {
       filename: '',
       detectedSku: '',
       classification: '',
+      channel: '',
+      matchedIdentity: '',
+      matchKind: '',
       sourceSize: '',
       width: '',
       height: '',

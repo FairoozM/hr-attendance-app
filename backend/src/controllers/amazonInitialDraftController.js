@@ -109,7 +109,8 @@ async function runPipeline(req) {
     resolveCatalog: (skus) => findCatalogItemsBySku(skus),
     resolveZohoBarcodes: (skus) => lookupZohoBarcodesByExactSkus(skus),
     resolveImages: imageBatch
-      ? ({ workbookSkus, columns }) => resolveProductImages({ workbookSkus, columns, batchPrefix: imageBatch })
+      ? ({ workbookSkus, columns, coloursBySku }) =>
+          resolveProductImages({ workbookSkus, columns, coloursBySku, batchPrefix: imageBatch })
       : undefined,
   })
 }

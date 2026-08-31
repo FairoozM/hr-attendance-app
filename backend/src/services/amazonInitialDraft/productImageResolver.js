@@ -13,7 +13,7 @@
  */
 
 const { buildImageColumnMap, columnForPosition } = require('./imageColumnMapping')
-const { resolveImageKey } = require('./imageFilenameParser')
+const { CHANNEL, buildSkuIdentities, resolveImageKey } = require('./imageFilenameParser')
 const s3 = require('./marketplaceImageS3')
 
 const DEFAULT_CONCURRENCY = Number(process.env.AMAZON_IMAGE_CONCURRENCY || 6)
@@ -26,6 +26,16 @@ const IMAGE_STATUS = {
   UNMATCHED: 'unmatched-filename',
   AMBIGUOUS: 'ambiguous-sku',
   DUPLICATE: 'duplicate-position',
+  /** Two files at the same priority whose bytes differ: neither is inserted. */
+  DUPLICATE_CONFLICT: 'duplicate-position-conflict',
+  /** A byte-identical twin that was deduplicated in favour of one deterministic winner. */
+  DUPLICATE_IDENTICAL: 'duplicate-position-identical',
+  /** A punctuation-artifact name beaten by the clean name for the same position. */
+  DUPLICATE_SUPERSEDED: 'duplicate-position-superseded',
+  /** A NOON file left unused because a WEBSITE image exists for the same SKU. */
+  NOON_NOT_USED: 'noon-not-used',
+  /** The SKU has only NOON files, so nothing is populated and it is flagged for review. */
+  WEBSITE_MISSING: 'website-images-missing',
   UNSUPPORTED_POSITION: 'unsupported-position',
   UNSUPPORTED_FILE: 'unsupported-file',
   DELIVERY_FAILED: 'delivery-copy-failed',
@@ -87,6 +97,11 @@ function emptySummary() {
     deliveryFailures: 0,
     brokenUrls: 0,
     workbookSkusWithoutImages: 0,
+    colourAliasMatches: 0,
+    duplicatesDeduplicated: 0,
+    duplicatesSuperseded: 0,
+    noonFilesNotUsed: 0,
+    skusWithoutWebsiteImages: 0,
   }
 }
 
@@ -95,10 +110,19 @@ function emptySummary() {
  * @param {string[]} options.workbookSkus seller SKUs read from the uploaded workbook
  * @param {Array<object>} options.columns workbook columns from `openTemplateWorkbook`
  * @param {string} [options.batchPrefix] approved batch folder chosen by the operator
+ * @param {Map<string,string>|Record<string,string>} [options.coloursBySku] verified variant
+ *   colour per seller SKU, used only to build the one controlled colour-separator alias
  * @param {object} [options.env]
  */
 async function resolveProductImages(options) {
-  const { workbookSkus = [], columns = [], batchPrefix = '', env = process.env, fetchImpl = null } = options || {}
+  const {
+    workbookSkus = [],
+    columns = [],
+    batchPrefix = '',
+    coloursBySku = null,
+    env = process.env,
+    fetchImpl = null,
+  } = options || {}
 
   const config = s3.readConfig(env)
   const configuration = s3.describeConfiguration(config)
@@ -130,8 +154,12 @@ async function resolveProductImages(options) {
   }
 
   const imageColumns = buildImageColumnMap(columns)
-  const records = listing.objects.map((object) => buildRecord(object, workbookSkus, imageColumns, config))
+  const identities = buildSkuIdentities(workbookSkus, coloursBySku)
+  const records = listing.objects.map((object) => buildRecord(object, identities, imageColumns, config))
 
+  // Channel first: a NOON file must never be delivered, and must never be treated as a
+  // duplicate of the WEBSITE file it sits beside.
+  applyChannelSelection(records)
   markDuplicatePositions(records)
 
   const deliverable = records.filter((record) => record.status === IMAGE_STATUS.READY)
@@ -224,8 +252,8 @@ function appendWarning(existing, message) {
   return existing ? `${existing} ${text}` : text
 }
 
-function buildRecord(object, workbookSkus, imageColumns, config) {
-  const resolved = resolveImageKey(object.key, workbookSkus)
+function buildRecord(object, identities, imageColumns, config) {
+  const resolved = resolveImageKey(object.key, identities)
 
   const record = {
     sourceKey: object.key,
@@ -235,6 +263,10 @@ function buildRecord(object, workbookSkus, imageColumns, config) {
     sourceLastModified: object.lastModified,
     detectedSku: resolved.sku,
     sku: resolved.sku,
+    channel: resolved.channel || '',
+    suffixQuality: resolved.suffixQuality || '',
+    matchedIdentity: resolved.matchedIdentity || '',
+    matchKind: resolved.matchKind || '',
     detectedPosition: resolved.position ? resolved.position.label : '',
     positionSlot: resolved.position ? resolved.position.slot : '',
     positionNumber: resolved.position ? resolved.position.number : null,
@@ -297,8 +329,62 @@ function buildRecord(object, workbookSkus, imageColumns, config) {
 }
 
 /**
- * Two approved files claiming the same SKU and position is an authoring mistake. Neither
- * is inserted, because picking one would be a guess.
+ * The Amazon sequence is built from WEBSITE images only. A NOON file is never delivered:
+ * when a WEBSITE image exists for the SKU it is simply not used, and when a SKU has
+ * nothing but NOON files the SKU is flagged rather than quietly filled from the wrong
+ * channel. Channels are never mixed into one sequence.
+ */
+function applyChannelSelection(records) {
+  const bySku = new Map()
+  for (const record of records) {
+    if (record.status !== IMAGE_STATUS.READY) continue
+    const key = skuKey(record.sku)
+    if (!key) continue
+    if (!bySku.has(key)) bySku.set(key, [])
+    bySku.get(key).push(record)
+  }
+
+  for (const group of bySku.values()) {
+    const noon = group.filter((record) => record.channel === CHANNEL.NOON)
+    if (!noon.length) continue
+
+    const usable = group.filter((record) => record.channel !== CHANNEL.NOON)
+
+    if (usable.length) {
+      for (const record of noon) {
+        record.status = IMAGE_STATUS.NOON_NOT_USED
+        record.deliveryKey = ''
+        record.warning = appendWarning(
+          record.warning,
+          'NOON file not used: a WEBSITE image exists for this SKU and channels are never combined.'
+        )
+      }
+      continue
+    }
+
+    for (const record of noon) {
+      record.status = IMAGE_STATUS.WEBSITE_MISSING
+      record.deliveryKey = ''
+      record.warning = appendWarning(
+        record.warning,
+        'Only NOON files exist for this SKU. WEBSITE images are missing, so nothing was populated.'
+      )
+    }
+  }
+}
+
+/** A clean `_WEBSITE_4` beats a punctuation-artifact `_WEBSITE_._4` for the same position. */
+function suffixPriority(record) {
+  return record.suffixQuality === 'clean' ? 0 : 1
+}
+
+/**
+ * More than one approved file can resolve to the same SKU and position. The winner is
+ * chosen deterministically, never by S3 listing order:
+ *
+ *   1. the clean suffix wins outright;
+ *   2. at equal priority, byte-identical twins are deduplicated to one winner;
+ *   3. at equal priority with differing bytes, nothing is inserted for that position.
  */
 function markDuplicatePositions(records) {
   const groups = new Map()
@@ -311,11 +397,51 @@ function markDuplicatePositions(records) {
 
   for (const group of groups.values()) {
     if (group.length < 2) continue
-    const names = group.map((record) => record.filename).join(', ')
-    for (const record of group) {
-      record.status = IMAGE_STATUS.DUPLICATE
+
+    const bestPriority = Math.min(...group.map(suffixPriority))
+    const contenders = group.filter((record) => suffixPriority(record) === bestPriority)
+    const superseded = group.filter((record) => suffixPriority(record) !== bestPriority)
+
+    for (const record of superseded) {
+      record.status = IMAGE_STATUS.DUPLICATE_SUPERSEDED
       record.deliveryKey = ''
-      record.warning = appendWarning(record.warning, `Duplicate files claim this position: ${names}.`)
+      record.warning = appendWarning(
+        record.warning,
+        'Not used: another file with a clean position suffix covers this position.'
+      )
+    }
+
+    if (contenders.length === 1) continue
+
+    const etags = new Set(contenders.map((record) => String(record.sourceEtag || '')))
+    const names = contenders.map((record) => record.filename).join(', ')
+
+    if (etags.size === 1 && !etags.has('')) {
+      // Byte-identical twins: keep one deterministically rather than by listing order.
+      const ordered = [...contenders].sort((a, b) => a.sourceKey.localeCompare(b.sourceKey))
+      const [winner, ...rest] = ordered
+      winner.warning = appendWarning(
+        winner.warning,
+        `Identical duplicates deduplicated for this position: ${names}.`
+      )
+      for (const record of rest) {
+        record.status = IMAGE_STATUS.DUPLICATE_IDENTICAL
+        record.deliveryKey = ''
+        record.warning = appendWarning(
+          record.warning,
+          `Byte-identical duplicate of ${winner.filename}; deduplicated for this position.`
+        )
+      }
+      continue
+    }
+
+    for (const record of contenders) {
+      record.status = IMAGE_STATUS.DUPLICATE_CONFLICT
+      record.deliveryKey = ''
+      record.warning = appendWarning(
+        record.warning,
+        `Different files claim this position and their contents differ: ${names}.`
+      )
     }
   }
 }
@@ -337,19 +463,29 @@ function guardDuplicateUrls(records) {
 }
 
 function groupBySku(records, workbookSkus) {
+  const blank = (sku) => ({
+    sku,
+    main: null,
+    secondary: [],
+    problems: [],
+    hasImages: false,
+    websiteImagesMissing: false,
+  })
+
   const groups = new Map()
   for (const sku of workbookSkus) {
     const key = skuKey(sku)
     if (!key || groups.has(key)) continue
-    groups.set(key, { sku, main: null, secondary: [], problems: [], hasImages: false })
+    groups.set(key, blank(sku))
   }
 
   for (const record of records) {
     const key = skuKey(record.sku)
     if (!key) continue
-    if (!groups.has(key)) groups.set(key, { sku: record.sku, main: null, secondary: [], problems: [], hasImages: false })
+    if (!groups.has(key)) groups.set(key, blank(record.sku))
     const group = groups.get(key)
     group.hasImages = true
+    if (record.status === IMAGE_STATUS.WEBSITE_MISSING) group.websiteImagesMissing = true
 
     if (record.status !== IMAGE_STATUS.READY) {
       group.problems.push(record)
@@ -376,6 +512,22 @@ function buildSummary(records, skus, workbookSkus) {
       case IMAGE_STATUS.READY:
         summary.matchedFiles += 1
         if (record.classification === 'secondary') summary.secondaryImages += 1
+        if (record.matchKind === 'colour-alias') summary.colourAliasMatches += 1
+        break
+      case IMAGE_STATUS.DUPLICATE_CONFLICT:
+        summary.duplicatePositions += 1
+        break
+      case IMAGE_STATUS.DUPLICATE_IDENTICAL:
+        summary.duplicatesDeduplicated += 1
+        break
+      case IMAGE_STATUS.DUPLICATE_SUPERSEDED:
+        summary.duplicatesSuperseded += 1
+        break
+      case IMAGE_STATUS.NOON_NOT_USED:
+        summary.noonFilesNotUsed += 1
+        break
+      case IMAGE_STATUS.WEBSITE_MISSING:
+        summary.noonFilesNotUsed += 1
         break
       case IMAGE_STATUS.UNMATCHED:
         summary.unmatchedFiles += 1
@@ -407,6 +559,7 @@ function buildSummary(records, skus, workbookSkus) {
   for (const group of skus) {
     if (group.main) summary.skusWithMainImage += 1
     else summary.skusMissingMainImage += 1
+    if (group.websiteImagesMissing) summary.skusWithoutWebsiteImages += 1
   }
 
   const withImages = new Set(skus.map((group) => skuKey(group.sku)))
