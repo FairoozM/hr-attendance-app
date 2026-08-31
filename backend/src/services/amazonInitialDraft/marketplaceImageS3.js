@@ -48,17 +48,22 @@ const URL_CHECK_TIMEOUT_MS = Number(process.env.AMAZON_IMAGE_URL_CHECK_TIMEOUT_M
 
 let client = null
 
+/** The region the approved marketplace-image bucket actually lives in. */
+const DEFAULT_S3_REGION = 'eu-central-1'
+
+/**
+ * The image bucket is region-specific, so the account-wide `AWS_REGION` must not decide
+ * for it: production runs with `AWS_REGION=us-east-1` for other services, and using that
+ * here made every list fail with `PermanentRedirect`. Only an explicit override wins.
+ */
 function region() {
-  return (
-    process.env.AMAZON_IMAGE_S3_REGION ||
-    process.env.AWS_REGION ||
-    process.env.AWS_DEFAULT_REGION ||
-    'eu-central-1'
-  )
+  return cleanText(process.env.AMAZON_IMAGE_S3_REGION) || DEFAULT_S3_REGION
 }
 
 function getClient() {
-  if (!client) client = new S3Client({ region: region() })
+  // `followRegionRedirects` is the safety net: if the bucket is ever moved, the SDK
+  // re-signs against the right region instead of failing the whole image section.
+  if (!client) client = new S3Client({ region: region(), followRegionRedirects: true })
   return client
 }
 
@@ -431,6 +436,7 @@ module.exports = {
   publicUrlFor,
   readConfig,
   readJpegDimensions,
+  imageS3Region: region,
   readSourceDimensions,
   resolveBatchPrefix,
   sanitizeAwsError,

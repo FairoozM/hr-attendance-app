@@ -624,3 +624,43 @@ describe('Quick Action batches — duplicate positions', () => {
     assert.equal(result.skus[0].secondary.length, 0)
   })
 })
+
+/**
+ * Production runs with `AWS_REGION=us-east-1` for other services while the approved image
+ * bucket lives in eu-central-1. Letting the account-wide region decide made every list
+ * fail with `PermanentRedirect`, which emptied the batch picker and left every image
+ * column blank.
+ */
+describe('marketplace image S3 — region selection', () => {
+  const withEnv = (values, run) => {
+    const saved = {}
+    for (const [key, value] of Object.entries(values)) {
+      saved[key] = process.env[key]
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+    try {
+      return run()
+    } finally {
+      for (const [key, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[key]
+        else process.env[key] = value
+      }
+    }
+  }
+
+  it('ignores the account-wide AWS_REGION, which belongs to other services', () => {
+    withEnv({ AWS_REGION: 'us-east-1', AWS_DEFAULT_REGION: 'us-east-1', AMAZON_IMAGE_S3_REGION: undefined }, () => {
+      assert.equal(s3.imageS3Region(), 'eu-central-1')
+    })
+  })
+
+  it('uses the bucket region by default and honours an explicit override', () => {
+    withEnv({ AWS_REGION: undefined, AWS_DEFAULT_REGION: undefined, AMAZON_IMAGE_S3_REGION: undefined }, () => {
+      assert.equal(s3.imageS3Region(), 'eu-central-1')
+    })
+    withEnv({ AWS_REGION: 'us-east-1', AMAZON_IMAGE_S3_REGION: 'eu-west-1' }, () => {
+      assert.equal(s3.imageS3Region(), 'eu-west-1')
+    })
+  })
+})
