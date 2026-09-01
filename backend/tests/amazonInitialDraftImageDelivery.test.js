@@ -374,6 +374,39 @@ describe('marketplace image delivery — server-side copy', () => {
     )
   })
 
+  it('flags files the time budget cut off rather than leaving them ready with no URL', async () => {
+    // A record left READY with an empty URL writes a blank cell and still counts as
+    // matched, which is how a whole batch can quietly come out with no images.
+    const modulePath = require.resolve('../src/services/amazonInitialDraft/productImageResolver')
+    const previousBudget = process.env.AMAZON_IMAGE_TIME_BUDGET_MS
+    process.env.AMAZON_IMAGE_TIME_BUDGET_MS = '-1'
+    delete require.cache[modulePath]
+
+    try {
+      const fresh = require(modulePath)
+      stubS3({ objects: [{ key: `${BATCH}1. LIFESMILE_NSEL_NSEL-20_WEBSITE_Main.jpg`, etag: 'source-1' }] })
+
+      const result = await fresh.resolveProductImages({
+        workbookSkus: ['NSEL-20'],
+        columns: imageColumns(),
+        batchPrefix: BATCH,
+        env: ENV,
+        fetchImpl: okFetch(),
+      })
+
+      const image = result.images[0]
+      assert.equal(image.status, 'time-budget-reached')
+      assert.equal(image.publicUrl, '')
+      assert.match(image.warning, /time budget/i)
+      assert.equal(result.summary.timeBudgetSkipped, 1)
+      assert.equal(result.summary.matchedFiles, 0, 'a file that was never delivered is not a match')
+    } finally {
+      if (previousBudget === undefined) delete process.env.AMAZON_IMAGE_TIME_BUDGET_MS
+      else process.env.AMAZON_IMAGE_TIME_BUDGET_MS = previousBudget
+      delete require.cache[modulePath]
+    }
+  })
+
   it('reuses an unchanged delivery object instead of copying again', async () => {
     const client = stubS3({
       objects: [{ key: `${BATCH}1. LIFESMILE_NSEL_NSEL-20_WEBSITE_Main.jpg`, etag: 'source-1' }],

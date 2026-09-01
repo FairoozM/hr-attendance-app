@@ -44,7 +44,12 @@ const CONFIGURATION_HELP: Record<string, string> = {
 
 function statusTone(status: string): string {
   if (status === 'ready') return 'bg-emerald-500/15 text-emerald-200 ring-emerald-400/30'
-  if (status === 'unmatched-filename' || status === 'delivery-copy-failed' || status === 'public-url-unreachable') {
+  if (
+    status === 'unmatched-filename' ||
+    status === 'delivery-copy-failed' ||
+    status === 'public-url-unreachable' ||
+    status === 'time-budget-reached'
+  ) {
     return 'bg-rose-500/15 text-rose-200 ring-rose-400/30'
   }
   return 'bg-amber-500/15 text-amber-200 ring-amber-400/30'

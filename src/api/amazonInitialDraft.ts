@@ -1,7 +1,11 @@
 import { api, downloadBlob, postBinary } from './client'
 
-/** Generous timeout: a 300-column template with hundreds of rows is a large upload. */
-const PIPELINE_TIMEOUT_MS = 180_000
+/**
+ * Preview, draft and report each re-run the whole pipeline, and the image stage alone is
+ * budgeted at 120s server-side, so this has to leave room for that plus the catalog and
+ * Zoho lookups on top.
+ */
+const PIPELINE_TIMEOUT_MS = 480_000
 
 export type CatalogHealth = {
   configured: boolean

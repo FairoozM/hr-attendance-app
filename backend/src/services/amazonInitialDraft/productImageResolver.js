@@ -40,6 +40,8 @@ const IMAGE_STATUS = {
   UNSUPPORTED_FILE: 'unsupported-file',
   DELIVERY_FAILED: 'delivery-copy-failed',
   URL_UNREACHABLE: 'public-url-unreachable',
+  /** The request's image budget ran out before this file was delivered. */
+  TIME_BUDGET: 'time-budget-reached',
 }
 
 const RETENTION_NOTE =
@@ -102,6 +104,7 @@ function emptySummary() {
     duplicatesSuperseded: 0,
     noonFilesNotUsed: 0,
     skusWithoutWebsiteImages: 0,
+    timeBudgetSkipped: 0,
   }
 }
 
@@ -168,8 +171,15 @@ async function resolveProductImages(options) {
   let urlChecksSkipped = 0
 
   await runPool(deliverable, DEFAULT_CONCURRENCY, async (record) => {
+    // Leaving the record READY here would hand the workbook an empty URL and count the
+    // file as matched, so the cell would come out blank with nothing to explain it.
     if (Date.now() - started > DEFAULT_TIME_BUDGET_MS) {
-      record.warning = appendWarning(record.warning, 'Image processing time budget reached before this file.')
+      record.status = IMAGE_STATUS.TIME_BUDGET
+      record.publicUrl = ''
+      record.warning = appendWarning(
+        record.warning,
+        'Image processing time budget reached before this file, so nothing was populated for it.'
+      )
       urlChecksSkipped += 1
       return
     }
@@ -549,6 +559,9 @@ function buildSummary(records, skus, workbookSkus) {
         break
       case IMAGE_STATUS.URL_UNREACHABLE:
         summary.brokenUrls += 1
+        break
+      case IMAGE_STATUS.TIME_BUDGET:
+        summary.timeBudgetSkipped += 1
         break
       default:
         break
