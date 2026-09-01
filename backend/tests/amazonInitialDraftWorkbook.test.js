@@ -69,6 +69,25 @@ describe('openTemplateWorkbook — structure discovery', () => {
     assert.equal(workbook.firstDataRowBasis, 'frozen-pane')
   })
 
+  it('keeps listings sitting above a pane the seller froze further down', () => {
+    // A pane frozen at A28 while the listings start at row 8: every row above the pane
+    // used to be discarded, so those SKUs silently produced no images and no attributes.
+    const dataRows = {}
+    for (let row = 8; row <= 30; row += 1) dataRows[row] = { A: `SKU-${row}` }
+
+    const workbook = open({
+      pane: 'A28',
+      dataRows,
+    })
+
+    assert.equal(workbook.firstDataRow, 8)
+    assert.equal(workbook.firstDataRowBasis, 'sku-rows-above-frozen-pane')
+    assert.equal(workbook.dataRows.filter((row) => row.sku).length, 23)
+    assert.ok(workbook.dataRows.some((row) => row.sku === 'SKU-8'))
+    // Amazon's placeholder must still never be treated as seller data.
+    assert.ok(!workbook.dataRows.some((row) => row.sku === 'ABC123'))
+  })
+
   it('skips the example row and the banner row when there is no frozen pane', () => {
     const workbook = open({ pane: null })
     assert.equal(workbook.firstDataRowBasis, 'annotation-scan')

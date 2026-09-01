@@ -92,7 +92,7 @@ function parseWorkbookSheets(workbookXml, relsXml) {
   return sheets
 }
 
-/** `<pane ySplit="7" topLeftCell="A8"/>` — Amazon freezes exactly the non-data rows. */
+/** `<pane ySplit="7" topLeftCell="A8"/>` — in Amazon's own templates this is the header block. */
 function readFrozenTopLeftRow(sheetXml) {
   const pane = /<pane\b([^>]*?)\/>/.exec(sheetXml)
   if (!pane) return null
@@ -168,26 +168,18 @@ function buildColumns(rowsByNumber, headerRowNumber) {
 }
 
 /**
- * Finds the first data row.
+ * Finds the first data row structurally.
  *
- * The frozen pane is Amazon's own declaration of where the header block ends, so it is
- * used whenever present, and it is present in the real templates.
- *
- * The fallback deliberately errs towards treating a row as data. Skipping a genuine
- * seller row would silently drop their SKU, whereas keeping Amazon's example row costs
- * nothing worse than one reported unmatched SKU. So only rows that can be identified
- * structurally are skipped:
+ * This deliberately errs towards treating a row as data. Skipping a genuine seller row
+ * would silently drop their SKU, whereas keeping Amazon's example row costs nothing worse
+ * than one reported unmatched SKU. So only rows that can be identified structurally are
+ * skipped:
  *
  *   - a banner row: one populated cell holding a sentence rather than a SKU
  *   - a row whose SKU cell carries a different style from the sheet's data rows, which
  *     is how Amazon distinguishes its example row from the rows you fill in
  */
-function detectFirstDataRow(sheetXml, rowsByNumber, headerRowNumber, skuColumn) {
-  const frozenRow = readFrozenTopLeftRow(sheetXml)
-  if (frozenRow && frozenRow > headerRowNumber) {
-    return { firstDataRow: frozenRow, basis: 'frozen-pane' }
-  }
-
+function scanFirstDataRow(rowsByNumber, headerRowNumber, skuColumn) {
   const candidates = [...rowsByNumber.keys()].filter((rowNumber) => rowNumber > headerRowNumber).sort((a, b) => a - b)
   if (!candidates.length) return { firstDataRow: headerRowNumber + 1, basis: 'no-rows-below-header' }
 
@@ -224,6 +216,32 @@ function detectFirstDataRow(sheetXml, rowsByNumber, headerRowNumber, skuColumn) 
   }
 
   return { firstDataRow, basis: 'annotation-scan' }
+}
+
+/**
+ * Finds the first data row.
+ *
+ * Amazon declares the end of its header block with a frozen pane, so that wins whenever
+ * it agrees with the sheet. It is only a declaration about the *header*, though: a seller
+ * can freeze the pane anywhere while working, and a pane sitting below their listings
+ * would otherwise discard every row above it — no images, no attributes, silently.
+ *
+ * So the pane never moves the start row past a row that carries a SKU.
+ */
+function detectFirstDataRow(sheetXml, rowsByNumber, headerRowNumber, skuColumn) {
+  const scan = scanFirstDataRow(rowsByNumber, headerRowNumber, skuColumn)
+  const frozenRow = readFrozenTopLeftRow(sheetXml)
+  if (!frozenRow || frozenRow <= headerRowNumber) return scan
+
+  const skuAt = (rowNumber) => {
+    const cell = (rowsByNumber.get(rowNumber) || new Map()).get(skuColumn)
+    return cell ? String(cell.value || '').trim() : ''
+  }
+
+  if (scan.firstDataRow < frozenRow && skuAt(scan.firstDataRow)) {
+    return { firstDataRow: scan.firstDataRow, basis: 'sku-rows-above-frozen-pane' }
+  }
+  return { firstDataRow: frozenRow, basis: 'frozen-pane' }
 }
 
 /**
