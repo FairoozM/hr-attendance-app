@@ -45,10 +45,9 @@ function buildSettlementReversalLine({
   direction = 'reversal',
 }) {
   const itemOrderId = breakdown.itemOrderId
-  const settlementReference = buildSettlementReference(metadata)
   const isCharge = direction === 'charge'
   const feeLabel = isCharge ? `${feeKind}_charge` : feeKind
-  const entry = buildEntryReference(settlementReference, `return_${feeLabel}_settlement`, itemOrderId)
+  const referenceNumber = buildEntryReference(metadata, `return_${feeLabel}_settlement`, itemOrderId)
   const normalizedFeeType = isCharge
     ? 'RETURN_FULFILLMENT_CHARGE'
     : feeKind === 'commission'
@@ -79,7 +78,7 @@ function buildSettlementReversalLine({
     netAmount: net,
     vatAmount: vat,
     undepositedImpact: isCharge ? round2(-gross) : gross,
-    referenceNumber: entry.referenceNumber,
+    referenceNumber,
     description,
     status: 'ready',
     debit: { ...debitAccount, amount: gross },
@@ -112,10 +111,9 @@ function buildExpenseReversalLine({
   direction = 'reversal',
 }) {
   const itemOrderId = breakdown.itemOrderId
-  const settlementReference = buildSettlementReference(metadata)
   const isCharge = direction === 'charge'
   const feeLabel = isCharge ? `${feeKind}_charge` : feeKind
-  const entry = buildEntryReference(settlementReference, `return_${feeLabel}_expense_reversal`, itemOrderId)
+  const referenceNumber = buildEntryReference(metadata, `return_${feeLabel}_expense_reversal`, itemOrderId)
   const normalizedFeeType = isCharge
     ? 'RETURN_FULFILLMENT_EXPENSE'
     : feeKind === 'commission'
@@ -161,7 +159,7 @@ function buildExpenseReversalLine({
     netAmount: net,
     vatAmount: vat,
     undepositedImpact: 0,
-    referenceNumber: entry.referenceNumber,
+    referenceNumber,
     description,
     vatDescription,
     status: 'ready',

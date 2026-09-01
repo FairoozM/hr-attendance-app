@@ -19,6 +19,7 @@
     "test:amazon-cache-read-uae": "node scripts/test-amazon-cache-read.js uae",
     "test:amazon-cache-read-ksa": "node scripts/test-amazon-cache-read.js ksa",
     "test:noon-health": "node scripts/test-noon-health.js",
+    "reconcile:noon": "node scripts/reconcile-noon-statement.ts",
     "db:amazon-cache:ensure": "node scripts/ensure-amazon-cache-tables.js",
     "debug:amazon-missing-images": "node scripts/debug-amazon-missing-images.js",
     "debug:amazon-zoho-images": "node scripts/debug-amazon-zoho-images.js",

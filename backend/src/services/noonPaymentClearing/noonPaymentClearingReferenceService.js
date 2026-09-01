@@ -11,12 +11,20 @@ function formatDayMonYear(isoDate) {
   return `${d}-${months[Number(m) - 1]}-${y}`
 }
 
+/**
+ * Every Zoho entry for a statement carries its Noon statement number, so a ledger
+ * row can always be traced back to the settlement that produced it. The date range
+ * is only a fallback: it does not identify the statement and will not fit alongside
+ * the number inside Zoho's 50-character reference limit.
+ */
 function buildSettlementReference(metadata = {}) {
+  if (typeof metadata === 'string') return clean(metadata) || 'NOON-AE Settlement'
+  const ref = clean(metadata.referenceNr)
+  if (ref) return `NOON-AE ${ref}`
   const start = formatDayMonYear(metadata.statementStartDate || metadata.startDate)
   const end = formatDayMonYear(metadata.statementEndDate || metadata.endDate)
   if (start && end) return `NOON-AE ${start} to ${end}`
-  const ref = clean(metadata.referenceNr)
-  return ref ? `NOON-AE ${ref}` : 'NOON-AE Settlement'
+  return 'NOON-AE Settlement'
 }
 
 /** Short suffixes so Zoho reference_number stays under 50 chars. */
@@ -45,10 +53,18 @@ function truncateZohoReference(value, maxLen = ZOHO_REFERENCE_MAX_LEN) {
   return s.slice(0, maxLen)
 }
 
-function buildEntryReference(metadata = {}, label = '') {
+/**
+ * @param {object|string} metadata statement metadata, or an already-built base reference
+ * @param {string} label entry type, shortened to keep the statement number intact
+ * @param {string} detail optional discriminator (item order id) — added only if it fits
+ */
+function buildEntryReference(metadata = {}, label = '', detail = '') {
   const base = buildSettlementReference(metadata)
   const suffix = shortReferenceLabel(label)
   const full = suffix ? `${base} ${suffix}` : base
+  const withDetail = clean(detail) ? `${full} ${clean(detail)}` : full
+  // Truncating would cut the discriminator mid-id, which reads as a different item.
+  if (withDetail.length <= ZOHO_REFERENCE_MAX_LEN) return withDetail
   return truncateZohoReference(full, ZOHO_REFERENCE_MAX_LEN)
 }
 

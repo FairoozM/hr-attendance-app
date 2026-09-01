@@ -3,7 +3,7 @@ const {
   refundCreditNote,
   listBankAccounts,
 } = require('../../integrations/zoho/zohoBooksClient')
-const { buildSettlementReference, buildEntryReference } = require('./noonPaymentClearingReferenceService')
+const { buildEntryReference } = require('./noonPaymentClearingReferenceService')
 const { round2, num, clean } = require('./noonPaymentClearingCategoryService')
 const { positiveAmount } = require('./noonPaymentClearingRowPredicates')
 const { getNoonPaymentClearingMarketplaceConfig } = require('./noonPaymentClearingMarketplaceConfig')
@@ -173,8 +173,7 @@ async function resolvePlanRowAction(row, batch, opts = {}) {
   const refundAmount = resolveProductRefundAmount(row, batch)
   const metadata = batch?.reportSnapshot || batch?.metadata || {}
   const itemOrderId = clean(row.itemOrderId)
-  const settlementReference = buildSettlementReference(metadata)
-  const entry = buildEntryReference(settlementReference, 'noon_return', itemOrderId)
+  const referenceNumber = buildEntryReference(metadata, 'noon_return', itemOrderId)
   const description = buildReturnDescription(
     { itemOrderId, netProceed: -refundAmount },
     metadata,
@@ -193,7 +192,7 @@ async function resolvePlanRowAction(row, batch, opts = {}) {
     zohoCreditNoteNumber: row.zohoCreditNoteNumber || '',
     refundAccountCode: undeposited.accountCode,
     refundAccountName: undeposited.accountName,
-    referenceNumber: entry.referenceNumber,
+    referenceNumber,
     description,
     blockCode: row.blockCode || '',
     blockingReason: row.blockingReason || '',
@@ -250,7 +249,7 @@ async function resolvePlanRowAction(row, batch, opts = {}) {
   }
 
   const listRefunds = opts.listRefunds || listCreditNoteRefunds
-  const refunded = await creditNoteRefundTotal(creditNoteId, entry.referenceNumber, listRefunds)
+  const refunded = await creditNoteRefundTotal(creditNoteId, referenceNumber, listRefunds)
   if (refunded >= refundAmount - TOLERANCE) {
     return {
       ...baseFields,
@@ -289,7 +288,7 @@ async function resolvePlanRowAction(row, batch, opts = {}) {
     zohoRefundRequest: {
       date: opts.paymentDate || zohoPaymentService.todayLocalDate(),
       refund_mode: 'Bank Transfer',
-      reference_number: entry.referenceNumber,
+      reference_number: referenceNumber,
       amount: remaining,
       from_account_id: accountId,
       description,
