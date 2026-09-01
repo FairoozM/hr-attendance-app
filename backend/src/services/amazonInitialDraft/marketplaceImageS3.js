@@ -31,10 +31,11 @@ const DEFAULT_SOURCE_BUCKET = 'lifesmile-amazon-images-2026'
 const DEFAULT_DELIVERY_BUCKET = 'lifesmile-amazon-images-2026'
 const DEFAULT_DELIVERY_PREFIX = 'amazon-public/amazon-ae/'
 /**
- * `marketplace-originals/amazon-ae/` is the approved structure. The legacy folder the
- * content team is using today is allowed too so the current batch works unchanged.
+ * Empty on purpose: with no explicit allowlist every top-level folder in the image bucket
+ * is offered, so a folder the content team adds appears without a code change or redeploy.
+ * Set `AMAZON_IMAGE_SOURCE_ROOTS` to pin the choice to specific prefixes instead.
  */
-const DEFAULT_SOURCE_ROOTS = 'marketplace-originals/amazon-ae/,Amazon_169_Matched_Images/'
+const DEFAULT_SOURCE_ROOTS = ''
 
 /**
  * Probe windows for the JPEG start-of-frame header. The first covers ordinary photos; the
@@ -84,7 +85,8 @@ function normalizePrefix(value) {
 }
 
 function readConfig(env = process.env) {
-  const roots = cleanText(env.AMAZON_IMAGE_SOURCE_ROOTS || DEFAULT_SOURCE_ROOTS)
+  const configuredRoots = cleanText(env.AMAZON_IMAGE_SOURCE_ROOTS || DEFAULT_SOURCE_ROOTS)
+  const roots = configuredRoots
     .split(',')
     .map((entry) => normalizePrefix(entry))
     .filter(Boolean)
@@ -94,6 +96,7 @@ function readConfig(env = process.env) {
   return {
     sourceBucket: cleanText(env.AMAZON_IMAGE_SOURCE_BUCKET || DEFAULT_SOURCE_BUCKET),
     sourceRoots: roots,
+    rootsExplicitlyConfigured: Boolean(configuredRoots),
     deliveryBucket: cleanText(env.AMAZON_IMAGE_DELIVERY_BUCKET || DEFAULT_DELIVERY_BUCKET),
     deliveryPrefix: normalizePrefix(env.AMAZON_IMAGE_DELIVERY_PREFIX || DEFAULT_DELIVERY_PREFIX),
     publicBaseUrl,
@@ -106,7 +109,11 @@ function readConfig(env = process.env) {
  */
 function configurationProblem(config = readConfig()) {
   if (!config.sourceBucket) return 'source-bucket-not-configured'
-  if (!config.sourceRoots.length) return 'source-roots-not-configured'
+  // Empty roots only means "discover them"; it is a misconfiguration solely when roots
+  // were named explicitly and none of them survived parsing.
+  if (config.rootsExplicitlyConfigured && !config.sourceRoots.length) {
+    return 'source-roots-not-configured'
+  }
   if (!config.deliveryBucket) return 'delivery-bucket-not-configured'
   if (!config.deliveryPrefix) return 'delivery-prefix-not-configured'
   if (!config.publicBaseUrl) return 'public-base-url-not-configured'
@@ -127,8 +134,23 @@ function describeConfiguration(config = readConfig()) {
 }
 
 /**
- * Confines a caller-supplied batch prefix to the approved roots. Rejects traversal,
- * absolute paths, control characters and anything outside the allowed area.
+ * Whether a prefix touches this feature's own public output folder, which shares the
+ * bucket with the sources. It is a destination, never a batch to read from.
+ */
+function isDeliveryArea(prefix, config) {
+  if (config.sourceBucket !== config.deliveryBucket) return false
+  if (!config.deliveryPrefix || !prefix) return false
+  return config.deliveryPrefix.startsWith(prefix) || prefix.startsWith(config.deliveryPrefix)
+}
+
+/**
+ * Confines a caller-supplied batch prefix to the approved area. Rejects traversal,
+ * absolute paths, control characters and anything outside it.
+ *
+ * The approved area is the configured roots, or — when none are configured — the image
+ * bucket itself minus the delivery folder. Either way the browser still never names a
+ * bucket or escapes to another one, and only files matching the approved naming
+ * convention are ever copied out to the public prefix.
  *
  * @returns {{ ok: true, prefix: string, root: string } | { ok: false, reason: string }}
  */
@@ -147,10 +169,14 @@ function resolveBatchPrefix(requested, config = readConfig()) {
     return { ok: false, reason: 'batch-prefix-traversal' }
   }
 
-  const root = config.sourceRoots.find((candidate) => prefix.startsWith(candidate))
-  if (!root) return { ok: false, reason: 'batch-prefix-outside-allowed-root' }
+  if (config.sourceRoots.length) {
+    const root = config.sourceRoots.find((candidate) => prefix.startsWith(candidate))
+    if (!root) return { ok: false, reason: 'batch-prefix-outside-allowed-root' }
+    return { ok: true, prefix, root }
+  }
 
-  return { ok: true, prefix, root }
+  if (isDeliveryArea(prefix, config)) return { ok: false, reason: 'batch-prefix-outside-allowed-root' }
+  return { ok: true, prefix, root: `${prefix.split('/')[0]}/` }
 }
 
 async function listCommonPrefixes(bucket, prefix) {
@@ -161,26 +187,48 @@ async function listCommonPrefixes(bucket, prefix) {
 }
 
 /**
- * Batch folders the operator may choose from: each approved root, plus its immediate
- * subfolders. Only prefixes inside the approved roots are ever returned, so the frontend
- * never supplies a bucket name or an arbitrary path.
+ * Batch folders the operator may choose from: each root, plus its immediate subfolders.
+ * With no configured roots the bucket's own top-level folders are the roots, so a folder
+ * added to the bucket is offered straight away. The frontend still never supplies a
+ * bucket name or an arbitrary path.
  */
 async function listImageBatches(config = readConfig()) {
+  let roots = config.sourceRoots
+
+  if (!roots.length) {
+    try {
+      // Sorted so the dropdown order does not depend on how S3 paginates the listing.
+      roots = (await listCommonPrefixes(config.sourceBucket, ''))
+        .filter((prefix) => !isDeliveryArea(prefix, config))
+        .sort()
+    } catch (err) {
+      return [
+        {
+          prefix: '',
+          label: config.sourceBucket,
+          root: '',
+          available: false,
+          reason: sanitizeAwsError(err),
+        },
+      ]
+    }
+  }
+
   const batches = []
-  for (const root of config.sourceRoots) {
+  for (const root of roots) {
     let children = []
     try {
       children = await listCommonPrefixes(config.sourceBucket, root)
     } catch (err) {
-      batches.push({ prefix: root, label: root, root, available: false, reason: sanitizeAwsError(err) })
+      batches.push({ prefix: root, label: batchLabel(root), root, available: false, reason: sanitizeAwsError(err) })
       continue
     }
 
-    batches.push({ prefix: root, label: root, root, available: true, reason: null })
+    batches.push({ prefix: root, label: batchLabel(root), root, available: true, reason: null })
     for (const child of children) {
       batches.push({
         prefix: child,
-        label: child.slice(root.length).replace(/\/$/, '') || child,
+        label: batchLabel(child),
         root,
         available: true,
         reason: null,
@@ -188,6 +236,11 @@ async function listImageBatches(config = readConfig()) {
     }
   }
   return batches
+}
+
+/** Full folder path without the trailing slash, so a nested folder cannot look like its parent. */
+function batchLabel(prefix) {
+  return String(prefix).replace(/\/$/, '') || prefix
 }
 
 /**

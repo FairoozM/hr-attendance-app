@@ -235,7 +235,7 @@ describe('GET /api/amazon-initial-draft/image-batches', () => {
     assert.deepEqual(response.body.batches, [
       {
         prefix: ROOT,
-        label: ROOT,
+        label: ROOT.replace(/\/$/, ''),
         root: ROOT,
         available: false,
         reason: 'AccessDenied: denied',

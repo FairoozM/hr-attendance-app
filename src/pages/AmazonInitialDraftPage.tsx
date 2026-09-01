@@ -282,8 +282,8 @@ export default function AmazonInitialDraftPage() {
             </p>
           ) : (
             <p className="mt-2 text-xs text-slate-500">
-              Only folders inside the approved marketplace-image prefix are offered. The batch is the only image input
-              sent from this page.
+              Every folder in the approved marketplace-image bucket is offered, so a folder added there shows up here on
+              the next page load. The batch is the only image input sent from this page.
             </p>
           )}
           {imageBatches?.batches?.some((batch) => !batch.available) ? (

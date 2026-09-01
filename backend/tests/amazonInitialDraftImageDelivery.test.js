@@ -191,6 +191,71 @@ describe('marketplace image S3 — allowed prefixes', () => {
     assert.equal(s3.resolveBatchPrefix('/marketplace-originals/amazon-ae/', config).reason, 'batch-prefix-absolute')
     assert.equal(s3.resolveBatchPrefix('marketplace-originals\u0000/', config).reason, 'batch-prefix-invalid')
   })
+})
+
+/**
+ * With no configured roots the bucket's own folders are the batches, so the content team
+ * can add a folder without waiting on a redeploy.
+ */
+describe('marketplace image S3 — folder discovery', () => {
+  const DISCOVER_ENV = { ...ENV, AMAZON_IMAGE_SOURCE_ROOTS: '' }
+
+  it('offers a newly added bucket folder and hides the public delivery folder', async () => {
+    stubS3({
+      objects: [
+        { key: 'August, 2026/1. LIFESMILE_NSEL_NSEL-20_WEBSITE_Main.jpg', etag: 'a' },
+        { key: 'Amazon_169_Matched_Images/x_WEBSITE_Main.jpg', etag: 'b' },
+        { key: 'amazon-public/amazon-ae/NSEL-20/MAIN.jpg', etag: 'c' },
+      ],
+    })
+
+    const batches = await s3.listImageBatches(s3.readConfig(DISCOVER_ENV))
+    const prefixes = batches.map((batch) => batch.prefix)
+    assert.deepEqual(prefixes, ['Amazon_169_Matched_Images/', 'August, 2026/'])
+    assert.equal(
+      batches.every((batch) => batch.available),
+      true
+    )
+  })
+
+  it('labels each folder by its full path so a nested copy cannot look like its parent', async () => {
+    stubS3({
+      objects: [
+        { key: 'Amazon_169_Matched_Images/x_WEBSITE_Main.jpg', etag: 'a' },
+        { key: 'Amazon_169_Matched_Images/Amazon_169_Matched_Images/y_WEBSITE_Main.jpg', etag: 'b' },
+      ],
+    })
+
+    const batches = await s3.listImageBatches(s3.readConfig(DISCOVER_ENV))
+    assert.deepEqual(
+      batches.map((batch) => batch.label),
+      ['Amazon_169_Matched_Images', 'Amazon_169_Matched_Images/Amazon_169_Matched_Images']
+    )
+  })
+
+  it('accepts a discovered folder but still refuses the delivery area and traversal', () => {
+    const config = s3.readConfig(DISCOVER_ENV)
+
+    const resolved = s3.resolveBatchPrefix('August, 2026', config)
+    assert.equal(resolved.ok, true)
+    assert.equal(resolved.prefix, 'August, 2026/')
+    assert.equal(resolved.root, 'August, 2026/')
+
+    assert.equal(
+      s3.resolveBatchPrefix('amazon-public/amazon-ae/', config).reason,
+      'batch-prefix-outside-allowed-root'
+    )
+    assert.equal(s3.resolveBatchPrefix('August, 2026/../secrets/', config).reason, 'batch-prefix-traversal')
+    assert.equal(s3.resolveBatchPrefix('/August, 2026/', config).reason, 'batch-prefix-absolute')
+  })
+
+  it('is not reported as a misconfiguration when roots are left unset', () => {
+    assert.equal(s3.configurationProblem(s3.readConfig(DISCOVER_ENV)), null)
+    assert.equal(
+      s3.configurationProblem(s3.readConfig({ ...ENV, AMAZON_IMAGE_SOURCE_ROOTS: ',' })),
+      'source-roots-not-configured'
+    )
+  })
 
   it('requires an https public base URL before any URL is produced', () => {
     assert.equal(s3.configurationProblem(s3.readConfig({ ...ENV, AMAZON_IMAGE_PUBLIC_BASE_URL: '' })), 'public-base-url-not-configured')
