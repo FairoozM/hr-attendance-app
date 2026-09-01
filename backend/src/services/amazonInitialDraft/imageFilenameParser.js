@@ -10,6 +10,7 @@
  *
  *   CONTENT_LIFEP17S-16P_BEIGE_WEBSITE_Main.jpg
  *   CONTENT_LIFEP17-MIX-19-1_BEIGE_WEBSITE_3.jpg
+ *   CONTENT_SPFHP-28_GRAY_AMAZON_1.jpg
  *
  * The earlier convention is still supported:
  *
@@ -43,6 +44,8 @@ const SORT_PREFIX = /^\s*\d+\s*[.)-]\s*/
 const CHANNEL = {
   WEBSITE: 'WEBSITE',
   NOON: 'NOON',
+  /** Shot for Amazon specifically, so it outranks the website set for this generator. */
+  AMAZON: 'AMAZON',
   /** Older names carry no channel token at all. */
   UNSPECIFIED: '',
 }
@@ -53,7 +56,7 @@ const CHANNEL = {
  * captured so a clean suffix can be preferred over a normalized one, and the cleanup is
  * confined to this narrow area after the channel — it never touches the SKU identity.
  */
-const CHANNEL_SUFFIX = /_(WEBSITE|NOON)([_.\-]+)([A-Za-z0-9]+)$/i
+const CHANNEL_SUFFIX = /_(WEBSITE|NOON|AMAZON)([_.\-]+)([A-Za-z0-9]+)$/i
 
 /** Legacy names with no channel token, e.g. `NSEL-20_Main`. */
 const BARE_SUFFIX = /_(MAIN|0?[1-9]|1[0-9])$/i
@@ -101,10 +104,17 @@ function readPositionToken(token) {
   }
 }
 
+/**
+ * A working note left on a segment, as in `SPF-28P - ok`. A seller SKU never contains a
+ * spaced hyphen, so this can only ever be an annotation — but it is dropped for matching
+ * alone; the reported filename is never rewritten.
+ */
+const SEGMENT_ANNOTATION = /\s+-\s+.*$/
+
 function splitSegments(baseName) {
   return baseName
     .split('_')
-    .map((part) => cleanText(part))
+    .map((part) => cleanText(cleanText(part).replace(SEGMENT_ANNOTATION, '')))
     .filter(Boolean)
 }
 

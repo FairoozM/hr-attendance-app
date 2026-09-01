@@ -630,6 +630,63 @@ describe('Quick Action batches — channel selection', () => {
     assert.equal(group.problems.some((image) => image.status === 'noon-not-used'), true)
   })
 
+  it('prefers an AMAZON file over the WEBSITE image for the same position', async () => {
+    const result = await resolveQuickAction([
+      { key: `${BATCH}CONTENT_LIFEP17S-16P_BEIGE_WEBSITE_Main.jpg`, etag: 'w0' },
+      { key: `${BATCH}CONTENT_LIFEP17S-16P_BEIGE_AMAZON_Main.jpg`, etag: 'a0' },
+      { key: `${BATCH}CONTENT_LIFEP17S-16P_BEIGE_NOON_Main.jpg`, etag: 'n0' },
+    ])
+
+    const byName = new Map(result.images.map((image) => [image.filename, image]))
+    const amazon = byName.get('CONTENT_LIFEP17S-16P_BEIGE_AMAZON_Main.jpg')
+    const website = byName.get('CONTENT_LIFEP17S-16P_BEIGE_WEBSITE_Main.jpg')
+    const noon = byName.get('CONTENT_LIFEP17S-16P_BEIGE_NOON_Main.jpg')
+
+    assert.equal(amazon.status, 'ready')
+    assert.equal(amazon.channel, 'AMAZON')
+    assert.match(amazon.publicUrl, /LIFEP17S-16P-BEIGE\/MAIN\.jpg$/)
+
+    // Losing the tie must not leave a second file claiming the same position.
+    assert.equal(website.status, 'channel-not-used')
+    assert.equal(website.publicUrl, '')
+    assert.equal(noon.status, 'noon-not-used')
+    assert.equal(noon.publicUrl, '')
+    assert.equal(result.summary.otherChannelFilesNotUsed, 1)
+    assert.equal(result.skus[0].main.filename, 'CONTENT_LIFEP17S-16P_BEIGE_AMAZON_Main.jpg')
+  })
+
+  it('builds the whole sequence from AMAZON without borrowing a WEBSITE position', async () => {
+    const result = await resolveQuickAction([
+      { key: `${BATCH}CONTENT_LIFEP17S-16P_BEIGE_AMAZON_Main.jpg`, etag: 'a0' },
+      { key: `${BATCH}CONTENT_LIFEP17S-16P_BEIGE_AMAZON_1.jpg`, etag: 'a1' },
+      // Position 2 exists only on the website, and must stay a gap.
+      { key: `${BATCH}CONTENT_LIFEP17S-16P_BEIGE_WEBSITE_2.jpg`, etag: 'w2' },
+    ])
+
+    const group = result.skus[0]
+    assert.deepEqual(group.secondary.map((image) => image.positionNumber), [1])
+    assert.equal(group.problems.some((image) => image.status === 'channel-not-used'), true)
+  })
+
+  it('matches a file carrying a working note next to the SKU', async () => {
+    stubS3({ objects: [{ key: `${BATCH}CONTENT_SPFHP-28 - ok_GRAY_AMAZON_Main.jpg`, etag: 'a0' }] })
+
+    const result = await resolveProductImages({
+      workbookSkus: ['SPFHP-28-GRAY'],
+      columns: imageColumns(),
+      batchPrefix: BATCH,
+      env: ENV,
+      fetchImpl: okFetch(),
+    })
+
+    const image = result.images[0]
+    assert.equal(image.status, 'ready')
+    assert.equal(image.sku, 'SPFHP-28-GRAY')
+    assert.match(image.publicUrl, /SPFHP-28-GRAY\/MAIN\.jpg$/)
+    // The note is dropped for matching only; the file itself is reported as it is named.
+    assert.equal(image.filename, 'CONTENT_SPFHP-28 - ok_GRAY_AMAZON_Main.jpg')
+  })
+
   it('reports website-images-missing when only NOON files exist', async () => {
     const result = await resolveQuickAction([
       { key: `${BATCH}CONTENT_LIFEP17S-16P_BEIGE_NOON_Main.jpg`, etag: 'n0' },

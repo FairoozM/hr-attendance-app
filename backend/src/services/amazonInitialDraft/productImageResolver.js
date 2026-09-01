@@ -32,8 +32,10 @@ const IMAGE_STATUS = {
   DUPLICATE_IDENTICAL: 'duplicate-position-identical',
   /** A punctuation-artifact name beaten by the clean name for the same position. */
   DUPLICATE_SUPERSEDED: 'duplicate-position-superseded',
-  /** A NOON file left unused because a WEBSITE image exists for the same SKU. */
+  /** A NOON file left unused because a deliverable image exists for the same SKU. */
   NOON_NOT_USED: 'noon-not-used',
+  /** A file left unused because a higher-ranked channel covers the same SKU. */
+  CHANNEL_NOT_USED: 'channel-not-used',
   /** The SKU has only NOON files, so nothing is populated and it is flagged for review. */
   WEBSITE_MISSING: 'website-images-missing',
   UNSUPPORTED_POSITION: 'unsupported-position',
@@ -103,6 +105,7 @@ function emptySummary() {
     duplicatesDeduplicated: 0,
     duplicatesSuperseded: 0,
     noonFilesNotUsed: 0,
+    otherChannelFilesNotUsed: 0,
     skusWithoutWebsiteImages: 0,
     timeBudgetSkipped: 0,
   }
@@ -339,10 +342,27 @@ function buildRecord(object, identities, imageColumns, config) {
 }
 
 /**
- * The Amazon sequence is built from WEBSITE images only. A NOON file is never delivered:
- * when a WEBSITE image exists for the SKU it is simply not used, and when a SKU has
- * nothing but NOON files the SKU is flagged rather than quietly filled from the wrong
- * channel. Channels are never mixed into one sequence.
+ * Which channel a SKU's sequence is built from. AMAZON files were shot for this
+ * marketplace, so they outrank the website set; a legacy name with no channel token is
+ * treated as part of the website set, which is what it has always been.
+ *
+ * A NOON file is never delivered, so it has no rank at all.
+ */
+const CHANNEL_RANK = new Map([
+  [CHANNEL.AMAZON, 0],
+  [CHANNEL.WEBSITE, 1],
+  [CHANNEL.UNSPECIFIED, 1],
+])
+
+function channelRank(record) {
+  const rank = CHANNEL_RANK.get(record.channel)
+  return rank === undefined ? Infinity : rank
+}
+
+/**
+ * Picks one channel per SKU and drops the rest, so a sequence is never mixed. When a SKU
+ * has nothing but NOON files it is flagged rather than quietly filled from a channel that
+ * was never approved for Amazon.
  */
 function applyChannelSelection(records) {
   const bySku = new Map()
@@ -355,29 +375,37 @@ function applyChannelSelection(records) {
   }
 
   for (const group of bySku.values()) {
-    const noon = group.filter((record) => record.channel === CHANNEL.NOON)
-    if (!noon.length) continue
+    const best = Math.min(...group.map(channelRank))
 
-    const usable = group.filter((record) => record.channel !== CHANNEL.NOON)
-
-    if (usable.length) {
-      for (const record of noon) {
-        record.status = IMAGE_STATUS.NOON_NOT_USED
+    if (best === Infinity) {
+      for (const record of group) {
+        record.status = IMAGE_STATUS.WEBSITE_MISSING
         record.deliveryKey = ''
         record.warning = appendWarning(
           record.warning,
-          'NOON file not used: a WEBSITE image exists for this SKU and channels are never combined.'
+          'Only NOON files exist for this SKU. WEBSITE images are missing, so nothing was populated.'
         )
       }
       continue
     }
 
-    for (const record of noon) {
-      record.status = IMAGE_STATUS.WEBSITE_MISSING
+    const winner = group.find((record) => channelRank(record) === best).channel || CHANNEL.WEBSITE
+
+    for (const record of group) {
+      if (channelRank(record) === best) continue
       record.deliveryKey = ''
+      if (record.channel === CHANNEL.NOON) {
+        record.status = IMAGE_STATUS.NOON_NOT_USED
+        record.warning = appendWarning(
+          record.warning,
+          `NOON file not used: a ${winner} image exists for this SKU and channels are never combined.`
+        )
+        continue
+      }
+      record.status = IMAGE_STATUS.CHANNEL_NOT_USED
       record.warning = appendWarning(
         record.warning,
-        'Only NOON files exist for this SKU. WEBSITE images are missing, so nothing was populated.'
+        `Not used: ${winner} images exist for this SKU and channels are never combined.`
       )
     }
   }
@@ -535,6 +563,9 @@ function buildSummary(records, skus, workbookSkus) {
         break
       case IMAGE_STATUS.NOON_NOT_USED:
         summary.noonFilesNotUsed += 1
+        break
+      case IMAGE_STATUS.CHANNEL_NOT_USED:
+        summary.otherChannelFilesNotUsed += 1
         break
       case IMAGE_STATUS.WEBSITE_MISSING:
         summary.noonFilesNotUsed += 1
