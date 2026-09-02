@@ -741,6 +741,51 @@ describe('classifyNoonStatementRow edge', () => {
       ROW_CLASS.PARENT_ORDER_CHARGE
     )
   })
+
+  it('treats a late order_update sale as a sale item', () => {
+    // PS-11752-AE20260604 row 34: the rest of the order sold a statement earlier, so
+    // Noon settled this item as an order_update. It is still a sale.
+    assert.equal(
+      classifyNoonStatementRow({
+        transactionType: 'order_update',
+        orderNr: 'NAEI50064820797',
+        itemNr: 'NAEI50064820797-5',
+        netProceed: 150,
+        referralFee: -23.63,
+        total: 126.37,
+        sku: 'Z0F3501BE5A0AE781BE13Z-1',
+        partnerSku: 'BRKH-66-6',
+        title: 'LIFE SMILE New Bone China Embossed Dinner Plates',
+      }),
+      ROW_CLASS.SALE_ITEM
+    )
+  })
+
+  it('keeps fee-only and refund order_update rows out of sale_item', () => {
+    const feeOnly = {
+      transactionType: 'order_update',
+      orderNr: 'NAEI50064820797',
+      itemNr: '',
+      netProceed: 0,
+      fulfillmentFee: -89.26,
+      orderSubsidies: 17.86,
+      total: -71.4,
+      title: 'PGB9645558477A',
+    }
+    assert.notEqual(classifyNoonStatementRow(feeOnly), ROW_CLASS.SALE_ITEM)
+
+    const refund = {
+      transactionType: 'order_update',
+      orderNr: 'NAEI60082179195',
+      itemNr: 'NAEI60082179195-2',
+      netProceed: -229,
+      referralFee: 36.07,
+      otherOrderFees: 29.2,
+      total: -163.73,
+      title: 'Granite Non-Stick Soup Pot',
+    }
+    assert.notEqual(classifyNoonStatementRow(refund), ROW_CLASS.SALE_ITEM)
+  })
 })
 
 describe('Noon fee journal direction', () => {

@@ -126,6 +126,15 @@ function classifyNoonStatementRow(row) {
     return ROW_CLASS.STATEMENT_FEE
   }
 
+  // Noon reports a sale that settles after its order week as `order_update`. Net Proceeds
+  // on an item-level row means goods were sold, so it clears against an invoice like any
+  // other sale. This is the positive mirror of the negative `order_update` rows that
+  // reclassifyReturnRows turns into returns; without it the row has no accounting
+  // destination whenever the rest of its order sold in an earlier statement.
+  if (tx === 'order_update' && num(row.netProceed) >= 0.01 && ids.hasItemLevelId) {
+    return ROW_CLASS.SALE_ITEM
+  }
+
   if (tx === 'order_update') {
     return ROW_CLASS.ORDER_ADJUSTMENT
   }
