@@ -75,6 +75,24 @@ function isStorageFeeRow(row) {
   return Boolean(storageFeeTypeFromTitle(row?.title))
 }
 
+const FEE_COLUMN_FIELDS = [
+  'referralFee',
+  'fulfillmentFee',
+  'shippingCharges',
+  'otherOrderFees',
+  'orderSubsidies',
+  'orderSubscriptionFees',
+  'othersInclVat',
+  'nonOrderFees',
+  'nonOrderSubsidies',
+]
+
+/** Whether the signed fee columns on their own add up to the row Total. */
+function feeColumnsExplainTotal(row) {
+  const fees = round2(FEE_COLUMN_FIELDS.reduce((sum, field) => sum + num(row[field]), 0))
+  return Math.abs(round2(num(row.total) - fees)) < 0.01
+}
+
 function hasProductSaleSignal(row) {
   const netProceed = num(row.netProceed)
   const sku = clean(row.sku || row.partnerSku)
@@ -85,7 +103,14 @@ function hasProductSaleSignal(row) {
     !/,PG[A-Z0-9]+/i.test(title) &&
     !/fee/i.test(title) &&
     !isAdvertisingTitle(title)
-  return netProceed > 0 || (Boolean(sku) && looksLikeProductTitle && num(row.total) !== 0)
+  if (netProceed > 0) return true
+  // The SKU/title fallback exists for spreadsheets where Net Proceeds failed to parse. If
+  // the fee columns already account for the whole Total then nothing failed to parse and
+  // there is no product revenue in the row — it is a fee correction on an order that sold
+  // in another week, and it settles through a journal rather than an invoice payment.
+  return (
+    Boolean(sku) && looksLikeProductTitle && num(row.total) !== 0 && !feeColumnsExplainTotal(row)
+  )
 }
 
 /**

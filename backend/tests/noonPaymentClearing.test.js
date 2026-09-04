@@ -742,6 +742,46 @@ describe('classifyNoonStatementRow edge', () => {
     )
   })
 
+  it('does not call a fee correction a sale when the fee columns explain the total', () => {
+    // PS-11752-AE20260805 row 31: no Net Proceeds, and -17.85 logistics plus 68.13 other
+    // order fees add up to the whole 50.28. There is no product revenue to invoice.
+    assert.equal(
+      classifyNoonStatementRow({
+        transactionType: 'order',
+        orderNr: 'NAEI70067776310',
+        itemNr: 'NAEI70067776310-1',
+        netProceed: 0,
+        fulfillmentFee: -17.85,
+        otherOrderFees: 68.13,
+        total: 50.28,
+        sku: 'Z14F3A8AA37BA2651A0E0Z-1',
+        partnerSku: 'LIFEP32-40P',
+        title: 'Granite Non-Stick Soup Pot-19.5L with Glass Lid',
+      }),
+      ROW_CLASS.ORDER_ADJUSTMENT
+    )
+  })
+
+  it('still reads a sale whose Net Proceeds column failed to parse', () => {
+    // Same shape, except the fees leave 500.00 of the total unexplained — that residue is
+    // the sale gross the spreadsheet dropped, so the row is still a sale.
+    assert.equal(
+      classifyNoonStatementRow({
+        transactionType: 'order',
+        orderNr: 'NAEI70067776310',
+        itemNr: 'NAEI70067776310-1',
+        netProceed: 0,
+        fulfillmentFee: -17.85,
+        otherOrderFees: 68.13,
+        total: 550.28,
+        sku: 'Z14F3A8AA37BA2651A0E0Z-1',
+        partnerSku: 'LIFEP32-40P',
+        title: 'Granite Non-Stick Soup Pot-19.5L with Glass Lid',
+      }),
+      ROW_CLASS.SALE_ITEM
+    )
+  })
+
   it('treats a late order_update sale as a sale item', () => {
     // PS-11752-AE20260604 row 34: the rest of the order sold a statement earlier, so
     // Noon settled this item as an order_update. It is still a sale.
