@@ -757,6 +757,28 @@ async function ensureSimCardsTable() {
   }
 }
 
+async function ensureVatInfoTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS vat_info (
+      id SERIAL PRIMARY KEY,
+      company_name VARCHAR(255) NOT NULL,
+      vat_number VARCHAR(100) NOT NULL,
+      country VARCHAR(10) NOT NULL,
+      date_first_registered DATE,
+      vat_pct NUMERIC(8,4) NOT NULL DEFAULT 0,
+      vat_filings VARCHAR(100) NOT NULL DEFAULT 'Quarterly',
+      agent VARCHAR(255) NOT NULL DEFAULT '',
+      charges_of_filing NUMERIC(14,2) NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CHECK (country IN ('UAE', 'KSA'))
+    )
+  `)
+  await query(`CREATE INDEX IF NOT EXISTS idx_vat_info_country ON vat_info(country)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_vat_info_company ON vat_info(company_name)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_vat_info_vat_number ON vat_info(vat_number)`)
+}
+
 /**
  * Maps Zoho items to logical "report_group" buckets used by the Weekly Reports
  * section. Membership is the source of truth for which items appear in which
@@ -1158,6 +1180,11 @@ async function testConnection() {
     console.error('[db] ensureInfluencersSnapshotTable skipped/failed (non-fatal):', e.message || e)
   }
   await ensureSimCardsTable()
+  try {
+    await ensureVatInfoTable()
+  } catch (e) {
+    console.error('[db] ensureVatInfoTable skipped/failed (non-fatal):', e.message || e)
+  }
   try {
     await ensureDocumentExpiryTable()
   } catch (e) {

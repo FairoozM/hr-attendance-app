@@ -82,6 +82,17 @@ const MODULES = [
     ],
   },
   {
+    section: 'Lists',
+    key: 'vat_info',
+    label: 'VAT Info (UAE & KSA)',
+    permissions: [
+      { key: 'view', label: 'View VAT Info list' },
+      { key: 'add', label: 'Add VAT Info record' },
+      { key: 'edit', label: 'Edit VAT Info record' },
+      { key: 'delete', label: 'Delete VAT Info record' },
+    ],
+  },
+  {
     section: 'Management',
     key: 'document_expiry',
     label: 'Document Expiry Tracker',
@@ -296,6 +307,17 @@ function ModuleIcon({ moduleKey, className = '' }) {
       <svg {...common}>
         <rect x="5" y="2" width="14" height="20" rx="2" />
         <path d="M12 18h.01" />
+      </svg>
+    )
+  }
+
+  if (moduleKey === 'vat_info') {
+    return (
+      <svg {...common}>
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+        <path d="M14 2v6h6" />
+        <path d="M12 18v-6" />
+        <path d="M9 15h6" />
       </svg>
     )
   }

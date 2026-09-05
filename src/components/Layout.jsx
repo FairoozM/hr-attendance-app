@@ -383,7 +383,7 @@ export function Layout() {
 
   const HR_ROUTES = ['/employees', '/attendance', '/annual-leave']
   const ADMIN_NAV_ROUTES = ['/settings', '/roles-permissions', '/admin/item-report-groups', '/admin/ai-budget']
-  const LISTS_ROUTES = ['/lists/sim-cards']
+  const LISTS_ROUTES = ['/lists/sim-cards', '/lists/vat-info']
   const isHrActive = HR_ROUTES.some(r => location.pathname.startsWith(r))
   const isAdminNavActive = isAdmin && ADMIN_NAV_ROUTES.some(r => location.pathname.startsWith(r))
   const isListsActive = LISTS_ROUTES.some(r => location.pathname.startsWith(r))
@@ -398,7 +398,8 @@ export function Layout() {
     location.pathname.startsWith('/ai/listing-batches')
   const isAiHubActive = location.pathname.startsWith('/ai') && !isAmazonActive
   const hasAnyInfluencerAccess = hasAnyModulePermission(user, 'influencers')
-  const hasAnyListsAccess = hasAnyModulePermission(user, 'sim_cards')
+  const hasAnyListsAccess =
+    hasAnyModulePermission(user, 'sim_cards') || hasAnyModulePermission(user, 'vat_info')
   const hasAnyManagementAccess =
     hasAnyModulePermission(user, 'document_expiry') ||
     hasAnyModulePermission(user, 'company_payments') ||
@@ -428,6 +429,7 @@ export function Layout() {
     if (location.pathname.startsWith('/settings')) return 'Settings'
     if (location.pathname.startsWith('/roles-permissions')) return 'Roles & Permissions'
     if (location.pathname.startsWith('/lists/sim-cards')) return 'Sim Cards List'
+    if (location.pathname.startsWith('/lists/vat-info')) return 'VAT Info'
     if (location.pathname.startsWith('/influencers/performance')) return 'Performance'
     if (location.pathname.startsWith('/influencers/list')) return 'Influencer Roster'
     if (location.pathname.startsWith('/influencers/agreements')) return 'Agreements'
@@ -524,6 +526,7 @@ export function Layout() {
   ].filter(Boolean)
   const listsItems = [
     can('sim_cards', 'view') && { label: 'Sim Cards List', to: '/lists/sim-cards' },
+    can('vat_info', 'view') && { label: 'VAT Info', to: '/lists/vat-info' },
   ].filter(Boolean)
 
   const pricesItems = [

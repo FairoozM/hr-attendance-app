@@ -163,6 +163,14 @@ function requirePermission(module, action) {
     ) {
       return next()
     }
+    // vat info: write permissions imply view
+    if (
+      action === 'view' &&
+      module === 'vat_info' &&
+      (mod.add || mod.edit || mod.delete)
+    ) {
+      return next()
+    }
     // document expiry: write permissions imply view
     if (
       action === 'view' &&

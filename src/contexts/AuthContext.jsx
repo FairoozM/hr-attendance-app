@@ -145,6 +145,8 @@ export function hasPermission(user, module, action) {
   }
   // sim cards: write permissions imply view access
   if (action === 'view' && module === 'sim_cards' && (mod.add || mod.edit || mod.delete)) return true
+  // vat info: write permissions imply view access
+  if (action === 'view' && module === 'vat_info' && (mod.add || mod.edit || mod.delete)) return true
   // document expiry: write permissions imply view access
   if (action === 'view' && module === 'document_expiry' && (mod.add || mod.edit || mod.delete)) return true
   // planner: manage implies view

@@ -51,6 +51,7 @@ function AiHubGuard({ children }) {
 import { AgreementsPage } from './pages/influencers/AgreementsPage'
 import { InfluencerPerformancePage } from './pages/influencers/InfluencerPerformancePage'
 import { SimCardsPage } from './pages/SimCardsPage'
+import { VatInfoPage } from './pages/VatInfoPage'
 import { DocumentExpiryPage } from './pages/management/DocumentExpiryPage'
 import { SubscriptionsPage } from './pages/management/subscriptions/SubscriptionsPage'
 import { PaymentsPage as CompanyPaymentsPage } from './pages/management/PaymentsPage'
@@ -214,6 +215,14 @@ function AppContent() {
           element={
             <PermissionGuard module="sim_cards" action="view">
               <SimCardsPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="lists/vat-info"
+          element={
+            <PermissionGuard module="vat_info" action="view">
+              <VatInfoPage />
             </PermissionGuard>
           }
         />
