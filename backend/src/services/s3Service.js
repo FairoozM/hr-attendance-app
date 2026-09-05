@@ -66,6 +66,12 @@ function createSubscriptionInvoiceKey(subscriptionId, fileName) {
   return `subscription-invoices/${sid}/${crypto.randomUUID()}-${safe}`
 }
 
+function createVatCertificateKey(vatInfoId, fileName) {
+  const safe = sanitizeName(fileName)
+  const sid = String(vatInfoId || 'unknown').replace(/[^a-zA-Z0-9._-]/g, '_')
+  return `vat-certificates/${sid}/${crypto.randomUUID()}-${safe}`
+}
+
 async function getUploadUrl({ key, contentType, expiresIn = 300 }) {
   const Bucket = requireBucket()
   const command = new PutObjectCommand({
@@ -130,6 +136,7 @@ module.exports = {
   createInfluencerInsightsImageKey,
   createInfluencerProfileImageKey,
   createSubscriptionInvoiceKey,
+  createVatCertificateKey,
   getUploadUrl,
   getDownloadUrl,
   putObjectBuffer,

@@ -70,6 +70,17 @@ function normalizePayload(body) {
   }
 }
 
+function parseId(raw) {
+  const id = parseInt(raw, 10)
+  return Number.isNaN(id) ? null : id
+}
+
+function getUserId(req) {
+  const id = req.user?.id
+  const n = Number(id)
+  return Number.isFinite(n) ? n : null
+}
+
 async function list(req, res) {
   try {
     const rows = await vatInfoService.findAll()
@@ -94,8 +105,8 @@ async function create(req, res) {
 
 async function update(req, res) {
   try {
-    const id = parseInt(req.params.id, 10)
-    if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' })
+    const id = parseId(req.params.id)
+    if (id == null) return res.status(400).json({ error: 'Invalid id' })
     const existing = await vatInfoService.findById(id)
     if (!existing) return res.status(404).json({ error: 'VAT info record not found' })
     const payload = normalizePayload(req.body)
@@ -110,8 +121,8 @@ async function update(req, res) {
 
 async function remove(req, res) {
   try {
-    const id = parseInt(req.params.id, 10)
-    if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' })
+    const id = parseId(req.params.id)
+    if (id == null) return res.status(400).json({ error: 'Invalid id' })
     const ok = await vatInfoService.remove(id)
     if (!ok) return res.status(404).json({ error: 'VAT info record not found' })
     res.status(204).send()
@@ -121,9 +132,110 @@ async function remove(req, res) {
   }
 }
 
+async function listCertificates(req, res) {
+  try {
+    const id = parseId(req.params.id)
+    if (id == null) return res.status(400).json({ error: 'Invalid id' })
+    const existing = await vatInfoService.findById(id)
+    if (!existing) return res.status(404).json({ error: 'VAT info record not found' })
+    const rows = await vatInfoService.listCertificates(id)
+    res.json(rows)
+  } catch (err) {
+    console.error('[vat-info] list certificates error:', err)
+    res.status(500).json({ error: 'Failed to list certificates' })
+  }
+}
+
+async function getCertificateUploadUrl(req, res) {
+  try {
+    const id = parseId(req.params.id)
+    if (id == null) return res.status(400).json({ error: 'Invalid id' })
+    const existing = await vatInfoService.findById(id)
+    if (!existing) return res.status(404).json({ error: 'VAT info record not found' })
+
+    const fileName = cleanText(req.body?.fileName, { required: true })
+    const contentType = cleanText(req.body?.contentType, { required: true })
+    if (!fileName || !contentType) {
+      return res.status(400).json({ error: 'fileName and contentType are required' })
+    }
+
+    const result = await vatInfoService.getCertificateUploadUrl(id, {
+      fileName,
+      contentType,
+      fileSize: req.body?.fileSize,
+    })
+    res.json(result)
+  } catch (err) {
+    if (err.status === 400) return res.status(400).json({ error: err.message })
+    console.error('[vat-info] certificate upload-url error:', err)
+    res.status(500).json({ error: 'Failed to get certificate upload URL' })
+  }
+}
+
+async function saveCertificate(req, res) {
+  try {
+    const id = parseId(req.params.id)
+    if (id == null) return res.status(400).json({ error: 'Invalid id' })
+    const existing = await vatInfoService.findById(id)
+    if (!existing) return res.status(404).json({ error: 'VAT info record not found' })
+
+    const s3Key = cleanText(req.body?.s3Key, { required: true })
+    const fileName = cleanText(req.body?.fileName, { required: true })
+    if (!s3Key || !fileName) {
+      return res.status(400).json({ error: 's3Key and fileName are required' })
+    }
+
+    const row = await vatInfoService.saveCertificate(id, {
+      s3Key,
+      fileName,
+      fileType: cleanText(req.body?.fileType) || '',
+      fileSize: req.body?.fileSize,
+      uploadedBy: getUserId(req),
+    })
+    res.status(201).json(row)
+  } catch (err) {
+    if (err.status === 400) return res.status(400).json({ error: err.message })
+    console.error('[vat-info] save certificate error:', err)
+    res.status(500).json({ error: 'Failed to save certificate' })
+  }
+}
+
+async function getCertificateDownloadUrl(req, res) {
+  try {
+    const id = parseId(req.params.id)
+    const certId = parseId(req.params.certId)
+    if (id == null || certId == null) return res.status(400).json({ error: 'Invalid id' })
+    const result = await vatInfoService.getCertificateDownloadUrl(id, certId)
+    if (!result) return res.status(404).json({ error: 'Certificate not found' })
+    res.json(result)
+  } catch (err) {
+    console.error('[vat-info] certificate download-url error:', err)
+    res.status(500).json({ error: 'Failed to get certificate download URL' })
+  }
+}
+
+async function deleteCertificate(req, res) {
+  try {
+    const id = parseId(req.params.id)
+    const certId = parseId(req.params.certId)
+    if (id == null || certId == null) return res.status(400).json({ error: 'Invalid id' })
+    const ok = await vatInfoService.deleteCertificate(id, certId)
+    if (!ok) return res.status(404).json({ error: 'Certificate not found' })
+    res.json({ success: true })
+  } catch (err) {
+    console.error('[vat-info] delete certificate error:', err)
+    res.status(500).json({ error: 'Failed to delete certificate' })
+  }
+}
+
 module.exports = {
   list,
   create,
   update,
   remove,
+  listCertificates,
+  getCertificateUploadUrl,
+  saveCertificate,
+  getCertificateDownloadUrl,
+  deleteCertificate,
 }

@@ -14,6 +14,16 @@ export type VatInfoForm = {
   chargesOfFiling: string
 }
 
+export type VatCertificate = {
+  id: string
+  vatInfoId: string
+  fileName: string
+  fileType: string
+  fileSize: number | null
+  uploadedBy: string | null
+  uploadedAt: string | null
+}
+
 export type VatInfoItem = {
   id: string
   companyName: string
@@ -24,8 +34,19 @@ export type VatInfoItem = {
   vatFilings: string
   agent: string
   chargesOfFiling: number
+  certificates: VatCertificate[]
   createdAt: string | null
   updatedAt: string | null
+}
+
+type VatCertificateApiRow = {
+  id: number | string
+  vat_info_id?: number | string | null
+  file_name?: string | null
+  file_type?: string | null
+  file_size?: number | string | null
+  uploaded_by?: number | string | null
+  uploaded_at?: string | null
 }
 
 type VatInfoApiRow = {
@@ -38,6 +59,7 @@ type VatInfoApiRow = {
   vat_filings?: string | null
   agent?: string | null
   charges_of_filing?: number | string | null
+  certificates?: VatCertificateApiRow[] | null
   created_at?: string | null
   updated_at?: string | null
 }
@@ -49,11 +71,24 @@ function toDateInput(value: string | null | undefined): string | null {
   return s
 }
 
+function mapCertificate(row: VatCertificateApiRow, fallbackVatId?: string): VatCertificate {
+  return {
+    id: String(row.id),
+    vatInfoId: String(row.vat_info_id ?? fallbackVatId ?? ''),
+    fileName: row.file_name ?? '',
+    fileType: row.file_type ?? '',
+    fileSize: row.file_size == null ? null : Number(row.file_size),
+    uploadedBy: row.uploaded_by == null ? null : String(row.uploaded_by),
+    uploadedAt: row.uploaded_at ?? null,
+  }
+}
+
 function mapVatInfo(row: VatInfoApiRow): VatInfoItem {
   const countryRaw = String(row.country || '').toUpperCase()
   const country: VatCountry = countryRaw === 'KSA' ? 'KSA' : 'UAE'
+  const id = String(row.id)
   return {
-    id: String(row.id),
+    id,
     companyName: row.company_name ?? '',
     vatNumber: row.vat_number ?? '',
     country,
@@ -62,6 +97,9 @@ function mapVatInfo(row: VatInfoApiRow): VatInfoItem {
     vatFilings: row.vat_filings ?? 'Quarterly',
     agent: row.agent ?? '',
     chargesOfFiling: Number(row.charges_of_filing ?? 0),
+    certificates: Array.isArray(row.certificates)
+      ? row.certificates.map((c) => mapCertificate(c, id))
+      : [],
     createdAt: row.created_at ?? null,
     updatedAt: row.updated_at ?? null,
   }
@@ -121,6 +159,63 @@ export function useVatInfo() {
     setItems((prev) => prev.filter((row) => row.id !== String(id)))
   }, [])
 
+  const uploadCertificate = useCallback(async (vatInfoId: string, file: File) => {
+    const { uploadUrl, s3Key } = (await api.post(`/api/vat-info/${vatInfoId}/certificates/upload-url`, {
+      fileName: file.name,
+      contentType: file.type || 'application/octet-stream',
+      fileSize: file.size,
+    })) as { uploadUrl: string; s3Key: string }
+
+    const putRes = await fetch(uploadUrl, {
+      method: 'PUT',
+      body: file,
+      headers: { 'Content-Type': file.type || 'application/octet-stream' },
+    })
+    if (!putRes.ok) throw new Error(`Upload failed (${putRes.status})`)
+
+    const saved = (await api.post(`/api/vat-info/${vatInfoId}/certificates`, {
+      s3Key,
+      fileName: file.name,
+      fileType: file.type || '',
+      fileSize: file.size,
+    })) as VatCertificateApiRow
+
+    const mapped = mapCertificate(saved, vatInfoId)
+    setItems((prev) =>
+      prev.map((row) =>
+        row.id === String(vatInfoId)
+          ? { ...row, certificates: [...row.certificates, mapped] }
+          : row
+      )
+    )
+    return mapped
+  }, [])
+
+  const getCertificateDownloadUrl = useCallback(async (vatInfoId: string, certificateId: string) => {
+    const result = (await api.get(
+      `/api/vat-info/${vatInfoId}/certificates/${certificateId}/download-url`
+    )) as { downloadUrl?: string; file_name?: string; fileName?: string }
+    if (!result?.downloadUrl) throw new Error('Download URL unavailable')
+    return {
+      downloadUrl: result.downloadUrl,
+      fileName: result.file_name || result.fileName || 'certificate',
+    }
+  }, [])
+
+  const deleteCertificate = useCallback(async (vatInfoId: string, certificateId: string) => {
+    await api.delete(`/api/vat-info/${vatInfoId}/certificates/${certificateId}`)
+    setItems((prev) =>
+      prev.map((row) =>
+        row.id === String(vatInfoId)
+          ? {
+              ...row,
+              certificates: row.certificates.filter((c) => c.id !== String(certificateId)),
+            }
+          : row
+      )
+    )
+  }, [])
+
   return {
     items,
     loading,
@@ -128,6 +223,9 @@ export function useVatInfo() {
     createItem,
     updateItem,
     deleteItem,
+    uploadCertificate,
+    getCertificateDownloadUrl,
+    deleteCertificate,
     refetch: fetchAll,
   }
 }

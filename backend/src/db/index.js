@@ -779,6 +779,24 @@ async function ensureVatInfoTable() {
   await query(`CREATE INDEX IF NOT EXISTS idx_vat_info_vat_number ON vat_info(vat_number)`)
 }
 
+async function ensureVatInfoCertificatesTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS vat_info_certificates (
+      id SERIAL PRIMARY KEY,
+      vat_info_id INTEGER NOT NULL REFERENCES vat_info(id) ON DELETE CASCADE,
+      file_name VARCHAR(500) NOT NULL,
+      s3_key TEXT NOT NULL,
+      file_type VARCHAR(100),
+      file_size INTEGER,
+      uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      uploaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `)
+  await query(
+    `CREATE INDEX IF NOT EXISTS idx_vat_info_certificates_vat_info_id ON vat_info_certificates(vat_info_id)`
+  )
+}
+
 /**
  * Maps Zoho items to logical "report_group" buckets used by the Weekly Reports
  * section. Membership is the source of truth for which items appear in which
@@ -1184,6 +1202,11 @@ async function testConnection() {
     await ensureVatInfoTable()
   } catch (e) {
     console.error('[db] ensureVatInfoTable skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
+    await ensureVatInfoCertificatesTable()
+  } catch (e) {
+    console.error('[db] ensureVatInfoCertificatesTable skipped/failed (non-fatal):', e.message || e)
   }
   try {
     await ensureDocumentExpiryTable()

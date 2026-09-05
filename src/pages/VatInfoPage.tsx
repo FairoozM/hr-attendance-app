@@ -1,6 +1,13 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react'
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { Download, Eye, Loader2, Plus, Trash2 } from 'lucide-react'
 import { Modal } from '../components/Modal'
-import { useVatInfo, type VatCountry, type VatInfoForm, type VatInfoItem } from '../hooks/useVatInfo'
+import {
+  useVatInfo,
+  type VatCertificate,
+  type VatCountry,
+  type VatInfoForm,
+  type VatInfoItem,
+} from '../hooks/useVatInfo'
 import { useAuth, hasPermission } from '../contexts/AuthContext'
 import {
   useUrlSearchParamState,
@@ -22,6 +29,10 @@ const EMPTY_FORM: VatInfoForm = {
   chargesOfFiling: '',
 }
 
+const ALLOWED_CERT_TYPES = new Set(['application/pdf', 'image/jpeg', 'image/jpg', 'image/gif'])
+const ALLOWED_CERT_EXTS = new Set(['.pdf', '.jpg', '.jpeg', '.gif'])
+const MAX_CERT_BYTES = 10 * 1024 * 1024
+
 type EditingForm = VatInfoForm & { __id: string }
 
 function buildError(form: VatInfoForm): string {
@@ -40,6 +51,25 @@ function buildError(form: VatInfoForm): string {
 
 function defaultVatPctForCountry(country: VatCountry): string {
   return country === 'KSA' ? '15' : '5'
+}
+
+function isAllowedCertificate(file: File): string {
+  const type = String(file.type || '').toLowerCase()
+  const name = String(file.name || '').toLowerCase()
+  const dot = name.lastIndexOf('.')
+  const ext = dot >= 0 ? name.slice(dot) : ''
+  if (!ALLOWED_CERT_TYPES.has(type) && !ALLOWED_CERT_EXTS.has(ext)) {
+    return 'Only PDF, JPEG, and GIF files are allowed'
+  }
+  if (file.size > MAX_CERT_BYTES) return 'File must be 10 MB or smaller'
+  return ''
+}
+
+function isImageCertificate(fileType: string, fileName: string): boolean {
+  const type = String(fileType || '').toLowerCase()
+  if (type.startsWith('image/')) return true
+  const name = String(fileName || '').toLowerCase()
+  return name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.gif')
 }
 
 type VatInfoFormModalProps = {
@@ -179,9 +209,151 @@ function formatDate(value: string | null): string {
   return value
 }
 
+type CertificatesCellProps = {
+  row: VatInfoItem
+  canEdit: boolean
+  busyCertId: string | null
+  uploading: boolean
+  onUpload: (vatInfoId: string, file: File) => Promise<void>
+  onView: (vatInfoId: string, cert: VatCertificate) => Promise<void>
+  onDownload: (vatInfoId: string, cert: VatCertificate) => Promise<void>
+  onDelete: (vatInfoId: string, cert: VatCertificate) => void
+}
+
+function CertificatesCell({
+  row,
+  canEdit,
+  busyCertId,
+  uploading,
+  onUpload,
+  onView,
+  onDownload,
+  onDelete,
+}: CertificatesCellProps) {
+  const inputRef = useRef<HTMLInputElement | null>(null)
+  const [localError, setLocalError] = useState('')
+
+  const pickFile = () => {
+    setLocalError('')
+    inputRef.current?.click()
+  }
+
+  const handleChange = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    const err = isAllowedCertificate(file)
+    if (err) {
+      setLocalError(err)
+      return
+    }
+    setLocalError('')
+    try {
+      await onUpload(row.id, file)
+    } catch (uploadErr) {
+      setLocalError(uploadErr instanceof Error ? uploadErr.message : 'Upload failed')
+    }
+  }
+
+  return (
+    <div className="vat-certs">
+      {row.certificates.length === 0 ? (
+        <span className="vat-certs__empty">No files</span>
+      ) : (
+        <ul className="vat-certs__list">
+          {row.certificates.map((cert) => {
+            const busy = busyCertId === cert.id
+            return (
+              <li key={cert.id} className="vat-certs__item">
+                <span className="vat-certs__name" title={cert.fileName}>
+                  {cert.fileName || 'certificate'}
+                </span>
+                <div className="vat-certs__icons">
+                  <button
+                    type="button"
+                    className="vat-icon-btn"
+                    title="View"
+                    aria-label={`View ${cert.fileName}`}
+                    disabled={busy}
+                    onClick={() => {
+                      void onView(row.id, cert)
+                    }}
+                  >
+                    {busy ? <Loader2 size={13} className="vat-icon-spin" /> : <Eye size={13} />}
+                  </button>
+                  <button
+                    type="button"
+                    className="vat-icon-btn"
+                    title="Download"
+                    aria-label={`Download ${cert.fileName}`}
+                    disabled={busy}
+                    onClick={() => {
+                      void onDownload(row.id, cert)
+                    }}
+                  >
+                    <Download size={13} />
+                  </button>
+                  {canEdit ? (
+                    <button
+                      type="button"
+                      className="vat-icon-btn vat-icon-btn--danger"
+                      title="Delete"
+                      aria-label={`Delete ${cert.fileName}`}
+                      disabled={busy}
+                      onClick={() => onDelete(row.id, cert)}
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  ) : null}
+                </div>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+
+      {canEdit ? (
+        <>
+          <button
+            type="button"
+            className="vat-icon-btn vat-icon-btn--add"
+            title="Add certificate (PDF, JPEG, GIF)"
+            aria-label="Add certificate"
+            disabled={uploading}
+            onClick={pickFile}
+          >
+            {uploading ? <Loader2 size={13} className="vat-icon-spin" /> : <Plus size={13} />}
+          </button>
+          <input
+            ref={inputRef}
+            type="file"
+            className="vat-certs__file"
+            accept=".pdf,.jpg,.jpeg,.gif,application/pdf,image/jpeg,image/gif"
+            onChange={(e) => {
+              void handleChange(e)
+            }}
+          />
+        </>
+      ) : null}
+
+      {localError ? <p className="vat-certs__err">{localError}</p> : null}
+    </div>
+  )
+}
+
 export function VatInfoPage() {
   const { user } = useAuth()
-  const { items, loading, error, createItem, updateItem, deleteItem } = useVatInfo()
+  const {
+    items,
+    loading,
+    error,
+    createItem,
+    updateItem,
+    deleteItem,
+    uploadCertificate,
+    getCertificateDownloadUrl,
+    deleteCertificate,
+  } = useVatInfo()
   const canAdd = hasPermission(user, 'vat_info', 'add')
   const canEdit = hasPermission(user, 'vat_info', 'edit')
   const canDelete = hasPermission(user, 'vat_info', 'delete')
@@ -201,6 +373,16 @@ export function VatInfoPage() {
   const [deleteError, setDeleteError] = useState('')
   const [deleteBusy, setDeleteBusy] = useState(false)
 
+  const [uploadingId, setUploadingId] = useState<string | null>(null)
+  const [busyCertId, setBusyCertId] = useState<string | null>(null)
+  const [certDeleteTarget, setCertDeleteTarget] = useState<{
+    vatInfoId: string
+    cert: VatCertificate
+  } | null>(null)
+  const [certDeleteBusy, setCertDeleteBusy] = useState(false)
+  const [certDeleteError, setCertDeleteError] = useState('')
+  const [preview, setPreview] = useState<{ url: string; name: string } | null>(null)
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     return items.filter((row) => {
@@ -215,6 +397,7 @@ export function VatInfoPage() {
         row.vatFilings,
         row.agent,
         row.chargesOfFiling,
+        ...row.certificates.map((c) => c.fileName),
       ]
         .join(' ')
         .toLowerCase()
@@ -284,6 +467,69 @@ export function VatInfoPage() {
     }
   }
 
+  const handleUploadCertificate = async (vatInfoId: string, file: File) => {
+    setUploadingId(vatInfoId)
+    try {
+      await uploadCertificate(vatInfoId, file)
+    } finally {
+      setUploadingId(null)
+    }
+  }
+
+  const handleViewCertificate = async (vatInfoId: string, cert: VatCertificate) => {
+    setBusyCertId(cert.id)
+    try {
+      const { downloadUrl, fileName } = await getCertificateDownloadUrl(vatInfoId, cert.id)
+      if (isImageCertificate(cert.fileType, cert.fileName)) {
+        setPreview({ url: downloadUrl, name: fileName || cert.fileName })
+      } else {
+        window.open(downloadUrl, '_blank', 'noopener,noreferrer')
+      }
+    } finally {
+      setBusyCertId(null)
+    }
+  }
+
+  const handleDownloadCertificate = async (vatInfoId: string, cert: VatCertificate) => {
+    setBusyCertId(cert.id)
+    try {
+      const { downloadUrl, fileName } = await getCertificateDownloadUrl(vatInfoId, cert.id)
+      const a = document.createElement('a')
+      a.href = downloadUrl
+      a.download = fileName || cert.fileName || 'certificate'
+      a.rel = 'noopener noreferrer'
+      a.target = '_blank'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+    } finally {
+      setBusyCertId(null)
+    }
+  }
+
+  const confirmDeleteCertificate = async () => {
+    if (!certDeleteTarget) return
+    setCertDeleteBusy(true)
+    setCertDeleteError('')
+    try {
+      await deleteCertificate(certDeleteTarget.vatInfoId, certDeleteTarget.cert.id)
+      setCertDeleteTarget(null)
+    } catch (err) {
+      setCertDeleteError(err instanceof Error ? err.message : 'Failed to delete certificate')
+    } finally {
+      setCertDeleteBusy(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!preview) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPreview(null)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [preview])
+
   return (
     <div className="page">
       <div className="vat-page">
@@ -291,7 +537,7 @@ export function VatInfoPage() {
           <div>
             <h1 className="vat-page__title">VAT Info</h1>
             <p className="vat-page__subtitle">
-              UAE and KSA company VAT registration details, filings, and agent charges.
+              UAE and KSA company VAT registration details, filings, certificates, and agent charges.
             </p>
           </div>
           {canAdd ? (
@@ -303,7 +549,7 @@ export function VatInfoPage() {
 
         <div className="vat-filters">
           <ModernSearchInput
-            placeholder="Search company, VAT number, agent, filings..."
+            placeholder="Search company, VAT number, agent, filings, certificates..."
             value={search}
             onChange={setSearch}
           />
@@ -340,6 +586,7 @@ export function VatInfoPage() {
                   <th>VAT Filings</th>
                   <th>Agent</th>
                   <th>Charges of Filing</th>
+                  <th>Certificates</th>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -362,6 +609,21 @@ export function VatInfoPage() {
                     <td>{row.vatFilings || '—'}</td>
                     <td>{row.agent || '—'}</td>
                     <td>{formatMoney(row.chargesOfFiling)}</td>
+                    <td>
+                      <CertificatesCell
+                        row={row}
+                        canEdit={canEdit}
+                        busyCertId={busyCertId}
+                        uploading={uploadingId === row.id}
+                        onUpload={handleUploadCertificate}
+                        onView={handleViewCertificate}
+                        onDownload={handleDownloadCertificate}
+                        onDelete={(vatInfoId, cert) => {
+                          setCertDeleteError('')
+                          setCertDeleteTarget({ vatInfoId, cert })
+                        }}
+                      />
+                    </td>
                     <td>
                       <div className="vat-actions">
                         {canEdit ? (
@@ -411,7 +673,8 @@ export function VatInfoPage() {
         onClose={() => setDeletingId(null)}
       >
         <p className="delete-confirm-text">
-          Are you sure you want to delete this VAT info record? This action cannot be undone.
+          Are you sure you want to delete this VAT info record? Attached certificates will also be
+          removed. This action cannot be undone.
         </p>
         {deleteError ? <p className="vat-form__err">{deleteError}</p> : null}
         <div className="vat-form__actions">
@@ -435,6 +698,58 @@ export function VatInfoPage() {
           </button>
         </div>
       </Modal>
+
+      <Modal
+        title="Delete Certificate"
+        open={Boolean(certDeleteTarget)}
+        onClose={() => setCertDeleteTarget(null)}
+      >
+        <p className="delete-confirm-text">
+          Delete certificate{' '}
+          <strong>{certDeleteTarget?.cert.fileName || 'this file'}</strong>? This cannot be undone.
+        </p>
+        {certDeleteError ? <p className="vat-form__err">{certDeleteError}</p> : null}
+        <div className="vat-form__actions">
+          <button
+            type="button"
+            className="btn btn--ghost"
+            onClick={() => setCertDeleteTarget(null)}
+            disabled={certDeleteBusy}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="btn btn--danger"
+            onClick={() => {
+              void confirmDeleteCertificate()
+            }}
+            disabled={certDeleteBusy}
+          >
+            {certDeleteBusy ? 'Deleting...' : 'Delete'}
+          </button>
+        </div>
+      </Modal>
+
+      {preview ? (
+        <div
+          className="vat-lightbox"
+          role="dialog"
+          aria-modal="true"
+          aria-label={preview.name}
+          onClick={() => setPreview(null)}
+        >
+          <div className="vat-lightbox__panel" onClick={(e) => e.stopPropagation()}>
+            <div className="vat-lightbox__bar">
+              <span>{preview.name}</span>
+              <button type="button" className="btn btn--ghost btn--sm" onClick={() => setPreview(null)}>
+                Close
+              </button>
+            </div>
+            <img src={preview.url} alt={preview.name} className="vat-lightbox__img" />
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }
