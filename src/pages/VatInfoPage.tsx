@@ -1,5 +1,5 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from 'react'
-import { Download, Eye, Loader2, Plus, Trash2 } from 'lucide-react'
+import { Download, Eye, FileText, Loader2, Plus, Trash2 } from 'lucide-react'
 import { Modal } from '../components/Modal'
 import {
   useVatInfo,
@@ -258,16 +258,19 @@ function CertificatesCell({
   return (
     <div className="vat-certs">
       {row.certificates.length === 0 ? (
-        <span className="vat-certs__empty">No files</span>
+        <span className="vat-certs__empty">No certificates yet</span>
       ) : (
         <ul className="vat-certs__list">
           {row.certificates.map((cert) => {
             const busy = busyCertId === cert.id
             return (
               <li key={cert.id} className="vat-certs__item">
-                <span className="vat-certs__name" title={cert.fileName}>
-                  {cert.fileName || 'certificate'}
-                </span>
+                <div className="vat-certs__meta">
+                  <FileText size={14} className="vat-certs__file-icon" aria-hidden />
+                  <span className="vat-certs__name" title={cert.fileName}>
+                    {cert.fileName || 'certificate'}
+                  </span>
+                </div>
                 <div className="vat-certs__icons">
                   <button
                     type="button"
@@ -279,7 +282,7 @@ function CertificatesCell({
                       void onView(row.id, cert)
                     }}
                   >
-                    {busy ? <Loader2 size={13} className="vat-icon-spin" /> : <Eye size={13} />}
+                    {busy ? <Loader2 size={14} className="vat-icon-spin" /> : <Eye size={14} />}
                   </button>
                   <button
                     type="button"
@@ -291,7 +294,7 @@ function CertificatesCell({
                       void onDownload(row.id, cert)
                     }}
                   >
-                    <Download size={13} />
+                    <Download size={14} />
                   </button>
                   {canEdit ? (
                     <button
@@ -302,7 +305,7 @@ function CertificatesCell({
                       disabled={busy}
                       onClick={() => onDelete(row.id, cert)}
                     >
-                      <Trash2 size={13} />
+                      <Trash2 size={14} />
                     </button>
                   ) : null}
                 </div>
@@ -316,13 +319,14 @@ function CertificatesCell({
         <>
           <button
             type="button"
-            className="vat-icon-btn vat-icon-btn--add"
+            className="vat-certs__add"
             title="Add certificate (PDF, JPEG, GIF)"
             aria-label="Add certificate"
             disabled={uploading}
             onClick={pickFile}
           >
-            {uploading ? <Loader2 size={13} className="vat-icon-spin" /> : <Plus size={13} />}
+            {uploading ? <Loader2 size={14} className="vat-icon-spin" /> : <Plus size={14} />}
+            <span>{uploading ? 'Uploading…' : 'Add file'}</span>
           </button>
           <input
             ref={inputRef}
@@ -593,8 +597,8 @@ export function VatInfoPage() {
               <tbody>
                 {filtered.map((row) => (
                   <tr key={row.id}>
-                    <td>{row.companyName || '—'}</td>
-                    <td>{row.vatNumber || '—'}</td>
+                    <td className="vat-td--company">{row.companyName || '—'}</td>
+                    <td className="vat-td--mono">{row.vatNumber || '—'}</td>
                     <td>
                       <span
                         className={`vat-country ${
@@ -604,12 +608,12 @@ export function VatInfoPage() {
                         {row.country}
                       </span>
                     </td>
-                    <td>{formatDate(row.dateFirstRegistered)}</td>
-                    <td>{Number(row.vatPct || 0).toLocaleString('en-US')}%</td>
+                    <td className="vat-td--muted">{formatDate(row.dateFirstRegistered)}</td>
+                    <td className="vat-td--num">{Number(row.vatPct || 0).toLocaleString('en-US')}%</td>
                     <td>{row.vatFilings || '—'}</td>
                     <td>{row.agent || '—'}</td>
-                    <td>{formatMoney(row.chargesOfFiling)}</td>
-                    <td>
+                    <td className="vat-td--num">{formatMoney(row.chargesOfFiling)}</td>
+                    <td className="vat-td--certs">
                       <CertificatesCell
                         row={row}
                         canEdit={canEdit}
@@ -629,7 +633,7 @@ export function VatInfoPage() {
                         {canEdit ? (
                           <button
                             type="button"
-                            className="btn btn--ghost btn--sm"
+                            className="btn btn--ghost btn--sm vat-row-btn"
                             onClick={() => openEdit(row)}
                           >
                             Edit
@@ -638,7 +642,7 @@ export function VatInfoPage() {
                         {canDelete ? (
                           <button
                             type="button"
-                            className="btn btn--danger btn--sm"
+                            className="btn btn--sm vat-row-btn vat-row-btn--danger"
                             onClick={() => setDeletingId(row.id)}
                           >
                             Delete
