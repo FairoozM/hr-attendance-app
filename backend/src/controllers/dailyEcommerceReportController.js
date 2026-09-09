@@ -2,7 +2,7 @@
 
 const { buildDailyEcommerceReport } = require('../services/dailyEcommerceReport/dailyEcommerceReportService')
 const { buildDailyEcommerceReportXlsxBuffer } = require('../services/dailyEcommerceReport/dailyEcommerceReportXlsxService')
-const { assertYmd, todayUaeYmd, dubaiDayBounds } = require('../services/dailyEcommerceReport/dateBounds')
+const { assertYmd, todayUaeYmd } = require('../services/dailyEcommerceReport/dateBounds')
 
 async function getDailyEcommerceReport(req, res) {
   try {
@@ -45,8 +45,9 @@ async function exportDailyEcommerceReportXlsx(req, res) {
 }
 
 /**
- * Refresh: optionally sync Amazon orders for the report day (both marketplaces),
- * then rebuild the report. Website/shop are live reads — no sync needed.
+ * Refresh rebuilds from stored Zoho invoices + website DB.
+ * Does NOT trigger Amazon SP-API sync (that was hanging the Sync button).
+ * Pass sync_amazon=1 only when an explicit marketplace sync is requested.
  */
 async function refreshDailyEcommerceReport(req, res) {
   try {
@@ -54,16 +55,21 @@ async function refreshDailyEcommerceReport(req, res) {
       ? String(req.body?.date || req.query.date).trim()
       : todayUaeYmd()
     assertYmd(date)
-    const bounds = dubaiDayBounds(date)
-    const syncResults = { amazon_uae: null, amazon_ksa: null }
 
-    try {
+    const syncAmazon =
+      String(req.body?.sync_amazon || req.query.sync_amazon || '0') === '1'
+    const syncResults = { amazon_uae: null, amazon_ksa: null, skipped: !syncAmazon }
+
+    if (syncAmazon) {
+      const { dubaiDayBounds } = require('../services/dailyEcommerceReport/dateBounds')
+      const bounds = dubaiDayBounds(date)
       const { syncAmazonOrders } = require('../services/amazonOrdersSyncService')
       for (const mk of ['uae', 'ksa']) {
         try {
+          const createdBefore = new Date(
+            Math.max(bounds.start.getTime() + 1000, bounds.end.getTime() - 1),
+          )
           // eslint-disable-next-line no-await-in-loop
-          // SP-API window is inclusive-ish; use end-1ms so createdBefore > createdAfter
-          const createdBefore = new Date(Math.max(bounds.start.getTime() + 1000, bounds.end.getTime() - 1))
           const result = await syncAmazonOrders({
             marketplaceKey: mk,
             createdAfter: bounds.start,
@@ -81,16 +87,10 @@ async function refreshDailyEcommerceReport(req, res) {
           }
         }
       }
-    } catch (err) {
-      syncResults.amazon_uae = { status: 'error', message: err.message }
-      syncResults.amazon_ksa = { status: 'error', message: err.message }
     }
 
     const report = await buildDailyEcommerceReport({ date, includeLiveAds: true })
-    return res.json({
-      sync: syncResults,
-      report,
-    })
+    return res.json({ sync: syncResults, report })
   } catch (err) {
     if (err && err.code === 'BAD_REQUEST') {
       return res.status(400).json({ error: err.message })

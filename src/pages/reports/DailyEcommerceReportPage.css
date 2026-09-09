@@ -1,53 +1,58 @@
-/* Daily Ecommerce Report — extends war-* tokens */
+/* Compact spreadsheet-style Daily Ecommerce Report */
 
 .der-page {
-  max-width: 1100px;
+  max-width: 100%;
+  padding: 16px 20px 40px;
 }
 
-.der-toolbar-section {
-  padding-bottom: 20px;
-}
-
-.der-toolbar {
+.der-top {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 16px;
+  gap: 12px;
+  margin-bottom: 12px;
 }
 
-.der-date-nav {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 10px;
+.der-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary, #1e2d4e);
 }
 
-.der-date-label {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 12px;
-  min-width: 150px;
+.der-date-banner {
+  margin: 2px 0 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: #0f172a;
+  letter-spacing: 0.02em;
 }
 
-.der-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.der-meta {
-  margin: 12px 0 0;
+.der-sub {
+  margin: 4px 0 0;
   font-size: 12px;
   color: var(--text-secondary, #6b7a99);
 }
 
-.der-banner {
-  padding: 12px 16px;
-  border-radius: 12px;
+.der-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.der-date {
+  width: 140px;
+  padding: 6px 8px;
   font-size: 13px;
-  line-height: 1.45;
+}
+
+.der-banner {
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  margin-bottom: 8px;
 }
 
 .der-banner--warn {
@@ -62,205 +67,106 @@
   border: 1px solid #fecaca;
 }
 
+.der-footnote {
+  margin: 0 0 8px;
+  font-size: 11px;
+  color: #64748b;
+  font-style: italic;
+}
+
 .der-loading {
-  display: flex;
-  align-items: center;
-  gap: 10px;
   padding: 24px;
-  color: var(--text-secondary, #6b7a99);
-}
-
-.der-channels {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.der-channel {
-  background: var(--card-bg, #f7f8fc);
-  border: 1px solid var(--border-color, rgba(180, 193, 218, 0.5));
-  border-radius: 20px;
-  padding: 20px 22px 16px;
-  box-shadow: 0 2px 12px rgba(130, 150, 185, 0.08);
-  border-left-width: 4px;
-}
-
-.der-channel--amazon_uae { border-left-color: #3b82f6; }
-.der-channel--amazon_ksa { border-left-color: #6366f1; }
-.der-channel--noon_uae { border-left-color: #f59e0b; }
-.der-channel--noon_ksa { border-left-color: #d97706; }
-.der-channel--website { border-left-color: #10b981; }
-.der-channel--shop { border-left-color: #059669; }
-.der-channel--carrefour_uae { border-left-color: #ec4899; }
-
-.der-channel__head {
-  margin-bottom: 14px;
-}
-
-.der-channel__title-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-
-.der-channel__title {
-  margin: 0;
-  font-size: 17px;
-  font-weight: 700;
-  color: var(--text-primary, #1e2d4e);
-}
-
-.der-channel__sync {
-  margin: 6px 0 0;
-  font-size: 12px;
-  color: var(--text-secondary, #6b7a99);
-}
-
-.der-country {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  padding: 2px 8px;
-  border-radius: 6px;
-  background: #e2e8f0;
-  color: #334155;
-}
-
-.der-country--AE { background: #dbeafe; color: #1e40af; }
-.der-country--SA { background: #dcfce7; color: #166534; }
-
-.der-badge {
-  font-size: 11px;
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 999px;
-}
-
-.der-badge--ok { background: #d1fae5; color: #065f46; }
-.der-badge--muted { background: #f1f5f9; color: #64748b; }
-.der-badge--err { background: #fee2e2; color: #991b1b; }
-.der-badge--pending { background: #fef3c7; color: #92400e; }
-
-.der-empty {
-  padding: 16px;
-  text-align: center;
-  color: var(--text-secondary, #6b7a99);
+  color: #64748b;
   font-size: 13px;
-  background: rgba(255, 255, 255, 0.5);
-  border-radius: 12px;
-  margin-bottom: 12px;
 }
 
-.der-empty--err {
-  color: #991b1b;
-  background: #fef2f2;
-}
-
-.der-table-wrap {
+.der-sheet-wrap {
   overflow-x: auto;
-  margin-bottom: 14px;
-  border-radius: 12px;
-  border: 1px solid var(--border-color, rgba(180, 193, 218, 0.45));
-}
-
-.der-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
+  border: 1px solid rgba(180, 193, 218, 0.55);
+  border-radius: 10px;
   background: #fff;
 }
 
-.der-table th {
-  text-align: left;
-  padding: 10px 12px;
-  background: #eef2f7;
-  color: var(--text-secondary, #6b7a99);
-  font-weight: 600;
+.der-sheet {
+  width: 100%;
+  min-width: 1100px;
+  border-collapse: collapse;
   font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  table-layout: fixed;
 }
 
-.der-table td {
-  padding: 8px 12px;
-  border-top: 1px solid rgba(180, 193, 218, 0.35);
-  color: var(--text-primary, #1e2d4e);
+.der-sheet th,
+.der-sheet td {
+  border: 1px solid rgba(180, 193, 218, 0.45);
+  padding: 3px 5px;
   vertical-align: top;
 }
 
-.der-num { text-align: right; font-variant-numeric: tabular-nums; }
-.der-sku { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; }
+.der-ch-head {
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 4px !important;
+  color: #0f172a;
+}
 
-.der-detail-row td {
+.der-ch-head--amazon_uae { background: #93c5fd; }
+.der-ch-head--amazon_ksa { background: #a5b4fc; }
+.der-ch-head--noon_uae { background: #fcd34d; }
+.der-ch-head--noon_ksa { background: #fbbf24; }
+.der-ch-head--life_smile { background: #6ee7b7; }
+.der-ch-head--carrefour_uae { background: #f9a8d4; }
+
+.der-col {
+  background: #eef2f7;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #64748b;
+  font-weight: 600;
+}
+
+.der-order {
+  font-weight: 600;
+  color: #1e293b;
+  word-break: break-all;
+}
+
+.der-sku {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 10px;
+  word-break: break-all;
+}
+
+.der-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.der-sum-row td {
   background: #f8fafc;
 }
 
-.der-detail {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px 18px;
-  font-size: 12px;
-  color: var(--text-secondary, #6b7a99);
-}
-
-.der-summary {
-  border-top: 1px solid rgba(180, 193, 218, 0.4);
-  padding-top: 14px;
-}
-
-.der-summary__grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-  gap: 12px;
-}
-
-.der-summary__label {
-  display: block;
+.der-sum-label {
   font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-secondary, #6b7a99);
-  margin-bottom: 2px;
-}
-
-.der-summary__value {
-  font-size: 14px;
+  color: #475569;
   font-weight: 600;
-  color: var(--text-primary, #1e2d4e);
-  font-variant-numeric: tabular-nums;
 }
 
-.der-summary__info {
-  margin: 10px 0 0;
-  font-size: 12px;
-  color: var(--text-secondary, #6b7a99);
-}
-
-.der-totals {
+.der-totals-head td {
   background: #0f172a;
-  color: #e2e8f0;
-  border: none;
-}
-
-.der-totals .war-section__title {
-  color: #94a3b8;
-}
-
-.der-totals .der-summary__label {
-  color: #94a3b8;
-}
-
-.der-totals .der-summary__value {
   color: #f8fafc;
+  font-weight: 700;
+  font-size: 11px;
+  padding: 6px 8px !important;
 }
 
-.der-totals .der-muted {
-  color: #94a3b8;
+.der-totals-row td {
+  background: #f1f5f9;
 }
 
-.der-muted {
+.der-na {
   color: #64748b;
   font-style: italic;
   font-weight: 500;
@@ -268,27 +174,4 @@
 
 .der-neg {
   color: #dc2626;
-}
-
-.der-warnings__list {
-  margin: 0;
-  padding-left: 18px;
-  font-size: 12px;
-  color: var(--text-secondary, #6b7a99);
-  line-height: 1.55;
-}
-
-@media (max-width: 720px) {
-  .der-toolbar {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .der-actions {
-    justify-content: stretch;
-  }
-
-  .der-actions .war-btn {
-    flex: 1;
-  }
 }

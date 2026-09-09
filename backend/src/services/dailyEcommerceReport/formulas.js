@@ -1,45 +1,36 @@
 'use strict'
 
 /**
- * Financial formulas for Daily Ecommerce Report channel + overall totals.
+ * Channel Costs = Ads (if numeric) + Commission + Shipping
+ *   (+ Tabby/Tamara for Life Smile when numeric)
+ * Cost % = Costs / Amount × 100  (0 when amount is 0)
+ * Balance = Amount − Costs
  *
- * Included Costs = Ads + Commission + Shipping + Payment Fees + Other Included Costs
- *   (+ General Ecommerce Costs at overall level only)
- * Cost % = Included Costs / Sales × 100  (null when sales is 0 — never #DIV/0!)
- * Balance = Sales − Included Costs
- *
- * Null advertising values (not_configured / unavailable) are excluded from sums,
- * not treated as zero.
+ * Null ads are excluded from costs (never treated as a known zero).
+ * Smile Points / coupons are informational and never included in costs.
  */
 
-const { round2, sumAvailable } = require('./money')
+const { round2 } = require('./money')
 
-/**
- * @param {{
- *   salesAmountAED: number,
- *   adSpendAED: number|null,
- *   commissionAED: number,
- *   shippingAED: number,
- *   paymentFeesAED: number,
- *   otherIncludedCostsAED: number,
- * }} input
- */
-function computeChannelFinancials(input) {
-  const sales = round2(input.salesAmountAED || 0)
-  const commission = round2(input.commissionAED || 0)
-  const shipping = round2(input.shippingAED || 0)
-  const paymentFees = round2(input.paymentFeesAED || 0)
-  const other = round2(input.otherIncludedCostsAED || 0)
-  const ads = input.adSpendAED == null ? null : round2(input.adSpendAED)
+function computeChannelFinancials({
+  salesAmountAED,
+  adSpendAED,
+  commissionAED,
+  shippingAED,
+  tabbyTamaraCommissionAED = 0,
+}) {
+  const sales = round2(salesAmountAED || 0)
+  const commission = round2(commissionAED || 0)
+  const shipping = round2(shippingAED || 0)
+  const tabby = round2(tabbyTamaraCommissionAED || 0)
+  const ads = adSpendAED == null || !Number.isFinite(Number(adSpendAED)) ? null : round2(adSpendAED)
 
-  const includedParts = [ads, commission, shipping, paymentFees, other]
-  const { total: totalIncludedCostsAED } = sumAvailable(includedParts)
+  let totalIncludedCostsAED = round2(commission + shipping + tabby)
+  if (ads != null) totalIncludedCostsAED = round2(totalIncludedCostsAED + ads)
 
-  let costPercentage = null
+  let costPercentage = 0
   if (sales > 0) {
     costPercentage = round2((totalIncludedCostsAED / sales) * 100)
-  } else if (sales === 0) {
-    costPercentage = totalIncludedCostsAED === 0 ? 0 : null
   }
 
   return {
@@ -49,95 +40,63 @@ function computeChannelFinancials(input) {
   }
 }
 
-/**
- * @param {object[]} channelSummaries - channel.summary objects
- * @param {number|null} generalEcommerceCostsAED
- */
 function computeOverallTotals(channelSummaries, generalEcommerceCostsAED = null) {
   const channels = Array.isArray(channelSummaries) ? channelSummaries : []
-
   let quantity = 0
-  let orderCount = 0
   let salesAmountAED = 0
   let commissionAED = 0
   let shippingAED = 0
-  let paymentFeesAED = 0
-  let otherIncludedCostsAED = 0
-  let couponDiscountAED = 0
-  let smilePointsAED = 0
-
-  const adSpendValues = []
+  const adValues = []
   const clickValues = []
 
   for (const s of channels) {
     if (!s) continue
     quantity += Number(s.quantity) || 0
-    orderCount += Number(s.orderCount) || 0
     salesAmountAED += Number(s.salesAmountAED) || 0
     commissionAED += Number(s.commissionAED) || 0
+    commissionAED += Number(s.tabbyTamaraCommissionAED) || 0
     shippingAED += Number(s.shippingAED) || 0
-    paymentFeesAED += Number(s.paymentFeesAED) || 0
-    otherIncludedCostsAED += Number(s.otherIncludedCostsAED) || 0
-    couponDiscountAED += Number(s.couponDiscountAED) || 0
-    smilePointsAED += Number(s.smilePointsAED) || 0
-    if (s.adSpendAED != null && Number.isFinite(Number(s.adSpendAED))) {
-      adSpendValues.push(Number(s.adSpendAED))
-    }
-    if (s.clicks != null && Number.isFinite(Number(s.clicks))) {
-      clickValues.push(Number(s.clicks))
-    }
+    if (s.adSpendAED != null && Number.isFinite(Number(s.adSpendAED))) adValues.push(Number(s.adSpendAED))
+    if (s.clicks != null && Number.isFinite(Number(s.clicks))) clickValues.push(Number(s.clicks))
   }
 
-  const adsSum = sumAvailable(adSpendValues)
-  const clicksSum = sumAvailable(clickValues)
+  const adSpendAED = adValues.length
+    ? round2(adValues.reduce((a, b) => a + b, 0))
+    : null
+  const clicks = clickValues.length
+    ? Math.round(clickValues.reduce((a, b) => a + b, 0))
+    : null
+
   const general =
     generalEcommerceCostsAED == null || !Number.isFinite(Number(generalEcommerceCostsAED))
       ? null
       : round2(generalEcommerceCostsAED)
 
-  const includedParts = [
-    adsSum.used ? adsSum.total : null,
-    commissionAED,
-    shippingAED,
-    paymentFeesAED,
-    otherIncludedCostsAED,
-    general,
-  ]
-  void includedParts
-
-  const totalIncludedCostsAED = round2(
-    (adsSum.used ? adsSum.total : 0) +
-      commissionAED +
-      shippingAED +
-      paymentFeesAED +
-      otherIncludedCostsAED +
-      (general == null ? 0 : general),
-  )
-
   salesAmountAED = round2(salesAmountAED)
-  let costPercentage = null
+  commissionAED = round2(commissionAED)
+  shippingAED = round2(shippingAED)
+
+  let totalIncludedCostsAED = round2(commissionAED + shippingAED)
+  if (adSpendAED != null) totalIncludedCostsAED = round2(totalIncludedCostsAED + adSpendAED)
+  if (general != null) totalIncludedCostsAED = round2(totalIncludedCostsAED + general)
+
+  let costPercentage = 0
   if (salesAmountAED > 0) {
     costPercentage = round2((totalIncludedCostsAED / salesAmountAED) * 100)
-  } else {
-    costPercentage = totalIncludedCostsAED === 0 ? 0 : null
   }
 
   return {
-    orderCount,
     quantity,
     salesAmountAED,
-    adSpendAED: adsSum.used ? adsSum.total : null,
-    clicks: clicksSum.used ? Math.round(clicksSum.total) : null,
-    commissionAED: round2(commissionAED),
-    shippingAED: round2(shippingAED),
-    paymentFeesAED: round2(paymentFeesAED),
-    otherIncludedCostsAED: round2(otherIncludedCostsAED),
-    couponDiscountAED: round2(couponDiscountAED),
-    smilePointsAED: round2(smilePointsAED),
+    adSpendAED,
+    clicks,
+    commissionAED,
+    shippingAED,
     generalEcommerceCostsAED: general,
-    totalIncludedCostsAED,
+    generalEcommerceCostsStatus: general == null ? 'not_configured' : 'available',
     costPercentage,
     balanceAED: round2(salesAmountAED - totalIncludedCostsAED),
+    totalIncludedCostsAED,
   }
 }
 

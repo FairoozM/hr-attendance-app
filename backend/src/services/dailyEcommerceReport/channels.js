@@ -1,90 +1,50 @@
 'use strict'
 
 /**
- * Channel constants and empty channel factory for Daily Ecommerce Report.
+ * Channel constants for Daily Ecommerce Report (six sections).
  */
 
-/** @typedef {'available'|'not_configured'|'unavailable'|'pending'} IntegrationStatus */
-
 const CHANNELS = [
-  {
-    key: 'amazon_uae',
-    label: 'Amazon UAE',
-    country: 'AE',
-    currency: 'AED',
-  },
-  {
-    key: 'amazon_ksa',
-    label: 'Amazon KSA',
-    country: 'SA',
-    currency: 'SAR',
-  },
-  {
-    key: 'noon_uae',
-    label: 'Noon UAE',
-    country: 'AE',
-    currency: 'AED',
-  },
-  {
-    key: 'noon_ksa',
-    label: 'Noon KSA',
-    country: 'SA',
-    currency: 'SAR',
-  },
-  {
-    key: 'website',
-    label: 'Life Smile Website',
-    country: 'AE',
-    currency: 'AED',
-  },
-  {
-    key: 'shop',
-    label: 'Life Smile Shop',
-    country: 'AE',
-    currency: 'AED',
-  },
-  {
-    key: 'carrefour_uae',
-    label: 'Carrefour UAE',
-    country: 'AE',
-    currency: 'AED',
-  },
+  { key: 'amazon_uae', label: 'Amazon UAE', country: 'AE', currency: 'AED', family: 'amazon' },
+  { key: 'amazon_ksa', label: 'Amazon KSA', country: 'SA', currency: 'SAR', family: 'amazon' },
+  { key: 'noon_uae', label: 'Noon UAE', country: 'AE', currency: 'AED', family: 'noon' },
+  { key: 'noon_ksa', label: 'Noon KSA', country: 'SA', currency: 'SAR', family: 'noon' },
+  { key: 'life_smile', label: 'Life Smile Website', country: 'AE', currency: 'AED', family: 'life_smile' },
+  { key: 'carrefour_uae', label: 'Carrefour UAE', country: 'AE', currency: 'AED', family: 'carrefour' },
 ]
 
-function emptySummary() {
-  return {
-    orderCount: 0,
+function emptySummary(family = 'amazon') {
+  const base = {
     quantity: 0,
     salesAmountAED: 0,
     adSpendAED: null,
     clicks: null,
     commissionAED: 0,
     shippingAED: 0,
-    paymentFeesAED: 0,
-    otherIncludedCostsAED: 0,
-    couponDiscountAED: 0,
-    smilePointsAED: 0,
-    totalIncludedCostsAED: 0,
     costPercentage: 0,
     balanceAED: 0,
   }
+  if (family === 'life_smile') {
+    return {
+      ...base,
+      tabbyTamaraCommissionAED: 0,
+      smilePointCouponAED: 0,
+    }
+  }
+  return base
 }
 
-/**
- * @param {typeof CHANNELS[number]} meta
- * @param {IntegrationStatus} integrationStatus
- * @param {object} [overrides]
- */
 function buildChannelShell(meta, integrationStatus, overrides = {}) {
   return {
     channel: meta.key,
     label: meta.label,
     country: meta.country,
     currency: meta.currency,
+    family: meta.family,
     integrationStatus,
     lastSyncedAt: null,
     orders: [],
-    summary: emptySummary(),
+    summary: emptySummary(meta.family),
     adsStatus: 'not_configured',
     adsProvider: null,
     warnings: [],

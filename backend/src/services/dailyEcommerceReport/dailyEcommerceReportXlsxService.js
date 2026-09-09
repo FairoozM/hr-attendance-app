@@ -1,308 +1,252 @@
 'use strict'
 
 /**
- * Excel export for Daily Ecommerce Report (ExcelJS).
- * Layout: date header → colored channel sections (orders + summary) → consolidated totals.
+ * Excel export — six side-by-side channel columns matching the operational spreadsheet.
  */
 
 const ExcelJS = require('exceljs')
-const { formatAdsDisplay } = require('./providers/amazonAdsProvider')
-
-const THIN = { style: 'thin', color: { argb: 'FF94A3B8' } }
 
 const CHANNEL_FILLS = {
-  amazon_uae: 'FFDBEAFE',
-  amazon_ksa: 'FFE0E7FF',
-  noon_uae: 'FFFEF3C7',
-  noon_ksa: 'FFFDE68A',
-  website: 'FFD1FAE5',
-  shop: 'FFA7F3D0',
-  carrefour_uae: 'FFFCE7F3',
+  amazon_uae: 'FF93C5FD',
+  amazon_ksa: 'FFA5B4FC',
+  noon_uae: 'FFFCD34D',
+  noon_ksa: 'FFFBBF24',
+  life_smile: 'FF6EE7B7',
+  carrefour_uae: 'FFF9A8D4',
 }
 
 const MONEY_FMT = '#,##0.00;[Red]-#,##0.00'
 const PCT_FMT = '0.00"%"'
+const THIN = { style: 'thin', color: { argb: 'FF94A3B8' } }
 
-function borderAll(cell) {
+function border(cell) {
   cell.border = { top: THIN, left: THIN, bottom: THIN, right: THIN }
 }
 
-function styleHeader(cell, fillArgb) {
-  cell.font = { bold: true, size: 12, color: { argb: 'FF0F172A' } }
-  cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fillArgb } }
-  borderAll(cell)
+function naAds(status, value, kind) {
+  if (status === 'not_configured') return 'Not Configured'
+  if (status === 'unavailable') return 'Unavailable'
+  if (value == null) return 'Not Configured'
+  if (kind === 'int') return Math.round(value)
+  return Number(value)
 }
 
 /**
- * @param {object} report - buildDailyEcommerceReport result
+ * @param {object} report
  * @returns {Promise<Buffer>}
  */
 async function buildDailyEcommerceReportXlsxBuffer(report) {
   const wb = new ExcelJS.Workbook()
   wb.creator = 'Life Smile HR & BI'
-  wb.created = new Date()
-
   const ws = wb.addWorksheet('Daily Ecommerce', {
-    views: [{ state: 'frozen', ySplit: 3 }],
+    views: [{ state: 'frozen', ySplit: 2 }],
   })
 
-  ws.columns = [
-    { header: 'A', key: 'a', width: 28 },
-    { header: 'B', key: 'b', width: 28 },
-    { header: 'C', key: 'c', width: 14 },
-    { header: 'D', key: 'd', width: 16 },
-    { header: 'E', key: 'e', width: 16 },
-    { header: 'F', key: 'f', width: 16 },
-  ]
-
-  const date = report.date
-  ws.mergeCells('A1:F1')
-  ws.getCell('A1').value = 'Daily Ecommerce Report'
-  ws.getCell('A1').font = { bold: true, size: 16 }
-  ws.getCell('A1').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } }
-
-  ws.mergeCells('A2:F2')
-  ws.getCell('A2').value = `Date: ${date} (${report.timezone || 'Asia/Dubai'})`
-  ws.getCell('A2').font = { size: 12 }
-
-  ws.mergeCells('A3:F3')
-  const fx = report.exchangeRate || {}
-  ws.getCell('A3').value = `SAR→AED rate: ${fx.rate} (source: ${fx.source || 'n/a'})`
-  ws.getCell('A3').font = { size: 10, italic: true, color: { argb: 'FF64748B' } }
-
-  let row = 5
-
-  for (const channel of report.channels || []) {
-    const fill = CHANNEL_FILLS[channel.channel] || 'FFF1F5F9'
-    ws.mergeCells(`A${row}:F${row}`)
-    const titleCell = ws.getCell(`A${row}`)
-    titleCell.value = `${channel.label} [${channel.country}] — ${statusLabel(channel.integrationStatus)}`
-    styleHeader(titleCell, fill)
-    row += 1
-
-    if (channel.integrationStatus === 'not_configured') {
-      ws.mergeCells(`A${row}:F${row}`)
-      ws.getCell(`A${row}`).value = 'Not Configured'
-      ws.getCell(`A${row}`).font = { italic: true, color: { argb: 'FF64748B' } }
-      row += 2
-      row = writeSummaryBlock(ws, row, channel, fill)
-      row += 2
-      continue
-    }
-
-    // Column headers
-    const headers = ['Order Number', 'Item Code / SKU', 'Quantity', 'Line Amount', 'Order Amount (AED)', 'Status']
-    headers.forEach((h, i) => {
-      const cell = ws.getCell(row, i + 1)
-      cell.value = h
-      cell.font = { bold: true }
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFCBD5E0' } }
-      borderAll(cell)
-    })
-    row += 1
-
-    if (!channel.orders || channel.orders.length === 0) {
-      ws.mergeCells(`A${row}:F${row}`)
-      ws.getCell(`A${row}`).value = 'No orders for this date'
-      row += 1
-    } else {
-      for (const order of channel.orders) {
-        const items = order.items && order.items.length ? order.items : [{ sku: '', quantity: 0 }]
-        items.forEach((item, idx) => {
-          ws.getCell(row, 1).value = idx === 0 ? order.orderNumber : ''
-          ws.getCell(row, 2).value = item.sku || ''
-          ws.getCell(row, 3).value = item.quantity || 0
-          ws.getCell(row, 4).value = item.lineAmount != null ? item.lineAmount : ''
-          if (item.lineAmount != null) ws.getCell(row, 4).numFmt = MONEY_FMT
-          ws.getCell(row, 5).value = idx === 0 ? order.amountAED : ''
-          if (idx === 0) ws.getCell(row, 5).numFmt = MONEY_FMT
-          ws.getCell(row, 6).value = idx === 0 ? order.status : ''
-          for (let c = 1; c <= 6; c += 1) borderAll(ws.getCell(row, c))
-          row += 1
-        })
-      }
-    }
-
-    row += 1
-    row = writeSummaryBlock(ws, row, channel, fill)
-    row += 2
+  const channels = report.channels || []
+  const colW = 12
+  // 6 channels × 3 cols
+  for (let i = 1; i <= 18; i += 1) {
+    ws.getColumn(i).width = i % 3 === 2 ? 16 : colW
   }
 
-  // Totals
-  const totalsFill = 'FF1E293B'
-  ws.mergeCells(`A${row}:F${row}`)
-  const totTitle = ws.getCell(`A${row}`)
-  totTitle.value = 'Consolidated Daily Totals (AED)'
-  totTitle.font = { bold: true, size: 12, color: { argb: 'FFFFFFFF' } }
-  totTitle.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: totalsFill } }
+  // Title
+  ws.mergeCells(1, 1, 1, 18)
+  ws.getCell(1, 1).value = `Daily Ecommerce Report — ${report.date}`
+  ws.getCell(1, 1).alignment = { horizontal: 'center' }
+  ws.getCell(1, 1).font = { bold: true, size: 14 }
+
+  ws.mergeCells(2, 1, 2, 18)
+  const rate = report.exchangeRate?.rateDisplay || Number(report.exchangeRate?.rate || 0).toFixed(4)
+  ws.getCell(2, 1).value = `Timezone: ${report.timezone || 'Asia/Dubai'} · SAR to AED: ${rate}`
+  ws.getCell(2, 1).alignment = { horizontal: 'center' }
+  ws.getCell(2, 1).font = { size: 10, color: { argb: 'FF64748B' } }
+
+  // Channel headers (row 4)
+  const headerRow = 4
+  channels.forEach((ch, idx) => {
+    const c0 = idx * 3 + 1
+    ws.mergeCells(headerRow, c0, headerRow, c0 + 2)
+    const cell = ws.getCell(headerRow, c0)
+    cell.value = ch.label
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: CHANNEL_FILLS[ch.channel] || 'FFE2E8F0' },
+    }
+    cell.font = { bold: true }
+    cell.alignment = { horizontal: 'center' }
+    border(cell)
+  })
+
+  // Column titles
+  const colTitleRow = 5
+  channels.forEach((_, idx) => {
+    const c0 = idx * 3 + 1
+    ;['Order', 'Item Code', 'Qty'].forEach((h, j) => {
+      const cell = ws.getCell(colTitleRow, c0 + j)
+      cell.value = h
+      cell.font = { bold: true, size: 9 }
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } }
+      border(cell)
+    })
+  })
+
+  // Order rows — align channels by row index of flattened item lines
+  const channelLines = channels.map((ch) => {
+    if (ch.integrationStatus === 'not_configured') {
+      return [{ order: 'Not Configured', sku: '', qty: '' }]
+    }
+    if (ch.integrationStatus === 'unavailable') {
+      return [{ order: 'Data Error', sku: '', qty: '' }]
+    }
+    const lines = []
+    for (const order of ch.orders || []) {
+      const items = order.items?.length ? order.items : [{ sku: '', quantity: 0 }]
+      items.forEach((item, i) => {
+        lines.push({
+          order: i === 0 ? order.orderNumber : '',
+          sku: item.sku || '',
+          qty: item.quantity || 0,
+        })
+      })
+    }
+    if (!lines.length) lines.push({ order: 'No orders', sku: '', qty: '' })
+    return lines
+  })
+
+  const maxLines = Math.max(1, ...channelLines.map((l) => l.length))
+  let row = 6
+  for (let i = 0; i < maxLines; i += 1) {
+    channels.forEach((_, idx) => {
+      const line = channelLines[idx][i] || { order: '', sku: '', qty: '' }
+      const c0 = idx * 3 + 1
+      ws.getCell(row, c0).value = line.order
+      ws.getCell(row, c0 + 1).value = line.sku
+      ws.getCell(row, c0 + 2).value = line.qty === '' ? '' : line.qty
+      for (let j = 0; j < 3; j += 1) border(ws.getCell(row, c0 + j))
+    })
+    row += 1
+  }
+
+  row += 1
+  // Summary labels per family
+  const summarySpecs = (ch) => {
+    const s = ch.summary || {}
+    const ads = ch.adsStatus || 'not_configured'
+    if (ch.family === 'life_smile') {
+      return [
+        ['Website Qty', s.quantity, 'int'],
+        ['FB/Instagram Ads', naAds(ads, s.adSpendAED, 'money'), 'raw'],
+        ['Website Clicks', naAds(ads, s.clicks, 'int'), 'raw'],
+        ['Tabby & Tamara Commission', s.tabbyTamaraCommissionAED || 0, 'money'],
+        ['Smile Point & Coupon', s.smilePointCouponAED || 0, 'money'],
+        ['Website Shipping', s.shippingAED || 0, 'money'],
+        ['Website Cost %', s.costPercentage, 'pct'],
+        ['Website Amount', s.salesAmountAED || 0, 'money'],
+        ['Website Balance', s.balanceAED || 0, 'money'],
+      ]
+    }
+    const prefix =
+      ch.family === 'amazon' ? 'Amazon' : ch.family === 'noon' ? 'Noon' : 'Carrefour'
+    return [
+      [`${prefix} Qty`, s.quantity, 'int'],
+      [`${prefix} Ads`, naAds(ads, s.adSpendAED, 'money'), 'raw'],
+      [`${prefix} Clicks`, naAds(ads, s.clicks, 'int'), 'raw'],
+      [`${prefix} Commission`, s.commissionAED || 0, 'money'],
+      [`${prefix} Shipping`, s.shippingAED || 0, 'money'],
+      [`${prefix} Cost %`, s.costPercentage, 'pct'],
+      [`${prefix} Amount`, s.salesAmountAED || 0, 'money'],
+      [`${prefix} Balance`, s.balanceAED || 0, 'money'],
+    ]
+  }
+
+  const specs = channels.map(summarySpecs)
+  const maxSummary = Math.max(...specs.map((s) => s.length))
+  for (let i = 0; i < maxSummary; i += 1) {
+    channels.forEach((_, idx) => {
+      const spec = specs[idx][i]
+      const c0 = idx * 3 + 1
+      if (!spec) return
+      ws.mergeCells(row, c0, row, c0 + 1)
+      ws.getCell(row, c0).value = spec[0]
+      ws.getCell(row, c0).font = { size: 9 }
+      const valCell = ws.getCell(row, c0 + 2)
+      const kind = spec[2]
+      const val = spec[1]
+      if (kind === 'raw') valCell.value = val
+      else if (kind === 'pct') {
+        if (val == null) valCell.value = 'N/A'
+        else {
+          valCell.value = Number(val)
+          valCell.numFmt = PCT_FMT
+        }
+      } else if (kind === 'int') valCell.value = Math.round(Number(val) || 0)
+      else {
+        valCell.value = Number(val) || 0
+        valCell.numFmt = MONEY_FMT
+      }
+      for (let j = 0; j < 3; j += 1) border(ws.getCell(row, c0 + j))
+    })
+    row += 1
+  }
+
+  row += 1
+  ws.mergeCells(row, 1, row, 18)
+  ws.getCell(row, 1).value = 'Consolidated Totals'
+  ws.getCell(row, 1).font = { bold: true, color: { argb: 'FFFFFFFF' } }
+  ws.getCell(row, 1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } }
   row += 1
 
   const t = report.totals || {}
-  const totalRows = [
-    ['Total Quantity', t.quantity, 'int'],
-    ['Total Advertising Cost', t.adSpendAED, 'ads'],
-    ['Total Clicks', t.clicks, 'adsInt'],
-    ['Total Commission', t.commissionAED, 'money'],
-    ['Total Shipping / Fulfillment', t.shippingAED, 'money'],
-    ['Total Payment Fees', t.paymentFeesAED, 'money'],
-    ['Total Other Included Costs', t.otherIncludedCostsAED, 'money'],
-    ['General Ecommerce Costs', t.generalEcommerceCostsAED, 'general'],
-    ['Overall Cost %', t.costPercentage, 'pct'],
-    ['Total Sales Amount', t.salesAmountAED, 'money'],
-    ['Total Balance', t.balanceAED, 'money'],
+  const totals = [
+    ['Total Qty', t.quantity, 'int'],
+    [
+      'Total Ads',
+      t.adSpendAED == null ? 'Not Configured' : t.adSpendAED,
+      t.adSpendAED == null ? 'raw' : 'money',
+    ],
+    [
+      'Total Clicks',
+      t.clicks == null ? 'Not Configured' : t.clicks,
+      t.clicks == null ? 'raw' : 'int',
+    ],
+    ['Total Commission', t.commissionAED || 0, 'money'],
+    ['Total Shipping', t.shippingAED || 0, 'money'],
+    ['Total Cost %', t.costPercentage, 'pct'],
+    ['General Ecommerce', 'Not Configured', 'raw'],
+    ['Total Amount', t.salesAmountAED || 0, 'money'],
+    ['Total Balance', t.balanceAED || 0, 'money'],
   ]
-
-  for (const [label, value, kind] of totalRows) {
+  for (const [label, val, kind] of totals) {
     ws.getCell(row, 1).value = label
     ws.getCell(row, 1).font = { bold: true }
-    borderAll(ws.getCell(row, 1))
     const cell = ws.getCell(row, 2)
-    writeMetricCell(cell, value, kind, report)
-    borderAll(cell)
-    row += 1
-  }
-
-  if (report.incomplete) {
-    row += 1
-    ws.mergeCells(`A${row}:F${row}`)
-    ws.getCell(`A${row}`).value =
-      'WARNING: Report incomplete — some integrations are Not Configured or Unavailable. Totals use available values only.'
-    ws.getCell(`A${row}`).font = { bold: true, color: { argb: 'FFB45309' } }
-  }
-
-  if (Array.isArray(report.warnings) && report.warnings.length) {
-    row += 2
-    ws.getCell(row, 1).value = 'Data quality warnings'
-    ws.getCell(row, 1).font = { bold: true }
-    row += 1
-    for (const w of report.warnings.slice(0, 40)) {
-      ws.mergeCells(`A${row}:F${row}`)
-      ws.getCell(`A${row}`).value = w
-      ws.getCell(`A${row}`).font = { size: 9, color: { argb: 'FF64748B' } }
-      row += 1
+    if (kind === 'raw') cell.value = val
+    else if (kind === 'pct') {
+      cell.value = Number(val) || 0
+      cell.numFmt = PCT_FMT
+    } else if (kind === 'int') cell.value = Math.round(Number(val) || 0)
+    else {
+      cell.value = Number(val) || 0
+      cell.numFmt = MONEY_FMT
     }
+    border(ws.getCell(row, 1))
+    border(cell)
+    row += 1
+  }
+
+  if (report.amazonAdsExcluded) {
+    row += 1
+    ws.mergeCells(row, 1, row, 18)
+    ws.getCell(row, 1).value =
+      'Note: Amazon advertising is Not Configured and excluded from cost calculations.'
+    ws.getCell(row, 1).font = { italic: true, size: 9, color: { argb: 'FF64748B' } }
   }
 
   const buf = await wb.xlsx.writeBuffer()
   return Buffer.from(buf)
 }
 
-function statusLabel(status) {
-  if (status === 'not_configured') return 'Not Configured'
-  if (status === 'unavailable') return 'Unavailable'
-  if (status === 'pending') return 'Pending'
-  return 'Available'
-}
-
-function writeSummaryBlock(ws, row, channel, fill) {
-  const s = channel.summary || {}
-  const adsStatus = channel.adsStatus || 'not_configured'
-  const lines = [
-    ['Total Quantity', s.quantity, 'int'],
-    ['Advertising Cost (AED)', s.adSpendAED, 'ads'],
-    ['Advertising Clicks', s.clicks, 'adsInt'],
-    ['Commission (AED)', s.commissionAED, 'money'],
-    ['Shipping / Fulfillment (AED)', s.shippingAED, 'money'],
-    ['Payment Fees (AED)', s.paymentFeesAED, 'money'],
-    ['Other Included Costs (AED)', s.otherIncludedCostsAED, 'money'],
-    ['Coupon Discount (info, AED)', s.couponDiscountAED, 'money'],
-    ['Smile Points (info, AED)', s.smilePointsAED, 'money'],
-    ['Cost %', s.costPercentage, 'pct'],
-    ['Sales Amount (AED)', s.salesAmountAED, 'money'],
-    ['Balance (AED)', s.balanceAED, 'money'],
-  ]
-
-  ws.mergeCells(`A${row}:B${row}`)
-  const h = ws.getCell(`A${row}`)
-  h.value = 'Channel Summary'
-  h.font = { bold: true }
-  h.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fill } }
-  row += 1
-
-  for (const [label, value, kind] of lines) {
-    ws.getCell(row, 1).value = label
-    borderAll(ws.getCell(row, 1))
-    const cell = ws.getCell(row, 2)
-    if (kind === 'ads' || kind === 'adsInt') {
-      if (adsStatus === 'not_configured') {
-        cell.value = 'Not Configured'
-      } else if (adsStatus === 'unavailable') {
-        cell.value = 'Unavailable'
-      } else if (value == null) {
-        cell.value = 'Unavailable'
-      } else if (kind === 'adsInt') {
-        cell.value = Math.round(value)
-      } else {
-        cell.value = Number(value)
-        cell.numFmt = MONEY_FMT
-      }
-    } else if (kind === 'pct') {
-      if (value == null) cell.value = 'N/A'
-      else {
-        cell.value = Number(value)
-        cell.numFmt = PCT_FMT
-      }
-    } else if (kind === 'int') {
-      cell.value = Math.round(Number(value) || 0)
-    } else {
-      cell.value = Number(value) || 0
-      cell.numFmt = MONEY_FMT
-    }
-    borderAll(cell)
-    row += 1
-  }
-  return row
-}
-
-function writeMetricCell(cell, value, kind, report) {
-  if (kind === 'general') {
-    if (report.totals?.generalEcommerceCostsStatus === 'not_configured' || value == null) {
-      cell.value = 'Not Configured'
-      return
-    }
-  }
-  if (kind === 'ads' || kind === 'adsInt') {
-    // Overall ads: if any channel has ads configured show sum; else Not Configured when all null
-    const anyAdsConfigured = (report.channels || []).some(
-      (c) => c.adsStatus === 'available' || c.adsStatus === 'unavailable' || c.adsStatus === 'pending',
-    )
-    const allNotConfigured = (report.channels || []).every(
-      (c) => c.adsStatus === 'not_configured' || c.adsStatus == null,
-    )
-    if (allNotConfigured && value == null) {
-      cell.value = 'Not Configured'
-      return
-    }
-    if (value == null) {
-      cell.value = anyAdsConfigured ? 'Unavailable' : 'Not Configured'
-      return
-    }
-    if (kind === 'adsInt') {
-      cell.value = Math.round(value)
-      return
-    }
-    cell.value = Number(value)
-    cell.numFmt = MONEY_FMT
-    return
-  }
-  if (kind === 'pct') {
-    if (value == null) {
-      cell.value = 'N/A'
-      return
-    }
-    cell.value = Number(value)
-    cell.numFmt = PCT_FMT
-    return
-  }
-  if (kind === 'int') {
-    cell.value = Math.round(Number(value) || 0)
-    return
-  }
-  cell.value = Number(value) || 0
-  cell.numFmt = MONEY_FMT
-}
-
 module.exports = {
   buildDailyEcommerceReportXlsxBuffer,
-  formatAdsDisplay,
 }

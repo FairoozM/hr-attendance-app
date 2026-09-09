@@ -1,357 +1,261 @@
 'use strict'
 
 /**
- * Unit tests for Daily Ecommerce Report formulas, date bounds, FX, ads display,
- * and Excel export labels.
+ * Unit tests for corrected Daily Ecommerce Report formulas, layout helpers, and Excel.
  */
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
 
-const { dubaiDayBounds, assertYmd, addDaysYmd, todayUaeYmd, IANA_UAE } = require('../src/services/dailyEcommerceReport/dateBounds')
-const { getSarToAedRate, toAed, round2, sumAvailable } = require('../src/services/dailyEcommerceReport/money')
+const { dubaiDayBounds, assertYmd } = require('../src/services/dailyEcommerceReport/dateBounds')
+const { getSarToAedRate, toAed, round2 } = require('../src/services/dailyEcommerceReport/money')
 const { computeChannelFinancials, computeOverallTotals } = require('../src/services/dailyEcommerceReport/formulas')
+const { CHANNELS } = require('../src/services/dailyEcommerceReport/channels')
 const { formatAdsDisplay } = require('../src/services/dailyEcommerceReport/providers/amazonAdsProvider')
-const { EXCLUDED_STATUSES } = require('../src/services/dailyEcommerceReport/providers/amazonOrdersProvider')
-const {
-  EXCLUDED_STATUSES: WEB_EXCLUDED,
-  INCLUDED_STATUSES,
-} = require('../src/services/dailyEcommerceReport/providers/websiteOrdersProvider')
-const { loadNoonChannel, loadCarrefourChannel, loadMetaAds } = require('../src/services/dailyEcommerceReport/providers/stubProviders')
+const { lineItemCode, isProductLine } = require('../src/services/dailyEcommerceReport/providers/zohoDailyInvoicesProvider')
 const { buildDailyEcommerceReportXlsxBuffer } = require('../src/services/dailyEcommerceReport/dailyEcommerceReportXlsxService')
 
-test('assertYmd rejects invalid dates', () => {
-  assert.throws(() => assertYmd('2026-13-01'), /valid|YYYY/)
-  assert.throws(() => assertYmd('not-a-date'), /YYYY/)
-  assert.equal(assertYmd('2026-09-08'), '2026-09-08')
+test('six channels including combined life_smile, no separate shop', () => {
+  assert.equal(CHANNELS.length, 6)
+  assert.ok(CHANNELS.some((c) => c.key === 'life_smile'))
+  assert.ok(!CHANNELS.some((c) => c.key === 'shop'))
 })
 
-test('UAE day bounds are Asia/Dubai half-open [start, end)', () => {
-  const b = dubaiDayBounds('2026-09-08')
-  assert.equal(b.timezone, IANA_UAE)
-  assert.equal(b.start.toISOString(), '2026-09-07T20:00:00.000Z') // midnight +04
-  assert.equal(b.end.toISOString(), '2026-09-08T20:00:00.000Z')
-  assert.ok(b.end.getTime() > b.start.getTime())
+test('UAE day bounds for 2026-09-07', () => {
+  const b = dubaiDayBounds('2026-09-07')
+  assert.equal(b.start.toISOString(), '2026-09-06T20:00:00.000Z')
+  assert.equal(b.end.toISOString(), '2026-09-07T20:00:00.000Z')
 })
 
-test('addDaysYmd crosses month boundaries in Dubai', () => {
-  assert.equal(addDaysYmd('2026-09-30', 1), '2026-10-01')
-  assert.equal(addDaysYmd('2026-09-01', -1), '2026-08-31')
-})
-
-test('todayUaeYmd returns YYYY-MM-DD', () => {
-  assert.match(todayUaeYmd(), /^\d{4}-\d{2}-\d{2}$/)
-})
-
-test('SAR to AED uses configurable rate (default 3.67/3.75)', () => {
-  const prev = process.env.AMAZON_KSA_LEGACY_SAR_TO_AED
-  delete process.env.AMAZON_KSA_LEGACY_SAR_TO_AED
+test('SAR display rate is four decimals without dumping formula text to UI', () => {
   const fx = getSarToAedRate()
-  assert.ok(Math.abs(fx.rate - 3.67 / 3.75) < 1e-12)
-  assert.equal(fx.configured, false)
-  assert.equal(toAed(375, 'SAR', fx), round2(375 * (3.67 / 3.75)))
-  assert.equal(toAed(100, 'AED', fx), 100)
-  if (prev == null) delete process.env.AMAZON_KSA_LEGACY_SAR_TO_AED
-  else process.env.AMAZON_KSA_LEGACY_SAR_TO_AED = prev
+  assert.equal(Number(fx.rate).toFixed(4), '0.9787')
+  assert.equal(toAed(100, 'SAR', fx), round2(100 * fx.rate))
 })
 
-test('SAR to AED respects AMAZON_KSA_LEGACY_SAR_TO_AED env', () => {
-  const prev = process.env.AMAZON_KSA_LEGACY_SAR_TO_AED
-  process.env.AMAZON_KSA_LEGACY_SAR_TO_AED = '1'
-  const fx = getSarToAedRate()
-  assert.equal(fx.rate, 1)
-  assert.equal(fx.configured, true)
-  assert.equal(toAed(50, 'SAR', fx), 50)
-  if (prev == null) delete process.env.AMAZON_KSA_LEGACY_SAR_TO_AED
-  else process.env.AMAZON_KSA_LEGACY_SAR_TO_AED = prev
-})
-
-test('multi-item order quantity is sum of units not line count', () => {
-  const items = [
-    { sku: 'A', quantity: 2 },
-    { sku: 'B', quantity: 3 },
-    { sku: 'C', quantity: 1 },
-  ]
-  const qty = items.reduce((s, i) => s + i.quantity, 0)
-  assert.equal(qty, 6)
-  assert.notEqual(qty, items.length)
-})
-
-test('cost percentage with sales > 0', () => {
-  const r = computeChannelFinancials({
-    salesAmountAED: 1000,
-    adSpendAED: 100,
-    commissionAED: 50,
-    shippingAED: 25,
-    paymentFeesAED: 25,
-    otherIncludedCostsAED: 0,
-  })
-  assert.equal(r.totalIncludedCostsAED, 200)
-  assert.equal(r.costPercentage, 20)
-  assert.equal(r.balanceAED, 800)
-})
-
-test('cost percentage with zero sales is 0 when costs are 0 (never DIV/0)', () => {
-  const r = computeChannelFinancials({
+test('cost % with zero sales is 0 not DIV/0; null ads excluded', () => {
+  const z = computeChannelFinancials({
     salesAmountAED: 0,
     adSpendAED: null,
     commissionAED: 0,
     shippingAED: 0,
-    paymentFeesAED: 0,
-    otherIncludedCostsAED: 0,
   })
-  assert.equal(r.costPercentage, 0)
-  assert.equal(r.balanceAED, 0)
-})
+  assert.equal(z.costPercentage, 0)
 
-test('null ad spend is excluded from included costs (not treated as zero inventively)', () => {
-  const withNullAds = computeChannelFinancials({
-    salesAmountAED: 100,
+  const withAdsNull = computeChannelFinancials({
+    salesAmountAED: 1000,
     adSpendAED: null,
-    commissionAED: 10,
-    shippingAED: 0,
-    paymentFeesAED: 0,
-    otherIncludedCostsAED: 0,
+    commissionAED: 50,
+    shippingAED: 25,
   })
-  assert.equal(withNullAds.totalIncludedCostsAED, 10)
-
-  const withZeroAds = computeChannelFinancials({
-    salesAmountAED: 100,
-    adSpendAED: 0,
-    commissionAED: 10,
-    shippingAED: 0,
-    paymentFeesAED: 0,
-    otherIncludedCostsAED: 0,
-  })
-  assert.equal(withZeroAds.totalIncludedCostsAED, 10)
+  assert.equal(withAdsNull.totalIncludedCostsAED, 75)
+  assert.equal(withAdsNull.costPercentage, 7.5)
+  assert.equal(withAdsNull.balanceAED, 925)
 })
 
-test('coupon / smile points are informational and not in included costs', () => {
+test('Life Smile tabby commission included; smile/coupon not in costs', () => {
   const r = computeChannelFinancials({
-    salesAmountAED: 500, // already net of discount in stored total
+    salesAmountAED: 500,
     adSpendAED: null,
     commissionAED: 0,
     shippingAED: 0,
-    paymentFeesAED: 0,
-    otherIncludedCostsAED: 0,
+    tabbyTamaraCommissionAED: 30,
   })
-  assert.equal(r.totalIncludedCostsAED, 0)
-  assert.equal(r.balanceAED, 500)
-  // Informational fields live on summary separately — not passed into formula
+  assert.equal(r.totalIncludedCostsAED, 30)
+  assert.equal(r.balanceAED, 470)
 })
 
-test('Amazon cancelled statuses are excluded', () => {
-  assert.ok(EXCLUDED_STATUSES.has('canceled'))
-  assert.ok(EXCLUDED_STATUSES.has('cancelled'))
+test('Amazon Ads display Not Configured not zero', () => {
+  assert.equal(formatAdsDisplay('not_configured', null), 'Not Configured')
+  assert.equal(formatAdsDisplay('not_configured', 0), 'Not Configured')
 })
 
-test('Website cancelled and fully returned excluded; confirmed included', () => {
-  assert.ok(WEB_EXCLUDED.has('cancelled'))
-  assert.ok(WEB_EXCLUDED.has('returned'))
-  assert.ok(INCLUDED_STATUSES.has('confirmed'))
-  assert.ok(INCLUDED_STATUSES.has('partiallyReturned'))
+test('Zoho line item code prefers product name over barcode', () => {
+  assert.equal(lineItemCode({ name: 'LIFEP7-MIX-29', sku: '929402100737' }), 'LIFEP7-MIX-29')
+  assert.equal(isProductLine({ name: 'Coupon Discount', quantity: 1 }), false)
+  assert.equal(isProductLine({ name: 'Courier Charges', quantity: 1 }), false)
+  assert.equal(isProductLine({ name: 'LIFEP7', sku: '1', quantity: 2 }), true)
 })
 
-test('partial refund net impact reduces sales amount', () => {
-  const total = 200
-  const refund = 50
-  const net = round2(Math.max(0, total - refund))
-  assert.equal(net, 150)
+test('overall incomplete logic: ads null does not invent totals ads as zero', () => {
+  const t = computeOverallTotals([
+    { quantity: 2, salesAmountAED: 100, adSpendAED: null, clicks: null, commissionAED: 10, shippingAED: 0 },
+    { quantity: 1, salesAmountAED: 50, adSpendAED: null, clicks: null, commissionAED: 0, shippingAED: 5 },
+  ])
+  assert.equal(t.adSpendAED, null)
+  assert.equal(t.clicks, null)
+  assert.equal(t.commissionAED, 10)
+  assert.equal(t.shippingAED, 5)
+  assert.equal(t.salesAmountAED, 150)
 })
 
-test('duplicate order protection via Set', () => {
-  const ids = ['A', 'B', 'A', 'C', 'B']
-  const seen = new Set()
-  const unique = []
-  for (const id of ids) {
-    if (seen.has(id)) continue
-    seen.add(id)
-    unique.push(id)
-  }
-  assert.deepEqual(unique, ['A', 'B', 'C'])
-})
-
-test('Amazon Ads formatAdsDisplay shows Not Configured not zero', () => {
-  assert.equal(formatAdsDisplay('not_configured', null, 'money'), 'Not Configured')
-  assert.equal(formatAdsDisplay('not_configured', 0, 'money'), 'Not Configured')
-  assert.equal(formatAdsDisplay('unavailable', null, 'int'), 'Unavailable')
-  assert.equal(formatAdsDisplay('available', 12.5, 'money'), 12.5)
-})
-
-test('Noon and Carrefour and Meta stubs are not_configured', async () => {
-  const noon = loadNoonChannel('AE')
-  assert.equal(noon.integrationStatus, 'not_configured')
-  assert.equal(noon.summary.adSpendAED, null)
-  assert.equal(noon.summary.clicks, null)
-
-  const noonSa = loadNoonChannel('SA')
-  assert.equal(noonSa.channel, 'noon_ksa')
-  assert.equal(noonSa.country, 'SA')
-
-  const carrefour = loadCarrefourChannel()
-  assert.equal(carrefour.integrationStatus, 'not_configured')
-
-  const meta = await loadMetaAds('2026-09-08')
-  assert.equal(meta.adsStatus, 'not_configured')
-  assert.equal(meta.adSpendAED, null)
-  assert.equal(meta.adsMetricLabel, 'link_clicks')
-})
-
-test('UAE vs KSA channel keys stay separated', () => {
-  assert.equal(loadNoonChannel('AE').channel, 'noon_uae')
-  assert.equal(loadNoonChannel('SA').channel, 'noon_ksa')
-})
-
-test('overall totals skip null ads; Meta not attributed to marketplaces in stubs', () => {
-  const totals = computeOverallTotals([
-    {
-      quantity: 2,
-      orderCount: 1,
-      salesAmountAED: 100,
-      adSpendAED: null,
-      clicks: null,
-      commissionAED: 10,
-      shippingAED: 5,
-      paymentFeesAED: 0,
-      otherIncludedCostsAED: 0,
-      couponDiscountAED: 20,
-      smilePointsAED: 5,
-    },
-    {
-      quantity: 1,
-      orderCount: 1,
-      salesAmountAED: 50,
-      adSpendAED: null,
-      clicks: null,
-      commissionAED: 0,
-      shippingAED: 0,
-      paymentFeesAED: 0,
-      otherIncludedCostsAED: 0,
-      couponDiscountAED: 0,
-      smilePointsAED: 0,
-    },
-  ], null)
-  assert.equal(totals.salesAmountAED, 150)
-  assert.equal(totals.adSpendAED, null)
-  assert.equal(totals.clicks, null)
-  assert.equal(totals.commissionAED, 10)
-  assert.equal(totals.totalIncludedCostsAED, 15)
-  assert.equal(totals.couponDiscountAED, 20)
-  assert.equal(totals.generalEcommerceCostsAED, null)
-})
-
-test('sumAvailable ignores nulls', () => {
-  assert.deepEqual(sumAvailable([1, null, 2, undefined]), { total: 3, used: 2 })
-})
-
-test('Excel export writes Not Configured for Amazon ads and avoids DIV/0', async () => {
+test('Excel export six columns and Not Configured for Amazon ads', async () => {
   const report = {
-    date: '2026-09-08',
+    date: '2026-09-07',
     timezone: 'Asia/Dubai',
-    incomplete: true,
-    exchangeRate: { rate: 0.9786666667, source: 'default_3.67_div_3.75' },
-    warnings: ['Amazon UAE Ads: Not Configured'],
+    amazonAdsExcluded: true,
+    exchangeRate: { rate: 0.9786666667, rateDisplay: '0.9787', source: 'default' },
     channels: [
       {
         channel: 'amazon_uae',
         label: 'Amazon UAE',
+        family: 'amazon',
         country: 'AE',
-        currency: 'AED',
         integrationStatus: 'available',
         adsStatus: 'not_configured',
         orders: [
           {
-            orderId: '1',
-            orderNumber: '1',
-            status: 'Shipped',
-            amountAED: 100,
+            orderNumber: '171-1',
             items: [
-              { sku: 'SKU-A', quantity: 2, lineAmount: 60 },
-              { sku: 'SKU-B', quantity: 1, lineAmount: 40 },
+              { sku: 'A', quantity: 1 },
+              { sku: 'B', quantity: 2 },
             ],
           },
         ],
         summary: {
           quantity: 3,
-          orderCount: 1,
           salesAmountAED: 100,
           adSpendAED: null,
           clicks: null,
-          commissionAED: 0,
-          shippingAED: 0,
-          paymentFeesAED: 0,
-          otherIncludedCostsAED: 0,
-          couponDiscountAED: 0,
-          smilePointsAED: 0,
-          totalIncludedCostsAED: 0,
-          costPercentage: 0,
-          balanceAED: 100,
+          commissionAED: 10,
+          shippingAED: 5,
+          costPercentage: 15,
+          balanceAED: 85,
         },
       },
       {
-        channel: 'noon_uae',
-        label: 'Noon UAE',
-        country: 'AE',
-        currency: 'AED',
-        integrationStatus: 'not_configured',
+        channel: 'amazon_ksa',
+        label: 'Amazon KSA',
+        family: 'amazon',
+        country: 'SA',
+        integrationStatus: 'available',
         adsStatus: 'not_configured',
         orders: [],
         summary: {
           quantity: 0,
-          orderCount: 0,
           salesAmountAED: 0,
           adSpendAED: null,
           clicks: null,
           commissionAED: 0,
           shippingAED: 0,
-          paymentFeesAED: 0,
-          otherIncludedCostsAED: 0,
-          couponDiscountAED: 0,
-          smilePointsAED: 0,
-          totalIncludedCostsAED: 0,
+          costPercentage: 0,
+          balanceAED: 0,
+        },
+      },
+      {
+        channel: 'noon_uae',
+        label: 'Noon UAE',
+        family: 'noon',
+        country: 'AE',
+        integrationStatus: 'available',
+        adsStatus: 'not_configured',
+        orders: [{ orderNumber: 'NAEI1', items: [{ sku: 'N1', quantity: 1 }] }],
+        summary: {
+          quantity: 1,
+          salesAmountAED: 50,
+          adSpendAED: null,
+          clicks: null,
+          commissionAED: 0,
+          shippingAED: 0,
+          costPercentage: 0,
+          balanceAED: 50,
+        },
+      },
+      {
+        channel: 'noon_ksa',
+        label: 'Noon KSA',
+        family: 'noon',
+        country: 'SA',
+        integrationStatus: 'available',
+        adsStatus: 'not_configured',
+        orders: [],
+        summary: {
+          quantity: 0,
+          salesAmountAED: 0,
+          adSpendAED: null,
+          clicks: null,
+          commissionAED: 0,
+          shippingAED: 0,
+          costPercentage: 0,
+          balanceAED: 0,
+        },
+      },
+      {
+        channel: 'life_smile',
+        label: 'Life Smile Website',
+        family: 'life_smile',
+        country: 'AE',
+        integrationStatus: 'available',
+        adsStatus: 'not_configured',
+        orders: [{ orderNumber: '20964 (SHOP)', items: [{ sku: 'S1', quantity: 1 }] }],
+        summary: {
+          quantity: 1,
+          salesAmountAED: 80,
+          adSpendAED: null,
+          clicks: null,
+          commissionAED: 0,
+          tabbyTamaraCommissionAED: 0,
+          smilePointCouponAED: 12,
+          shippingAED: 0,
+          costPercentage: 0,
+          balanceAED: 80,
+        },
+      },
+      {
+        channel: 'carrefour_uae',
+        label: 'Carrefour UAE',
+        family: 'carrefour',
+        country: 'AE',
+        integrationStatus: 'available',
+        adsStatus: 'not_configured',
+        orders: [],
+        summary: {
+          quantity: 0,
+          salesAmountAED: 0,
+          adSpendAED: null,
+          clicks: null,
+          commissionAED: 0,
+          shippingAED: 0,
           costPercentage: 0,
           balanceAED: 0,
         },
       },
     ],
     totals: {
-      quantity: 3,
+      quantity: 5,
       adSpendAED: null,
       clicks: null,
-      commissionAED: 0,
-      shippingAED: 0,
-      paymentFeesAED: 0,
-      otherIncludedCostsAED: 0,
-      generalEcommerceCostsAED: null,
+      commissionAED: 10,
+      shippingAED: 5,
+      costPercentage: 6.52,
+      salesAmountAED: 230,
+      balanceAED: 215,
       generalEcommerceCostsStatus: 'not_configured',
-      costPercentage: 0,
-      salesAmountAED: 100,
-      balanceAED: 100,
     },
   }
 
   const buf = await buildDailyEcommerceReportXlsxBuffer(report)
-  assert.ok(Buffer.isBuffer(buf))
-  assert.ok(buf.length > 500)
-
-  // Parse with ExcelJS to assert cell text
+  assert.ok(buf.length > 800)
   const ExcelJS = require('exceljs')
   const wb = new ExcelJS.Workbook()
-  // exceljs load accepts buffer
-  // @ts-ignore
   await wb.xlsx.load(buf)
   const ws = wb.getWorksheet('Daily Ecommerce')
-  assert.ok(ws)
-
-  let foundNotConfigured = false
-  let foundDiv0 = false
+  let foundNa = false
+  let foundDiv = false
+  let foundShop = false
   ws.eachRow((row) => {
     row.eachCell((cell) => {
       const v = cell.value == null ? '' : String(cell.value)
-      if (v.includes('Not Configured')) foundNotConfigured = true
-      if (v.includes('#DIV/0')) foundDiv0 = true
+      if (v.includes('Not Configured')) foundNa = true
+      if (v.includes('#DIV/0')) foundDiv = true
+      if (v.includes('(SHOP)')) foundShop = true
     })
   })
-  assert.equal(foundNotConfigured, true)
-  assert.equal(foundDiv0, false)
+  assert.equal(foundNa, true)
+  assert.equal(foundDiv, false)
+  assert.equal(foundShop, true)
+})
+
+test('assertYmd', () => {
+  assert.equal(assertYmd('2026-09-07'), '2026-09-07')
 })

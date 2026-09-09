@@ -1,41 +1,28 @@
 'use strict'
 
 /**
- * Daily Ecommerce Report orchestrator.
- *
- * Loads each channel independently so one provider failure cannot blank the report.
- * UAE calendar day (Asia/Dubai) is the reporting boundary for all channels.
+ * Daily Ecommerce Report orchestrator — six channels from Zoho Books invoices
+ * (Amazon / Noon / Carrefour) + Life Smile website DB (website + shop combined).
  */
 
 const { assertYmd, dubaiDayBounds, todayUaeYmd } = require('./dateBounds')
 const { getSarToAedRate } = require('./money')
 const { computeOverallTotals } = require('./formulas')
-const { CHANNELS } = require('./channels')
-const { loadAmazonChannel } = require('./providers/amazonOrdersProvider')
+const { CHANNELS, buildChannelShell } = require('./channels')
+const { loadZohoInvoicesByChannel } = require('./providers/zohoDailyInvoicesProvider')
+const { buildMarketplaceChannel } = require('./providers/marketplaceChannelBuilder')
+const { loadLifeSmileChannel } = require('./providers/lifeSmileProvider')
 const { loadAmazonAds } = require('./providers/amazonAdsProvider')
-const { loadWebsiteChannel, loadShopChannel } = require('./providers/websiteOrdersProvider')
-const {
-  loadNoonChannel,
-  loadCarrefourChannel,
-  loadMetaAds,
-  loadNoonAds,
-} = require('./providers/stubProviders')
 
-/**
- * @param {PromiseSettledResult<any>} settled
- * @param {string} label
- * @param {() => object} fallbackFactory
- */
-function fromSettled(settled, label, fallbackFactory) {
-  if (settled.status === 'fulfilled') return settled.value
-  const err = settled.reason
-  const channel = fallbackFactory()
-  channel.integrationStatus = 'unavailable'
-  channel.warnings = [
-    ...(channel.warnings || []),
-    `${label}: ${err && err.message ? err.message : String(err)}`,
-  ]
-  return channel
+function adsStub(label, provider = null) {
+  return {
+    adsStatus: 'not_configured',
+    adsProvider: provider,
+    adSpendAED: null,
+    clicks: null,
+    adsMetricLabel: label === 'Meta' ? 'link_clicks' : null,
+    warnings: [],
+  }
 }
 
 /**
@@ -46,153 +33,158 @@ async function buildDailyEcommerceReport(opts = {}) {
   const bounds = dubaiDayBounds(dateYmd)
   const fxInfo = getSarToAedRate()
   const fx = { rate: fxInfo.rate }
-  const includeLiveAds = opts.includeLiveAds !== false
-
   const warnings = []
   if (fxInfo.warning) warnings.push(fxInfo.warning)
 
-  // Ads providers (isolated)
-  const [amazonUaeAdsSettled, amazonKsaAdsSettled, metaAdsSettled, noonAeAdsSettled, noonSaAdsSettled] =
-    await Promise.allSettled([
-      includeLiveAds
-        ? loadAmazonAds('uae', dateYmd, fx)
-        : Promise.resolve({
-            adsStatus: 'not_configured',
-            adsProvider: 'amazon_advertising_reporting_v3',
-            adSpendAED: null,
-            clicks: null,
-            warnings: ['Amazon UAE Ads: skipped'],
-            lastSyncedAt: null,
-          }),
-      includeLiveAds
-        ? loadAmazonAds('ksa', dateYmd, fx)
-        : Promise.resolve({
-            adsStatus: 'not_configured',
-            adsProvider: 'amazon_advertising_reporting_v3',
-            adSpendAED: null,
-            clicks: null,
-            warnings: ['Amazon KSA Ads: skipped'],
-            lastSyncedAt: null,
-          }),
-      loadMetaAds(dateYmd),
-      loadNoonAds('AE', dateYmd),
-      loadNoonAds('SA', dateYmd),
-    ])
+  // Ads: Amazon may be configured later; Meta/Noon/Carrefour ads have no daily API in this app
+  const amazonUaeAds = opts.includeLiveAds !== false
+    ? await loadAmazonAds('uae', dateYmd, fx).catch(() => adsStub('Amazon UAE Ads', 'amazon_advertising_reporting_v3'))
+    : { ...adsStub('Amazon UAE Ads', 'amazon_advertising_reporting_v3'), adsStatus: 'not_configured' }
+  const amazonKsaAds = opts.includeLiveAds !== false
+    ? await loadAmazonAds('ksa', dateYmd, fx).catch(() => adsStub('Amazon KSA Ads', 'amazon_advertising_reporting_v3'))
+    : { ...adsStub('Amazon KSA Ads', 'amazon_advertising_reporting_v3'), adsStatus: 'not_configured' }
 
-  const amazonUaeAds =
-    amazonUaeAdsSettled.status === 'fulfilled'
-      ? amazonUaeAdsSettled.value
-      : {
-          adsStatus: 'unavailable',
-          adsProvider: 'amazon_advertising_reporting_v3',
-          adSpendAED: null,
-          clicks: null,
-          warnings: ['Amazon UAE Ads: failed'],
-          lastSyncedAt: null,
-        }
-  const amazonKsaAds =
-    amazonKsaAdsSettled.status === 'fulfilled'
-      ? amazonKsaAdsSettled.value
-      : {
-          adsStatus: 'unavailable',
-          adsProvider: 'amazon_advertising_reporting_v3',
-          adSpendAED: null,
-          clicks: null,
-          warnings: ['Amazon KSA Ads: failed'],
-          lastSyncedAt: null,
-        }
-  const metaAds =
-    metaAdsSettled.status === 'fulfilled'
-      ? metaAdsSettled.value
-      : {
-          adsStatus: 'unavailable',
-          adsProvider: 'meta_marketing_api',
-          adSpendAED: null,
-          clicks: null,
-          adsMetricLabel: 'link_clicks',
-          warnings: ['Meta Ads: failed'],
-          lastSyncedAt: null,
-        }
+  // Force Amazon ads display semantics: incomplete config → not_configured (null, not 0)
+  for (const a of [amazonUaeAds, amazonKsaAds]) {
+    if (a.adsStatus === 'not_configured') {
+      a.adSpendAED = null
+      a.clicks = null
+    }
+  }
 
-  void noonAeAdsSettled
-  void noonSaAdsSettled
+  const metaAds = {
+    ...adsStub('Meta', 'meta_marketing_api'),
+    adsStatus: 'not_configured',
+    adsMetricLabel: 'link_clicks',
+  }
+  const noonAds = adsStub('Noon Ads', 'noon_statement_fees')
+  const carrefourAds = adsStub('Carrefour Ads', null)
 
-  const [
-    amazonUaeSettled,
-    amazonKsaSettled,
-    websiteSettled,
-    shopSettled,
-  ] = await Promise.allSettled([
-    loadAmazonChannel('uae', bounds, fx, amazonUaeAds),
-    loadAmazonChannel('ksa', bounds, fx, amazonKsaAds),
-    loadWebsiteChannel(bounds, metaAds),
-    loadShopChannel(bounds, {
-      adSpendAED: null,
-      clicks: null,
-      adsStatus: 'not_configured',
-      adsProvider: null,
-    }),
+  /** @type {Record<string, object[]>} */
+  let byChannel = {
+    amazon_uae: [],
+    amazon_ksa: [],
+    noon_uae: [],
+    noon_ksa: [],
+    carrefour_uae: [],
+  }
+  let zohoWarnings = []
+  let zohoFailed = false
+  let zohoErrorMessage = ''
+
+  try {
+    const loaded = await loadZohoInvoicesByChannel(dateYmd)
+    byChannel = loaded.byChannel
+    zohoWarnings = loaded.warnings || []
+  } catch (err) {
+    zohoFailed = true
+    zohoErrorMessage = err && err.message ? err.message : String(err)
+    warnings.push(`Zoho Books invoice load failed: ${zohoErrorMessage}`)
+  }
+
+  async function marketplace(key, ads) {
+    if (zohoFailed) {
+      return buildChannelShell(
+        CHANNELS.find((c) => c.key === key),
+        'unavailable',
+        {
+          adsStatus: ads.adsStatus,
+          adsProvider: ads.adsProvider,
+          warnings: [`${CHANNELS.find((c) => c.key === key).label}: Data Error — ${zohoErrorMessage}`],
+          summary: {
+            ...buildChannelShell(CHANNELS.find((c) => c.key === key), 'unavailable').summary,
+            adSpendAED: ads.adSpendAED,
+            clicks: ads.clicks,
+          },
+        },
+      )
+    }
+    try {
+      return await buildMarketplaceChannel(key, byChannel[key] || [], fx, ads, zohoWarnings)
+    } catch (err) {
+      return buildChannelShell(
+        CHANNELS.find((c) => c.key === key),
+        'unavailable',
+        {
+          adsStatus: ads.adsStatus,
+          adsProvider: ads.adsProvider,
+          warnings: [
+            `${CHANNELS.find((c) => c.key === key).label}: Data Error — ${err.message || String(err)}`,
+          ],
+          summary: {
+            ...buildChannelShell(CHANNELS.find((c) => c.key === key), 'unavailable').summary,
+            adSpendAED: ads.adSpendAED,
+            clicks: ads.clicks,
+          },
+        },
+      )
+    }
+  }
+
+  const [amazonUae, amazonKsa, noonUae, noonKsa, carrefour, lifeSmile] = await Promise.all([
+    marketplace('amazon_uae', amazonUaeAds),
+    marketplace('amazon_ksa', amazonKsaAds),
+    marketplace('noon_uae', noonAds),
+    marketplace('noon_ksa', noonAds),
+    marketplace('carrefour_uae', carrefourAds),
+    loadLifeSmileChannel(bounds, metaAds, {
+      websiteInvoices: byChannel.life_smile_website || [],
+      shopInvoices: byChannel.life_smile_shop || [],
+    }).catch((err) =>
+      buildChannelShell(CHANNELS.find((c) => c.key === 'life_smile'), 'unavailable', {
+        warnings: [`Life Smile Website: Data Error — ${err.message || String(err)}`],
+        adsStatus: metaAds.adsStatus,
+        adsProvider: metaAds.adsProvider,
+      }),
+    ),
   ])
 
-  const noonUae = loadNoonChannel('AE')
-  const noonKsa = loadNoonChannel('SA')
-  const carrefour = loadCarrefourChannel()
+  // Attach ads not_configured footnotes without failing channels
+  if (amazonUaeAds.adsStatus === 'not_configured') {
+    amazonUae.warnings = [
+      ...(amazonUae.warnings || []),
+      'Amazon advertising is excluded from costs because it is not integrated.',
+    ]
+  }
+  if (amazonKsaAds.adsStatus === 'not_configured') {
+    amazonKsa.warnings = [
+      ...(amazonKsa.warnings || []),
+      'Amazon advertising is excluded from costs because it is not integrated.',
+    ]
+  }
+  if (metaAds.adsStatus === 'not_configured') {
+    lifeSmile.warnings = [
+      ...(lifeSmile.warnings || []),
+      'FB/Instagram Ads: Not Configured (no Meta Marketing API in this application).',
+    ]
+  }
 
-  const amazonUae = fromSettled(amazonUaeSettled, 'Amazon UAE', () =>
-    loadAmazonChannelFallback('uae', amazonUaeAds),
-  )
-  const amazonKsa = fromSettled(amazonKsaSettled, 'Amazon KSA', () =>
-    loadAmazonChannelFallback('ksa', amazonKsaAds),
-  )
-  const website = fromSettled(websiteSettled, 'Life Smile Website', () =>
-    websiteFallback(metaAds),
-  )
-  const shop = fromSettled(shopSettled, 'Life Smile Shop', () => shopFallback())
-
-  const channels = [amazonUae, amazonKsa, noonUae, noonKsa, website, shop, carrefour]
+  const channels = [amazonUae, amazonKsa, noonUae, noonKsa, lifeSmile, carrefour]
 
   for (const ch of channels) {
     for (const w of ch.warnings || []) warnings.push(w)
   }
 
-  const incomplete =
-    channels.some((c) => c.integrationStatus !== 'available') ||
-    channels.some((c) => c.adsStatus === 'not_configured' || c.adsStatus === 'unavailable')
-
+  // Incomplete only when a required order source failed — NOT because Amazon Ads is missing
+  const incomplete = channels.some((c) => c.integrationStatus === 'unavailable')
   if (incomplete) {
     warnings.unshift(
-      'Report is incomplete: one or more channels or advertising integrations are not configured or unavailable. Totals use only available numeric values.',
+      'Report incomplete: one or more order data sources returned a Data Error. Totals use available channels only.',
     )
   }
 
   const totals = computeOverallTotals(
     channels.map((c) => c.summary),
-    null, // General Ecommerce costs category does not exist yet
+    null,
   )
 
-  const sources = {
-    amazon_orders_cache: {
-      status: amazonUae.integrationStatus === 'available' || amazonKsa.integrationStatus === 'available'
-        ? 'available'
-        : amazonUae.integrationStatus,
-      lastSyncedAt: maxIso(amazonUae.lastSyncedAt, amazonKsa.lastSyncedAt),
-    },
-    amazon_ads: {
-      uae: { status: amazonUaeAds.adsStatus, lastSyncedAt: amazonUaeAds.lastSyncedAt },
-      ksa: { status: amazonKsaAds.adsStatus, lastSyncedAt: amazonKsaAds.lastSyncedAt },
-    },
-    website_orders_db: {
-      status: website.integrationStatus,
-      lastSyncedAt: website.lastSyncedAt,
-    },
-    shop_orders_db: {
-      status: shop.integrationStatus,
-      lastSyncedAt: shop.lastSyncedAt,
-    },
-    noon_orders: { status: 'not_configured', lastSyncedAt: null },
-    noon_ads: { status: 'not_configured', lastSyncedAt: null },
-    meta_ads: { status: metaAds.adsStatus, lastSyncedAt: metaAds.lastSyncedAt },
-    carrefour: { status: 'not_configured', lastSyncedAt: null },
+  const deduped = []
+  const seen = new Set()
+  for (const w of warnings) {
+    const s = String(w || '').trim()
+    if (!s || seen.has(s)) continue
+    seen.add(s)
+    deduped.push(s)
   }
 
   return {
@@ -206,6 +198,7 @@ async function buildDailyEcommerceReport(opts = {}) {
       from: 'SAR',
       to: 'AED',
       rate: fxInfo.rate,
+      rateDisplay: Number(fxInfo.rate).toFixed(4),
       source: fxInfo.source,
       envVar: fxInfo.envVar,
       configured: fxInfo.configured,
@@ -217,63 +210,26 @@ async function buildDailyEcommerceReport(opts = {}) {
       generalEcommerceCostsStatus: 'not_configured',
     },
     incomplete,
-    warnings: dedupeWarnings(warnings),
-    sources,
-    channelOrder: CHANNELS.map((c) => c.key),
+    amazonAdsExcluded: amazonUaeAds.adsStatus === 'not_configured' || amazonKsaAds.adsStatus === 'not_configured',
+    warnings: deduped,
+    sources: {
+      zoho_books_invoices: {
+        status: zohoFailed ? 'unavailable' : 'available',
+        lastSyncedAt: zohoFailed ? null : new Date().toISOString(),
+      },
+      website_orders_db: {
+        status: lifeSmile.integrationStatus,
+        lastSyncedAt: lifeSmile.lastSyncedAt,
+      },
+      amazon_ads: {
+        uae: amazonUaeAds.adsStatus,
+        ksa: amazonKsaAds.adsStatus,
+      },
+      meta_ads: metaAds.adsStatus,
+      noon_ads: 'not_configured',
+    },
     generatedAt: new Date().toISOString(),
   }
-}
-
-function loadAmazonChannelFallback(marketplaceKey, ads) {
-  const { buildChannelShell, CHANNELS: CH } = require('./channels')
-  const meta = CH.find((c) => c.key === (marketplaceKey === 'ksa' ? 'amazon_ksa' : 'amazon_uae'))
-  return buildChannelShell(meta, 'unavailable', {
-    adsStatus: ads.adsStatus,
-    adsProvider: ads.adsProvider,
-    summary: {
-      ...buildChannelShell(meta, 'unavailable').summary,
-      adSpendAED: ads.adSpendAED,
-      clicks: ads.clicks,
-    },
-  })
-}
-
-function websiteFallback(ads) {
-  const { buildChannelShell, CHANNELS: CH } = require('./channels')
-  const meta = CH.find((c) => c.key === 'website')
-  return buildChannelShell(meta, 'unavailable', {
-    adsStatus: ads.adsStatus,
-    adsProvider: ads.adsProvider,
-    summary: {
-      ...buildChannelShell(meta, 'unavailable').summary,
-      adSpendAED: ads.adSpendAED,
-      clicks: ads.clicks,
-    },
-  })
-}
-
-function shopFallback() {
-  const { buildChannelShell, CHANNELS: CH } = require('./channels')
-  const meta = CH.find((c) => c.key === 'shop')
-  return buildChannelShell(meta, 'unavailable')
-}
-
-function maxIso(a, b) {
-  if (!a) return b || null
-  if (!b) return a
-  return Date.parse(a) >= Date.parse(b) ? a : b
-}
-
-function dedupeWarnings(list) {
-  const seen = new Set()
-  const out = []
-  for (const w of list) {
-    const s = String(w || '').trim()
-    if (!s || seen.has(s)) continue
-    seen.add(s)
-    out.push(s)
-  }
-  return out
 }
 
 module.exports = {
