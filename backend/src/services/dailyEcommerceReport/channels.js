@@ -5,10 +5,13 @@
  *
  * Every channel is fed by its own marketplace/website integration:
  *   amazon_uae / amazon_ksa → Amazon SP-API orders cache
- *   noon_uae / noon_ksa     → Noon partner settlement data
+ *   noon_uae / noon_ksa     → Noon Partner API orders and finance exports
  *   life_smile              → Life Smile website database (website + app + shop)
  *
  * Accounting systems are never a source for this report.
+ *
+ * A channel that could not be read carries null money, not zero: a zero would be a claim that
+ * nothing was sold, and totals must not absorb a figure the integration never provided.
  */
 
 const CHANNELS = [
@@ -23,22 +26,27 @@ function channelMeta(key) {
   return CHANNELS.find((c) => c.key === key)
 }
 
-function emptySummary(family = 'amazon') {
+/** Statuses that mean "this integration produced no figures", as opposed to "it produced zero". */
+const UNREADABLE_STATUSES = new Set(['not_configured', 'unavailable', 'pending'])
+
+function emptySummary(family = 'amazon', integrationStatus = 'available') {
+  const unreadable = UNREADABLE_STATUSES.has(integrationStatus)
+  const zeroOrNull = unreadable ? null : 0
   const base = {
-    quantity: 0,
-    salesAmountAED: 0,
+    quantity: zeroOrNull,
+    salesAmountAED: zeroOrNull,
     adSpendAED: null,
     clicks: null,
-    commissionAED: 0,
-    shippingAED: 0,
-    costPercentage: 0,
-    balanceAED: 0,
+    commissionAED: zeroOrNull,
+    shippingAED: zeroOrNull,
+    costPercentage: zeroOrNull,
+    balanceAED: zeroOrNull,
   }
   if (family === 'life_smile') {
     return {
       ...base,
-      tabbyTamaraCommissionAED: 0,
-      smilePointCouponAED: 0,
+      tabbyTamaraCommissionAED: zeroOrNull,
+      smilePointCouponAED: zeroOrNull,
     }
   }
   return base
@@ -54,7 +62,7 @@ function buildChannelShell(meta, integrationStatus, overrides = {}) {
     integrationStatus,
     lastSyncedAt: null,
     orders: [],
-    summary: emptySummary(meta.family),
+    summary: emptySummary(meta.family, integrationStatus),
     adsStatus: 'not_configured',
     adsProvider: null,
     warnings: [],
@@ -64,6 +72,7 @@ function buildChannelShell(meta, integrationStatus, overrides = {}) {
 
 module.exports = {
   CHANNELS,
+  UNREADABLE_STATUSES,
   channelMeta,
   emptySummary,
   buildChannelShell,

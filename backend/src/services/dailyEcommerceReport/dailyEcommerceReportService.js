@@ -4,9 +4,9 @@
  * Daily Ecommerce Report orchestrator — five channels, each from its own
  * marketplace / website integration:
  *
- *   Amazon SP-API   → amazon_orders / amazon_order_items → Amazon UAE, Amazon KSA
- *   Noon statements → noon_payment_clearing_*            → Noon UAE, Noon KSA
- *   Website DB      → orders / cart_items                → Life Smile (web + app + shop)
+ *   Amazon SP-API      → amazon_orders / amazon_order_items → Amazon UAE, Amazon KSA
+ *   Noon Partner API   → noon_order_lines (OMS orders export) → Noon UAE, Noon KSA
+ *   Website DB         → orders / cart_items                → Life Smile (web + app + shop)
  *
  * No accounting system (invoices, ledgers, bookkeeping contacts) is read here,
  * and no channel falls back to one. A failing channel never blocks the others.
@@ -175,30 +175,35 @@ async function buildDailyEcommerceReport(opts = {}) {
         table: 'amazon_orders + amazon_order_items',
         status: amazonUae.integrationStatus,
         lastSyncedAt: amazonUae.lastSyncedAt,
+        reconciliation: amazonUae.reconciliation || null,
       },
       amazon_ksa: {
         api: 'Amazon SP-API Orders v0',
         table: 'amazon_orders + amazon_order_items',
         status: amazonKsa.integrationStatus,
         lastSyncedAt: amazonKsa.lastSyncedAt,
+        reconciliation: amazonKsa.reconciliation || null,
       },
       noon_uae: {
-        api: 'Noon partner settlement statements',
-        table: 'noon_payment_clearing_rows + noon_payment_clearing_batches',
+        api: 'Noon Partner API — OMS orders export (noon_noonoms_ordersexport)',
+        table: 'noon_order_lines (+ settled money from noon_payment_clearing_rows)',
         status: noonUae.integrationStatus,
-        statementCoverage: noonUae.statementCoverage || null,
+        lastSyncedAt: noonUae.lastSyncedAt,
+        reconciliation: noonUae.reconciliation || null,
       },
       noon_ksa: {
-        api: 'Noon partner settlement statements',
-        table: 'noon_payment_clearing_rows + noon_payment_clearing_batches',
+        api: 'Noon Partner API — OMS orders export (noon_noonoms_ordersexport)',
+        table: 'noon_order_lines (+ settled money from noon_payment_clearing_rows)',
         status: noonKsa.integrationStatus,
-        statementCoverage: noonKsa.statementCoverage || null,
+        lastSyncedAt: noonKsa.lastSyncedAt,
+        reconciliation: noonKsa.reconciliation || null,
       },
       life_smile: {
         api: 'Life Smile website platform (read-only orders database)',
         table: 'orders + cart_items',
         status: lifeSmile.integrationStatus,
         errorDetail: lifeSmile.errorDetail || null,
+        reconciliation: lifeSmile.reconciliation || null,
       },
       amazon_ads: { uae: amazonUaeAds.adsStatus, ksa: amazonKsaAds.adsStatus },
       meta_ads: metaAds.adsStatus,

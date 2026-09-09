@@ -63,20 +63,26 @@ interface ChannelReport {
   integrationStatus: IntegrationStatus
   adsStatus?: IntegrationStatus
   dataSource?: string
+  lastSyncedAt?: string | null
   orders: ReportOrder[]
   summary: {
     quantity: number | null
-    salesAmountAED: number
+    salesAmountAED: number | null
     adSpendAED: number | null
     clicks: number | null
     commissionAED: number | null
     shippingAED: number | null
     costPercentage: number | null
-    balanceAED: number
+    balanceAED: number | null
     tabbyTamaraCommissionAED?: number | null
     smilePointCouponAED?: number | null
   }
   warnings?: string[]
+}
+
+interface SyncOutcome {
+  status: string
+  message?: string
 }
 
 interface DailyReport {
@@ -117,9 +123,42 @@ function costCell(value: number | null | undefined) {
   return formatMoney(value)
 }
 
+/**
+ * Sales value the marketplace has not published yet (for example a Noon day that is not settled).
+ * Shown as Pending so it is never mistaken for zero sales.
+ */
+function amountCell(value: number | null | undefined) {
+  if (value == null) return naNode('Pending')
+  return formatMoney(value)
+}
+
+function pctCell(value: number | null | undefined) {
+  if (value == null) return naNode('Pending')
+  return formatPct(value)
+}
+
 function qtyCell(value: number | null | undefined) {
   if (value == null) return naNode('N/A')
   return formatInt(value)
+}
+
+/**
+ * When the channel's data was last read from its marketplace, in Dubai time.
+ *
+ * Every section is served from what the last integration run stored, so the age of that run is
+ * part of the figures: a section whose data is hours old must say so rather than look live.
+ */
+function syncedLabel(iso: string | null | undefined) {
+  if (!iso) return null
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return null
+  return d.toLocaleString('en-GB', {
+    timeZone: IANA_UAE,
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 function statusPlaceholder(channel: ChannelReport) {
@@ -170,9 +209,9 @@ function summaryRows(ch: ChannelReport): SummaryRow[] {
       { label: 'Tabby & Tamara Commission', node: costCell(s.tabbyTamaraCommissionAED ?? null) },
       { label: 'Smile Point & Coupon', node: formatMoney(s.smilePointCouponAED || 0) },
       { label: 'Website Shipping', node: costCell(s.shippingAED) },
-      { label: 'Website Cost %', node: formatPct(s.costPercentage) },
-      { label: 'Website Amount', node: formatMoney(s.salesAmountAED) },
-      { label: 'Website Balance', node: formatMoney(s.balanceAED), neg: (s.balanceAED || 0) < 0 },
+      { label: 'Website Cost %', node: pctCell(s.costPercentage) },
+      { label: 'Website Amount', node: amountCell(s.salesAmountAED) },
+      { label: 'Website Balance', node: amountCell(s.balanceAED), neg: (s.balanceAED || 0) < 0 },
     ]
   }
   const p = ch.family === 'amazon' ? 'Amazon' : 'Noon'
@@ -182,9 +221,9 @@ function summaryRows(ch: ChannelReport): SummaryRow[] {
     { label: `${p} Clicks`, node: adsCell(ads, s.clicks, 'int') },
     { label: `${p} Commission`, node: costCell(s.commissionAED) },
     { label: `${p} Shipping`, node: costCell(s.shippingAED) },
-    { label: `${p} Cost %`, node: formatPct(s.costPercentage) },
-    { label: `${p} Amount`, node: formatMoney(s.salesAmountAED) },
-    { label: `${p} Balance`, node: formatMoney(s.balanceAED), neg: (s.balanceAED || 0) < 0 },
+    { label: `${p} Cost %`, node: pctCell(s.costPercentage) },
+    { label: `${p} Amount`, node: amountCell(s.salesAmountAED) },
+    { label: `${p} Balance`, node: amountCell(s.balanceAED), neg: (s.balanceAED || 0) < 0 },
   ]
 }
 
@@ -198,6 +237,7 @@ export function DailyEcommerceReportPage() {
   const [exporting, setExporting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showNotes, setShowNotes] = useState(false)
+  const [syncIssues, setSyncIssues] = useState<string[]>([])
 
   const load = useCallback(async (ymd: string) => {
     setLoading(true)
@@ -221,14 +261,23 @@ export function DailyEcommerceReportPage() {
   const onRefresh = async () => {
     setRefreshing(true)
     setError(null)
+    setSyncIssues([])
     try {
       const data = await api.post('/api/reports/daily-ecommerce/refresh', { date })
-      const payload = data as { report?: DailyReport }
+      const payload = data as { report?: DailyReport; sync?: Record<string, SyncOutcome> }
+      // One integration failing during Refresh must not hide the ones that succeeded, so the
+      // failures are listed and the rest of the report is shown as returned.
+      setSyncIssues(
+        Object.entries(payload.sync || {})
+          .filter(([, v]) => v && v.status !== 'ok' && v.status !== 'skipped')
+          .map(([key, v]) => `${key}: ${v.status}${v.message ? ` — ${v.message}` : ''}`),
+      )
       if (payload.report) setReport(payload.report)
       else await load(date)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Refresh failed')
     } finally {
+      // Always released, whatever any provider did.
       setRefreshing(false)
     }
   }
@@ -320,6 +369,16 @@ export function DailyEcommerceReportPage() {
           {error}
         </div>
       )}
+      {syncIssues.length > 0 && (
+        <div className="der-banner der-banner--warn" role="status">
+          <strong>Refresh could not reach every integration:</strong>
+          <ul className="der-notes">
+            {syncIssues.map((issue) => (
+              <li key={issue}>{issue}</li>
+            ))}
+          </ul>
+        </div>
+      )}
       {report?.incomplete && (
         <div className="der-banner der-banner--warn" role="status">
           One or more order sources returned a Data Error. Advertising marked Not Configured does not
@@ -351,11 +410,19 @@ export function DailyEcommerceReportPage() {
           <table className="der-sheet">
             <thead>
               <tr>
-                {channels.map((ch) => (
-                  <th key={ch.channel} colSpan={3} className={`der-ch-head der-ch-head--${ch.channel}`}>
-                    {ch.label}
-                  </th>
-                ))}
+                {channels.map((ch) => {
+                  const synced = syncedLabel(ch.lastSyncedAt)
+                  return (
+                    <th key={ch.channel} colSpan={3} className={`der-ch-head der-ch-head--${ch.channel}`}>
+                      {ch.label}
+                      {synced && (
+                        <span className="der-ch-synced" title={ch.dataSource || undefined}>
+                          data as of {synced}
+                        </span>
+                      )}
+                    </th>
+                  )
+                })}
               </tr>
               <tr>
                 {channels.map((ch) => (

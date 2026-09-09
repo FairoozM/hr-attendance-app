@@ -27,6 +27,8 @@ const {
 const MAX_RANGE_MS = MAX_SYNC_RANGE_DAYS * 24 * 60 * 60 * 1000
 const MAX_ORDER_ITEMS_FETCH = MAX_ORDER_ITEMS_ENRICH_PER_SYNC
 const MS_BEFORE_NOW = SYNC_CREATED_BEFORE_BUFFER_MS
+/** Safety stop for NextToken paging: 100 orders per page, so this covers 5 000 orders per window. */
+const MAX_ORDER_PAGES = 50
 
 function iso8601Z(d) {
   if (typeof d === 'string') {
@@ -75,6 +77,14 @@ function extractOrdersFromPayload(data) {
   const pl = data.payload
   if (Array.isArray(pl.Orders)) return pl.Orders
   return []
+}
+
+function extractNextTokenFromPayload(data) {
+  if (!data || typeof data !== 'object' || data.payload == null) return null
+  const token = data.payload.NextToken
+  if (token == null) return null
+  const trimmed = String(token).trim()
+  return trimmed || null
 }
 
 function extractOrderItemsFromPayload(data) {
@@ -371,6 +381,44 @@ async function syncAmazonOrders(opts = {}) {
     }
 
     const orders = extractOrdersFromPayload(data)
+    let pagesFetched = 1
+    let nextToken = extractNextTokenFromPayload(data)
+    const seenTokens = new Set(nextToken ? [nextToken] : [])
+    let truncated = false
+
+    // Amazon returns at most MaxResultsPerPage orders per call. Without following NextToken a busy
+    // day silently loses every order after the first page.
+    while (nextToken) {
+      if (pagesFetched >= MAX_ORDER_PAGES) {
+        truncated = true
+        break
+      }
+      const pageRes = await getAmazonOrders({ marketplaceKey, NextToken: nextToken, ...(marketplaceId ? { MarketplaceIds: marketplaceId } : {}) })
+      apiCallsMade += 1
+      pagesFetched += 1
+      captureAmazonRequestId(pageRes)
+      lastSpApiRequestId = pageRes.amazonRequestId || lastSpApiRequestId
+      if (pageRes.status !== 200 || !pageRes.data || typeof pageRes.data !== 'object') {
+        const failDesc = describeAmazonSpApiFailure(pageRes, 'getOrders', marketplaceKey)
+        truncated = true
+        syncMetadata = {
+          ...syncMetadata,
+          ordersPageError: failDesc || { statusCode: pageRes.status, page: pagesFetched },
+        }
+        break
+      }
+      orders.push(...extractOrdersFromPayload(pageRes.data))
+      const following = extractNextTokenFromPayload(pageRes.data)
+      if (following && seenTokens.has(following)) {
+        truncated = true
+        syncMetadata = { ...syncMetadata, ordersPageError: { reason: 'repeated_next_token', page: pagesFetched } }
+        break
+      }
+      if (following) seenTokens.add(following)
+      nextToken = following
+    }
+
+    syncMetadata = { ...syncMetadata, ordersPagesFetched: pagesFetched, ordersPageTruncated: truncated }
     ordersFetched = orders.length
 
     for (let i = 0; i < orders.length; i += 1) {
@@ -444,6 +492,8 @@ async function syncAmazonOrders(opts = {}) {
       ordersSaved,
       orderItemsFetched,
       apiCallsMade,
+      pagesFetched: syncMetadata.ordersPagesFetched || 1,
+      truncated: Boolean(syncMetadata.ordersPageTruncated),
       skipped: false,
       message: 'Amazon orders sync completed',
     }

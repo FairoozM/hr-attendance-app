@@ -16,9 +16,8 @@ const {
   computeChannelFinancials,
   computeOverallTotals,
 } = require('../src/services/dailyEcommerceReport/formulas')
-const { CHANNELS } = require('../src/services/dailyEcommerceReport/channels')
+const { CHANNELS, buildChannelShell, channelMeta } = require('../src/services/dailyEcommerceReport/channels')
 const { formatAdsDisplay } = require('../src/services/dailyEcommerceReport/providers/amazonAdsProvider')
-const { parseStatementDate } = require('../src/services/dailyEcommerceReport/providers/noonOrdersProvider')
 const {
   buildDailyEcommerceReportXlsxBuffer,
   channelLines,
@@ -133,12 +132,28 @@ test('Amazon Ads display Not Configured rather than zero', () => {
   assert.equal(formatAdsDisplay('not_configured', 0), 'Not Configured')
 })
 
-test('Noon statement dates parse from M/D/YY and ISO', () => {
-  assert.equal(parseStatementDate('7/27/26'), '2026-07-27')
-  assert.equal(parseStatementDate('12/5/2026'), '2026-12-05')
-  assert.equal(parseStatementDate('2026-09-07'), '2026-09-07')
-  assert.equal(parseStatementDate(''), null)
-  assert.equal(parseStatementDate('not-a-date'), null)
+test('a channel that could not be read carries null money, never zero', () => {
+  const meta = channelMeta('noon_ksa')
+  for (const status of ['not_configured', 'unavailable', 'pending']) {
+    const shell = buildChannelShell(meta, status)
+    assert.equal(shell.summary.salesAmountAED, null, `${status} must not report zero sales`)
+    assert.equal(shell.summary.quantity, null)
+    assert.equal(shell.summary.balanceAED, null)
+    assert.equal(shell.summary.costPercentage, null)
+  }
+  const available = buildChannelShell(meta, 'available')
+  assert.equal(available.summary.salesAmountAED, 0)
+  assert.equal(available.summary.quantity, 0)
+})
+
+test('a channel with no readable money is left out of the totals instead of dragging them down', () => {
+  const t = computeOverallTotals([
+    { quantity: 20, salesAmountAED: 3391, adSpendAED: null, clicks: null, commissionAED: null, shippingAED: null },
+    { quantity: null, salesAmountAED: null, adSpendAED: null, clicks: null, commissionAED: null, shippingAED: null },
+  ])
+  assert.equal(t.salesAmountAED, 3391)
+  assert.equal(t.quantity, 20)
+  assert.equal(t.commissionAED, null)
 })
 
 test('channel order lines show status placeholders instead of fake zeros', () => {

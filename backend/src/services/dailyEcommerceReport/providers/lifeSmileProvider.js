@@ -6,10 +6,11 @@
  * Source chain: Life Smile website platform → its own orders database
  * (read-only connection, `LIFESMILE_WEBSITE_DATABASE_URL`) → report.
  *
- * `orders.shop_order` is the website platform's own channel flag: true means a
- * Burjman physical-shop sale, which is displayed with a " (SHOP)" suffix.
- * Website and app orders share the same online channel in the platform, so
- * they stay in one section without inventing a split the source does not have.
+ * Channel comes from the platform's own fields, never from a guess:
+ *   `orders.shop_order = true`  → Burjman physical-shop sale, shown with a " (SHOP)" suffix
+ *   `orders.user_agent = 'app'` → mobile app order
+ *   `orders.user_agent = 'web'` → website order
+ * All three appear in this one section, as they are one business channel.
  */
 
 const lifesmileWebsiteDb = require('../../../db/lifesmileWebsiteDb')
@@ -32,29 +33,43 @@ const EXCLUDED_STATUSES = new Set(['cancelled', 'returned'])
 
 const META = CHANNELS.find((c) => c.key === 'life_smile')
 
+/**
+ * One row per order line for the Dubai day.
+ *
+ * Two details matter for the money to be right:
+ *  - every money column on the website is PostgreSQL `real` (single precision), so each one is
+ *    cast to `numeric` and rounded in SQL. Reading `real` straight into JavaScript turns
+ *    AED 1,418.60 into 1418.6001;
+ *  - the join to `cart_items` is a LEFT JOIN. An order whose cart lines were removed still
+ *    happened and still has an amount, so it must stay in the report with its items flagged
+ *    rather than disappear from the totals.
+ */
 const ORDERS_SQL = `
 SELECT
   o.id,
   o.invoice_number,
   o.order_status,
-  o.total_amount,
-  o.discount_amount,
-  o.points_redeemed,
-  o.wallet_redeemed,
-  o.shipping_charge,
-  o.refund_amount,
+  ROUND(o.total_amount::numeric, 2) AS total_amount,
+  ROUND(o.sub_total::numeric, 2) AS sub_total,
+  ROUND(o.discount_amount::numeric, 2) AS discount_amount,
+  ROUND(o.points_redeemed::numeric, 2) AS points_redeemed,
+  ROUND(o.wallet_redeemed::numeric, 2) AS wallet_redeemed,
+  ROUND(o.shipping_charge::numeric, 2) AS shipping_charge,
+  ROUND(o.refund_amount::numeric, 2) AS refund_amount,
   o.payment_method,
+  o.tabby_payment_id,
+  o.tamara_order_id,
   o.shop_order,
   o.created_at,
   o.user_agent,
   ci.id AS cart_item_id,
   ci.quantity,
-  ci.total_amount AS line_amount,
+  ROUND(ci.total_amount::numeric, 2) AS line_amount,
   ci.is_cancelled AS item_cancelled,
   ci.is_returned AS item_returned,
   COALESCE(NULLIF(TRIM(pv.item_code), ''), NULLIF(TRIM(p.item_code), ''), '') AS item_code
 FROM orders o
-INNER JOIN cart_items ci
+LEFT JOIN cart_items ci
   ON ci.cart_id = o.cart_id
  AND ci.deleted_at IS NULL
 LEFT JOIN product_variants pv ON pv.id = ci.variant_id
@@ -63,7 +78,11 @@ WHERE o.deleted_at IS NULL
   AND o.created_at >= $1
   AND o.created_at < $2
 ORDER BY o.created_at ASC, o.id ASC, ci.id ASC
+LIMIT $3
 `
+
+/** A Dubai day of website orders is tens of rows; this only exists to bound a runaway query. */
+const MAX_ORDER_LINE_ROWS = 20000
 
 function bnplFeeRate() {
   const raw = process.env.WEBSITE_TABBY_TAMARA_FEE_PERCENT
@@ -97,7 +116,11 @@ async function loadLifeSmileChannel(bounds, ads) {
 
   let rows
   try {
-    const result = await lifesmileWebsiteDb.readQuery(ORDERS_SQL, [bounds.start, bounds.end])
+    const result = await lifesmileWebsiteDb.readQuery(ORDERS_SQL, [
+      bounds.start,
+      bounds.end,
+      MAX_ORDER_LINE_ROWS,
+    ])
     rows = result.rows || []
   } catch (err) {
     // Log the real technical error; the API also returns it so it is diagnosable
@@ -128,11 +151,17 @@ async function loadLifeSmileChannel(bounds, ads) {
     if (!INCLUDED_STATUSES.has(status)) continue
     const id = Number(row.id)
     if (!byId.has(id)) byId.set(id, { order: row, items: [] })
+    if (row.cart_item_id == null) continue
     if (row.item_cancelled === true) continue
     byId.get(id).items.push(row)
   }
 
   const warnings = []
+  if (rows.length >= MAX_ORDER_LINE_ROWS) {
+    warnings.push(
+      `Life Smile Website: the website returned the maximum ${MAX_ORDER_LINE_ROWS} order lines for this day, so the section may be incomplete`,
+    )
+  }
   const orders = []
   let quantity = 0
   let salesAmountAED = 0
@@ -140,6 +169,10 @@ async function loadLifeSmileChannel(bounds, ads) {
   let shippingAED = 0
   let tabbyBase = 0
   let missingSku = 0
+  let unknownChannel = 0
+  let ordersWithoutLines = 0
+  /** @type {Record<string, number>} */
+  const channelCounts = {}
 
   for (const { order, items } of byId.values()) {
     const status = String(order.order_status || '')
@@ -165,7 +198,10 @@ async function loadLifeSmileChannel(bounds, ads) {
         lineAmount: lineAmount != null ? round2(lineAmount) : undefined,
       })
     }
-    if (lineItems.length === 0) lineItems.push({ sku: '(no line items)', quantity: 0 })
+    if (lineItems.length === 0) {
+      ordersWithoutLines += 1
+      lineItems.push({ sku: '(no line items)', quantity: 0 })
+    }
 
     const discount = toFiniteNumber(order.discount_amount, 0)
     const points = toFiniteNumber(order.points_redeemed, 0)
@@ -181,6 +217,10 @@ async function loadLifeSmileChannel(bounds, ads) {
         : String(order.id)
     const isShop = order.shop_order === true
     const orderNumber = isShop ? `${baseNumber} (SHOP)` : baseNumber
+    const userAgent = String(order.user_agent || '').trim().toLowerCase()
+    const sourceChannel = isShop ? 'shop' : userAgent === 'app' ? 'app' : userAgent === 'web' ? 'web' : 'unknown'
+    if (sourceChannel === 'unknown') unknownChannel += 1
+    channelCounts[sourceChannel] = (channelCounts[sourceChannel] || 0) + 1
 
     quantity += lineQty
     salesAmountAED += amount
@@ -195,14 +235,29 @@ async function loadLifeSmileChannel(bounds, ads) {
       originalCurrency: 'AED',
       amountAED: round2(amount),
       isShop,
+      sourceChannel,
       paymentMethod: pm || undefined,
       discountAED: discount || undefined,
       smilePointsAED: points || undefined,
+      shippingChargeAED: round2(toFiniteNumber(order.shipping_charge, 0)) || undefined,
+      refundAED: refund || undefined,
+      paymentReference:
+        String(order.tabby_payment_id || order.tamara_order_id || '').trim() || undefined,
     })
   }
 
   if (missingSku > 0) {
     warnings.push(`Life Smile Website: ${missingSku} line(s) missing item code/SKU`)
+  }
+  if (ordersWithoutLines > 0) {
+    warnings.push(
+      `Life Smile Website: ${ordersWithoutLines} order(s) have no remaining cart line on the website, so they are listed with their order amount but no item code`,
+    )
+  }
+  if (unknownChannel > 0) {
+    warnings.push(
+      `Life Smile Website: ${unknownChannel} order(s) carry no website/app channel flag, so they are counted as online without a source label`,
+    )
   }
 
   const feeRate = bnplFeeRate()
@@ -237,6 +292,11 @@ async function loadLifeSmileChannel(bounds, ads) {
     adsProvider: ads.adsProvider,
     adsMetricLabel: ads.adsMetricLabel || 'link_clicks',
     warnings,
+    reconciliation: {
+      rawRows: rows.length,
+      includedOrders: orders.length,
+      ordersByChannel: channelCounts,
+    },
     summary: {
       quantity,
       salesAmountAED,

@@ -81,9 +81,9 @@ function summarySpecs(channel) {
       ['Tabby & Tamara Commission', pendingOrNumber(s.tabbyTamaraCommissionAED), 'money'],
       ['Smile Point & Coupon', s.smilePointCouponAED || 0, 'money'],
       ['Website Shipping', pendingOrNumber(s.shippingAED), 'money'],
-      ['Website Cost %', s.costPercentage, 'pct'],
-      ['Website Amount', s.salesAmountAED || 0, 'money'],
-      ['Website Balance', s.balanceAED || 0, 'money'],
+      ['Website Cost %', pendingOrNumber(s.costPercentage), 'pct'],
+      ['Website Amount', pendingOrNumber(s.salesAmountAED), 'money'],
+      ['Website Balance', pendingOrNumber(s.balanceAED), 'money'],
     ]
   }
   const prefix = channel.family === 'amazon' ? 'Amazon' : 'Noon'
@@ -93,9 +93,9 @@ function summarySpecs(channel) {
     [`${prefix} Clicks`, naAds(ads, s.clicks), 'raw'],
     [`${prefix} Commission`, pendingOrNumber(s.commissionAED), 'money'],
     [`${prefix} Shipping`, pendingOrNumber(s.shippingAED), 'money'],
-    [`${prefix} Cost %`, s.costPercentage, 'pct'],
-    [`${prefix} Amount`, s.salesAmountAED || 0, 'money'],
-    [`${prefix} Balance`, s.balanceAED || 0, 'money'],
+    [`${prefix} Cost %`, pendingOrNumber(s.costPercentage), 'pct'],
+    [`${prefix} Amount`, pendingOrNumber(s.salesAmountAED), 'money'],
+    [`${prefix} Balance`, pendingOrNumber(s.balanceAED), 'money'],
   ]
 }
 
@@ -240,6 +240,13 @@ async function buildDailyEcommerceReportXlsxBuffer(report) {
   notes.push(
     'Note: FB/Instagram Ads are Not Configured — no Meta Marketing API integration exists in this application.',
   )
+  // Each section is served from stored integration data, so the export states how old each one is.
+  for (const ch of channels) {
+    notes.push(
+      `Data source — ${ch.label}: ${ch.dataSource || 'n/a'}, read ${ch.lastSyncedAt || 'never'}`,
+    )
+  }
+  for (const warning of report.warnings || []) notes.push(`Note: ${warning}`)
   for (const note of notes) {
     row += 1
     ws.mergeCells(row, 1, row, totalCols)

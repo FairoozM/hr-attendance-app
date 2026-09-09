@@ -128,6 +128,15 @@
   color: #0f172a;
 }
 
+.der-ch-synced {
+  display: block;
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: #1f2937;
+  opacity: 0.75;
+}
+
 .der-ch-head--amazon_uae { background: #93c5fd; }
 .der-ch-head--amazon_ksa { background: #a5b4fc; }
 .der-ch-head--noon_uae { background: #fcd34d; }

@@ -3,113 +3,146 @@
 /**
  * Noon UAE / KSA orders for the Daily Ecommerce Report.
  *
- * Source chain: Noon partner settlement statements → `noon_payment_clearing_*`
- * (Noon-issued statement rows, parsed by `noonStatementParserService`) → report.
+ * Source chain: Noon Partner API OMS orders export (`noon_noonoms_ordersexport` via
+ * `/impex/v1/export/*`) → `noon_order_lines` → report. UAE vs KSA comes from Noon's own
+ * `market_place_country_code`, and inclusion is decided by `order_placed_at`, the Noon order
+ * timestamp, converted from UTC to the Dubai day boundaries of the report date.
  *
- * The Noon Partner API in this application exposes catalog, pricing and stock
- * only — it has no order feed — so per-order data comes from Noon's own
- * settlement statements. Statements are published per period, so a date that
- * Noon has not settled yet is reported as `pending`, never as zero orders.
- *
- * UAE vs KSA uses `noon_payment_clearing_batches.marketplace`, which is set
- * from the Noon contract on the statement.
+ * Money is a separate Noon feed. The OMS orders export carries no money at all, so per-order
+ * proceeds and fees come from Noon's finance item-level transaction report
+ * (`noon_financeweb_transactionviewreportonitemlevel` → `noon_order_finance_rows`), with
+ * already-imported Noon settlement statements (`noon_payment_clearing_rows`) as a second
+ * Noon-issued source for older orders. Both are matched by Noon order number rather than by a
+ * printed date, because Noon prints statement dates in mixed formats. Noon writes an order into
+ * the finance report only when it settles it, so orders it has not settled yet are listed in full
+ * with their amount marked Pending, never zero.
  */
 
 const { query } = require('../../../db')
 const { computeChannelFinancials } = require('../formulas')
 const { round2, toAed, toFiniteNumber } = require('../money')
 const { buildChannelShell, channelMeta } = require('../channels')
+const noonStore = require('../../noon/noonOrdersStore')
+const { ORDERS_EXPORT_CATEGORY } = require('../../noon/noonOrdersExportService')
+const { readNoonConfig } = require('../../noon/noonConfig')
 
-const ORDER_TRANSACTION_TYPES = ['order', 'order_update']
+const SETTLED_TRANSACTION_TYPES = ['order', 'order_update']
+const CANCELLED_ITEM_STATUSES = new Set(['cancelled', 'canceled', 'killed', 'failed'])
 
-function marketplaceCodesFor(channelKey) {
-  return channelKey === 'noon_ksa' ? ['SA', 'KSA'] : ['AE', 'UAE']
+function countryCodeFor(channelKey) {
+  return channelKey === 'noon_ksa' ? 'SA' : 'AE'
 }
 
 /**
- * Noon statements print order dates as M/D/YY (e.g. 7/27/26).
- * @param {string} raw
- * @returns {string|null} YYYY-MM-DD
+ * Settled Noon money for the given order numbers, keyed by order number.
+ *
+ * Matching on the Noon order number avoids the printed statement date entirely: Noon statements
+ * mix `M/D/YY` and `DD/MM/YYYY` in different batches, so any date-based match silently mixes up
+ * days (for example `09/08/2026` is 9 August, not 8 September).
+ *
+ * Noon's finance API report wins over an imported statement for the same order, so a re-imported
+ * statement can never double-count.
  */
-function parseStatementDate(raw) {
-  const s = String(raw || '').trim()
-  if (!s) return null
-  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/)
-  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`
-  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/)
-  if (!m) return null
-  const month = Number(m[1])
-  const day = Number(m[2])
-  let year = Number(m[3])
-  if (year < 100) year += 2000
-  if (!month || !day || month > 12 || day > 31) return null
-  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+async function loadSettledMoney(orderNumbers, fallbackCurrency, fx) {
+  /** @type {Map<string, { amount: number, commission: number, shipping: number, currency: string, source: string }>} */
+  const map = new Map()
+  if (!orderNumbers.length) return map
+
+  const financeRows = await noonStore.selectNoonFinanceByOrders(orderNumbers)
+  for (const row of financeRows) {
+    const orderNr = String(row.order_nr || '').trim()
+    if (!orderNr) continue
+    const currency = String(row.currency || fallbackCurrency)
+    map.set(orderNr, {
+      amount: toAed(Math.abs(toFiniteNumber(row.net_proceeds, 0)), currency, fx),
+      commission: toAed(Math.abs(toFiniteNumber(row.referral_fee, 0)), currency, fx),
+      shipping: toAed(Math.abs(toFiniteNumber(row.logistics, 0)), currency, fx),
+      currency,
+      source: 'noon_finance_transaction_report',
+    })
+  }
+
+  const res = await query(
+    `SELECT r.order_nr,
+            SUM(COALESCE(r.net_proceed, 0))::numeric AS net_proceed,
+            SUM(COALESCE(r.referral_fee, 0))::numeric AS referral_fee,
+            SUM(COALESCE(r.fulfillment_fee, 0) + COALESCE(r.shipping_charges, 0))::numeric AS logistics,
+            MAX(r.currency) AS currency
+     FROM noon_payment_clearing_rows r
+     WHERE r.order_nr = ANY($1::text[])
+       AND r.transaction_type = ANY($2::text[])
+     GROUP BY r.order_nr`,
+    [orderNumbers, SETTLED_TRANSACTION_TYPES],
+  )
+  for (const row of res.rows || []) {
+    const orderNr = String(row.order_nr || '').trim()
+    if (!orderNr || map.has(orderNr)) continue
+    const currency = String(row.currency || fallbackCurrency)
+    map.set(orderNr, {
+      amount: toAed(Math.abs(toFiniteNumber(row.net_proceed, 0)), currency, fx),
+      commission: toAed(Math.abs(toFiniteNumber(row.referral_fee, 0)), currency, fx),
+      shipping: toAed(Math.abs(toFiniteNumber(row.logistics, 0)), currency, fx),
+      currency,
+      source: 'noon_settlement_statement',
+    })
+  }
+  return map
 }
 
-async function loadStatementRows(marketplaceCodes) {
+/** `Z…Z-1` in the orders export is Noon's psku plus a variant index. */
+function noonPskuOf(noonSku) {
+  const s = String(noonSku || '').trim()
+  if (!s) return null
+  return s.replace(/-\d+$/, '')
+}
+
+/**
+ * Our own item codes for the Noon pskus on these order lines, where the Noon catalog knows them.
+ *
+ * The OMS orders export identifies items by Noon psku only. The Noon catalog snapshots this app
+ * syncs from the Noon catalog API carry the partner SKU and print the psku inside the Noon CDN
+ * image path, which is the only place the two identifiers meet. Unmapped items keep the Noon psku
+ * rather than showing a blank or invented code.
+ */
+async function loadPartnerSkus(noonSkus) {
+  const map = new Map()
+  const unique = [...new Set(noonSkus.map(noonPskuOf).filter(Boolean))]
+  if (!unique.length) return map
   const res = await query(
-    `SELECT
-       r.order_nr,
-       r.item_nr,
-       r.parent_order_id,
-       r.item_order_id,
-       r.sku,
-       r.partner_sku,
-       r.transaction_type,
-       r.net_proceed,
-       r.referral_fee,
-       r.fulfillment_fee,
-       r.shipping_charges,
-       r.total,
-       r.currency,
-       r.raw_row,
-       b.marketplace,
-       b.created_at AS batch_created_at
-     FROM noon_payment_clearing_rows r
-     INNER JOIN noon_payment_clearing_batches b ON b.id = r.batch_id
-     WHERE UPPER(COALESCE(b.marketplace, '')) = ANY($1::text[])
-       AND r.transaction_type = ANY($2::text[])`,
-    [marketplaceCodes, ORDER_TRANSACTION_TYPES],
+    `SELECT (regexp_match(COALESCE(image_url, ''), 'pzsku/(Z[0-9A-Z]+Z)'))[1] AS psku,
+            MAX(partner_sku) AS partner_sku
+     FROM noon_product_snapshots
+     WHERE (regexp_match(COALESCE(image_url, ''), 'pzsku/(Z[0-9A-Z]+Z)'))[1] = ANY($1::text[])
+     GROUP BY 1`,
+    [unique],
   )
-  return res.rows || []
+  for (const row of res.rows || []) {
+    const partner = String(row.partner_sku || '').trim()
+    if (row.psku && partner) map.set(String(row.psku), partner)
+  }
+  return map
 }
 
 /**
  * @param {'noon_uae'|'noon_ksa'} channelKey
- * @param {{ dateYmd: string }} bounds
+ * @param {{ start: Date, end: Date, dateYmd: string }} bounds
  * @param {{ rate: number }} fx
  * @param {{ adSpendAED: number|null, clicks: number|null, adsStatus: string, adsProvider: string|null }} ads
  */
 async function loadNoonChannel(channelKey, bounds, fx, ads) {
   const meta = channelMeta(channelKey)
+  const countryCode = countryCodeFor(channelKey)
   const adsSummary = { adSpendAED: ads.adSpendAED, clicks: ads.clicks }
+  const dataSource = 'noon_partner_api_oms_orders_export'
 
-  let rows
-  try {
-    rows = await loadStatementRows(marketplaceCodesFor(channelKey))
-  } catch (err) {
-    const message = err && err.message ? err.message : String(err)
-    console.error(`[dailyEcommerceReport] ${meta.label} Noon statement query failed:`, err)
-    return buildChannelShell(meta, 'unavailable', {
-      dataSource: 'noon_partner_settlement_statements',
-      warnings: [`${meta.label}: Data Error — ${message}`],
-      adsStatus: ads.adsStatus,
-      adsProvider: ads.adsProvider,
-      summary: {
-        ...buildChannelShell(meta, 'unavailable').summary,
-        ...adsSummary,
-        commissionAED: null,
-        shippingAED: null,
-      },
-    })
-  }
-
-  if (!rows.length) {
+  const noonConfig = readNoonConfig()
+  if (!noonConfig.configured) {
+    const detail = noonConfig.enabled
+      ? `Noon API configuration is incomplete (${noonConfig.missing.join(', ') || 'unknown'})`
+      : 'Noon API integration is disabled (NOON_API_ENABLED)'
     return buildChannelShell(meta, 'not_configured', {
-      dataSource: 'noon_partner_settlement_statements',
-      warnings: [
-        `${meta.label}: no Noon settlement statement has been imported for this Noon account, and the Noon Partner API in this application has no order feed (catalog, pricing and stock only)`,
-      ],
+      dataSource,
+      warnings: [`${meta.label}: ${detail}`],
       adsStatus: ads.adsStatus,
       adsProvider: ads.adsProvider,
       summary: {
@@ -122,131 +155,249 @@ async function loadNoonChannel(channelKey, bounds, fx, ads) {
     })
   }
 
-  const dated = []
-  let coverageStart = null
-  let coverageEnd = null
-  for (const row of rows) {
-    const ymd = parseStatementDate(row.raw_row?.['order-date'] || row.raw_row?.orderDate)
-    if (!ymd) continue
-    if (!coverageStart || ymd < coverageStart) coverageStart = ymd
-    if (!coverageEnd || ymd > coverageEnd) coverageEnd = ymd
-    dated.push({ ...row, orderYmd: ymd })
-  }
-
-  const dayRows = dated.filter((r) => r.orderYmd === bounds.dateYmd)
-
-  if (!dayRows.length && (!coverageEnd || bounds.dateYmd > coverageEnd)) {
-    return buildChannelShell(meta, 'pending', {
-      dataSource: 'noon_partner_settlement_statements',
-      warnings: [
-        `${meta.label}: Noon has not published a settlement statement covering ${bounds.dateYmd} yet (latest Noon statement covers order dates up to ${coverageEnd || 'n/a'}). Noon has no order API in this application, so this date is Pending rather than zero.`,
-      ],
+  let lines
+  let lastRun
+  let linesByCountry
+  try {
+    await noonStore.ensureNoonOrderTables()
+    lines = await noonStore.selectNoonOrderLines({
+      start: bounds.start,
+      end: bounds.end,
+      countryCode,
+    })
+    lastRun = await noonStore.selectLastSuccessfulRun(ORDERS_EXPORT_CATEGORY)
+    linesByCountry = await noonStore.countLinesByCountry()
+  } catch (err) {
+    const message = err && err.message ? err.message : String(err)
+    console.error(`[dailyEcommerceReport] ${meta.label} Noon order cache read failed:`, err)
+    return buildChannelShell(meta, 'unavailable', {
+      dataSource,
+      warnings: [`${meta.label}: Data Error — ${message}`],
+      errorDetail: message,
       adsStatus: ads.adsStatus,
       adsProvider: ads.adsProvider,
-      statementCoverage: { start: coverageStart, end: coverageEnd },
       summary: {
-        ...buildChannelShell(meta, 'pending').summary,
+        ...buildChannelShell(meta, 'unavailable').summary,
         ...adsSummary,
-        quantity: null,
         commissionAED: null,
         shippingAED: null,
       },
     })
   }
 
-  /** @type {Map<string, { items: object[], amount: number, commission: number, shipping: number }>} */
-  const byOrder = new Map()
-  const warnings = []
-  let missingSku = 0
-
-  for (const row of dayRows) {
-    const orderNumber =
-      String(row.parent_order_id || row.order_nr || '').trim() || String(row.item_order_id || '').trim()
-    if (!orderNumber) continue
-    if (!byOrder.has(orderNumber)) {
-      byOrder.set(orderNumber, { items: [], amount: 0, commission: 0, shipping: 0 })
+  if (!lines.length) {
+    // Nothing cached for this Noon country and day. Three different situations, three different
+    // messages: the export has never run, this partner account has no store in that country at
+    // all, or Noon genuinely had no order there on this date.
+    const neverSynced = !lastRun
+    const countryEverSeen = (linesByCountry?.get(countryCode) || 0) > 0
+    if (!neverSynced && !countryEverSeen) {
+      return buildChannelShell(meta, 'not_configured', {
+        dataSource,
+        lastSyncedAt: lastRun?.finished_at ? new Date(lastRun.finished_at).toISOString() : null,
+        warnings: [
+          `${meta.label}: this Noon partner account (project ${noonConfig.projectCode || 'n/a'}) has no ${countryCode} marketplace contract — every order the Noon orders export returns is ${[...(linesByCountry?.keys() || [])].join(', ') || 'none'}`,
+        ],
+        adsStatus: ads.adsStatus,
+        adsProvider: ads.adsProvider,
+        summary: {
+          ...buildChannelShell(meta, 'not_configured').summary,
+          ...adsSummary,
+          quantity: null,
+          commissionAED: null,
+          shippingAED: null,
+        },
+      })
     }
-    const bucket = byOrder.get(orderNumber)
-    const currency = String(row.currency || meta.currency)
-    const sku = String(row.partner_sku || row.sku || '').trim()
-    if (!sku) missingSku += 1
-    bucket.items.push({
-      sku: sku || '(not in Noon statement)',
-      quantity: null,
-      itemOrderId: row.item_order_id || row.item_nr || null,
+    const warning = neverSynced
+      ? `${meta.label}: no Noon orders export has been run yet for this account — press Refresh to pull ${bounds.dateYmd} from the Noon API`
+      : `${meta.label}: the Noon orders export returned no ${countryCode} order for ${bounds.dateYmd} (last export ${lastRun.finished_at ? new Date(lastRun.finished_at).toISOString() : 'n/a'} covered ${lastRun.from_date} → ${lastRun.to_date})`
+    return buildChannelShell(meta, neverSynced ? 'pending' : 'available', {
+      dataSource,
+      lastSyncedAt: lastRun?.finished_at ? new Date(lastRun.finished_at).toISOString() : null,
+      warnings: [warning],
+      adsStatus: ads.adsStatus,
+      adsProvider: ads.adsProvider,
+      reconciliation: {
+        rawApiLines: 0,
+        uniqueOrderIds: 0,
+        includedOrders: 0,
+        cancelledLines: 0,
+        settledOrders: 0,
+      },
+      summary: {
+        ...buildChannelShell(meta, neverSynced ? 'pending' : 'available').summary,
+        ...adsSummary,
+        quantity: neverSynced ? null : 0,
+        commissionAED: neverSynced ? null : 0,
+        shippingAED: neverSynced ? null : 0,
+      },
     })
-    bucket.amount += toAed(Math.abs(toFiniteNumber(row.net_proceed, 0)), currency, fx)
-    bucket.commission += toAed(Math.abs(toFiniteNumber(row.referral_fee, 0)), currency, fx)
-    bucket.shipping += toAed(
-      Math.abs(toFiniteNumber(row.shipping_charges, 0)) + Math.abs(toFiniteNumber(row.fulfillment_fee, 0)),
-      currency,
-      fx,
+  }
+
+  let partnerSkus = new Map()
+  try {
+    partnerSkus = await loadPartnerSkus(lines.map((l) => l.noon_sku))
+  } catch (err) {
+    // A missing catalog mapping only changes the item code shown, never an amount.
+    console.warn(
+      `[dailyEcommerceReport] ${meta.label} Noon partner SKU lookup skipped:`,
+      err && err.message ? err.message : err,
     )
   }
 
-  const orders = []
-  let salesAmountAED = 0
-  let commissionAED = 0
-  let shippingAED = 0
-  for (const [orderNumber, bucket] of byOrder.entries()) {
-    salesAmountAED += bucket.amount
-    commissionAED += bucket.commission
-    shippingAED += bucket.shipping
-    orders.push({
-      orderId: orderNumber,
-      orderNumber,
-      orderDate: `${bounds.dateYmd}T00:00:00.000+04:00`,
-      items: bucket.items,
-      amountAED: round2(bucket.amount),
-      commissionAED: round2(bucket.commission),
-      shippingAED: round2(bucket.shipping),
-      feesSource: 'noon_partner_settlement_statements',
+  /** @type {Map<string, { items: object[], statuses: Set<string>, placedAt: Date|null, cancelled: number }>} */
+  const byOrder = new Map()
+  let cancelledLines = 0
+  for (const line of lines) {
+    const orderNr = String(line.order_nr || '').trim()
+    if (!orderNr) continue
+    const status = String(line.item_status || '').trim().toLowerCase()
+    if (CANCELLED_ITEM_STATUSES.has(status)) {
+      cancelledLines += 1
+      continue
+    }
+    if (!byOrder.has(orderNr)) {
+      byOrder.set(orderNr, {
+        items: [],
+        statuses: new Set(),
+        placedAt: line.order_placed_at ? new Date(line.order_placed_at) : null,
+        cancelled: 0,
+      })
+    }
+    const bucket = byOrder.get(orderNr)
+    bucket.statuses.add(status || 'unknown')
+    // Noon issues one item number per unit, so each cached line is one unit of one SKU.
+    const noonSku = String(line.noon_sku || '').trim()
+    const mappedSku =
+      String(line.partner_sku || '').trim() ||
+      partnerSkus.get(noonPskuOf(noonSku)) ||
+      noonSku
+    bucket.items.push({
+      sku: mappedSku || '(no SKU in Noon export)',
+      noonSku: noonSku || null,
+      quantity: 1,
+      itemOrderId: line.item_nr || null,
+      status: status || null,
     })
   }
 
-  if (missingSku > 0) {
-    warnings.push(`${meta.label}: ${missingSku} settled line(s) carry no SKU in the Noon statement`)
+  const orderNumbers = [...byOrder.keys()]
+  let settled = new Map()
+  let settlementFailed = false
+  try {
+    settled = await loadSettledMoney(orderNumbers, meta.currency, fx)
+  } catch (err) {
+    settlementFailed = true
+    console.error(`[dailyEcommerceReport] ${meta.label} Noon settlement lookup failed:`, err)
   }
-  warnings.push(
-    `${meta.label}: Noon settlement statements do not include a unit quantity column, so Qty is shown as N/A`,
-  )
 
-  salesAmountAED = round2(salesAmountAED)
-  commissionAED = round2(commissionAED)
-  shippingAED = round2(shippingAED)
+  const warnings = []
+  const orders = []
+  let quantity = 0
+  let salesAmountAED = 0
+  let commissionKnown = 0
+  let shippingKnown = 0
+  let settledOrders = 0
+
+  for (const [orderNr, bucket] of byOrder.entries()) {
+    // Collapse repeated units of one SKU into a single line with its real quantity.
+    const bySku = new Map()
+    for (const item of bucket.items) {
+      if (!bySku.has(item.sku)) bySku.set(item.sku, { sku: item.sku, quantity: 0, status: item.status })
+      bySku.get(item.sku).quantity += item.quantity
+    }
+    const items = [...bySku.values()]
+    const orderQty = items.reduce((acc, i) => acc + i.quantity, 0)
+    quantity += orderQty
+
+    const money = settled.get(orderNr) || null
+    if (money) {
+      settledOrders += 1
+      salesAmountAED += money.amount
+      commissionKnown += money.commission
+      shippingKnown += money.shipping
+    }
+
+    orders.push({
+      orderId: orderNr,
+      orderNumber: orderNr,
+      orderDate: bucket.placedAt ? bucket.placedAt.toISOString() : null,
+      status: [...bucket.statuses].join(', '),
+      items,
+      amountAED: money ? round2(money.amount) : null,
+      commissionAED: money ? round2(money.commission) : null,
+      shippingAED: money ? round2(money.shipping) : null,
+      amountSource: money ? money.source : 'pending_noon_settlement',
+      feesSource: money ? money.source : null,
+    })
+  }
+
+  orders.sort((a, b) => String(a.orderDate).localeCompare(String(b.orderDate)))
+
+  const unsettled = orders.length - settledOrders
+  if (settlementFailed) {
+    warnings.push(
+      `${meta.label}: Noon settlement lookup failed, so amounts and fees are Pending for every order on this date`,
+    )
+  } else if (unsettled > 0) {
+    warnings.push(
+      `${meta.label}: Noon has not settled ${unsettled} of ${orders.length} order(s) for ${bounds.dateYmd}. Noon publishes per-order proceeds and fees only in its settlement report, so those orders show Pending instead of an amount.`,
+    )
+  }
+  if (cancelledLines > 0) {
+    warnings.push(`${meta.label}: ${cancelledLines} cancelled Noon item line(s) excluded`)
+  }
+
+  const anySettled = !settlementFailed && settledOrders > 0
+  const salesTotal = round2(salesAmountAED)
+  const commissionAED = anySettled ? round2(commissionKnown) : null
+  const shippingAED = anySettled ? round2(shippingKnown) : null
 
   const financials = computeChannelFinancials({
-    salesAmountAED,
+    salesAmountAED: salesTotal,
     adSpendAED: ads.adSpendAED,
     commissionAED,
     shippingAED,
   })
 
+  const lastSyncedAt = lines.reduce((acc, l) => {
+    const t = l.last_synced_at ? new Date(l.last_synced_at).getTime() : 0
+    return t > acc ? t : acc
+  }, 0)
+
   return buildChannelShell(meta, 'available', {
-    dataSource: 'noon_partner_settlement_statements',
-    lastSyncedAt: dayRows[0]?.batch_created_at
-      ? new Date(dayRows[0].batch_created_at).toISOString()
-      : null,
+    dataSource,
+    lastSyncedAt: lastSyncedAt ? new Date(lastSyncedAt).toISOString() : null,
     orders,
     adsStatus: ads.adsStatus,
     adsProvider: ads.adsProvider,
-    statementCoverage: { start: coverageStart, end: coverageEnd },
     warnings,
+    reconciliation: {
+      rawApiLines: lines.length,
+      uniqueOrderIds: new Set(lines.map((l) => String(l.order_nr))).size,
+      includedOrders: orders.length,
+      cancelledLines,
+      settledOrders,
+    },
     summary: {
-      quantity: null,
-      salesAmountAED,
+      quantity,
+      salesAmountAED: anySettled ? salesTotal : null,
       adSpendAED: ads.adSpendAED,
       clicks: ads.clicks,
       commissionAED,
       shippingAED,
-      costPercentage: financials.costPercentage,
-      balanceAED: financials.balanceAED,
+      costPercentage: anySettled ? financials.costPercentage : null,
+      balanceAED: anySettled ? financials.balanceAED : null,
     },
   })
 }
 
 module.exports = {
   loadNoonChannel,
-  parseStatementDate,
-  ORDER_TRANSACTION_TYPES,
+  loadSettledMoney,
+  loadPartnerSkus,
+  noonPskuOf,
+  countryCodeFor,
+  CANCELLED_ITEM_STATUSES,
 }

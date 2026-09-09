@@ -575,6 +575,19 @@ async function getAmazonOrders(params = {}) {
     createdBefore = iso8601Z(String(createdBefore).trim());
   }
 
+  // `NextToken` is exclusive of every other filter: Amazon rejects a paged request that also
+  // repeats the original date window, so a continuation carries the token and nothing else.
+  const nextToken = p.NextToken != null ? String(p.NextToken).trim() : '';
+  if (nextToken) {
+    return callAmazonSpApi(ORDERS_PATH, {
+      marketplaceKey: mk,
+      method: 'GET',
+      params: { MarketplaceIds: marketplaceIdParams, NextToken: nextToken },
+      paramsSerializer: { indexes: null },
+      amazonOperation: 'getOrders',
+    });
+  }
+
   const queryParams = {
     MarketplaceIds: marketplaceIdParams,
     CreatedAfter: createdAfter,
@@ -594,7 +607,12 @@ async function getAmazonOrders(params = {}) {
   });
 }
 
-/** Whitelist only non-PII catalog / fulfillment fields (excludes buyer, tax address, gift message, etc.). */
+/**
+ * Whitelist only non-PII catalog / fulfillment fields (excludes buyer, tax address, gift message, etc.).
+ *
+ * The money fields are the complete Amazon-reported breakdown of a line, so an order total can be
+ * rebuilt from its items when `OrderTotal` is absent (Amazon withholds it while an order is Pending).
+ */
 const SAFE_ORDER_ITEM_KEYS = [
   'ASIN',
   'SellerSKU',
@@ -602,7 +620,13 @@ const SAFE_ORDER_ITEM_KEYS = [
   'QuantityOrdered',
   'QuantityShipped',
   'ItemPrice',
+  'ItemTax',
+  'ShippingPrice',
+  'ShippingTax',
+  'ShippingDiscount',
+  'ShippingDiscountTax',
   'PromotionDiscount',
+  'PromotionDiscountTax',
   'IsGift',
   'ConditionId',
 ];

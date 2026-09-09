@@ -23,6 +23,59 @@ const { buildChannelShell, channelMeta } = require('../channels')
 const EXCLUDED_STATUSES = new Set(['canceled', 'cancelled'])
 const FEE_CATEGORIES = ['Commission', 'FBA / Fulfillment Fee']
 
+/** Amazon-reported line components that add to what the customer pays. */
+const ITEM_CHARGE_KEYS = ['ItemPrice', 'ItemTax', 'ShippingPrice', 'ShippingTax']
+/** Amazon-reported line components that reduce it. */
+const ITEM_CREDIT_KEYS = [
+  'PromotionDiscount',
+  'PromotionDiscountTax',
+  'ShippingDiscount',
+  'ShippingDiscountTax',
+]
+
+function moneyAmount(node) {
+  if (!node || typeof node !== 'object') return null
+  const raw = node.Amount
+  if (raw == null || raw === '') return null
+  const n = typeof raw === 'string' ? Number(raw.replace(/,/g, '')) : Number(raw)
+  return Number.isFinite(n) ? n : null
+}
+
+/**
+ * Rebuild one order's customer-paid value from its Amazon line items.
+ *
+ * `ItemPrice.Amount` is already the extended line total (unit price × quantity), so it is never
+ * multiplied by quantity again. Returns null when Amazon reported no money on any line, which is
+ * what happens while an order is Pending — that is unknown, not zero.
+ *
+ * @param {object[]} itemRows
+ * @returns {{ amount: number, currency: string|null }|null}
+ */
+function deriveOrderAmountFromItems(itemRows) {
+  let total = 0
+  let currency = null
+  let sawMoney = false
+  for (const row of itemRows) {
+    const raw = row.raw_safe_json && typeof row.raw_safe_json === 'object' ? row.raw_safe_json : {}
+    for (const key of ITEM_CHARGE_KEYS) {
+      const value = moneyAmount(raw[key])
+      if (value == null) continue
+      sawMoney = true
+      total += value
+      if (!currency && raw[key].CurrencyCode) currency = String(raw[key].CurrencyCode)
+    }
+    for (const key of ITEM_CREDIT_KEYS) {
+      const value = moneyAmount(raw[key])
+      if (value == null) continue
+      sawMoney = true
+      total -= value
+    }
+    if (!currency && row.item_currency_code) currency = String(row.item_currency_code)
+  }
+  if (!sawMoney) return null
+  return { amount: round2(total), currency }
+}
+
 function metaForMarketplace(marketplaceKey) {
   return channelMeta(marketplaceKey === 'ksa' ? 'amazon_ksa' : 'amazon_uae')
 }
@@ -56,7 +109,8 @@ async function loadItemRows(marketplaceKey, orderIds) {
        asin,
        quantity_ordered,
        item_amount,
-       item_currency_code
+       item_currency_code,
+       raw_safe_json
      FROM amazon_order_items
      WHERE marketplace_key = $1
        AND amazon_order_id = ANY($2::text[])
@@ -172,18 +226,15 @@ async function loadAmazonChannel(marketplaceKey, bounds, fx, ads) {
   let ordersWithFees = 0
   let missingItems = 0
   let missingAmount = 0
+  let derivedAmounts = 0
 
   for (const row of included) {
     const orderId = String(row.amazon_order_id)
-    const currency = String(row.currency_code || meta.currency).trim().toUpperCase() || meta.currency
-    // Amazon withholds OrderTotal on unshipped/pending orders — that is unknown, not zero
-    const originalAmount = row.order_amount == null ? null : toFiniteNumber(row.order_amount, 0)
-    const amountAED = originalAmount == null ? null : toAed(originalAmount, currency, fx)
-    if (originalAmount == null) missingAmount += 1
+    const itemRows = itemsByOrder.get(orderId) || []
 
     const items = []
     let lineQty = 0
-    for (const li of itemsByOrder.get(orderId) || []) {
+    for (const li of itemRows) {
       const sku = String(li.seller_sku || li.asin || '').trim()
       const qty = Math.max(0, Math.trunc(toFiniteNumber(li.quantity_ordered, 0)))
       lineQty += qty
@@ -197,6 +248,27 @@ async function loadAmazonChannel(marketplaceKey, bounds, fx, ads) {
       missingItems += 1
       items.push({ sku: '(items pending Amazon sync)', quantity: 0 })
     }
+
+    // `OrderTotal` is Amazon's own order-level figure, counted exactly once per order. Amazon
+    // withholds it while an order is Pending, so fall back to the Amazon-reported line breakdown
+    // and flag the order as derived. If Amazon reported no money at all, the value stays unknown.
+    let amountSource = 'amazon_order_total'
+    let originalAmount = row.order_amount == null ? null : toFiniteNumber(row.order_amount, 0)
+    let currency = String(row.currency_code || '').trim().toUpperCase()
+    if (originalAmount == null) {
+      const derived = deriveOrderAmountFromItems(itemRows)
+      if (derived) {
+        originalAmount = derived.amount
+        currency = String(derived.currency || meta.currency).trim().toUpperCase()
+        amountSource = 'amazon_order_items'
+        derivedAmounts += 1
+      } else {
+        amountSource = 'pending_at_amazon'
+        missingAmount += 1
+      }
+    }
+    if (!currency) currency = meta.currency
+    const amountAED = originalAmount == null ? null : toAed(originalAmount, currency, fx)
 
     const fees = feesByOrder.get(orderId)
     if (fees) {
@@ -218,6 +290,7 @@ async function loadAmazonChannel(marketplaceKey, bounds, fx, ads) {
       originalAmount: originalAmount == null ? null : round2(originalAmount),
       originalCurrency: currency,
       amountAED: amountAED == null ? null : round2(amountAED),
+      amountSource,
       commissionAED: fees ? round2(fees.commission) : null,
       shippingAED: fees ? round2(fees.fulfillment) : null,
       feesSource: fees ? 'amazon_settlement_report' : null,
@@ -229,9 +302,14 @@ async function loadAmazonChannel(marketplaceKey, bounds, fx, ads) {
       `${meta.label}: ${missingItems} order(s) have no cached Amazon line items yet (run an Amazon orders sync with items)`,
     )
   }
+  if (derivedAmounts > 0) {
+    warnings.push(
+      `${meta.label}: ${derivedAmounts} order(s) had no Amazon OrderTotal yet, so their amount is derived from Amazon's own item price, tax, shipping and promotion figures`,
+    )
+  }
   if (missingAmount > 0) {
     warnings.push(
-      `${meta.label}: ${missingAmount} order(s) are still Pending at Amazon and carry no order total yet, so their value is excluded from Amazon Amount`,
+      `${meta.label}: ${missingAmount} order(s) are still Pending at Amazon and carry no Amazon-reported money at all, so they are listed without an amount and excluded from Amazon Amount — refresh once Amazon authorises them`,
     )
   }
 
@@ -246,6 +324,9 @@ async function loadAmazonChannel(marketplaceKey, bounds, fx, ads) {
   const commissionAED = feesAvailable ? round2(commissionKnown) : null
   const shippingAED = feesAvailable ? round2(fulfillmentKnown) : null
   salesAmountAED = round2(salesAmountAED)
+  // Amazon gave a money figure for no order at all, yet orders exist: reporting 0 would claim the
+  // day was worth nothing, so the amount stays unknown until Amazon authorises them.
+  const salesUnknown = included.length > 0 && missingAmount === included.length
 
   const financials = computeChannelFinancials({
     salesAmountAED,
@@ -264,25 +345,44 @@ async function loadAmazonChannel(marketplaceKey, bounds, fx, ads) {
   return buildChannelShell(meta, 'available', {
     dataSource: 'amazon_sp_api_orders_cache',
     lastSyncedAt: lastSyncedAt ? new Date(lastSyncedAt).toISOString() : null,
+    reconciliation: {
+      rawOrders: orderRows.length,
+      uniqueOrderIds: new Set(
+        orderRows.map((r) => String(r.amazon_order_id || '').trim()).filter(Boolean),
+      ).size,
+      includedOrders: included.length,
+      excludedStatuses: orderRows.length - included.length,
+      // Amazon's own order totals for the included orders, before any currency conversion, so the
+      // report figure can be checked against SP-API without re-deriving anything.
+      rawOrderTotalSum: round2(
+        included.reduce((acc, r) => acc + (r.order_amount == null ? 0 : toFiniteNumber(r.order_amount, 0)), 0),
+      ),
+      rawOrderTotalCurrency: meta.currency,
+      normalizedSalesAED: salesAmountAED,
+      ordersFromOrderTotal: orders.filter((o) => o.amountSource === 'amazon_order_total').length,
+      ordersDerivedFromItems: derivedAmounts,
+      ordersWithoutAmazonAmount: missingAmount,
+    },
     orders,
     adsStatus: ads.adsStatus,
     adsProvider: ads.adsProvider,
     warnings,
     summary: {
       quantity,
-      salesAmountAED,
+      salesAmountAED: salesUnknown ? null : salesAmountAED,
       adSpendAED: ads.adSpendAED,
       clicks: ads.clicks,
       commissionAED,
       shippingAED,
-      costPercentage: financials.costPercentage,
-      balanceAED: financials.balanceAED,
+      costPercentage: salesUnknown ? null : financials.costPercentage,
+      balanceAED: salesUnknown ? null : financials.balanceAED,
     },
   })
 }
 
 module.exports = {
   loadAmazonChannel,
+  deriveOrderAmountFromItems,
   EXCLUDED_STATUSES,
   FEE_CATEGORIES,
 }
