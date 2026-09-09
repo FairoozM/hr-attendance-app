@@ -458,6 +458,7 @@ export function Layout() {
     if (location.pathname.startsWith('/prices/saved-composite-items')) return 'Saved Composite Items'
     if (location.pathname.startsWith('/management/document-expiry')) return 'Document Expiry Tracker'
     if (location.pathname.startsWith('/management/subscriptions')) return 'Subscription Management'
+    if (location.pathname.startsWith('/reports/daily-ecommerce')) return 'Daily Ecommerce Report'
     if (location.pathname.startsWith('/reports/weekly-report/weekly-ads'))   return 'Weekly Ads Report'
     if (location.pathname.startsWith('/reports/weekly-report/sales'))        return 'Weekly Sales Reports'
     if (location.pathname.startsWith('/reports/weekly-report/slow-moving'))  return 'Weekly Slow Moving Sales Report'
@@ -621,6 +622,7 @@ export function Layout() {
   ].filter(Boolean)
 
   const REPORTS_ITEMS = [
+    hasWeeklyReportsAccess && { label: 'Daily Ecommerce Report', to: '/reports/daily-ecommerce' },
     hasWeeklyReportsAccess && { label: 'Weekly Ads Report',    to: '/reports/weekly-report/weekly-ads' },
     hasWeeklyReportsAccess && { label: 'Weekly Sales Reports', to: '/reports/weekly-report/sales'      },
     hasWeeklyReportsAccess && { label: 'Sales vs Expenses',    to: '/reports/sales-vs-expenses'        },

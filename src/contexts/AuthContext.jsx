@@ -153,6 +153,8 @@ export function hasPermission(user, module, action) {
   if (action === 'view' && module === 'planner' && mod.manage) return true
   // company_payments: write permissions imply view
   if (action === 'view' && module === 'company_payments' && (mod.add || mod.edit || mod.delete)) return true
+  // weekly_reports: view implies export (backward compatible with roles that only have view)
+  if (action === 'export' && module === 'weekly_reports' && (mod.view || mod.manage)) return true
   return Boolean(mod[action])
 }
 

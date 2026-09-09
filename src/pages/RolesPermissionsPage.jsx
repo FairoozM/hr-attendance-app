@@ -141,7 +141,11 @@ const MODULES = [
       {
         key: 'view',
         label:
-          'Weekly Ads, weekly sales (combined / slow-moving / other family), Sales vs Expenses, Zoho item images, and Bulk Zoho Invoice',
+          'Weekly Ads, weekly sales (combined / slow-moving / other family), Sales vs Expenses, Zoho item images, Daily Ecommerce Report, and Bulk Zoho Invoice',
+      },
+      {
+        key: 'export',
+        label: 'Export Daily Ecommerce Report to Excel (view also allows export)',
       },
     ],
   },
