@@ -1,7 +1,14 @@
 'use strict'
 
 /**
- * Channel constants for Daily Ecommerce Report (six sections).
+ * Channel constants for Daily Ecommerce Report (five sections).
+ *
+ * Every channel is fed by its own marketplace/website integration:
+ *   amazon_uae / amazon_ksa → Amazon SP-API orders cache
+ *   noon_uae / noon_ksa     → Noon partner settlement data
+ *   life_smile              → Life Smile website database (website + app + shop)
+ *
+ * Accounting systems are never a source for this report.
  */
 
 const CHANNELS = [
@@ -10,8 +17,11 @@ const CHANNELS = [
   { key: 'noon_uae', label: 'Noon UAE', country: 'AE', currency: 'AED', family: 'noon' },
   { key: 'noon_ksa', label: 'Noon KSA', country: 'SA', currency: 'SAR', family: 'noon' },
   { key: 'life_smile', label: 'Life Smile Website', country: 'AE', currency: 'AED', family: 'life_smile' },
-  { key: 'carrefour_uae', label: 'Carrefour UAE', country: 'AE', currency: 'AED', family: 'carrefour' },
 ]
+
+function channelMeta(key) {
+  return CHANNELS.find((c) => c.key === key)
+}
 
 function emptySummary(family = 'amazon') {
   const base = {
@@ -54,6 +64,7 @@ function buildChannelShell(meta, integrationStatus, overrides = {}) {
 
 module.exports = {
   CHANNELS,
+  channelMeta,
   emptySummary,
   buildChannelShell,
 }

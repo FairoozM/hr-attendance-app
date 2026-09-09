@@ -47,7 +47,7 @@ type IntegrationStatus = 'available' | 'not_configured' | 'unavailable' | 'pendi
 
 interface ReportItem {
   sku: string
-  quantity: number
+  quantity: number | null
 }
 
 interface ReportOrder {
@@ -62,18 +62,19 @@ interface ChannelReport {
   country: string
   integrationStatus: IntegrationStatus
   adsStatus?: IntegrationStatus
+  dataSource?: string
   orders: ReportOrder[]
   summary: {
-    quantity: number
+    quantity: number | null
     salesAmountAED: number
     adSpendAED: number | null
     clicks: number | null
-    commissionAED: number
-    shippingAED: number
+    commissionAED: number | null
+    shippingAED: number | null
     costPercentage: number | null
     balanceAED: number
-    tabbyTamaraCommissionAED?: number
-    smilePointCouponAED?: number
+    tabbyTamaraCommissionAED?: number | null
+    smilePointCouponAED?: number | null
   }
   warnings?: string[]
 }
@@ -84,15 +85,14 @@ interface DailyReport {
   exchangeRate: { rate: number; rateDisplay?: string; source: string }
   channels: ChannelReport[]
   totals: {
-    quantity: number
+    quantity: number | null
     adSpendAED: number | null
     clicks: number | null
-    commissionAED: number
-    shippingAED: number
+    commissionAED: number | null
+    shippingAED: number | null
     costPercentage: number | null
     salesAmountAED: number
     balanceAED: number
-    generalEcommerceCostsStatus?: string
   }
   incomplete: boolean
   amazonAdsExcluded?: boolean
@@ -101,29 +101,47 @@ interface DailyReport {
   sources?: Record<string, unknown>
 }
 
+function naNode(text: string) {
+  return <span className="der-na">{text}</span>
+}
+
 function adsCell(status: IntegrationStatus | undefined, value: number | null | undefined, kind: 'money' | 'int') {
-  if (status === 'not_configured' || value == null) {
-    return <span className="der-na">Not Configured</span>
-  }
-  if (status === 'unavailable') return <span className="der-na">Unavailable</span>
+  if (status === 'unavailable') return naNode('Data Error')
+  if (status === 'not_configured' || value == null) return naNode('Not Configured')
   return kind === 'int' ? formatInt(value) : formatMoney(value)
 }
 
-function flattenOrders(channel: ChannelReport) {
-  if (channel.integrationStatus === 'not_configured') {
-    return [{ order: 'Not Configured', sku: '', qty: '' as const }]
-  }
-  if (channel.integrationStatus === 'unavailable') {
-    return [{ order: 'Data Error', sku: '', qty: '' as const }]
-  }
-  const lines: Array<{ order: string; sku: string; qty: number | '' }> = []
+/** Marketplace has not reported this cost for the day yet. */
+function costCell(value: number | null | undefined) {
+  if (value == null) return naNode('Pending')
+  return formatMoney(value)
+}
+
+function qtyCell(value: number | null | undefined) {
+  if (value == null) return naNode('N/A')
+  return formatInt(value)
+}
+
+function statusPlaceholder(channel: ChannelReport) {
+  if (channel.integrationStatus === 'not_configured') return 'Not Configured'
+  if (channel.integrationStatus === 'unavailable') return 'Data Error'
+  if (channel.integrationStatus === 'pending') return 'Pending'
+  return null
+}
+
+type OrderLine = { order: string; sku: string; qty: number | null | '' }
+
+function flattenOrders(channel: ChannelReport): OrderLine[] {
+  const placeholder = statusPlaceholder(channel)
+  if (placeholder) return [{ order: placeholder, sku: '', qty: '' }]
+  const lines: OrderLine[] = []
   for (const order of channel.orders || []) {
     const items = order.items?.length ? order.items : [{ sku: '', quantity: 0 }]
     items.forEach((item, i) => {
       lines.push({
         order: i === 0 ? order.orderNumber : '',
         sku: item.sku || '',
-        qty: item.quantity || 0,
+        qty: item.quantity ?? null,
       })
     })
   }
@@ -136,26 +154,34 @@ type SummaryRow = { label: string; node: ReactNode; neg?: boolean; title?: strin
 function summaryRows(ch: ChannelReport): SummaryRow[] {
   const s = ch.summary
   const ads = ch.adsStatus
+  const placeholder = statusPlaceholder(ch)
+  if (placeholder) {
+    // A channel with no data must not print zeros for money or quantity
+    const p = ch.family === 'amazon' ? 'Amazon' : ch.family === 'noon' ? 'Noon' : 'Website'
+    return ['Qty', 'Ads', 'Clicks', 'Commission', 'Shipping', 'Cost %', 'Amount', 'Balance'].map(
+      (metric) => ({ label: `${p} ${metric}`, node: naNode(placeholder) }),
+    )
+  }
   if (ch.family === 'life_smile') {
     return [
-      { label: 'Website Qty', node: formatInt(s.quantity) },
+      { label: 'Website Qty', node: qtyCell(s.quantity) },
       { label: 'FB/Instagram Ads', node: adsCell(ads, s.adSpendAED, 'money') },
-      { label: 'Website Clicks', node: adsCell(ads, s.clicks, 'int'), title: 'Metric: link_clicks when Meta is connected' },
-      { label: 'Tabby & Tamara Commission', node: formatMoney(s.tabbyTamaraCommissionAED || 0) },
+      { label: 'Website Clicks', node: adsCell(ads, s.clicks, 'int') },
+      { label: 'Tabby & Tamara Commission', node: costCell(s.tabbyTamaraCommissionAED ?? null) },
       { label: 'Smile Point & Coupon', node: formatMoney(s.smilePointCouponAED || 0) },
-      { label: 'Website Shipping', node: formatMoney(s.shippingAED) },
+      { label: 'Website Shipping', node: costCell(s.shippingAED) },
       { label: 'Website Cost %', node: formatPct(s.costPercentage) },
       { label: 'Website Amount', node: formatMoney(s.salesAmountAED) },
       { label: 'Website Balance', node: formatMoney(s.balanceAED), neg: (s.balanceAED || 0) < 0 },
     ]
   }
-  const p = ch.family === 'amazon' ? 'Amazon' : ch.family === 'noon' ? 'Noon' : 'Carrefour'
+  const p = ch.family === 'amazon' ? 'Amazon' : 'Noon'
   return [
-    { label: `${p} Qty`, node: formatInt(s.quantity) },
+    { label: `${p} Qty`, node: qtyCell(s.quantity) },
     { label: `${p} Ads`, node: adsCell(ads, s.adSpendAED, 'money') },
     { label: `${p} Clicks`, node: adsCell(ads, s.clicks, 'int') },
-    { label: `${p} Commission`, node: formatMoney(s.commissionAED) },
-    { label: `${p} Shipping`, node: formatMoney(s.shippingAED) },
+    { label: `${p} Commission`, node: costCell(s.commissionAED) },
+    { label: `${p} Shipping`, node: costCell(s.shippingAED) },
     { label: `${p} Cost %`, node: formatPct(s.costPercentage) },
     { label: `${p} Amount`, node: formatMoney(s.salesAmountAED) },
     { label: `${p} Balance`, node: formatMoney(s.balanceAED), neg: (s.balanceAED || 0) < 0 },
@@ -171,6 +197,7 @@ export function DailyEcommerceReportPage() {
   const [refreshing, setRefreshing] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [showNotes, setShowNotes] = useState(false)
 
   const load = useCallback(async (ymd: string) => {
     setLoading(true)
@@ -186,6 +213,7 @@ export function DailyEcommerceReportPage() {
     }
   }, [])
 
+  // Reads stored marketplace-synced data only; never triggers external syncs on render
   useEffect(() => {
     void load(date)
   }, [date, load])
@@ -194,11 +222,7 @@ export function DailyEcommerceReportPage() {
     setRefreshing(true)
     setError(null)
     try {
-      // Rebuild from stored Zoho + website data only (no hanging Amazon SP sync)
-      const data = await api.post('/api/reports/daily-ecommerce/refresh', {
-        date,
-        sync_amazon: 0,
-      })
+      const data = await api.post('/api/reports/daily-ecommerce/refresh', { date })
       const payload = data as { report?: DailyReport }
       if (payload.report) setReport(payload.report)
       else await load(date)
@@ -230,6 +254,7 @@ export function DailyEcommerceReportPage() {
   const maxLines = Math.max(1, ...lineSets.map((l) => l.length))
   const summarySets = channels.map(summaryRows)
   const maxSummary = Math.max(0, ...summarySets.map((s) => s.length))
+  const totalCols = Math.max(3, channels.length * 3)
   const rateDisplay =
     report?.exchangeRate?.rateDisplay ||
     (report?.exchangeRate?.rate != null ? Number(report.exchangeRate.rate).toFixed(4) : null)
@@ -239,9 +264,7 @@ export function DailyEcommerceReportPage() {
       <div className="der-top">
         <div>
           <h1 className="der-title">Daily Ecommerce Report</h1>
-          <p className="der-date-banner" aria-live="polite">
-            {report?.date || date}
-          </p>
+          <p className="der-date-banner">{report?.date || date}</p>
           <p className="der-sub">
             {report?.timezone || IANA_UAE}
             {rateDisplay ? (
@@ -276,7 +299,12 @@ export function DailyEcommerceReportPage() {
           <button type="button" className="war-btn war-btn--ghost war-btn--sm" onClick={() => setDate(todayUaeYmd())}>
             Today
           </button>
-          <button type="button" className="war-btn war-btn--ghost war-btn--sm" disabled={loading || refreshing} onClick={() => void onRefresh()}>
+          <button
+            type="button"
+            className="war-btn war-btn--ghost war-btn--sm"
+            disabled={loading || refreshing}
+            onClick={() => void onRefresh()}
+          >
             {refreshing ? 'Refreshing…' : 'Refresh'}
           </button>
           {canExport && (
@@ -294,11 +322,26 @@ export function DailyEcommerceReportPage() {
       )}
       {report?.incomplete && (
         <div className="der-banner der-banner--warn" role="status">
-          One or more order sources returned a Data Error. Ads marked Not Configured do not make the report incomplete.
+          One or more order sources returned a Data Error. Advertising marked Not Configured does not
+          make the report incomplete.
         </div>
       )}
-      {report?.amazonAdsExcluded && (
-        <p className="der-footnote">Amazon advertising is Not Configured and is excluded from cost calculations.</p>
+      {report && (
+        <p className="der-footnote">
+          {report.amazonAdsExcluded
+            ? 'Amazon advertising is Not Configured and excluded from cost calculations. '
+            : ''}
+          <button type="button" className="der-link" onClick={() => setShowNotes((v) => !v)}>
+            {showNotes ? 'Hide source notes' : `Source notes (${report.warnings.length})`}
+          </button>
+        </p>
+      )}
+      {showNotes && report && (
+        <ul className="der-notes">
+          {report.warnings.map((w) => (
+            <li key={w}>{w}</li>
+          ))}
+        </ul>
       )}
 
       {loading && !report && <div className="der-loading">Loading…</div>}
@@ -316,7 +359,11 @@ export function DailyEcommerceReportPage() {
               </tr>
               <tr>
                 {channels.map((ch) => (
-                  <FragmentHeads key={`${ch.channel}-cols`} />
+                  <Fragment key={`${ch.channel}-cols`}>
+                    <th className="der-col">Order</th>
+                    <th className="der-col">Item Code</th>
+                    <th className="der-col der-num">Qty</th>
+                  </Fragment>
                 ))}
               </tr>
             </thead>
@@ -326,7 +373,13 @@ export function DailyEcommerceReportPage() {
                   {lineSets.map((lines, ci) => {
                     const line = lines[i] || { order: '', sku: '', qty: '' as const }
                     return (
-                      <FragmentOrder key={`${ci}-${i}`} order={line.order} sku={line.sku} qty={line.qty} />
+                      <Fragment key={`${ci}-${i}`}>
+                        <td className="der-order">{line.order}</td>
+                        <td className="der-sku">{line.sku}</td>
+                        <td className="der-num">
+                          {line.qty === '' ? '' : line.qty == null ? naNode('N/A') : formatInt(line.qty)}
+                        </td>
+                      </Fragment>
                     )
                   })}
                 </tr>
@@ -344,13 +397,12 @@ export function DailyEcommerceReportPage() {
                       )
                     }
                     return (
-                      <FragmentSum
-                        key={`${ci}-sum-${i}`}
-                        label={row.label}
-                        value={row.node}
-                        neg={row.neg}
-                        title={row.title}
-                      />
+                      <Fragment key={`${ci}-sum-${i}`}>
+                        <td colSpan={2} className="der-sum-label" title={row.title}>
+                          {row.label}
+                        </td>
+                        <td className={`der-num${row.neg ? ' der-neg' : ''}`}>{row.node}</td>
+                      </Fragment>
                     )
                   })}
                 </tr>
@@ -358,31 +410,17 @@ export function DailyEcommerceReportPage() {
             </tbody>
             <tfoot>
               <tr className="der-totals-head">
-                <td colSpan={18}>Consolidated totals</td>
+                <td colSpan={totalCols}>Consolidated totals</td>
               </tr>
               {(
                 [
-                  ['Total Qty', formatInt(report.totals.quantity)],
-                  [
-                    'Total Ads',
-                    report.totals.adSpendAED == null ? (
-                      <span className="der-na">Not Configured</span>
-                    ) : (
-                      formatMoney(report.totals.adSpendAED)
-                    ),
-                  ],
-                  [
-                    'Total Clicks',
-                    report.totals.clicks == null ? (
-                      <span className="der-na">Not Configured</span>
-                    ) : (
-                      formatInt(report.totals.clicks)
-                    ),
-                  ],
-                  ['Total Commission', formatMoney(report.totals.commissionAED)],
-                  ['Total Shipping', formatMoney(report.totals.shippingAED)],
+                  ['Total Qty', qtyCell(report.totals.quantity)],
+                  ['Total Ads', report.totals.adSpendAED == null ? naNode('Not Configured') : formatMoney(report.totals.adSpendAED)],
+                  ['Total Clicks', report.totals.clicks == null ? naNode('Not Configured') : formatInt(report.totals.clicks)],
+                  ['Total Commission', costCell(report.totals.commissionAED)],
+                  ['Total Shipping', costCell(report.totals.shippingAED)],
                   ['Total Cost %', formatPct(report.totals.costPercentage)],
-                  ['General Ecommerce', <span className="der-na">Not Configured</span>],
+                  ['General Ecommerce', naNode('Not Configured')],
                   ['Total Amount', formatMoney(report.totals.salesAmountAED)],
                   ['Total Balance', formatMoney(report.totals.balanceAED)],
                 ] as Array<[string, ReactNode]>
@@ -392,7 +430,7 @@ export function DailyEcommerceReportPage() {
                     {label}
                   </td>
                   <td className="der-num">{value}</td>
-                  <td colSpan={15} />
+                  <td colSpan={Math.max(1, totalCols - 3)} />
                 </tr>
               ))}
             </tfoot>
@@ -400,54 +438,5 @@ export function DailyEcommerceReportPage() {
         </div>
       )}
     </div>
-  )
-}
-
-function FragmentHeads() {
-  return (
-    <>
-      <th className="der-col">Order</th>
-      <th className="der-col">Item Code</th>
-      <th className="der-col der-num">Qty</th>
-    </>
-  )
-}
-
-function FragmentOrder({
-  order,
-  sku,
-  qty,
-}: {
-  order: string
-  sku: string
-  qty: number | ''
-}) {
-  return (
-    <>
-      <td className="der-order">{order}</td>
-      <td className="der-sku">{sku}</td>
-      <td className="der-num">{qty === '' ? '' : formatInt(qty)}</td>
-    </>
-  )
-}
-
-function FragmentSum({
-  label,
-  value,
-  neg,
-  title,
-}: {
-  label: string
-  value: ReactNode
-  neg?: boolean
-  title?: string
-}) {
-  return (
-    <>
-      <td colSpan={2} className="der-sum-label" title={title}>
-        {label}
-      </td>
-      <td className={`der-num${neg ? ' der-neg' : ''}`}>{value}</td>
-    </>
   )
 }

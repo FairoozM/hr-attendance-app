@@ -1,16 +1,22 @@
 'use strict'
 
 /**
- * Channel Costs = Ads (if numeric) + Commission + Shipping
- *   (+ Tabby/Tamara for Life Smile when numeric)
+ * Channel Costs = Ads + Commission + Shipping (+ Tabby/Tamara for Life Smile)
  * Cost % = Costs / Amount × 100  (0 when amount is 0)
  * Balance = Amount − Costs
  *
- * Null ads are excluded from costs (never treated as a known zero).
+ * A null cost means "not available from that marketplace's own data" and is
+ * excluded from the calculation — never treated as a known zero.
  * Smile Points / coupons are informational and never included in costs.
  */
 
 const { round2 } = require('./money')
+
+function numericOrNull(value) {
+  if (value == null) return null
+  const n = Number(value)
+  return Number.isFinite(n) ? round2(n) : null
+}
 
 function computeChannelFinancials({
   salesAmountAED,
@@ -20,13 +26,15 @@ function computeChannelFinancials({
   tabbyTamaraCommissionAED = 0,
 }) {
   const sales = round2(salesAmountAED || 0)
-  const commission = round2(commissionAED || 0)
-  const shipping = round2(shippingAED || 0)
-  const tabby = round2(tabbyTamaraCommissionAED || 0)
-  const ads = adSpendAED == null || !Number.isFinite(Number(adSpendAED)) ? null : round2(adSpendAED)
+  const ads = numericOrNull(adSpendAED)
+  const commission = numericOrNull(commissionAED)
+  const shipping = numericOrNull(shippingAED)
+  const tabby = numericOrNull(tabbyTamaraCommissionAED)
 
-  let totalIncludedCostsAED = round2(commission + shipping + tabby)
-  if (ads != null) totalIncludedCostsAED = round2(totalIncludedCostsAED + ads)
+  let totalIncludedCostsAED = 0
+  for (const cost of [ads, commission, shipping, tabby]) {
+    if (cost != null) totalIncludedCostsAED = round2(totalIncludedCostsAED + cost)
+  }
 
   let costPercentage = 0
   if (sales > 0) {
@@ -44,28 +52,33 @@ function computeOverallTotals(channelSummaries, generalEcommerceCostsAED = null)
   const channels = Array.isArray(channelSummaries) ? channelSummaries : []
   let quantity = 0
   let salesAmountAED = 0
-  let commissionAED = 0
-  let shippingAED = 0
   const adValues = []
   const clickValues = []
+  const commissionValues = []
+  const shippingValues = []
 
   for (const s of channels) {
     if (!s) continue
     quantity += Number(s.quantity) || 0
     salesAmountAED += Number(s.salesAmountAED) || 0
-    commissionAED += Number(s.commissionAED) || 0
-    commissionAED += Number(s.tabbyTamaraCommissionAED) || 0
-    shippingAED += Number(s.shippingAED) || 0
-    if (s.adSpendAED != null && Number.isFinite(Number(s.adSpendAED))) adValues.push(Number(s.adSpendAED))
-    if (s.clicks != null && Number.isFinite(Number(s.clicks))) clickValues.push(Number(s.clicks))
+    for (const [value, bucket] of [
+      [s.adSpendAED, adValues],
+      [s.clicks, clickValues],
+      [s.commissionAED, commissionValues],
+      [s.tabbyTamaraCommissionAED, commissionValues],
+      [s.shippingAED, shippingValues],
+    ]) {
+      if (value != null && Number.isFinite(Number(value))) bucket.push(Number(value))
+    }
   }
 
-  const adSpendAED = adValues.length
-    ? round2(adValues.reduce((a, b) => a + b, 0))
-    : null
-  const clicks = clickValues.length
-    ? Math.round(clickValues.reduce((a, b) => a + b, 0))
-    : null
+  const sumOrNull = (values, rounder = round2) =>
+    values.length ? rounder(values.reduce((a, b) => a + b, 0)) : null
+
+  const adSpendAED = sumOrNull(adValues)
+  const clicks = sumOrNull(clickValues, Math.round)
+  const commissionAED = sumOrNull(commissionValues)
+  const shippingAED = sumOrNull(shippingValues)
 
   const general =
     generalEcommerceCostsAED == null || !Number.isFinite(Number(generalEcommerceCostsAED))
@@ -73,12 +86,11 @@ function computeOverallTotals(channelSummaries, generalEcommerceCostsAED = null)
       : round2(generalEcommerceCostsAED)
 
   salesAmountAED = round2(salesAmountAED)
-  commissionAED = round2(commissionAED)
-  shippingAED = round2(shippingAED)
 
-  let totalIncludedCostsAED = round2(commissionAED + shippingAED)
-  if (adSpendAED != null) totalIncludedCostsAED = round2(totalIncludedCostsAED + adSpendAED)
-  if (general != null) totalIncludedCostsAED = round2(totalIncludedCostsAED + general)
+  let totalIncludedCostsAED = 0
+  for (const cost of [adSpendAED, commissionAED, shippingAED, general]) {
+    if (cost != null) totalIncludedCostsAED = round2(totalIncludedCostsAED + cost)
+  }
 
   let costPercentage = 0
   if (salesAmountAED > 0) {

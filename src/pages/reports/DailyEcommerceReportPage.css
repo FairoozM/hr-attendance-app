@@ -74,6 +74,24 @@
   font-style: italic;
 }
 
+.der-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: #2563eb;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.der-notes {
+  margin: 0 0 10px;
+  padding-left: 18px;
+  font-size: 11px;
+  color: #475569;
+  line-height: 1.5;
+}
+
 .der-loading {
   padding: 24px;
   color: #64748b;
@@ -89,7 +107,7 @@
 
 .der-sheet {
   width: 100%;
-  min-width: 1100px;
+  min-width: 980px;
   border-collapse: collapse;
   font-size: 11px;
   table-layout: fixed;
@@ -115,7 +133,6 @@
 .der-ch-head--noon_uae { background: #fcd34d; }
 .der-ch-head--noon_ksa { background: #fbbf24; }
 .der-ch-head--life_smile { background: #6ee7b7; }
-.der-ch-head--carrefour_uae { background: #f9a8d4; }
 
 .der-col {
   background: #eef2f7;

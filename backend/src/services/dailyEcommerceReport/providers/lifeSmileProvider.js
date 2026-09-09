@@ -1,8 +1,15 @@
 'use strict'
 
 /**
- * Combined Life Smile Website + physical shop orders from website DB.
- * Shop orders append " (SHOP)" to the displayed order number.
+ * Combined Life Smile website, app and physical-shop orders.
+ *
+ * Source chain: Life Smile website platform → its own orders database
+ * (read-only connection, `LIFESMILE_WEBSITE_DATABASE_URL`) → report.
+ *
+ * `orders.shop_order` is the website platform's own channel flag: true means a
+ * Burjman physical-shop sale, which is displayed with a " (SHOP)" suffix.
+ * Website and app orders share the same online channel in the platform, so
+ * they stay in one section without inventing a split the source does not have.
  */
 
 const lifesmileWebsiteDb = require('../../../db/lifesmileWebsiteDb')
@@ -69,23 +76,16 @@ function bnplFeeRate() {
 /**
  * @param {{ start: Date, end: Date }} bounds
  * @param {{ adSpendAED: number|null, clicks: number|null, adsStatus: string, adsProvider: string|null, adsMetricLabel?: string|null }} ads
- * @param {{ websiteInvoices?: object[], shopInvoices?: object[] }} [zohoFallback]
  */
-async function loadLifeSmileChannel(bounds, ads, zohoFallback = {}) {
+async function loadLifeSmileChannel(bounds, ads) {
   if (!lifesmileWebsiteDb.isConfigured()) {
-    // Fallback: Zoho Books customers Website + Burjman Shop - Web & App
-    if (
-      (zohoFallback.websiteInvoices && zohoFallback.websiteInvoices.length) ||
-      (zohoFallback.shopInvoices && zohoFallback.shopInvoices.length)
-    ) {
-      return buildLifeSmileFromZoho(zohoFallback, ads)
-    }
     return buildChannelShell(META, 'not_configured', {
+      dataSource: 'lifesmile_website_orders_db',
       adsStatus: ads.adsStatus,
       adsProvider: ads.adsProvider,
       adsMetricLabel: ads.adsMetricLabel || 'link_clicks',
       warnings: [
-        'Life Smile Website: website database not configured (LIFESMILE_WEBSITE_DATABASE_URL)',
+        `Life Smile Website: read-only website database connection is not configured (${lifesmileWebsiteDb.ENV_VAR} is unset in this process)`,
       ],
       summary: {
         ...buildChannelShell(META, 'not_configured').summary,
@@ -100,11 +100,18 @@ async function loadLifeSmileChannel(bounds, ads, zohoFallback = {}) {
     const result = await lifesmileWebsiteDb.readQuery(ORDERS_SQL, [bounds.start, bounds.end])
     rows = result.rows || []
   } catch (err) {
+    // Log the real technical error; the API also returns it so it is diagnosable
+    console.error('[dailyEcommerceReport] Life Smile website orders query failed:', err)
+    const detail = [err && err.code ? `code ${err.code}` : null, err && err.message ? err.message : String(err)]
+      .filter(Boolean)
+      .join(': ')
     return buildChannelShell(META, 'unavailable', {
+      dataSource: 'lifesmile_website_orders_db',
       adsStatus: ads.adsStatus,
       adsProvider: ads.adsProvider,
       adsMetricLabel: ads.adsMetricLabel || 'link_clicks',
-      warnings: [`Life Smile Website: Data Error — ${err.message || String(err)}`],
+      warnings: [`Life Smile Website: Data Error — ${detail}`],
+      errorDetail: detail,
       summary: {
         ...buildChannelShell(META, 'unavailable').summary,
         adSpendAED: ads.adSpendAED,
@@ -223,6 +230,7 @@ async function loadLifeSmileChannel(bounds, ads, zohoFallback = {}) {
   })
 
   return buildChannelShell(META, 'available', {
+    dataSource: 'lifesmile_website_orders_db',
     lastSyncedAt: new Date().toISOString(),
     orders,
     adsStatus: ads.adsStatus,
@@ -249,50 +257,4 @@ module.exports = {
   INCLUDED_STATUSES,
   EXCLUDED_STATUSES,
   ORDERS_SQL,
-}
-
-function buildLifeSmileFromZoho(zohoFallback, ads) {
-  const { invoicesToOrders } = require('./zohoDailyInvoicesProvider')
-  const web = invoicesToOrders(zohoFallback.websiteInvoices || [], {
-    orderNumberFn: (inv) => String(inv.reference_number || inv.invoice_number || '').trim(),
-  })
-  const shop = invoicesToOrders(zohoFallback.shopInvoices || [], {
-    orderNumberFn: (inv) => {
-      const base = String(inv.reference_number || inv.invoice_number || '').trim()
-      return base ? `${base} (SHOP)` : '(SHOP)'
-    },
-  })
-  const orders = [...web.orders, ...shop.orders]
-  const quantity = web.quantity + shop.quantity
-  const salesAmountAED = round2(web.salesAmountAED + shop.salesAmountAED)
-  const smilePointCouponAED = round2(web.couponDiscountAED + shop.couponDiscountAED)
-  const financials = computeChannelFinancials({
-    salesAmountAED,
-    adSpendAED: ads.adSpendAED,
-    commissionAED: 0,
-    shippingAED: 0,
-    tabbyTamaraCommissionAED: 0,
-  })
-  return buildChannelShell(META, 'available', {
-    lastSyncedAt: new Date().toISOString(),
-    orders,
-    adsStatus: ads.adsStatus,
-    adsProvider: ads.adsProvider,
-    adsMetricLabel: ads.adsMetricLabel || 'link_clicks',
-    warnings: [
-      'Life Smile Website: using Zoho Books invoices (Website + Burjman Shop) because LIFESMILE_WEBSITE_DATABASE_URL is not set in this process',
-    ],
-    summary: {
-      quantity,
-      salesAmountAED,
-      adSpendAED: ads.adSpendAED,
-      clicks: ads.clicks,
-      commissionAED: 0,
-      tabbyTamaraCommissionAED: 0,
-      smilePointCouponAED,
-      shippingAED: 0,
-      costPercentage: financials.costPercentage,
-      balanceAED: financials.balanceAED,
-    },
-  })
 }

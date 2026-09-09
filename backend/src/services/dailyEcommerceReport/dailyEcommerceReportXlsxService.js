@@ -1,7 +1,8 @@
 'use strict'
 
 /**
- * Excel export — six side-by-side channel columns matching the operational spreadsheet.
+ * Excel export — side-by-side channel sections matching the operational sheet.
+ * Column count follows the report's channel list (five sections).
  */
 
 const ExcelJS = require('exceljs')
@@ -12,7 +13,6 @@ const CHANNEL_FILLS = {
   noon_uae: 'FFFCD34D',
   noon_ksa: 'FFFBBF24',
   life_smile: 'FF6EE7B7',
-  carrefour_uae: 'FFF9A8D4',
 }
 
 const MONEY_FMT = '#,##0.00;[Red]-#,##0.00'
@@ -23,12 +23,98 @@ function border(cell) {
   cell.border = { top: THIN, left: THIN, bottom: THIN, right: THIN }
 }
 
-function naAds(status, value, kind) {
+/** Advertising cells never show a fabricated zero. */
+function naAds(status, value) {
   if (status === 'not_configured') return 'Not Configured'
-  if (status === 'unavailable') return 'Unavailable'
+  if (status === 'unavailable') return 'Data Error'
   if (value == null) return 'Not Configured'
-  if (kind === 'int') return Math.round(value)
-  return Number(value)
+  return value
+}
+
+/** Costs that the marketplace has not reported yet stay Pending. */
+function pendingOrNumber(value) {
+  return value == null ? 'Pending' : value
+}
+
+function statusPlaceholder(channel) {
+  if (channel.integrationStatus === 'not_configured') return 'Not Configured'
+  if (channel.integrationStatus === 'unavailable') return 'Data Error'
+  if (channel.integrationStatus === 'pending') return 'Pending'
+  return null
+}
+
+function channelLines(channel) {
+  const placeholder = statusPlaceholder(channel)
+  if (placeholder) return [{ order: placeholder, sku: '', qty: '' }]
+  const lines = []
+  for (const order of channel.orders || []) {
+    const items = order.items?.length ? order.items : [{ sku: '', quantity: 0 }]
+    items.forEach((item, i) => {
+      lines.push({
+        order: i === 0 ? order.orderNumber : '',
+        sku: item.sku || '',
+        qty: item.quantity == null ? 'N/A' : item.quantity,
+      })
+    })
+  }
+  if (!lines.length) lines.push({ order: 'No orders', sku: '', qty: '' })
+  return lines
+}
+
+function summarySpecs(channel) {
+  const s = channel.summary || {}
+  const ads = channel.adsStatus || 'not_configured'
+  const placeholder = statusPlaceholder(channel)
+  if (placeholder) {
+    // A channel with no data must not print zeros for money or quantity
+    const p = channel.family === 'amazon' ? 'Amazon' : channel.family === 'noon' ? 'Noon' : 'Website'
+    return ['Qty', 'Ads', 'Clicks', 'Commission', 'Shipping', 'Cost %', 'Amount', 'Balance'].map(
+      (metric) => [`${p} ${metric}`, placeholder, 'raw'],
+    )
+  }
+  const qty = s.quantity == null ? ['N/A', 'raw'] : [s.quantity, 'int']
+  if (channel.family === 'life_smile') {
+    return [
+      ['Website Qty', qty[0], qty[1]],
+      ['FB/Instagram Ads', naAds(ads, s.adSpendAED), 'raw'],
+      ['Website Clicks', naAds(ads, s.clicks), 'raw'],
+      ['Tabby & Tamara Commission', pendingOrNumber(s.tabbyTamaraCommissionAED), 'money'],
+      ['Smile Point & Coupon', s.smilePointCouponAED || 0, 'money'],
+      ['Website Shipping', pendingOrNumber(s.shippingAED), 'money'],
+      ['Website Cost %', s.costPercentage, 'pct'],
+      ['Website Amount', s.salesAmountAED || 0, 'money'],
+      ['Website Balance', s.balanceAED || 0, 'money'],
+    ]
+  }
+  const prefix = channel.family === 'amazon' ? 'Amazon' : 'Noon'
+  return [
+    [`${prefix} Qty`, qty[0], qty[1]],
+    [`${prefix} Ads`, naAds(ads, s.adSpendAED), 'raw'],
+    [`${prefix} Clicks`, naAds(ads, s.clicks), 'raw'],
+    [`${prefix} Commission`, pendingOrNumber(s.commissionAED), 'money'],
+    [`${prefix} Shipping`, pendingOrNumber(s.shippingAED), 'money'],
+    [`${prefix} Cost %`, s.costPercentage, 'pct'],
+    [`${prefix} Amount`, s.salesAmountAED || 0, 'money'],
+    [`${prefix} Balance`, s.balanceAED || 0, 'money'],
+  ]
+}
+
+function writeValue(cell, value, kind) {
+  if (kind === 'raw' || typeof value === 'string') {
+    cell.value = value
+    return
+  }
+  if (kind === 'pct') {
+    cell.value = Number(value) || 0
+    cell.numFmt = PCT_FMT
+    return
+  }
+  if (kind === 'int') {
+    cell.value = Math.round(Number(value) || 0)
+    return
+  }
+  cell.value = Number(value) || 0
+  cell.numFmt = MONEY_FMT
 }
 
 /**
@@ -43,25 +129,22 @@ async function buildDailyEcommerceReportXlsxBuffer(report) {
   })
 
   const channels = report.channels || []
-  const colW = 12
-  // 6 channels × 3 cols
-  for (let i = 1; i <= 18; i += 1) {
-    ws.getColumn(i).width = i % 3 === 2 ? 16 : colW
+  const totalCols = Math.max(3, channels.length * 3)
+  for (let i = 1; i <= totalCols; i += 1) {
+    ws.getColumn(i).width = i % 3 === 2 ? 18 : 14
   }
 
-  // Title
-  ws.mergeCells(1, 1, 1, 18)
+  ws.mergeCells(1, 1, 1, totalCols)
   ws.getCell(1, 1).value = `Daily Ecommerce Report — ${report.date}`
   ws.getCell(1, 1).alignment = { horizontal: 'center' }
   ws.getCell(1, 1).font = { bold: true, size: 14 }
 
-  ws.mergeCells(2, 1, 2, 18)
+  ws.mergeCells(2, 1, 2, totalCols)
   const rate = report.exchangeRate?.rateDisplay || Number(report.exchangeRate?.rate || 0).toFixed(4)
   ws.getCell(2, 1).value = `Timezone: ${report.timezone || 'Asia/Dubai'} · SAR to AED: ${rate}`
   ws.getCell(2, 1).alignment = { horizontal: 'center' }
   ws.getCell(2, 1).font = { size: 10, color: { argb: 'FF64748B' } }
 
-  // Channel headers (row 4)
   const headerRow = 4
   channels.forEach((ch, idx) => {
     const c0 = idx * 3 + 1
@@ -78,7 +161,6 @@ async function buildDailyEcommerceReportXlsxBuffer(report) {
     border(cell)
   })
 
-  // Column titles
   const colTitleRow = 5
   channels.forEach((_, idx) => {
     const c0 = idx * 3 + 1
@@ -91,107 +173,40 @@ async function buildDailyEcommerceReportXlsxBuffer(report) {
     })
   })
 
-  // Order rows — align channels by row index of flattened item lines
-  const channelLines = channels.map((ch) => {
-    if (ch.integrationStatus === 'not_configured') {
-      return [{ order: 'Not Configured', sku: '', qty: '' }]
-    }
-    if (ch.integrationStatus === 'unavailable') {
-      return [{ order: 'Data Error', sku: '', qty: '' }]
-    }
-    const lines = []
-    for (const order of ch.orders || []) {
-      const items = order.items?.length ? order.items : [{ sku: '', quantity: 0 }]
-      items.forEach((item, i) => {
-        lines.push({
-          order: i === 0 ? order.orderNumber : '',
-          sku: item.sku || '',
-          qty: item.quantity || 0,
-        })
-      })
-    }
-    if (!lines.length) lines.push({ order: 'No orders', sku: '', qty: '' })
-    return lines
-  })
-
-  const maxLines = Math.max(1, ...channelLines.map((l) => l.length))
+  const lineSets = channels.map(channelLines)
+  const maxLines = Math.max(1, ...lineSets.map((l) => l.length))
   let row = 6
   for (let i = 0; i < maxLines; i += 1) {
     channels.forEach((_, idx) => {
-      const line = channelLines[idx][i] || { order: '', sku: '', qty: '' }
+      const line = lineSets[idx][i] || { order: '', sku: '', qty: '' }
       const c0 = idx * 3 + 1
       ws.getCell(row, c0).value = line.order
       ws.getCell(row, c0 + 1).value = line.sku
-      ws.getCell(row, c0 + 2).value = line.qty === '' ? '' : line.qty
+      ws.getCell(row, c0 + 2).value = line.qty
       for (let j = 0; j < 3; j += 1) border(ws.getCell(row, c0 + j))
     })
     row += 1
   }
 
   row += 1
-  // Summary labels per family
-  const summarySpecs = (ch) => {
-    const s = ch.summary || {}
-    const ads = ch.adsStatus || 'not_configured'
-    if (ch.family === 'life_smile') {
-      return [
-        ['Website Qty', s.quantity, 'int'],
-        ['FB/Instagram Ads', naAds(ads, s.adSpendAED, 'money'), 'raw'],
-        ['Website Clicks', naAds(ads, s.clicks, 'int'), 'raw'],
-        ['Tabby & Tamara Commission', s.tabbyTamaraCommissionAED || 0, 'money'],
-        ['Smile Point & Coupon', s.smilePointCouponAED || 0, 'money'],
-        ['Website Shipping', s.shippingAED || 0, 'money'],
-        ['Website Cost %', s.costPercentage, 'pct'],
-        ['Website Amount', s.salesAmountAED || 0, 'money'],
-        ['Website Balance', s.balanceAED || 0, 'money'],
-      ]
-    }
-    const prefix =
-      ch.family === 'amazon' ? 'Amazon' : ch.family === 'noon' ? 'Noon' : 'Carrefour'
-    return [
-      [`${prefix} Qty`, s.quantity, 'int'],
-      [`${prefix} Ads`, naAds(ads, s.adSpendAED, 'money'), 'raw'],
-      [`${prefix} Clicks`, naAds(ads, s.clicks, 'int'), 'raw'],
-      [`${prefix} Commission`, s.commissionAED || 0, 'money'],
-      [`${prefix} Shipping`, s.shippingAED || 0, 'money'],
-      [`${prefix} Cost %`, s.costPercentage, 'pct'],
-      [`${prefix} Amount`, s.salesAmountAED || 0, 'money'],
-      [`${prefix} Balance`, s.balanceAED || 0, 'money'],
-    ]
-  }
-
   const specs = channels.map(summarySpecs)
-  const maxSummary = Math.max(...specs.map((s) => s.length))
+  const maxSummary = Math.max(0, ...specs.map((s) => s.length))
   for (let i = 0; i < maxSummary; i += 1) {
     channels.forEach((_, idx) => {
       const spec = specs[idx][i]
-      const c0 = idx * 3 + 1
       if (!spec) return
+      const c0 = idx * 3 + 1
       ws.mergeCells(row, c0, row, c0 + 1)
       ws.getCell(row, c0).value = spec[0]
       ws.getCell(row, c0).font = { size: 9 }
-      const valCell = ws.getCell(row, c0 + 2)
-      const kind = spec[2]
-      const val = spec[1]
-      if (kind === 'raw') valCell.value = val
-      else if (kind === 'pct') {
-        if (val == null) valCell.value = 'N/A'
-        else {
-          valCell.value = Number(val)
-          valCell.numFmt = PCT_FMT
-        }
-      } else if (kind === 'int') valCell.value = Math.round(Number(val) || 0)
-      else {
-        valCell.value = Number(val) || 0
-        valCell.numFmt = MONEY_FMT
-      }
+      writeValue(ws.getCell(row, c0 + 2), spec[1], spec[2])
       for (let j = 0; j < 3; j += 1) border(ws.getCell(row, c0 + j))
     })
     row += 1
   }
 
   row += 1
-  ws.mergeCells(row, 1, row, 18)
+  ws.mergeCells(row, 1, row, totalCols)
   ws.getCell(row, 1).value = 'Consolidated Totals'
   ws.getCell(row, 1).font = { bold: true, color: { argb: 'FFFFFFFF' } }
   ws.getCell(row, 1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } }
@@ -199,19 +214,11 @@ async function buildDailyEcommerceReportXlsxBuffer(report) {
 
   const t = report.totals || {}
   const totals = [
-    ['Total Qty', t.quantity, 'int'],
-    [
-      'Total Ads',
-      t.adSpendAED == null ? 'Not Configured' : t.adSpendAED,
-      t.adSpendAED == null ? 'raw' : 'money',
-    ],
-    [
-      'Total Clicks',
-      t.clicks == null ? 'Not Configured' : t.clicks,
-      t.clicks == null ? 'raw' : 'int',
-    ],
-    ['Total Commission', t.commissionAED || 0, 'money'],
-    ['Total Shipping', t.shippingAED || 0, 'money'],
+    ['Total Qty', t.quantity == null ? 'N/A' : t.quantity, 'int'],
+    ['Total Ads', t.adSpendAED == null ? 'Not Configured' : t.adSpendAED, 'money'],
+    ['Total Clicks', t.clicks == null ? 'Not Configured' : t.clicks, 'int'],
+    ['Total Commission', pendingOrNumber(t.commissionAED), 'money'],
+    ['Total Shipping', pendingOrNumber(t.shippingAED), 'money'],
     ['Total Cost %', t.costPercentage, 'pct'],
     ['General Ecommerce', 'Not Configured', 'raw'],
     ['Total Amount', t.salesAmountAED || 0, 'money'],
@@ -220,26 +227,23 @@ async function buildDailyEcommerceReportXlsxBuffer(report) {
   for (const [label, val, kind] of totals) {
     ws.getCell(row, 1).value = label
     ws.getCell(row, 1).font = { bold: true }
-    const cell = ws.getCell(row, 2)
-    if (kind === 'raw') cell.value = val
-    else if (kind === 'pct') {
-      cell.value = Number(val) || 0
-      cell.numFmt = PCT_FMT
-    } else if (kind === 'int') cell.value = Math.round(Number(val) || 0)
-    else {
-      cell.value = Number(val) || 0
-      cell.numFmt = MONEY_FMT
-    }
+    writeValue(ws.getCell(row, 2), val, kind)
     border(ws.getCell(row, 1))
-    border(cell)
+    border(ws.getCell(row, 2))
     row += 1
   }
 
+  const notes = []
   if (report.amazonAdsExcluded) {
+    notes.push('Note: Amazon advertising is Not Configured and excluded from cost calculations.')
+  }
+  notes.push(
+    'Note: FB/Instagram Ads are Not Configured — no Meta Marketing API integration exists in this application.',
+  )
+  for (const note of notes) {
     row += 1
-    ws.mergeCells(row, 1, row, 18)
-    ws.getCell(row, 1).value =
-      'Note: Amazon advertising is Not Configured and excluded from cost calculations.'
+    ws.mergeCells(row, 1, row, totalCols)
+    ws.getCell(row, 1).value = note
     ws.getCell(row, 1).font = { italic: true, size: 9, color: { argb: 'FF64748B' } }
   }
 
@@ -249,4 +253,6 @@ async function buildDailyEcommerceReportXlsxBuffer(report) {
 
 module.exports = {
   buildDailyEcommerceReportXlsxBuffer,
+  channelLines,
+  summarySpecs,
 }
