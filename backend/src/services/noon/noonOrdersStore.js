@@ -148,6 +148,115 @@ async function createNoonOrderTables() {
     `CREATE INDEX IF NOT EXISTS idx_noon_sku_daily_sales_date
      ON noon_sku_daily_sales (country_code, sales_date)`,
   )
+
+  // Noon's live catalog, from `noon_catalog_catalogexport`. `sku_child` is the same identifier the
+  // orders export calls `sku`, so this is the only Noon feed that both prices an order the day it is
+  // placed and maps Noon's psku to our own partner SKU.
+  //
+  // `active_price` is what the item is listed at now, so it is an estimate of what a past order sold
+  // for, not settled money: measured against 22 settled Noon UAE orders it matched exactly 19 times
+  // and was too high 3 times where the price had since changed. Callers must treat it as the last
+  // resort and label it as an estimate.
+  await ddl(`
+    CREATE TABLE IF NOT EXISTS noon_catalog_prices (
+      id BIGSERIAL PRIMARY KEY,
+      country_code TEXT NOT NULL,
+      noon_sku TEXT NOT NULL,
+      psku_code TEXT,
+      partner_sku TEXT,
+      noon_title TEXT,
+      active_price NUMERIC(14,2),
+      strikethrough_price NUMERIC(14,2),
+      seller_price_min NUMERIC(14,2),
+      noon_status TEXT,
+      is_active BOOLEAN,
+      last_synced_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (country_code, noon_sku)
+    )
+  `)
+}
+
+async function upsertNoonCatalogPrice(row) {
+  await query(
+    `INSERT INTO noon_catalog_prices (
+       country_code, noon_sku, psku_code, partner_sku, noon_title, active_price,
+       strikethrough_price, seller_price_min, noon_status, is_active, last_synced_at, updated_at
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11)
+     ON CONFLICT (country_code, noon_sku) DO UPDATE SET
+       psku_code = EXCLUDED.psku_code,
+       partner_sku = EXCLUDED.partner_sku,
+       noon_title = EXCLUDED.noon_title,
+       active_price = EXCLUDED.active_price,
+       strikethrough_price = EXCLUDED.strikethrough_price,
+       seller_price_min = EXCLUDED.seller_price_min,
+       noon_status = EXCLUDED.noon_status,
+       is_active = EXCLUDED.is_active,
+       last_synced_at = EXCLUDED.last_synced_at,
+       updated_at = EXCLUDED.last_synced_at`,
+    [
+      row.countryCode,
+      row.noonSku,
+      row.pskuCode ?? null,
+      row.partnerSku ?? null,
+      row.noonTitle ?? null,
+      row.activePrice ?? null,
+      row.strikethroughPrice ?? null,
+      row.sellerPriceMin ?? null,
+      row.noonStatus ?? null,
+      row.isActive ?? null,
+      row.lastSyncedAt ?? new Date(),
+    ],
+  )
+}
+
+/**
+ * How much catalog we hold for a country and how fresh it is.
+ *
+ * Noon caps how many Impex exports an account may create and answers an over-quota create with
+ * `INVALID_ARGUMENT: Export Quota exceeded`. The catalog changes slowly, so it is re-exported only
+ * when what we hold has gone stale, which keeps the quota for the exports that are date-specific.
+ *
+ * @param {string} countryCode
+ */
+async function getNoonCatalogFreshness(countryCode) {
+  const res = await query(
+    `SELECT COUNT(*)::int AS rows,
+            COUNT(active_price)::int AS priced_rows,
+            MAX(last_synced_at) AS newest
+     FROM noon_catalog_prices
+     WHERE UPPER(country_code) = UPPER($1)`,
+    [countryCode],
+  )
+  const row = res.rows[0] || {}
+  return {
+    rows: row.rows || 0,
+    pricedRows: row.priced_rows || 0,
+    newest: row.newest ? new Date(row.newest) : null,
+  }
+}
+
+/**
+ * Live catalog price and partner SKU for the given Noon skus.
+ *
+ * Rows with no usable price still come back, because the partner SKU alone is worth having: without
+ * it the report shows Noon's opaque psku instead of our own item code.
+ *
+ * @param {string} countryCode
+ * @param {string[]} noonSkus
+ */
+async function selectNoonCatalogPrices(countryCode, noonSkus) {
+  if (!noonSkus.length) return []
+  const res = await query(
+    `SELECT noon_sku, partner_sku, noon_title, active_price, seller_price_min, noon_status,
+            last_synced_at
+     FROM noon_catalog_prices
+     WHERE UPPER(country_code) = UPPER($1)
+       AND noon_sku = ANY($2::text[])`,
+    [countryCode, noonSkus],
+  )
+  return res.rows || []
 }
 
 async function upsertNoonSkuDailySales(row) {
@@ -433,6 +542,9 @@ module.exports = {
   selectNoonFinanceByOrders,
   upsertNoonSkuDailySales,
   selectNoonSkuDailySales,
+  upsertNoonCatalogPrice,
+  selectNoonCatalogPrices,
+  getNoonCatalogFreshness,
   insertExportRun,
   updateExportRun,
   selectLastSuccessfulRun,

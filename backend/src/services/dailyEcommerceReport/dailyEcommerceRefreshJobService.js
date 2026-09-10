@@ -190,6 +190,25 @@ async function syncNoonSkuSalesForDay(bounds) {
   }
 }
 
+/**
+ * Noon's live catalog: the last-resort price for an order Noon has published no money for at all, and
+ * the map from Noon's opaque psku to our own item code.
+ */
+async function syncNoonCatalogForDay() {
+  const { syncNoonCatalogPrices } = require('../noon/noonOrdersExportService')
+  const result = await syncNoonCatalogPrices({ countryCode: 'ae', noonStatus: 'live' })
+  return {
+    status: 'ok',
+    exportCategoryCode: result.exportCategoryCode,
+    exportCode: result.exportCode,
+    rowsParsed: result.rowsParsed,
+    rowsSaved: result.rowsSaved,
+    skusWithPrice: result.skusWithPrice,
+    reused: result.reused === true,
+    reason: result.reason || null,
+  }
+}
+
 async function syncNoonFinanceForDay(bounds) {
   const { syncNoonFinance } = require('../noon/noonOrdersExportService')
   // Noon publishes an order's proceeds and fees only when the order reaches a settlement statement,
@@ -305,10 +324,12 @@ async function runRefresh(job, { skipAmazon = false, skipNoon = false } = {}) {
     sync.noon = { status: 'skipped', message: 'sync_noon=0' }
     sync.noon_finance = { status: 'skipped', message: 'sync_noon=0' }
     sync.noon_sku_sales = { status: 'skipped', message: 'sync_noon=0' }
+    sync.noon_catalog = { status: 'skipped', message: 'sync_noon=0' }
   } else {
     track('noon', 'Noon orders export', () => syncNoonOrdersForDay(bounds))
     track('noon_finance', 'Noon finance export', () => syncNoonFinanceForDay(bounds))
     track('noon_sku_sales', 'Noon per-SKU sales report', () => syncNoonSkuSalesForDay(bounds))
+    track('noon_catalog', 'Noon catalog prices', () => syncNoonCatalogForDay())
   }
 
   track('life_smile', 'Life Smile website read access', () => probeLifeSmileAccess(bounds))

@@ -21,7 +21,16 @@
  * order is priced from Noon's own per-SKU daily sales report (`noon_sku_daily_sales`), matched on
  * Noon sku and the order's Noon calendar date. Where an order has since settled, that report's unit
  * price equals the settled net proceeds exactly, which is why it is trusted for the ones that have
- * not. An order neither source prices stays Pending, never zero.
+ * not.
+ *
+ * That report is itself published about two days late, so a day only hours old has nothing in either
+ * feed. For those orders the price Noon currently lists the item at (`noon_catalog_prices`) is used
+ * as a last resort. It is an estimate, not money Noon has reported — against 22 settled Noon UAE
+ * orders it was exact 19 times and too high 3 times where the price had since changed — so such an
+ * order carries `amountIsEstimate` and the channel reports how much of its total is estimated. Every
+ * estimate is replaced by Noon's own figure as soon as Noon publishes one.
+ *
+ * An order that none of the three sources can price stays Pending, never zero.
  */
 
 const { query } = require('../../../db')
@@ -141,11 +150,50 @@ async function loadNoonSkuUnitPrices(countryCode, salesYmds) {
         unitPrice: revenue / units,
         currency: row.currency ? String(row.currency).toUpperCase() : null,
         basis: shipped > 0 ? 'shipped_units' : 'gross_units',
+        // This report names our own SKU too, which is the only mapping for an item that has since
+        // been delisted and so no longer appears in Noon's live catalog.
+        partnerSku: String(row.partner_sku || '').trim() || null,
         lastSyncedAt: row.last_synced_at ? new Date(row.last_synced_at) : null,
       })
     }
   }
   return { priceBySku, error: null }
+}
+
+/**
+ * Noon's live catalog price and our own item code for the given Noon skus.
+ *
+ * This is the last-resort price. `active_price` is what the item is listed at now, not what a past
+ * order was actually charged, so an order priced this way is an estimate and has to be labelled one.
+ * Measured against 22 settled Noon UAE orders it matched the settled proceeds exactly 19 times and
+ * was too high 3 times, in each case because the price had changed since the order.
+ *
+ * @param {string} countryCode
+ * @param {string[]} noonSkus
+ */
+async function loadCatalogPrices(countryCode, noonSkus) {
+  /** @type {Map<string, { unitPrice: number|null, partnerSku: string|null, lastSyncedAt: Date|null }>} */
+  const bySku = new Map()
+  const unique = [...new Set(noonSkus.map((s) => String(s || '').trim()).filter(Boolean))]
+  if (!unique.length) return { bySku, error: null }
+  let rows
+  try {
+    rows = await noonStore.selectNoonCatalogPrices(countryCode, unique)
+  } catch (err) {
+    console.error(`[dailyEcommerceReport] noon ${countryCode} catalog price lookup failed:`, err)
+    return { bySku, error: err && err.message ? err.message : String(err) }
+  }
+  for (const row of rows) {
+    const sku = String(row.noon_sku || '').trim()
+    if (!sku) continue
+    const price = toFiniteNumber(row.active_price, 0)
+    bySku.set(sku, {
+      unitPrice: price > 0 ? price : null,
+      partnerSku: String(row.partner_sku || '').trim() || null,
+      lastSyncedAt: row.last_synced_at ? new Date(row.last_synced_at) : null,
+    })
+  }
+  return { bySku, error: null }
 }
 
 /** `Z…Z-1` in the orders export is Noon's psku plus a variant index. */
@@ -303,6 +351,12 @@ async function loadNoonChannel(channelKey, bounds, fx, ads) {
     })
   }
 
+  // Noon's live catalog: our own item code for each Noon psku, and the last-resort price.
+  const { bySku: catalog, error: catalogError } = await loadCatalogPrices(
+    countryCode,
+    lines.map((l) => l.noon_sku),
+  )
+
   let partnerSkus = new Map()
   try {
     partnerSkus = await loadPartnerSkus(lines.map((l) => l.noon_sku))
@@ -313,6 +367,13 @@ async function loadNoonChannel(channelKey, bounds, fx, ads) {
       err && err.message ? err.message : err,
     )
   }
+
+  // Noon settles days later, so without its own sales report a recent day would report only the
+  // handful of orders that happen to have settled. Loaded before the order lines are grouped because
+  // it also names items that have since left Noon's live catalog.
+  const { priceBySku, error: salesPriceError } = await loadNoonSkuUnitPrices(countryCode, [
+    bounds.dateYmd,
+  ])
 
   /** @type {Map<string, { items: object[], statuses: Set<string>, placedAt: Date|null, cancelled: number }>} */
   const byOrder = new Map()
@@ -337,8 +398,12 @@ async function loadNoonChannel(channelKey, bounds, fx, ads) {
     bucket.statuses.add(status || 'unknown')
     // Noon issues one item number per unit, so each cached line is one unit of one SKU.
     const noonSku = String(line.noon_sku || '').trim()
+    // Noon's live catalog is the reliable psku-to-item-code map; the catalog image-path match is a
+    // weaker fallback, and Noon's own opaque psku is only shown when nothing knows the item.
     const mappedSku =
       String(line.partner_sku || '').trim() ||
+      catalog.get(noonSku)?.partnerSku ||
+      priceBySku.get(noonSku)?.partnerSku ||
       partnerSkus.get(noonPskuOf(noonSku)) ||
       noonSku
     bucket.items.push({
@@ -361,12 +426,6 @@ async function loadNoonChannel(channelKey, bounds, fx, ads) {
   }
 
   const warnings = []
-
-  // Noon settles days later, so without its own sales report a recent day would report only the
-  // handful of orders that happen to have settled.
-  const { priceBySku, error: salesPriceError } = await loadNoonSkuUnitPrices(countryCode, [
-    bounds.dateYmd,
-  ])
   if (salesPriceError) {
     warnings.push(
       `${meta.label}: Noon per-SKU sales lookup failed (${salesPriceError}); unsettled orders will have no amount`,
@@ -380,6 +439,8 @@ async function loadNoonChannel(channelKey, bounds, fx, ads) {
   let shippingKnown = 0
   let settledOrders = 0
   let pricedFromSalesReport = 0
+  let pricedFromCatalog = 0
+  let estimatedAmountAED = 0
   let unpricedOrders = 0
 
   for (const [orderNr, bucket] of byOrder.entries()) {
@@ -422,7 +483,25 @@ async function loadNoonChannel(channelKey, bounds, fx, ads) {
       if (allPriced) salesReportAmount = total
     }
 
+    // Last resort: the price Noon lists the item at today. Only used when Noon has published no money
+    // for the order at all, which is the normal state of a day that is only hours old.
+    let catalogAmount = null
+    if (!settledMoney && salesReportAmount == null) {
+      let total = 0
+      let allPriced = true
+      for (const line of items) {
+        const priced = line.noonSku ? catalog.get(String(line.noonSku).trim()) : null
+        if (!priced || priced.unitPrice == null) {
+          allPriced = false
+          break
+        }
+        total += priced.unitPrice * line.quantity
+      }
+      if (allPriced) catalogAmount = total
+    }
+
     let money = settledMoney
+    let isEstimate = false
     if (money) {
       settledOrders += 1
     } else if (salesReportAmount != null) {
@@ -435,6 +514,17 @@ async function loadNoonChannel(channelKey, bounds, fx, ads) {
         source: 'noon_sku_daily_sales_report',
       }
       pricedFromSalesReport += 1
+    } else if (catalogAmount != null) {
+      money = {
+        amount: toAed(catalogAmount, meta.currency, fx),
+        commission: null,
+        shipping: null,
+        currency: meta.currency,
+        source: 'noon_catalog_active_price',
+      }
+      isEstimate = true
+      pricedFromCatalog += 1
+      estimatedAmountAED += money.amount
     } else {
       unpricedOrders += 1
     }
@@ -455,6 +545,8 @@ async function loadNoonChannel(channelKey, bounds, fx, ads) {
       commissionAED: money && money.commission != null ? round2(money.commission) : null,
       shippingAED: money && money.shipping != null ? round2(money.shipping) : null,
       amountSource: money ? money.source : 'pending_noon_settlement',
+      // The page must be able to tell a listed price apart from money Noon has actually reported.
+      amountIsEstimate: isEstimate,
       feesSource: settledMoney ? settledMoney.source : null,
     })
   }
@@ -476,6 +568,14 @@ async function loadNoonChannel(channelKey, bounds, fx, ads) {
       `${meta.label}: ${pricedFromSalesReport} unsettled order(s) are valued from Noon's own per-SKU sales report for ${bounds.dateYmd} and are included in Noon Amount`,
     )
   }
+  if (pricedFromCatalog > 0) {
+    warnings.push(
+      `${meta.label}: ${pricedFromCatalog} order(s) worth AED ${round2(estimatedAmountAED)} are estimated from Noon's current listed price, because Noon has published neither a settlement nor a sales figure for them yet — the amount will be replaced by Noon's own money once it does`,
+    )
+  }
+  if (catalogError) {
+    warnings.push(`${meta.label}: Noon catalog price lookup failed (${catalogError})`)
+  }
   // The whole point of pulling the sales report: never show part of a day as if it were the day.
   if (unpricedOrders > 0) {
     warnings.push(
@@ -486,7 +586,8 @@ async function loadNoonChannel(channelKey, bounds, fx, ads) {
     warnings.push(`${meta.label}: ${cancelledLines} cancelled Noon item line(s) excluded`)
   }
 
-  const anyMoney = !settlementFailed && settledOrders + pricedFromSalesReport > 0
+  const anyMoney =
+    !settlementFailed && settledOrders + pricedFromSalesReport + pricedFromCatalog > 0
   const salesTotal = round2(salesAmountAED)
   // Fees exist only for settled orders, so they stay unknown while nothing has settled — reporting 0
   // would claim Noon charged no commission on the day.
@@ -520,18 +621,24 @@ async function loadNoonChannel(channelKey, bounds, fx, ads) {
       cancelledLines,
       settledOrders,
       ordersFromSalesReport: pricedFromSalesReport,
+      ordersEstimatedFromCatalogPrice: pricedFromCatalog,
+      estimatedAmountAED: round2(estimatedAmountAED),
       ordersWithoutNoonAmount: unpricedOrders,
       skusPricedBySalesReport: priceBySku.size,
     },
     summary: {
       quantity,
       salesAmountAED: anyMoney ? salesTotal : null,
+      // How much of the amount above is a listed-price estimate rather than money Noon has reported.
+      estimatedAmountAED: pricedFromCatalog > 0 ? round2(estimatedAmountAED) : null,
       adSpendAED: ads.adSpendAED,
       clicks: ads.clicks,
       commissionAED,
       shippingAED,
-      costPercentage: anyMoney ? financials.costPercentage : null,
-      balanceAED: anyMoney ? financials.balanceAED : null,
+      // Cost % and Balance are both amount-minus-costs, so with no fee known they would read as a
+      // cost-free day. They stay Pending until Noon publishes at least one settlement.
+      costPercentage: anyMoney && feesKnown ? financials.costPercentage : null,
+      balanceAED: anyMoney && feesKnown ? financials.balanceAED : null,
     },
   })
 }
@@ -540,6 +647,7 @@ module.exports = {
   loadNoonChannel,
   loadSettledMoney,
   loadNoonSkuUnitPrices,
+  loadCatalogPrices,
   loadPartnerSkus,
   noonPskuOf,
   countryCodeFor,

@@ -40,7 +40,7 @@ const deferred = () => {
 
 /**
  * @param {{ amazon?: Function, amazonReport?: Function, noonOrders?: Function,
- *           noonFinance?: Function, noonSkuSales?: Function, website?: object,
+ *           noonFinance?: Function, noonSkuSales?: Function, noonCatalog?: Function, website?: object,
  *           report?: object|Function }} behaviour
  */
 function loadJobServiceWith(behaviour = {}) {
@@ -50,6 +50,7 @@ function loadJobServiceWith(behaviour = {}) {
     noonOrders: [],
     noonFinance: [],
     noonSkuSales: [],
+    noonCatalog: [],
     website: 0,
     report: [],
   }
@@ -87,6 +88,17 @@ function loadJobServiceWith(behaviour = {}) {
         calls.noonFinance.push(opts)
         if (behaviour.noonFinance) return behaviour.noonFinance(opts)
         return { exportCode: 'EXP2', pollCount: 5, rowsParsed: 0, rowsSaved: 0, ordersWithMoney: 0 }
+      },
+      syncNoonCatalogPrices: async (opts) => {
+        calls.noonCatalog.push(opts)
+        if (behaviour.noonCatalog) return behaviour.noonCatalog(opts)
+        return {
+          exportCategoryCode: 'noon_catalog_catalogexport',
+          exportCode: 'EXP4',
+          rowsParsed: 541,
+          rowsSaved: 541,
+          skusWithPrice: 521,
+        }
       },
       syncNoonSkuDailySales: async (opts) => {
         calls.noonSkuSales.push(opts)
@@ -174,15 +186,15 @@ test('the job reports per-integration progress while it runs', async () => {
     assert.equal(mid.status, 'running')
     assert.equal(
       mid.progress.totalSteps,
-      8,
-      'two Amazon order syncs, two Amazon order reports, three Noon exports, one website',
+      9,
+      'two Amazon order syncs, two Amazon order reports, four Noon exports, one website',
     )
-    assert.ok(mid.progress.completedSteps < 8 && mid.progress.completedSteps > 0)
+    assert.ok(mid.progress.completedSteps < 9 && mid.progress.completedSteps > 0)
     assert.equal(mid.report, null, 'no report until every integration has settled')
 
     gate.resolve()
     const done = await waitForJob(mod, started.jobId)
-    assert.equal(done.progress.completedSteps, 8)
+    assert.equal(done.progress.completedSteps, 9)
     assert.ok(done.report)
   } finally {
     restore()
@@ -424,6 +436,35 @@ test("Noon's per-SKU sales report is pulled for the report date with a lower-cas
   }
 })
 
+test('the Noon catalog export is pulled live, with a lower-case country', async () => {
+  const { mod, calls, restore } = loadJobServiceWith({})
+  try {
+    const done = await waitForJob(mod, mod.startRefreshJob({ date: '2026-09-09' }).jobId)
+    assert.deepEqual(calls.noonCatalog, [{ countryCode: 'ae', noonStatus: 'live' }])
+    assert.equal(done.sync.noon_catalog.status, 'ok')
+    assert.equal(done.sync.noon_catalog.skusWithPrice, 521)
+  } finally {
+    restore()
+  }
+})
+
+test('a failed Noon catalog export leaves the other Noon exports alone', async () => {
+  const { mod, restore } = loadJobServiceWith({
+    noonCatalog: async () => {
+      throw new Error('noon catalog export failed')
+    },
+  })
+  try {
+    const done = await waitForJob(mod, mod.startRefreshJob({ date: '2026-09-09' }).jobId)
+    assert.equal(done.status, 'completed')
+    assert.equal(done.sync.noon_catalog.status, 'error')
+    assert.equal(done.sync.noon.status, 'ok')
+    assert.equal(done.sync.noon_sku_sales.status, 'ok')
+  } finally {
+    restore()
+  }
+})
+
 test('a failed Noon sales report leaves the orders and finance exports alone', async () => {
   const { mod, restore } = loadJobServiceWith({
     noonSkuSales: async () => {
@@ -468,9 +509,11 @@ test('skip flags leave an integration untouched and say so', async () => {
     assert.equal(calls.amazon.length, 0)
     assert.equal(calls.noonOrders.length, 0)
     assert.equal(calls.noonSkuSales.length, 0)
+    assert.equal(calls.noonCatalog.length, 0)
     assert.equal(done.sync.amazon_uae.status, 'skipped')
     assert.equal(done.sync.noon.status, 'skipped')
     assert.equal(done.sync.noon_sku_sales.status, 'skipped')
+    assert.equal(done.sync.noon_catalog.status, 'skipped')
     assert.equal(done.sync.life_smile.status, 'ok', 'skipping Amazon does not skip the website')
   } finally {
     restore()

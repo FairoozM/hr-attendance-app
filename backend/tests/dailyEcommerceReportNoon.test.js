@@ -41,7 +41,8 @@ function lastRunFor(data) {
 
 /**
  * @param {{ lines: object[], finance?: object[], statements?: object[], countries?: [string, number][],
- *           lastRun?: object|null, skuSales?: object[], skuSalesError?: Error }} data
+ *           lastRun?: object|null, skuSales?: object[], skuSalesError?: Error,
+ *           catalog?: object[], catalogError?: Error }} data
  */
 function loadProviderWith(data) {
   const restores = [
@@ -55,6 +56,10 @@ function loadProviderWith(data) {
       selectNoonSkuDailySales: async () => {
         if (data.skuSalesError) throw data.skuSalesError
         return data.skuSales || []
+      },
+      selectNoonCatalogPrices: async (_country, noonSkus) => {
+        if (data.catalogError) throw data.catalogError
+        return (data.catalog || []).filter((r) => noonSkus.includes(r.noon_sku))
       },
       selectLastSuccessfulRun: async () => lastRunFor(data),
       // Mirrors the store's own `from_date <= ymd AND to_date >= ymd` filter.
@@ -305,6 +310,7 @@ test('a failing money lookup leaves the orders listed with Pending money', async
       selectNoonOrderLines: async () => [line('NAEI90079648553', 'NAEI90079648553-1')],
       countLinesByCountry: async () => new Map([['AE', 1]]),
       selectNoonSkuDailySales: async () => [],
+      selectNoonCatalogPrices: async () => [],
       selectNoonFinanceByOrders: async () => {
         throw new Error('finance cache unreachable')
       },
@@ -343,6 +349,7 @@ test('Dubai day boundaries decide inclusion, using the Noon order timestamp in U
         [inside, after].filter((l) => l.order_placed_at >= start && l.order_placed_at < end),
       countLinesByCountry: async () => new Map([['AE', 2]]),
       selectNoonSkuDailySales: async () => [],
+      selectNoonCatalogPrices: async () => [],
       selectNoonFinanceByOrders: async () => [],
       selectLastSuccessfulRun: async () => ({ from_date: '2026-09-08', to_date: '2026-09-08' }),
       findSuccessfulRunCoveringDate: async () => ({ from_date: '2026-09-08', to_date: '2026-09-08' }),
@@ -740,28 +747,309 @@ test('a failed sales-report lookup warns instead of quietly shrinking the Noon d
   }
 })
 
-test('Noon provider reads no accounting system and no catalog price', () => {
+/** One row of Noon's live catalog export. */
+function catalogPrice(noonSku, activePrice, partnerSku = null) {
+  return {
+    noon_sku: noonSku,
+    partner_sku: partnerSku,
+    noon_title: 'Life Smile something',
+    active_price: activePrice == null ? null : String(activePrice),
+    seller_price_min: null,
+    noon_status: 'live',
+    last_synced_at: new Date('2026-09-10T06:00:00Z'),
+  }
+}
+
+/**
+ * The 2026-09-09 case: Noon had published nothing at all for the day's six orders — no settlement and
+ * no sales report — so the whole channel read Pending. Noon's listed price gives the day a number.
+ */
+test("an order Noon has published no money for is priced from Noon's listed price, flagged an estimate", async () => {
+  const { mod, restore } = loadProviderWith({
+    lines: [
+      line('NAEI90084042017', 'NAEI90084042017-2', { noon_sku: 'ZCCE27171F660309F7B2FZ-1' }),
+      line('NAEI90040588142', 'NAEI90040588142-2', { noon_sku: 'ZADC4D755A820638B217BZ-1' }),
+    ],
+    finance: [],
+    skuSales: [],
+    catalog: [
+      catalogPrice('ZCCE27171F660309F7B2FZ-1', 123, 'SPHMGL-S-24-BLACK'),
+      catalogPrice('ZADC4D755A820638B217BZ-1', 84, 'NCK-91'),
+    ],
+  })
+  try {
+    const ch = await mod.loadNoonChannel('noon_uae', dubaiDayBounds('2026-09-09'), FX, NO_ADS)
+    assert.equal(ch.summary.salesAmountAED, 207, '123 + 84, instead of Pending')
+    assert.equal(ch.summary.estimatedAmountAED, 207, 'every dirham of it is an estimate')
+    assert.equal(ch.reconciliation.ordersEstimatedFromCatalogPrice, 2)
+    assert.equal(ch.reconciliation.ordersWithoutNoonAmount, 0)
+    for (const o of ch.orders) {
+      assert.equal(o.amountSource, 'noon_catalog_active_price')
+      assert.equal(o.amountIsEstimate, true)
+    }
+    // Noon's opaque psku must give way to our own item code.
+    assert.equal(ch.orders.find((o) => o.orderId === 'NAEI90084042017').items[0].sku, 'SPHMGL-S-24-BLACK')
+    assert.ok(ch.warnings.some((w) => /estimated from Noon's current listed price/.test(w)))
+  } finally {
+    restore()
+  }
+})
+
+test('with no Noon fee published, Cost % and Balance stay Pending rather than reading cost-free', async () => {
+  const { mod, restore } = loadProviderWith({
+    lines: [line('NAEI-ESTIMATED', 'NAEI-ESTIMATED-1', { noon_sku: 'ZEZ-1' })],
+    finance: [],
+    skuSales: [],
+    catalog: [catalogPrice('ZEZ-1', 200, 'SOME-SKU')],
+  })
+  try {
+    const ch = await mod.loadNoonChannel('noon_uae', dubaiDayBounds('2026-09-09'), FX, NO_ADS)
+    assert.equal(ch.summary.salesAmountAED, 200)
+    assert.equal(ch.summary.commissionAED, null)
+    assert.equal(ch.summary.shippingAED, null)
+    // Noon always charges a referral fee, so 0% cost and a balance equal to the full amount would be
+    // a claim the report cannot make yet.
+    assert.equal(ch.summary.costPercentage, null)
+    assert.equal(ch.summary.balanceAED, null)
+  } finally {
+    restore()
+  }
+})
+
+test('an item that has left the live catalog still gets its code from the sales report', async () => {
+  const { mod, restore } = loadProviderWith({
+    lines: [line('NAEI-DELISTED', 'NAEI-DELISTED-1', { noon_sku: 'ZOLDZ-1' })],
+    finance: [],
+    skuSales: [skuSales('ZOLDZ-1', { revenue_shipped: '116', partner_sku: 'LIFEP17SHR-40-BEIGE' })],
+    catalog: [],
+  })
+  try {
+    const ch = await mod.loadNoonChannel('noon_uae', dubaiDayBounds('2026-09-08'), FX, NO_ADS)
+    assert.equal(ch.orders[0].items[0].sku, 'LIFEP17SHR-40-BEIGE')
+    assert.equal(ch.orders[0].amountAED, 116)
+  } finally {
+    restore()
+  }
+})
+
+test("Noon's own money always beats its listed price", async () => {
+  const { mod, restore } = loadProviderWith({
+    lines: [
+      line('NAEI-SETTLED', 'NAEI-SETTLED-1', { noon_sku: 'ZAZ-1' }),
+      line('NAEI-REPORTED', 'NAEI-REPORTED-1', { noon_sku: 'ZBZ-1' }),
+    ],
+    finance: [{ order_nr: 'NAEI-SETTLED', net_proceeds: '60', referral_fee: '-9', logistics: '0', currency: 'AED' }],
+    skuSales: [skuSales('ZBZ-1', { revenue_shipped: '45' })],
+    // The listed price is higher than both, exactly the case that made 3 of 22 backtested orders wrong.
+    catalog: [catalogPrice('ZAZ-1', 116), catalogPrice('ZBZ-1', 116)],
+  })
+  try {
+    const ch = await mod.loadNoonChannel('noon_uae', dubaiDayBounds('2026-09-09'), FX, NO_ADS)
+    assert.equal(ch.orders.find((o) => o.orderId === 'NAEI-SETTLED').amountAED, 60)
+    assert.equal(ch.orders.find((o) => o.orderId === 'NAEI-REPORTED').amountAED, 45)
+    assert.equal(ch.summary.salesAmountAED, 105)
+    assert.equal(ch.summary.estimatedAmountAED, null, 'nothing was estimated')
+    assert.equal(ch.reconciliation.ordersEstimatedFromCatalogPrice, 0)
+    for (const o of ch.orders) assert.equal(o.amountIsEstimate, false)
+  } finally {
+    restore()
+  }
+})
+
+test('a SKU the catalog has no price for is not silently valued at zero', async () => {
+  const { mod, restore } = loadProviderWith({
+    lines: [line('NAEI-NOPRICE', 'NAEI-NOPRICE-1', { noon_sku: 'ZGONEZ-1' })],
+    finance: [],
+    skuSales: [],
+    // A delisted item: the catalog names it but carries no live price.
+    catalog: [catalogPrice('ZGONEZ-1', null, 'OLD-SKU')],
+  })
+  try {
+    const ch = await mod.loadNoonChannel('noon_uae', dubaiDayBounds('2026-09-09'), FX, NO_ADS)
+    assert.equal(ch.summary.salesAmountAED, null)
+    assert.equal(ch.orders[0].amountAED, null)
+    assert.equal(ch.orders[0].amountSource, 'pending_noon_settlement')
+    // The item code is still worth having even with no price.
+    assert.equal(ch.orders[0].items[0].sku, 'OLD-SKU')
+    assert.equal(ch.reconciliation.ordersWithoutNoonAmount, 1)
+  } finally {
+    restore()
+  }
+})
+
+test('a multi-unit order estimated from the listed price multiplies by quantity', async () => {
+  const { mod, restore } = loadProviderWith({
+    lines: [
+      line('NAEI-MULTI', 'NAEI-MULTI-1', { noon_sku: 'ZMZ-1' }),
+      line('NAEI-MULTI', 'NAEI-MULTI-2', { noon_sku: 'ZMZ-1' }),
+    ],
+    finance: [],
+    skuSales: [],
+    catalog: [catalogPrice('ZMZ-1', 84, 'NCK-91')],
+  })
+  try {
+    const ch = await mod.loadNoonChannel('noon_uae', dubaiDayBounds('2026-09-09'), FX, NO_ADS)
+    assert.equal(ch.summary.quantity, 2)
+    assert.equal(ch.orders[0].amountAED, 168)
+  } finally {
+    restore()
+  }
+})
+
+/**
+ * Noon caps how many Impex exports an account may create, and answers an over-quota create with
+ * `INVALID_ARGUMENT: Export Quota exceeded`. The catalog barely changes, so it must not be re-exported
+ * on every Refresh, and running out of allowance must not read as a broken integration.
+ */
+test('the Noon catalog export is skipped while the cached catalog is still fresh', async () => {
+  const calls = []
+  const restore = stubModule('../src/services/noon/noonOrdersStore', {
+    ensureNoonOrderTables: async () => {},
+    getNoonCatalogFreshness: async () => ({
+      rows: 541,
+      pricedRows: 521,
+      newest: new Date(Date.now() - 60 * 60 * 1000),
+    }),
+    insertExportRun: async () => {
+      calls.push('insertExportRun')
+      return 1
+    },
+  })
+  const restoreConfig = stubModule('../src/services/noon/noonConfig', {
+    readNoonConfig: () => ({ configured: true, enabled: true, projectCode: 'PRJ11752', missing: [] }),
+  })
+  try {
+    const { syncNoonCatalogPrices } = freshModule('../src/services/noon/noonOrdersExportService')
+    const res = await syncNoonCatalogPrices({ countryCode: 'ae' })
+    assert.equal(res.reused, true)
+    assert.equal(res.reason, 'catalog_cache_fresh')
+    assert.equal(res.skusWithPrice, 521)
+    assert.deepEqual(calls, [], 'no export is created, so no quota is spent')
+  } finally {
+    restore()
+    restoreConfig()
+  }
+})
+
+test('running out of Noon export quota keeps the cached catalog instead of failing', async () => {
+  const quotaError = new Error('Noon request failed with HTTP 400.')
+  quotaError.meta = {
+    safeBody: {
+      error: { code: 'INVALID_ARGUMENT', message: "AssertionError('Export Quota exceeded. Try after sometime')" },
+    },
+  }
+  const restore = stubModule('../src/services/noon/noonOrdersStore', {
+    ensureNoonOrderTables: async () => {},
+    // Stale, so an export is attempted, but we still hold a usable catalog.
+    getNoonCatalogFreshness: async () => ({
+      rows: 541,
+      pricedRows: 521,
+      newest: new Date(Date.now() - 48 * 60 * 60 * 1000),
+    }),
+    insertExportRun: async () => 1,
+    updateExportRun: async () => {},
+  })
+  const restoreConfig = stubModule('../src/services/noon/noonConfig', {
+    readNoonConfig: () => ({ configured: true, enabled: true, projectCode: 'PRJ11752', missing: [] }),
+  })
+  const restoreClient = stubModule('../src/services/noon/noonClient', {
+    noonPost: async () => {
+      throw quotaError
+    },
+  })
+  try {
+    const { syncNoonCatalogPrices } = freshModule('../src/services/noon/noonOrdersExportService')
+    const res = await syncNoonCatalogPrices({ countryCode: 'ae' })
+    assert.equal(res.reused, true)
+    assert.equal(res.reason, 'noon_export_quota_exceeded')
+    assert.equal(res.skusWithPrice, 521)
+  } finally {
+    restore()
+    restoreConfig()
+    restoreClient()
+  }
+})
+
+test('an export quota error with nothing cached is a real failure, not a silent empty catalog', async () => {
+  const quotaError = new Error('Noon request failed with HTTP 400.')
+  quotaError.meta = {
+    safeBody: { error: { message: "AssertionError('Export Quota exceeded. Try after sometime')" } },
+  }
+  const restore = stubModule('../src/services/noon/noonOrdersStore', {
+    ensureNoonOrderTables: async () => {},
+    getNoonCatalogFreshness: async () => ({ rows: 0, pricedRows: 0, newest: null }),
+    insertExportRun: async () => 1,
+    updateExportRun: async () => {},
+  })
+  const restoreConfig = stubModule('../src/services/noon/noonConfig', {
+    readNoonConfig: () => ({ configured: true, enabled: true, projectCode: 'PRJ11752', missing: [] }),
+  })
+  const restoreClient = stubModule('../src/services/noon/noonClient', {
+    noonPost: async () => {
+      throw quotaError
+    },
+  })
+  try {
+    const { syncNoonCatalogPrices } = freshModule('../src/services/noon/noonOrdersExportService')
+    await assert.rejects(() => syncNoonCatalogPrices({ countryCode: 'ae' }), /Quota exceeded/)
+  } finally {
+    restore()
+    restoreConfig()
+    restoreClient()
+  }
+})
+
+test("Noon's catalog rows map the live price, the item code and the order-export sku key", () => {
+  const { mapCatalogRow } = require('../src/services/noon/noonOrdersExportService')
+  const row = mapCatalogRow(
+    {
+      psku_code: 'a6985b3d91c0a2936eb6f2907f665dda',
+      country_code: 'ae',
+      partner_sku: 'BB-10SET-BLACK',
+      sku_child: 'Z2D9AC169C1720B109DA8Z-1',
+      noon_title: 'Cookware Set 10 pieces',
+      active_price: '354',
+      price: '800',
+      sale_price: '',
+      seller_price_min: '354',
+      is_active: 'true',
+      noon_status: 'live',
+    },
+    new Date('2026-09-10T06:00:00Z'),
+  )
+  // `sku_child` is what the orders export calls `sku`; joining on anything else finds nothing.
+  assert.equal(row.noonSku, 'Z2D9AC169C1720B109DA8Z-1')
+  assert.equal(row.partnerSku, 'BB-10SET-BLACK')
+  assert.equal(row.countryCode, 'AE')
+  assert.equal(row.activePrice, 354, 'active_price is the live selling price')
+  assert.equal(row.strikethroughPrice, 800, 'price is the struck-through figure, never a sale amount')
+  assert.equal(row.isActive, true)
+  assert.equal(mapCatalogRow({ sku_child: '' }, new Date()), null)
+})
+
+test('Noon provider reads no accounting system, and never passes a listed price off as settled money', () => {
   const src = require('node:fs').readFileSync(
     require.resolve('../src/services/dailyEcommerceReport/providers/noonOrdersProvider'),
     'utf8',
   )
   assert.ok(!/zoho/i.test(src))
-  // A catalog or offer price is what an item is listed at, not what it sold for, so it must never
-  // become a sale amount. Noon's per-SKU sales report is a different thing: it is the revenue Noon
-  // itself booked for that SKU on that day, and the unit price is derived from it.
+  // A struck-through or minimum price is not what anyone paid, and a month-old catalog snapshot is
+  // not a price at all. Only Noon's live `active_price` may stand in for an unpublished amount.
   for (const forbidden of [
-    /sale_price/,
-    /offer_price/,
-    /list_price/,
+    /strikethrough/i,
+    /seller_price_min/,
     /\bmsrp\b/i,
     /pricing\/v1/,
     /noonProductService/,
-    /noonSnapshot/,
+    /noonSnapshotStore/,
   ]) {
-    assert.ok(!forbidden.test(src), `catalog pricing source ${forbidden} must not be used`)
+    assert.ok(!forbidden.test(src), `${forbidden} must not be used as a Noon sale amount`)
   }
   assert.ok(
     /revenue_shipped/.test(src),
-    "the unit price must come from Noon's own reported revenue, not a catalog figure",
+    "Noon's own reported revenue must be preferred over any listed price",
   )
+  // A listed price is an estimate, so the provider has to say so on the order and in the summary.
+  assert.ok(/amountIsEstimate/.test(src))
+  assert.ok(/estimatedAmountAED/.test(src))
 })

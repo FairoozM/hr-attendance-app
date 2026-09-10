@@ -28,8 +28,10 @@ const store = require('./noonOrdersStore')
 
 const ORDERS_EXPORT_CATEGORY = 'noon_noonoms_ordersexport'
 const FINANCE_EXPORT_CATEGORY = 'noon_financeweb_transactionviewreportonitemlevel'
-/** Noon's per-SKU daily views-and-sales report — the only Noon feed that prices an unsettled day. */
+/** Noon's per-SKU daily views-and-sales report — Noon's own revenue for a day, published ~2 days on. */
 const SKU_SALES_EXPORT_CATEGORY = 'noon_catalog_reports_productviewsandsalesdata'
+/** Noon's live catalog — the live selling price, and the psku-to-partner-SKU map. */
+const CATALOG_EXPORT_CATEGORY = 'noon_catalog_catalogexport'
 const CREATE_PATH = '/impex/v1/export/create'
 const STATUS_PATH = '/impex/v1/export/status'
 const MAX_POLLS = 40
@@ -485,10 +487,165 @@ async function syncNoonSkuDailySales({ countryCode, fromYmd, toYmd, sleepFn }) {
   }
 }
 
+/**
+ * One row of Noon's catalog export.
+ *
+ * `sku_child` is keyed the same way as the orders export's `sku`, which is what makes this feed able
+ * to price an order and name its item code. `active_price` is the live selling price; `price` is the
+ * struck-through figure and is deliberately not treated as a selling price.
+ */
+function mapCatalogRow(raw, lastSyncedAt) {
+  const noonSku = String(raw.sku_child || '').trim()
+  if (!noonSku) return null
+  return {
+    countryCode: String(raw.country_code || '').trim().toUpperCase() || 'AE',
+    noonSku,
+    pskuCode: String(raw.psku_code || '').trim() || null,
+    partnerSku: String(raw.partner_sku || '').trim() || null,
+    noonTitle: String(raw.noon_title || '').trim().slice(0, 500) || null,
+    activePrice: parseMoney(raw.active_price),
+    strikethroughPrice: parseMoney(raw.price),
+    sellerPriceMin: parseMoney(raw.seller_price_min),
+    noonStatus: String(raw.noon_status || '').trim() || null,
+    isActive: parseBoolean(raw.is_active),
+    lastSyncedAt,
+  }
+}
+
+/** Noon caps Impex export creates per account, so the slow-moving catalog is re-pulled at most this often. */
+const CATALOG_MAX_AGE_MS = 6 * 60 * 60 * 1000
+
+/** Noon's wording when an account has spent its export allowance. */
+function isExportQuotaError(err) {
+  const body = err?.meta?.safeBody
+  const message = body && body.error && body.error.message ? String(body.error.message) : ''
+  return /quota exceeded/i.test(message) || /quota exceeded/i.test(String(err?.message || ''))
+}
+
+/**
+ * Fetch and cache Noon's live catalog for one country.
+ *
+ * This is the last-resort price for an order Noon has not settled and has not yet reported in its
+ * per-SKU sales report, and the only source of our own item code for a Noon psku.
+ *
+ * The country code must be lower case; Noon matches it case-sensitively and answers an upper-case
+ * code with an empty export rather than an error.
+ *
+ * The catalog is only re-exported once what we hold has gone stale. Noon limits how many exports an
+ * account may create, and spending that allowance on a catalog that barely changes would starve the
+ * date-specific exports that cannot be cached.
+ *
+ * @param {{ countryCode?: string, noonStatus?: string, maxAgeMs?: number, force?: boolean,
+ *           sleepFn?: (ms: number) => Promise<void> }} opts
+ */
+async function syncNoonCatalogPrices({
+  countryCode = 'ae',
+  noonStatus = 'live',
+  maxAgeMs = CATALOG_MAX_AGE_MS,
+  force = false,
+  sleepFn,
+} = {}) {
+  assertNoonConfigured()
+  const country = String(countryCode || 'ae').trim().toLowerCase()
+  const today = new Date().toISOString().slice(0, 10)
+  await store.ensureNoonOrderTables()
+
+  const held = await store.getNoonCatalogFreshness(country)
+  const ageMs = held.newest ? Date.now() - held.newest.getTime() : null
+  if (!force && held.pricedRows > 0 && ageMs != null && ageMs < maxAgeMs) {
+    return {
+      exportCategoryCode: CATALOG_EXPORT_CATEGORY,
+      countryCode: country,
+      reused: true,
+      reason: 'catalog_cache_fresh',
+      rowsParsed: 0,
+      rowsSaved: 0,
+      skusWithPrice: held.pricedRows,
+      cacheAgeMs: ageMs,
+    }
+  }
+  const runId = await store.insertExportRun({
+    exportCategoryCode: CATALOG_EXPORT_CATEGORY,
+    fromDate: today,
+    toDate: today,
+    status: 'running',
+  })
+
+  try {
+    const { exportCode, pollCount, rows } = await runExport({
+      exportCategoryCode: CATALOG_EXPORT_CATEGORY,
+      params: { country, noon_status: noonStatus },
+      sleepFn,
+    })
+    const now = new Date()
+    let saved = 0
+    let priced = 0
+    for (const raw of rows) {
+      const mapped = mapCatalogRow(raw, now)
+      if (!mapped) continue
+      await store.upsertNoonCatalogPrice(mapped)
+      saved += 1
+      if (mapped.activePrice != null && mapped.activePrice > 0) priced += 1
+    }
+    await store.updateExportRun(runId, {
+      exportCode,
+      status: 'success',
+      rowsParsed: rows.length,
+      rowsSaved: saved,
+      pollCount,
+      finishedAt: new Date(),
+    })
+    return {
+      exportCategoryCode: CATALOG_EXPORT_CATEGORY,
+      exportCode,
+      countryCode: country,
+      noonStatus,
+      pollCount,
+      rowsParsed: rows.length,
+      rowsSaved: saved,
+      skusWithPrice: priced,
+      reused: false,
+    }
+  } catch (err) {
+    await store.updateExportRun(runId, {
+      status: 'failed',
+      errorMessage: err && err.message ? String(err.message).slice(0, 500) : 'noon_export_failed',
+      pollCount: err?.pollCount ?? null,
+      finishedAt: new Date(),
+    })
+    if (isExportQuotaError(err)) {
+      // Running out of export allowance is not a broken integration, and the catalog we already hold
+      // is still usable. Only fail when there is nothing cached to fall back on — and say why, since
+      // Noon buries the reason in the response body behind a bare "HTTP 400".
+      if (held.pricedRows > 0) {
+        return {
+          exportCategoryCode: CATALOG_EXPORT_CATEGORY,
+          countryCode: country,
+          reused: true,
+          reason: 'noon_export_quota_exceeded',
+          rowsParsed: 0,
+          rowsSaved: 0,
+          skusWithPrice: held.pricedRows,
+          cacheAgeMs: ageMs,
+        }
+      }
+      const quotaErr = new Error(
+        'Noon export Quota exceeded and no Noon catalog is cached yet, so Noon item prices and item codes are unavailable until the quota resets',
+      )
+      quotaErr.code = 'NOON_EXPORT_QUOTA_EXCEEDED'
+      quotaErr.cause = err
+      throw quotaErr
+    }
+    throw err
+  }
+}
+
 module.exports = {
   syncNoonOrders,
   syncNoonFinance,
   syncNoonSkuDailySales,
+  syncNoonCatalogPrices,
+  mapCatalogRow,
   mapFinanceRow,
   mapSkuSalesRow,
   runExport,
@@ -498,4 +655,5 @@ module.exports = {
   ORDERS_EXPORT_CATEGORY,
   FINANCE_EXPORT_CATEGORY,
   SKU_SALES_EXPORT_CATEGORY,
+  CATALOG_EXPORT_CATEGORY,
 }
