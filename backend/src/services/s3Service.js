@@ -72,6 +72,14 @@ function createVatCertificateKey(vatInfoId, fileName) {
   return `vat-certificates/${sid}/${crypto.randomUUID()}-${safe}`
 }
 
+/** Unique S3 key per ISO QMS document version — never reuse keys for revisions. */
+function createIsoQmsDocKey(documentId, revisionLabel, fileName) {
+  const safe = sanitizeName(fileName)
+  const docPart = String(documentId || 'new').replace(/[^a-zA-Z0-9._-]/g, '_')
+  const revPart = String(revisionLabel || 'rev').replace(/[^a-zA-Z0-9._-]/g, '_')
+  return `iso-qms/${docPart}/${revPart}/${crypto.randomUUID()}-${safe}`
+}
+
 async function getUploadUrl({ key, contentType, expiresIn = 300 }) {
   const Bucket = requireBucket()
   const command = new PutObjectCommand({
@@ -137,6 +145,7 @@ module.exports = {
   createInfluencerProfileImageKey,
   createSubscriptionInvoiceKey,
   createVatCertificateKey,
+  createIsoQmsDocKey,
   getUploadUrl,
   getDownloadUrl,
   putObjectBuffer,

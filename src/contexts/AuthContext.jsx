@@ -106,9 +106,16 @@ export function useAuth() {
   return ctx
 }
 
+/** Dedicated external auditor role — ISO & QMS only (never inherits warehouse bypass). */
+export function isAuditorUser(user) {
+  return Boolean(user && user.role === 'auditor')
+}
+
 /**
  * Returns true if the user can access the given module+action.
  * Admin and warehouse always return true (backward compat).
+ * Auditor is checked before warehouse and only receives iso_qms view
+ * (plus manage_audits when explicitly granted for findings).
  * employee: checks user.permissions object.
  */
 export function hasPermission(user, module, action) {
@@ -126,6 +133,15 @@ export function hasPermission(user, module, action) {
     return true
   }
   if (user.role === 'admin') return true
+
+  // Auditor must never inherit warehouse-style full access.
+  if (user.role === 'auditor') {
+    if (module !== 'iso_qms') return false
+    if (action === 'view') return true
+    if (action === 'manage_audits') return Boolean(mod.manage_audits)
+    return false
+  }
+
   if (user.role === 'warehouse') return true
   // manage always implies view for any module
   if (action === 'view' && mod.manage) return true
@@ -155,6 +171,14 @@ export function hasPermission(user, module, action) {
   if (action === 'view' && module === 'company_payments' && (mod.add || mod.edit || mod.delete)) return true
   // weekly_reports: view implies export (backward compatible with roles that only have view)
   if (action === 'export' && module === 'weekly_reports' && (mod.view || mod.manage)) return true
+  // iso_qms: write actions imply view
+  if (
+    action === 'view' &&
+    module === 'iso_qms' &&
+    (mod.add || mod.edit || mod.delete || mod.approve || mod.manage_audits || mod.settings)
+  ) {
+    return true
+  }
   return Boolean(mod[action])
 }
 
@@ -162,6 +186,7 @@ export function hasPermission(user, module, action) {
 export function hasAnyModulePermission(user, module) {
   if (!user) return false
   if (user.role === 'admin') return true
+  if (user.role === 'auditor') return module === 'iso_qms'
   if (user.role === 'warehouse') return true
   const p = user.permissions || {}
   const mod = p[module] || {}

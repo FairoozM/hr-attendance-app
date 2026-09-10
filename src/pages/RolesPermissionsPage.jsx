@@ -10,6 +10,7 @@ const MODULE_SECTION_ORDER = [
   'Marketing / Social Media',
   'Lists',
   'Management',
+  'ISO & QMS',
   'Prices',
   'Reports',
   'Taxation',
@@ -126,6 +127,20 @@ const MODULES = [
     ],
   },
   {
+    section: 'ISO & QMS',
+    key: 'iso_qms',
+    label: 'ISO & Quality Management System',
+    permissions: [
+      { key: 'view', label: 'View ISO & QMS module (dashboard, library, auditor room, search)' },
+      { key: 'add', label: 'Upload / create ISO documents and records (includes view)' },
+      { key: 'edit', label: 'Edit ISO metadata, revisions and registers (includes view)' },
+      { key: 'delete', label: 'Delete / archive ISO records when permitted (includes view)' },
+      { key: 'approve', label: 'Approve / reject controlled documents (includes view)' },
+      { key: 'manage_audits', label: 'Manage audits, findings and corrective actions (includes view)' },
+      { key: 'settings', label: 'Manage ISO settings and auditor assignments (includes view)' },
+    ],
+  },
+  {
     section: 'Prices',
     key: 'prices',
     label: 'Prices (UAE & KSA)',
@@ -197,12 +212,17 @@ function modulesGroupedBySection() {
 const RBAC_SECTIONS = modulesGroupedBySection()
 
 function roleLabel(role) {
-  const map = { employee: 'Employee', warehouse: 'Warehouse', admin: 'Admin' }
+  const map = { employee: 'Employee', warehouse: 'Warehouse', admin: 'Admin', auditor: 'Auditor' }
   return map[role] || role
 }
 
 function roleBadgeClass(role) {
-  const map = { employee: 'badge--employee', warehouse: 'badge--warehouse', admin: 'badge--admin' }
+  const map = {
+    employee: 'badge--employee',
+    warehouse: 'badge--warehouse',
+    admin: 'badge--admin',
+    auditor: 'badge--employee',
+  }
   return `rbac-badge ${map[role] || ''}`
 }
 
@@ -648,6 +668,7 @@ export function RolesPermissionsPage() {
               <option value="">All roles</option>
               <option value="employee">Employee</option>
               <option value="warehouse">Warehouse</option>
+              <option value="auditor">Auditor</option>
             </select>
           </div>
 
@@ -737,6 +758,14 @@ export function RolesPermissionsPage() {
                 <div className="rbac-alert rbac-alert--info">
                   Warehouse users have built-in access to Attendance, Employees, and Annual Leave.
                   Permission toggles apply to any additional custom access.
+                </div>
+              )}
+
+              {selectedUser.has_account && selectedUser.role === 'auditor' && (
+                <div className="rbac-alert rbac-alert--info">
+                  Auditor users only access ISO &amp; QMS (published Auditor Room content). Set role
+                  to <strong>auditor</strong> when creating the portal account. Grant{' '}
+                  <em>manage_audits</em> only if they may create findings inside an assigned audit.
                 </div>
               )}
 

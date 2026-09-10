@@ -123,7 +123,7 @@ async function ensureUsersTable() {
       id SERIAL PRIMARY KEY,
       username VARCHAR(255) UNIQUE NOT NULL,
       password_hash TEXT NOT NULL,
-      role VARCHAR(32) NOT NULL CHECK (role IN ('admin', 'employee', 'warehouse')),
+      role VARCHAR(32) NOT NULL CHECK (role IN ('admin', 'employee', 'warehouse', 'auditor')),
       employee_id INTEGER UNIQUE REFERENCES employees(id) ON DELETE SET NULL,
       permissions JSONB NOT NULL DEFAULT '{}',
       created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -1404,6 +1404,12 @@ async function testConnection() {
   } catch (e) {
     console.error('[db] ensureNoonProductSnapshotsTable skipped/failed (non-fatal):', e.message || e)
   }
+  try {
+    const { ensureIsoQmsTables } = require('../services/isoQms/ensureIsoQmsTables')
+    await ensureIsoQmsTables()
+  } catch (e) {
+    console.error('[db] ensureIsoQmsTables skipped/failed (non-fatal):', e.message || e)
+  }
 }
 
 async function ensureProjectsTable() {
@@ -1939,4 +1945,8 @@ module.exports = {
   ensureAiBudgetAndUsageTables,
   ensureAmazonBulkListingTables,
   ensureTeamPlannerTables,
+  ensureIsoQmsTables: async () => {
+    const { ensureIsoQmsTables } = require('../services/isoQms/ensureIsoQmsTables')
+    return ensureIsoQmsTables()
+  },
 }

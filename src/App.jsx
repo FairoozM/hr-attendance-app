@@ -54,6 +54,28 @@ import { SimCardsPage } from './pages/SimCardsPage'
 import { VatInfoPage } from './pages/VatInfoPage'
 import { DocumentExpiryPage } from './pages/management/DocumentExpiryPage'
 import { SubscriptionsPage } from './pages/management/subscriptions/SubscriptionsPage'
+import {
+  IsoDashboardPage,
+  IsoAuditorRoomPage,
+  IsoDocumentLibraryPage,
+  IsoMasterDocumentsPage,
+  IsoMasterRecordsPage,
+  IsoSearchPage,
+  IsoAuditManagementPage,
+  IsoFindingsPage,
+  IsoManagementReviewsPage,
+  IsoRisksPage,
+  IsoObjectivesPage,
+  IsoSuppliersPage,
+  IsoHrEvidencePage,
+  IsoWarehouseEvidencePage,
+  IsoEquipmentPage,
+  IsoCalibrationPage,
+  IsoCertificatesPage,
+  IsoActivityLogPage,
+  IsoSettingsPage,
+  IsoClauseMatrixPage,
+} from './pages/isoQms'
 import { PaymentsPage as CompanyPaymentsPage } from './pages/management/PaymentsPage'
 import { PurchasePlanningPage } from './pages/management/PurchasePlanningPage'
 import { AmazonPaymentClearingPage } from './pages/management/amazonPaymentClearing/AmazonPaymentClearingPage'
@@ -240,6 +262,175 @@ function AppContent() {
           element={
             <PermissionGuard module="subscriptions" action="view">
               <SubscriptionsPage />
+            </PermissionGuard>
+          }
+        />
+        <Route path="iso-qms" element={<Navigate to="/iso-qms/dashboard" replace />} />
+        <Route
+          path="iso-qms/dashboard"
+          element={
+            <PermissionGuard module="iso_qms" action="view">
+              <IsoDashboardPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="iso-qms/auditor-room"
+          element={
+            <PermissionGuard module="iso_qms" action="view">
+              <IsoAuditorRoomPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="iso-qms/documents"
+          element={
+            <PermissionGuard module="iso_qms" action="view">
+              <IsoDocumentLibraryPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="iso-qms/master-documents"
+          element={
+            <PermissionGuard module="iso_qms" action="view">
+              <IsoMasterDocumentsPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="iso-qms/master-records"
+          element={
+            <PermissionGuard module="iso_qms" action="view">
+              <IsoMasterRecordsPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="iso-qms/search"
+          element={
+            <PermissionGuard module="iso_qms" action="view">
+              <IsoSearchPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="iso-qms/audits"
+          element={
+            <PermissionGuard module="iso_qms" action="view">
+              <IsoAuditManagementPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="iso-qms/audits/:id"
+          element={
+            <PermissionGuard module="iso_qms" action="view">
+              <IsoAuditManagementPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="iso-qms/findings"
+          element={
+            <PermissionGuard module="iso_qms" action="view">
+              <IsoFindingsPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="iso-qms/management-reviews"
+          element={
+            <PermissionGuard module="iso_qms" action="view">
+              <IsoManagementReviewsPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="iso-qms/risks"
+          element={
+            <PermissionGuard module="iso_qms" action="view">
+              <IsoRisksPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="iso-qms/objectives"
+          element={
+            <PermissionGuard module="iso_qms" action="view">
+              <IsoObjectivesPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="iso-qms/suppliers"
+          element={
+            <PermissionGuard module="iso_qms" action="view">
+              <IsoSuppliersPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="iso-qms/hr-evidence"
+          element={
+            <PermissionGuard module="iso_qms" action="view">
+              <IsoHrEvidencePage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="iso-qms/warehouse"
+          element={
+            <PermissionGuard module="iso_qms" action="view">
+              <IsoWarehouseEvidencePage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="iso-qms/equipment"
+          element={
+            <PermissionGuard module="iso_qms" action="view">
+              <IsoEquipmentPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="iso-qms/calibration"
+          element={
+            <PermissionGuard module="iso_qms" action="view">
+              <IsoCalibrationPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="iso-qms/certificates"
+          element={
+            <PermissionGuard module="iso_qms" action="view">
+              <IsoCertificatesPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="iso-qms/activity"
+          element={
+            <PermissionGuard module="iso_qms" action="view">
+              <IsoActivityLogPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="iso-qms/settings"
+          element={
+            <PermissionGuard module="iso_qms" action="settings">
+              <IsoSettingsPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="iso-qms/clause-matrix"
+          element={
+            <PermissionGuard module="iso_qms" action="view">
+              <IsoClauseMatrixPage />
             </PermissionGuard>
           }
         />

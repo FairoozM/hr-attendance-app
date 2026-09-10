@@ -24,6 +24,12 @@ export function RoleGuard({ children }) {
   if (!user) return children
   if (user.role === 'admin') return children
 
+  // External auditors may only use ISO & QMS (+ account profile).
+  if (user.role === 'auditor') {
+    if (path.startsWith('/iso-qms') || path.startsWith('/account')) return children
+    return <Navigate to="/iso-qms/auditor-room" replace />
+  }
+
   // Strictly admin-only pages — redirect everyone else
   if (ADMIN_ONLY_PATHS.some((p) => path.startsWith(p))) {
     return <Navigate to="/attendance" replace />

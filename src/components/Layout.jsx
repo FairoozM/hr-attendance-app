@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef, useId } from 'react'
 import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useSettings } from '../contexts/SettingsContext'
-import { useAuth, hasPermission, hasAnyModulePermission } from '../contexts/AuthContext'
+import { useAuth, hasPermission, hasAnyModulePermission, isAuditorUser } from '../contexts/AuthContext'
 import { NotificationsBell } from './notifications/NotificationsBell'
 import { RoleGuard } from './RoleGuard'
 import { ThemeToggle } from './ThemeToggle'
@@ -336,7 +336,17 @@ export function Layout() {
     [isAdmin]
   )
   const isEmployee = user?.role === 'employee'
+  const isAuditor = isAuditorUser(user)
   const can = (module, action) => hasPermission(user, module, action)
+
+  const homePath =
+    isAuditor
+      ? '/iso-qms/auditor-room'
+      : isEmployee
+        ? '/account'
+        : can('attendance', 'view')
+          ? '/attendance'
+          : '/account'
 
   const toggleSidebar = useCallback(() => {
     // In rail mode, hamburger returns to the full sidebar navigation.
@@ -378,9 +388,6 @@ export function Layout() {
     navigate('/login', { replace: true })
   }
 
-  const homePath =
-    isEmployee ? '/account' : can('attendance', 'view') ? '/attendance' : '/account'
-
   const HR_ROUTES = ['/employees', '/attendance', '/annual-leave']
   const ADMIN_NAV_ROUTES = ['/settings', '/roles-permissions', '/admin/item-report-groups', '/admin/ai-budget']
   const LISTS_ROUTES = ['/lists/sim-cards', '/lists/vat-info']
@@ -390,6 +397,7 @@ export function Layout() {
   const isInfluencersActive = location.pathname.startsWith('/influencers')
   const isHealthFitnessActive = location.pathname.startsWith('/health-fitness')
   const isManagementActive = location.pathname.startsWith('/management')
+  const isIsoQmsActive = location.pathname.startsWith('/iso-qms')
   const isPricesActive = location.pathname.startsWith('/prices')
   const isReportsActive = location.pathname.startsWith('/reports')
   const isZohoActive = location.pathname.startsWith('/admin/zoho')
@@ -404,6 +412,7 @@ export function Layout() {
     hasAnyModulePermission(user, 'document_expiry') ||
     hasAnyModulePermission(user, 'company_payments') ||
     isAdmin
+  const hasIsoQmsAccess = can('iso_qms', 'view') || isAuditor
   const hasWeeklyReportsAccess = can('weekly_reports', 'view')
   const hasPlannerAccess = isAdmin || can('planner', 'view')
   const hasAiHubAccess =
@@ -413,6 +422,26 @@ export function Layout() {
     can('prices', 'view')
   const hasAmazonAccess = hasAiHubAccess && amazonNavItems.length > 0
   const currentSectionLabel = useMemo(() => {
+    if (location.pathname.startsWith('/iso-qms/auditor-room')) return 'Auditor Room'
+    if (location.pathname.startsWith('/iso-qms/documents')) return 'Document Library'
+    if (location.pathname.startsWith('/iso-qms/master-documents')) return 'Master Document List'
+    if (location.pathname.startsWith('/iso-qms/master-records')) return 'Master Records List'
+    if (location.pathname.startsWith('/iso-qms/search')) return 'ISO Search'
+    if (location.pathname.startsWith('/iso-qms/audits')) return 'Audit Management'
+    if (location.pathname.startsWith('/iso-qms/findings')) return 'Findings & Corrective Actions'
+    if (location.pathname.startsWith('/iso-qms/management-reviews')) return 'Management Reviews'
+    if (location.pathname.startsWith('/iso-qms/risks')) return 'Risks & Opportunities'
+    if (location.pathname.startsWith('/iso-qms/objectives')) return 'Quality Objectives'
+    if (location.pathname.startsWith('/iso-qms/suppliers')) return 'Approved Suppliers'
+    if (location.pathname.startsWith('/iso-qms/hr-evidence')) return 'HR & Competency Evidence'
+    if (location.pathname.startsWith('/iso-qms/warehouse')) return 'Warehouse Evidence'
+    if (location.pathname.startsWith('/iso-qms/equipment')) return 'Equipment & Maintenance'
+    if (location.pathname.startsWith('/iso-qms/calibration')) return 'Calibration'
+    if (location.pathname.startsWith('/iso-qms/certificates')) return 'Certificates'
+    if (location.pathname.startsWith('/iso-qms/activity')) return 'Activity Log'
+    if (location.pathname.startsWith('/iso-qms/settings')) return 'ISO Settings'
+    if (location.pathname.startsWith('/iso-qms/clause-matrix')) return 'Clause Matrix'
+    if (location.pathname.startsWith('/iso-qms')) return 'QMS Dashboard'
     if (location.pathname.startsWith('/employees')) return 'Employees'
     if (location.pathname.startsWith('/attendance')) return 'Attendance'
     if (location.pathname.startsWith('/annual-leave')) return 'Annual Leave'
@@ -629,6 +658,53 @@ export function Layout() {
     hasWeeklyReportsAccess && { label: 'Zoho Item Images',     to: '/reports/zoho-item-images'         },
   ].filter(Boolean)
 
+  const ISO_QMS_OVERVIEW_ITEMS = hasIsoQmsAccess
+    ? [
+        { label: 'Dashboard', to: '/iso-qms/dashboard' },
+        { label: 'Auditor Room', to: '/iso-qms/auditor-room' },
+        { label: 'ISO Search', to: '/iso-qms/search' },
+        { label: 'Activity Log', to: '/iso-qms/activity' },
+      ]
+    : []
+  const ISO_QMS_DOCUMENT_ITEMS = hasIsoQmsAccess
+    ? [
+        { label: 'Document Library', to: '/iso-qms/documents' },
+        { label: 'Master Document List', to: '/iso-qms/master-documents' },
+        { label: 'Master Records List', to: '/iso-qms/master-records' },
+      ]
+    : []
+  const ISO_QMS_AUDIT_ITEMS = hasIsoQmsAccess
+    ? [
+        { label: 'Audit Management', to: '/iso-qms/audits' },
+        { label: 'Findings & Corrective Actions', to: '/iso-qms/findings' },
+        { label: 'Management Reviews', to: '/iso-qms/management-reviews' },
+        { label: 'Risks & Opportunities', to: '/iso-qms/risks' },
+        { label: 'Quality Objectives', to: '/iso-qms/objectives' },
+      ]
+    : []
+  const ISO_QMS_OPS_ITEMS = hasIsoQmsAccess
+    ? [
+        { label: 'Approved Suppliers', to: '/iso-qms/suppliers' },
+        { label: 'HR & Competency', to: '/iso-qms/hr-evidence' },
+        { label: 'Warehouse', to: '/iso-qms/warehouse' },
+        { label: 'Equipment & Maintenance', to: '/iso-qms/equipment' },
+        { label: 'Calibration', to: '/iso-qms/calibration' },
+        { label: 'Certificates', to: '/iso-qms/certificates' },
+      ]
+    : []
+  const ISO_QMS_ADMIN_ITEMS =
+    hasIsoQmsAccess && (isAdmin || can('iso_qms', 'settings'))
+      ? [{ label: 'ISO Settings', to: '/iso-qms/settings' }]
+      : []
+  const ISO_QMS_ALL_ITEMS = [
+    ...ISO_QMS_OVERVIEW_ITEMS,
+    ...ISO_QMS_DOCUMENT_ITEMS,
+    ...ISO_QMS_AUDIT_ITEMS,
+    ...ISO_QMS_OPS_ITEMS,
+    ...ISO_QMS_ADMIN_ITEMS,
+    ...(hasIsoQmsAccess ? [{ label: 'Clause Matrix', to: '/iso-qms/clause-matrix' }] : []),
+  ]
+
   const focusedSectionConfig = useMemo(() => {
     const withIcons = (items) => items.map((item) => ({ ...item, icon: item.icon || itemIconToken(item.label) }))
     const sections = {
@@ -649,6 +725,7 @@ export function Layout() {
         items: withIcons(hasAmazonAccess ? amazonNavItems : []),
       },
       management: { title: 'Management', items: withIcons(managementItems) },
+      isoQms: { title: 'ISO & QMS', items: withIcons(ISO_QMS_ALL_ITEMS) },
       prices: { title: 'Prices', items: withIcons(pricesItems) },
       reports: { title: 'Reports', items: withIcons(REPORTS_ITEMS) },
       zoho: { title: 'Zoho', items: withIcons(zohoItems) },
@@ -667,6 +744,7 @@ export function Layout() {
     hasAmazonAccess,
     amazonNavItems,
     managementItems,
+    ISO_QMS_ALL_ITEMS,
     pricesItems,
     REPORTS_ITEMS,
     zohoItems,
@@ -747,6 +825,12 @@ export function Layout() {
             ? 'subscription management chatgpt cursor aws zoho adobe envato vercel invoice payment renewal'
             : '',
     })),
+    ...ISO_QMS_ALL_ITEMS.map((i) => ({
+      ...i,
+      group: 'ISO & QMS',
+      searchHint:
+        'iso qms quality management system auditor room document library master list audit findings tuv',
+    })),
     ...REPORTS_ITEMS.map(i => ({
       ...i,
       group: 'Weekly Report',
@@ -773,7 +857,7 @@ export function Layout() {
             : '',
     })),
     { label: 'My Account', to: '/account', group: 'Account' },
-  ], [hrItems, adminNavItems, listsItems, INFLUENCER_ITEMS, isAdmin, hasPlannerAccess, hasAiHubAccess, aiHubNavItems, hasAmazonAccess, amazonNavItems, managementItems, pricesItems, REPORTS_ITEMS, TAXATION_ITEMS, zohoItems])
+  ], [hrItems, adminNavItems, listsItems, INFLUENCER_ITEMS, isAdmin, hasPlannerAccess, hasAiHubAccess, aiHubNavItems, hasAmazonAccess, amazonNavItems, managementItems, ISO_QMS_ALL_ITEMS, pricesItems, REPORTS_ITEMS, TAXATION_ITEMS, zohoItems])
 
   const showSidebarBackdrop = isSidebarOpen && navMode === 'full'
 
@@ -846,6 +930,81 @@ export function Layout() {
                 <div className="app-sidebar__section-label" role="presentation">
                   Workspace
                 </div>
+
+                {hasIsoQmsAccess && (
+                  <NavGroup label="ISO & QMS" hint="Quality system" isActive={isIsoQmsActive} defaultOpen={isIsoQmsActive || isAuditor}>
+                    <NavGroup label="Overview" hint="Dashboards" isActive={ISO_QMS_OVERVIEW_ITEMS.some((i) => location.pathname.startsWith(i.to))} defaultOpen>
+                      {ISO_QMS_OVERVIEW_ITEMS.map((item) => (
+                        <NavLink
+                          key={item.to}
+                          to={item.to}
+                          className={subLinkClass(item, ISO_QMS_ALL_ITEMS)}
+                          onClick={() => openFocusedSection('isoQms')}
+                        >
+                          <span className="nav-group__link-dot" aria-hidden />
+                          {item.label}
+                        </NavLink>
+                      ))}
+                    </NavGroup>
+                    <NavGroup label="Documents" hint="Controlled files" isActive={ISO_QMS_DOCUMENT_ITEMS.some((i) => location.pathname.startsWith(i.to))}>
+                      {ISO_QMS_DOCUMENT_ITEMS.map((item) => (
+                        <NavLink
+                          key={item.to}
+                          to={item.to}
+                          className={subLinkClass(item, ISO_QMS_ALL_ITEMS)}
+                          onClick={() => openFocusedSection('isoQms')}
+                        >
+                          <span className="nav-group__link-dot" aria-hidden />
+                          {item.label}
+                        </NavLink>
+                      ))}
+                    </NavGroup>
+                    <NavGroup label="Audits & Improvement" hint="Findings" isActive={ISO_QMS_AUDIT_ITEMS.some((i) => location.pathname.startsWith(i.to))}>
+                      {ISO_QMS_AUDIT_ITEMS.map((item) => (
+                        <NavLink
+                          key={item.to}
+                          to={item.to}
+                          className={subLinkClass(item, ISO_QMS_ALL_ITEMS)}
+                          onClick={() => openFocusedSection('isoQms')}
+                        >
+                          <span className="nav-group__link-dot" aria-hidden />
+                          {item.label}
+                        </NavLink>
+                      ))}
+                    </NavGroup>
+                    <NavGroup label="Operations Evidence" hint="Proof" isActive={ISO_QMS_OPS_ITEMS.some((i) => location.pathname.startsWith(i.to))}>
+                      {ISO_QMS_OPS_ITEMS.map((item) => (
+                        <NavLink
+                          key={item.to}
+                          to={item.to}
+                          className={subLinkClass(item, ISO_QMS_ALL_ITEMS)}
+                          onClick={() => openFocusedSection('isoQms')}
+                        >
+                          <span className="nav-group__link-dot" aria-hidden />
+                          {item.label}
+                        </NavLink>
+                      ))}
+                    </NavGroup>
+                    {ISO_QMS_ADMIN_ITEMS.length > 0 && (
+                      <NavGroup label="Admin" hint="Settings" isActive={ISO_QMS_ADMIN_ITEMS.some((i) => location.pathname.startsWith(i.to))}>
+                        {ISO_QMS_ADMIN_ITEMS.map((item) => (
+                          <NavLink
+                            key={item.to}
+                            to={item.to}
+                            className={subLinkClass(item, ISO_QMS_ALL_ITEMS)}
+                            onClick={() => openFocusedSection('isoQms')}
+                          >
+                            <span className="nav-group__link-dot" aria-hidden />
+                            {item.label}
+                          </NavLink>
+                        ))}
+                      </NavGroup>
+                    )}
+                  </NavGroup>
+                )}
+
+                {!isAuditor && (
+                  <>
                 <NavGroup label="HR" hint="Operations" isActive={isHrActive} defaultOpen>
                   {hrItems.map(item => (
                     <NavLink
@@ -1089,6 +1248,8 @@ export function Layout() {
                         </NavLink>
                       ))}
                     </NavGroup>
+                  </>
+                )}
                   </>
                 )}
               </>

@@ -131,7 +131,20 @@ function requirePermission(module, action) {
     }
 
     if (req.user.role === 'admin') return next()
+    // warehouse still bypasses (backward compatibility) — auditor must NEVER get this treatment
     if (req.user.role === 'warehouse') return next()
+
+    // Dedicated auditor role: only iso_qms view (finding create gated elsewhere). Never warehouse-like access.
+    if (req.user.role === 'auditor') {
+      if (module === 'iso_qms' && (action === 'view' || action === 'manage_audits')) {
+        // manage_audits for POST /findings is further restricted in routes/controller
+        if (action === 'view') return next()
+        if (action === 'manage_audits') return next()
+      }
+      return res.status(403).json({
+        error: `Access denied: auditor role cannot access ${module} ${action}`,
+      })
+    }
 
     const p = req.user.permissions || {}
     const mod = p[module] || {}
@@ -184,6 +197,14 @@ function requirePermission(module, action) {
       action === 'view' &&
       module === 'company_payments' &&
       (mod.add || mod.edit || mod.delete)
+    ) {
+      return next()
+    }
+    // iso_qms: write / approve / audits / settings imply view
+    if (
+      action === 'view' &&
+      module === 'iso_qms' &&
+      (mod.add || mod.edit || mod.delete || mod.approve || mod.manage_audits || mod.settings || mod.manage)
     ) {
       return next()
     }

@@ -3,6 +3,7 @@ const { query, pool } = require('../db')
 const documentExpiryNotificationsService = require('./documentExpiryNotificationsService')
 const notificationActionsService = require('./notificationActionsService')
 const subscriptionNotificationsService = require('./subscriptionNotificationsService')
+const isoNotificationsService = require('./isoQms/isoNotificationsService')
 
 const REMINDER_TYPE = 'shop_visit_main_shop_reminder'
 const TRIGGER_PREFIX = 'shop_visit_reminder:'
@@ -272,21 +273,28 @@ async function getInbox({ limit = DEFAULT_LIMIT } = {}) {
   await syncSources()
 
   const lim = clampLimit(limit)
-  const [docReminders, systemRows, systemUnread] = await Promise.all([
+  const [docReminders, isoReminders, systemRows, systemUnread] = await Promise.all([
     documentExpiryNotificationsService.listVisibleReminders(),
+    isoNotificationsService.listDueNotifications().catch((err) => {
+      console.error('[notifications] ISO QMS reminders skipped:', err.message || err)
+      return []
+    }),
     listSystemNotifications({ limit: lim }),
     countUnreadSystemNotifications(),
   ])
 
   const docUnread = docReminders.reduce((sum, r) => sum + (r.is_read ? 0 : 1), 0)
+  const isoUnread = isoReminders.reduce((sum, r) => sum + (r.is_read ? 0 : 1), 0)
 
   return {
-    items: [...docReminders, ...systemRows],
+    items: [...docReminders, ...isoReminders, ...systemRows],
     counts: {
-      total: docReminders.length + systemRows.length,
-      unread: docUnread + systemUnread,
+      total: docReminders.length + isoReminders.length + systemRows.length,
+      unread: docUnread + isoUnread + systemUnread,
       documentReminders: docReminders.length,
       documentRemindersUnread: docUnread,
+      isoReminders: isoReminders.length,
+      isoRemindersUnread: isoUnread,
       system: systemRows.length,
       systemUnread,
     },
@@ -303,12 +311,14 @@ async function listForAdmin({ limit = DEFAULT_LIMIT } = {}) {
 
 async function unreadCountForAdmin() {
   await syncSources()
-  const [docReminders, systemUnread] = await Promise.all([
+  const [docReminders, isoReminders, systemUnread] = await Promise.all([
     documentExpiryNotificationsService.listVisibleReminders(),
+    isoNotificationsService.listDueNotifications().catch(() => []),
     countUnreadSystemNotifications(),
   ])
   const docUnread = docReminders.reduce((sum, r) => sum + (r.is_read ? 0 : 1), 0)
-  return docUnread + systemUnread
+  const isoUnread = isoReminders.reduce((sum, r) => sum + (r.is_read ? 0 : 1), 0)
+  return docUnread + isoUnread + systemUnread
 }
 
 async function markRead(id) {
