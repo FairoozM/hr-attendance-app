@@ -318,6 +318,28 @@ async function selectLastSuccessfulRun(exportCategoryCode) {
   return res.rows[0] || null
 }
 
+/**
+ * The most recent successful export whose requested window actually contains `ymd`. Used to tell
+ * "Noon reported no order that day" from "nobody has asked Noon about that day yet".
+ *
+ * @param {string} exportCategoryCode
+ * @param {string} ymd YYYY-MM-DD
+ */
+async function findSuccessfulRunCoveringDate(exportCategoryCode, ymd) {
+  const res = await query(
+    `SELECT id, export_code, from_date, to_date, rows_saved, finished_at
+     FROM noon_order_export_runs
+     WHERE export_category_code = $1
+       AND status = 'success'
+       AND from_date <= $2::date
+       AND to_date >= $2::date
+     ORDER BY finished_at DESC NULLS LAST
+     LIMIT 1`,
+    [exportCategoryCode, ymd],
+  )
+  return res.rows[0] || null
+}
+
 module.exports = {
   ensureNoonOrderTables,
   upsertNoonOrderLine,
@@ -328,4 +350,5 @@ module.exports = {
   insertExportRun,
   updateExportRun,
   selectLastSuccessfulRun,
+  findSuccessfulRunCoveringDate,
 }

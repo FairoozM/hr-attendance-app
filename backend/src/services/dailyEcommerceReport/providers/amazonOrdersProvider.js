@@ -100,6 +100,33 @@ async function loadOrderRows(marketplaceKey, bounds) {
   return res.rows || []
 }
 
+/**
+ * Was a successful SP-API orders sync run over this whole day? The sync stores its window as
+ * [day start, day end − 1ms], so the end is compared with a one-second tolerance rather than
+ * demanding an exact match.
+ *
+ * @param {'uae'|'ksa'} marketplaceKey
+ * @param {{ start: Date, end: Date }} bounds
+ */
+async function findCoveringOrdersSync(marketplaceKey, bounds) {
+  const cacheStore = require('../../amazonOrdersCacheStore')
+  try {
+    return await cacheStore.findSuccessfulSyncCoveringRange(
+      marketplaceKey,
+      bounds.start,
+      new Date(bounds.end.getTime() - 1000),
+    )
+  } catch (err) {
+    // The sync log is only used to tell "empty" from "never asked". If it cannot be read, say so
+    // rather than silently choosing either answer.
+    console.error(
+      `[dailyEcommerceReport] amazon ${marketplaceKey} sync-log lookup failed:`,
+      err,
+    )
+    return null
+  }
+}
+
 async function loadItemRows(marketplaceKey, orderIds) {
   if (!orderIds.length) return []
   const res = await query(
@@ -190,6 +217,28 @@ async function loadAmazonChannel(marketplaceKey, bounds, fx, ads) {
     if (!orderId || seen.has(orderId)) continue
     seen.add(orderId)
     included.push(row)
+  }
+
+  // An empty cache means one of two very different things, and reporting AED 0.00 for both would
+  // claim a day was worth nothing when in fact Amazon was never asked about it. So check the sync
+  // log: only a day that a successful orders sync actually covered can be reported as empty.
+  if (!orderRows.length) {
+    const covered = await findCoveringOrdersSync(marketplaceKey, bounds)
+    if (!covered) {
+      return buildChannelShell(meta, 'pending', {
+        dataSource: 'amazon_sp_api_orders_cache',
+        adsStatus: ads.adsStatus,
+        adsProvider: ads.adsProvider,
+        warnings: [
+          `${meta.label}: no Amazon orders sync has covered ${bounds.dateYmd} yet, so the day is unknown rather than empty — press Refresh to pull it from SP-API`,
+        ],
+        summary: {
+          ...buildChannelShell(meta, 'pending').summary,
+          adSpendAED: ads.adSpendAED,
+          clicks: ads.clicks,
+        },
+      })
+    }
   }
 
   const orderIds = included.map((r) => String(r.amazon_order_id))

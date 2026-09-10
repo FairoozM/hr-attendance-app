@@ -35,19 +35,27 @@ function freshModule(relativePath) {
 
 /**
  * Load the Amazon provider against canned database rows.
- * @param {{ orders: object[], items: object[], fees?: object[] }} data
+ * @param {{ orders: object[], items: object[], fees?: object[], coveringSync?: object|null }} data
  */
 function loadProviderWith(data) {
-  const restore = stubModule('../src/db', {
-    query: async (sql) => {
-      if (/FROM amazon_orders/.test(sql)) return { rows: data.orders }
-      if (/FROM amazon_order_items/.test(sql)) return { rows: data.items }
-      if (/amazon_payment_clearing_rows/.test(sql)) return { rows: data.fees || [] }
-      throw new Error(`unexpected query: ${sql}`)
-    },
-  })
+  const restores = [
+    stubModule('../src/db', {
+      query: async (sql) => {
+        if (/FROM amazon_orders/.test(sql)) return { rows: data.orders }
+        if (/FROM amazon_order_items/.test(sql)) return { rows: data.items }
+        if (/amazon_payment_clearing_rows/.test(sql)) return { rows: data.fees || [] }
+        throw new Error(`unexpected query: ${sql}`)
+      },
+    }),
+    stubModule('../src/services/amazonOrdersCacheStore', {
+      findSuccessfulSyncCoveringRange: async () =>
+        data.coveringSync === undefined
+          ? { finished_at: new Date('2026-09-09T12:00:00Z') }
+          : data.coveringSync,
+    }),
+  ]
   const mod = freshModule('../src/services/dailyEcommerceReport/providers/amazonOrdersProvider')
-  return { mod, restore }
+  return { mod, restore: () => restores.forEach((r) => r()) }
 }
 
 function money(amount, currency = 'AED') {
@@ -347,6 +355,76 @@ test('the item payload whitelist keeps the full money breakdown and no buyer dat
   }
   assert.equal(safe.BuyerInfo, undefined)
   assert.equal(safe.ShippingAddress, undefined)
+})
+
+test('a day no orders sync has covered is Pending, not an empty day worth AED 0', async () => {
+  const { mod, restore } = loadProviderWith({ orders: [], items: [], coveringSync: null })
+  try {
+    const ch = await mod.loadAmazonChannel('uae', dubaiDayBounds('2026-09-09'), FX, NO_ADS)
+    assert.equal(ch.integrationStatus, 'pending')
+    assert.equal(ch.summary.salesAmountAED, null, 'an unasked day has no amount, not a zero one')
+    assert.equal(ch.summary.quantity, null)
+    assert.equal(ch.summary.balanceAED, null)
+    assert.ok(
+      ch.warnings.some((w) => /no Amazon orders sync has covered 2026-09-09/.test(w)),
+      'the warning must name the date and point at Refresh',
+    )
+  } finally {
+    restore()
+  }
+})
+
+test('a day a sync did cover, with no orders, is a real zero', async () => {
+  const { mod, restore } = loadProviderWith({
+    orders: [],
+    items: [],
+    coveringSync: { finished_at: new Date('2026-09-09T12:00:00Z') },
+  })
+  try {
+    const ch = await mod.loadAmazonChannel('uae', dubaiDayBounds('2026-09-09'), FX, NO_ADS)
+    assert.equal(ch.integrationStatus, 'available')
+    assert.equal(ch.summary.salesAmountAED, 0)
+    assert.equal(ch.summary.quantity, 0)
+    assert.equal(ch.orders.length, 0)
+  } finally {
+    restore()
+  }
+})
+
+test('the covering-sync check tolerates the sync window ending one millisecond early', async () => {
+  // `syncAmazonOrders` records CreatedBefore as the day end minus 1ms, so an exact-match check
+  // would classify a day that was just synced as never synced.
+  const bounds = dubaiDayBounds('2026-09-09')
+  const asked = []
+  const restores = [
+    stubModule('../src/db', {
+      query: async (sql) => {
+        if (/FROM amazon_orders/.test(sql)) return { rows: [] }
+        throw new Error(`unexpected query: ${sql}`)
+      },
+    }),
+    stubModule('../src/services/amazonOrdersCacheStore', {
+      findSuccessfulSyncCoveringRange: async (mk, after, before) => {
+        asked.push({ mk, after, before })
+        // Emulate the store's SQL against the window an actual sync would have written.
+        const recorded = { after: bounds.start, before: new Date(bounds.end.getTime() - 1) }
+        return recorded.after <= after && recorded.before >= before
+          ? { finished_at: new Date() }
+          : null
+      },
+    }),
+  ]
+  try {
+    const mod = freshModule('../src/services/dailyEcommerceReport/providers/amazonOrdersProvider')
+    const ch = await mod.loadAmazonChannel('ksa', bounds, FX, NO_ADS)
+    assert.equal(asked.length, 1)
+    assert.equal(asked[0].mk, 'ksa')
+    assert.equal(asked[0].after.getTime(), bounds.start.getTime())
+    assert.equal(bounds.end.getTime() - asked[0].before.getTime(), 1000, 'one second of tolerance')
+    assert.equal(ch.integrationStatus, 'available', 'the day was synced, so zero is the truth')
+  } finally {
+    restores.forEach((r) => r())
+  }
 })
 
 test('provider file lives in the report tree and reads only Amazon tables', () => {

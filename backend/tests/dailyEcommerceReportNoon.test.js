@@ -34,6 +34,11 @@ function freshModule(relativePath) {
   return require(relativePath)
 }
 
+function lastRunFor(data) {
+  if (data.lastRun !== undefined) return data.lastRun
+  return { from_date: '2026-09-07', to_date: '2026-09-08', finished_at: new Date('2026-09-09T08:00:00Z') }
+}
+
 /**
  * @param {{ lines: object[], finance?: object[], statements?: object[], countries?: [string, number][], lastRun?: object|null }} data
  */
@@ -46,10 +51,13 @@ function loadProviderWith(data) {
       countLinesByCountry: async () => new Map(data.countries || [['AE', data.lines.length]]),
       selectNoonFinanceByOrders: async (orderNumbers) =>
         (data.finance || []).filter((r) => orderNumbers.includes(r.order_nr)),
-      selectLastSuccessfulRun: async () =>
-        data.lastRun === undefined
-          ? { from_date: '2026-09-07', to_date: '2026-09-08', finished_at: new Date('2026-09-09T08:00:00Z') }
-          : data.lastRun,
+      selectLastSuccessfulRun: async () => lastRunFor(data),
+      // Mirrors the store's own `from_date <= ymd AND to_date >= ymd` filter.
+      findSuccessfulRunCoveringDate: async (_category, ymd) => {
+        const run = lastRunFor(data)
+        if (!run) return null
+        return run.from_date <= ymd && run.to_date >= ymd ? run : null
+      },
     }),
     stubModule('../src/services/noon/noonConfig', {
       readNoonConfig: () => ({ configured: true, enabled: true, projectCode: 'PRJ11752', missing: [] }),
@@ -168,7 +176,48 @@ test('an export that has never run is Pending, not an empty day', async () => {
     const ch = await mod.loadNoonChannel('noon_uae', dubaiDayBounds('2026-09-08'), FX, NO_ADS)
     assert.equal(ch.integrationStatus, 'pending')
     assert.equal(ch.summary.quantity, null)
-    assert.ok(ch.warnings.some((w) => /no Noon orders export has been run yet/.test(w)))
+    assert.equal(ch.summary.salesAmountAED, null)
+    assert.ok(ch.warnings.some((w) => /no Noon orders export has covered 2026-09-08/.test(w)))
+  } finally {
+    restore()
+  }
+})
+
+test('a day no export window reached is Pending, even though earlier days were exported', async () => {
+  // The export that ran covered 7–8 September, so it says nothing about the 9th: reporting AED 0
+  // for the 9th would claim Noon sold nothing on a day Noon was never asked about.
+  const { mod, restore } = loadProviderWith({
+    lines: [],
+    lastRun: { from_date: '2026-09-07', to_date: '2026-09-08', finished_at: new Date('2026-09-09T08:00:00Z') },
+    countries: [['AE', 12]],
+  })
+  try {
+    const ch = await mod.loadNoonChannel('noon_uae', dubaiDayBounds('2026-09-09'), FX, NO_ADS)
+    assert.equal(ch.integrationStatus, 'pending')
+    assert.equal(ch.summary.salesAmountAED, null)
+    assert.equal(ch.summary.quantity, null)
+    assert.ok(
+      ch.warnings.some((w) => /no Noon orders export has covered 2026-09-09/.test(w)),
+      'the warning must name the uncovered date and the window that was covered',
+    )
+    assert.ok(ch.warnings.some((w) => /2026-09-07 → 2026-09-08/.test(w)))
+  } finally {
+    restore()
+  }
+})
+
+test('a day the export did cover, with no order, is a real zero', async () => {
+  const { mod, restore } = loadProviderWith({
+    lines: [],
+    lastRun: { from_date: '2026-09-08', to_date: '2026-09-08', finished_at: new Date('2026-09-09T08:00:00Z') },
+    countries: [['AE', 12]],
+  })
+  try {
+    const ch = await mod.loadNoonChannel('noon_uae', dubaiDayBounds('2026-09-08'), FX, NO_ADS)
+    assert.equal(ch.integrationStatus, 'available')
+    assert.equal(ch.summary.salesAmountAED, 0)
+    assert.equal(ch.summary.quantity, 0)
+    assert.ok(ch.warnings.some((w) => /returned no AE order for 2026-09-08/.test(w)))
   } finally {
     restore()
   }
@@ -254,6 +303,7 @@ test('a failing money lookup leaves the orders listed with Pending money', async
         throw new Error('finance cache unreachable')
       },
       selectLastSuccessfulRun: async () => ({ from_date: '2026-09-08', to_date: '2026-09-08' }),
+      findSuccessfulRunCoveringDate: async () => ({ from_date: '2026-09-08', to_date: '2026-09-08' }),
     }),
     stubModule('../src/services/noon/noonConfig', {
       readNoonConfig: () => ({ configured: true, enabled: true, projectCode: 'PRJ11752', missing: [] }),
@@ -288,6 +338,7 @@ test('Dubai day boundaries decide inclusion, using the Noon order timestamp in U
       countLinesByCountry: async () => new Map([['AE', 2]]),
       selectNoonFinanceByOrders: async () => [],
       selectLastSuccessfulRun: async () => ({ from_date: '2026-09-08', to_date: '2026-09-08' }),
+      findSuccessfulRunCoveringDate: async () => ({ from_date: '2026-09-08', to_date: '2026-09-08' }),
     }),
     stubModule('../src/services/noon/noonConfig', {
       readNoonConfig: () => ({ configured: true, enabled: true, projectCode: 'PRJ11752', missing: [] }),

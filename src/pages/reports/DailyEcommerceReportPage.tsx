@@ -3,13 +3,22 @@
  * Route: /#/reports/daily-ecommerce
  */
 
-import { Fragment, useCallback, useEffect, useState, type ReactNode } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { api, fetchBinary, downloadBlob } from '../../api/client'
 import { useAuth, hasPermission } from '../../contexts/AuthContext'
 import './DailyEcommerceReportPage.css'
 import './WeeklyAdsReportPage.css'
 
 const IANA_UAE = 'Asia/Dubai'
+
+/** How often the page asks the backend how the background refresh is going. */
+const REFRESH_POLL_MS = 2_000
+/** The Noon exports are the slow part; past this the job keeps running but the page stops waiting. */
+const REFRESH_MAX_WAIT_MS = 10 * 60 * 1000
+
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms))
+}
 
 function todayUaeYmd(now = new Date()) {
   return new Intl.DateTimeFormat('en-CA', {
@@ -83,6 +92,16 @@ interface ChannelReport {
 interface SyncOutcome {
   status: string
   message?: string
+}
+
+interface RefreshJob {
+  jobId: string
+  date: string
+  status: 'queued' | 'running' | 'completed' | 'failed'
+  progress?: { step?: string; totalSteps?: number | null; completedSteps?: number }
+  error?: string | null
+  sync?: Record<string, SyncOutcome>
+  report?: DailyReport | null
 }
 
 interface DailyReport {
@@ -238,6 +257,9 @@ export function DailyEcommerceReportPage() {
   const [error, setError] = useState<string | null>(null)
   const [showNotes, setShowNotes] = useState(false)
   const [syncIssues, setSyncIssues] = useState<string[]>([])
+  const [refreshStep, setRefreshStep] = useState<string | null>(null)
+  /** Identifies the refresh the page is still interested in, so a stale poll cannot overwrite state. */
+  const refreshTokenRef = useRef<symbol | null>(null)
 
   const load = useCallback(async (ymd: string) => {
     setLoading(true)
@@ -258,27 +280,76 @@ export function DailyEcommerceReportPage() {
     void load(date)
   }, [date, load])
 
+  // Moving to another day, or leaving the page, abandons the poll loop — the job itself keeps
+  // running on the server, so its result is not lost, it is just no longer awaited here.
+  useEffect(() => {
+    return () => {
+      refreshTokenRef.current = null
+    }
+  }, [date])
+
+  /**
+   * A full refresh creates and polls Noon's export jobs and re-syncs both Amazon marketplaces,
+   * which takes minutes — far longer than the CloudFront origin timeout in front of the API. So the
+   * backend starts a job and this polls it; every individual request stays short.
+   */
   const onRefresh = async () => {
     setRefreshing(true)
     setError(null)
     setSyncIssues([])
+    setRefreshStep('Starting refresh…')
+    const token = Symbol('refresh')
+    refreshTokenRef.current = token
+    const cancelled = () => refreshTokenRef.current !== token
     try {
-      const data = await api.post('/api/reports/daily-ecommerce/refresh', { date })
-      const payload = data as { report?: DailyReport; sync?: Record<string, SyncOutcome> }
+      const started = (await api.post('/api/reports/daily-ecommerce/refresh', { date })) as RefreshJob
+      let job = started
+      const deadline = Date.now() + REFRESH_MAX_WAIT_MS
+      while (job.status === 'queued' || job.status === 'running') {
+        if (cancelled()) return
+        if (Date.now() > deadline) {
+          throw new Error(
+            'Refresh is taking longer than expected and is still running on the server. Reopen the date in a few minutes to see the result.',
+          )
+        }
+        await sleep(REFRESH_POLL_MS)
+        if (cancelled()) return
+        job = (await api.get(
+          `/api/reports/daily-ecommerce/refresh/${encodeURIComponent(job.jobId)}`,
+          { timeoutMs: 15_000 },
+        )) as RefreshJob
+        const done = job.progress?.completedSteps
+        const total = job.progress?.totalSteps
+        setRefreshStep(
+          [job.progress?.step, total ? `(${done ?? 0}/${total} integrations)` : null]
+            .filter(Boolean)
+            .join(' '),
+        )
+      }
+      if (cancelled()) return
+      // A job that failed before rebuilding the report still refreshed whatever did succeed, so
+      // fall back to a plain read. `load` resets the error first, so the job's own diagnosis is
+      // applied after it rather than before, or it would be wiped out.
+      if (job.report) setReport(job.report)
+      else await load(date)
+      if (cancelled()) return
       // One integration failing during Refresh must not hide the ones that succeeded, so the
       // failures are listed and the rest of the report is shown as returned.
       setSyncIssues(
-        Object.entries(payload.sync || {})
+        Object.entries(job.sync || {})
           .filter(([, v]) => v && v.status !== 'ok' && v.status !== 'skipped')
           .map(([key, v]) => `${key}: ${v.status}${v.message ? ` — ${v.message}` : ''}`),
       )
-      if (payload.report) setReport(payload.report)
-      else await load(date)
+      if (job.status === 'failed') {
+        setError(job.error ? `Refresh failed: ${job.error}` : 'Refresh failed')
+      }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Refresh failed')
+      if (!cancelled()) setError(err instanceof Error ? err.message : 'Refresh failed')
     } finally {
       // Always released, whatever any provider did.
+      if (refreshTokenRef.current === token) refreshTokenRef.current = null
       setRefreshing(false)
+      setRefreshStep(null)
     }
   }
 
@@ -356,6 +427,7 @@ export function DailyEcommerceReportPage() {
           >
             {refreshing ? 'Refreshing…' : 'Refresh'}
           </button>
+          {refreshing && refreshStep && <span className="der-refresh-step">{refreshStep}</span>}
           {canExport && (
             <button type="button" className="war-btn war-btn--primary war-btn--sm" disabled={loading || exporting || !report} onClick={() => void onExport()}>
               {exporting ? 'Exporting…' : 'Export'}

@@ -6,6 +6,7 @@ const {
   getDailyEcommerceReport,
   exportDailyEcommerceReportXlsx,
   refreshDailyEcommerceReport,
+  getDailyEcommerceRefreshStatus,
 } = require('../controllers/dailyEcommerceReportController')
 
 const router = express.Router()
@@ -38,11 +39,18 @@ router.get(
   exportDailyEcommerceReportXlsx,
 )
 
-// POST /api/reports/daily-ecommerce/refresh  { date?: YYYY-MM-DD }
+// POST /api/reports/daily-ecommerce/refresh  { date?: YYYY-MM-DD } -> 202 { jobId }
 router.post(
   '/daily-ecommerce/refresh',
   requirePermission('weekly_reports', 'view'),
   refreshDailyEcommerceReport,
+)
+
+// GET /api/reports/daily-ecommerce/refresh/:jobId — poll target for the refresh started above
+router.get(
+  '/daily-ecommerce/refresh/:jobId',
+  requirePermission('weekly_reports', 'view'),
+  getDailyEcommerceRefreshStatus,
 )
 
 module.exports = router

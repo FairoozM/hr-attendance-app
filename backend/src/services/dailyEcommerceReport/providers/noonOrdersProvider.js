@@ -157,6 +157,7 @@ async function loadNoonChannel(channelKey, bounds, fx, ads) {
 
   let lines
   let lastRun
+  let coveringRun
   let linesByCountry
   try {
     await noonStore.ensureNoonOrderTables()
@@ -166,6 +167,10 @@ async function loadNoonChannel(channelKey, bounds, fx, ads) {
       countryCode,
     })
     lastRun = await noonStore.selectLastSuccessfulRun(ORDERS_EXPORT_CATEGORY)
+    coveringRun = await noonStore.findSuccessfulRunCoveringDate(
+      ORDERS_EXPORT_CATEGORY,
+      bounds.dateYmd,
+    )
     linesByCountry = await noonStore.countLinesByCountry()
   } catch (err) {
     const message = err && err.message ? err.message : String(err)
@@ -187,9 +192,11 @@ async function loadNoonChannel(channelKey, bounds, fx, ads) {
 
   if (!lines.length) {
     // Nothing cached for this Noon country and day. Three different situations, three different
-    // messages: the export has never run, this partner account has no store in that country at
-    // all, or Noon genuinely had no order there on this date.
-    const neverSynced = !lastRun
+    // messages: no export has covered this date, this partner account has no store in that country
+    // at all, or Noon genuinely had no order there on this date. Only the last one may report zero,
+    // and that needs an export whose window actually included the date — a run that covered
+    // 6–8 September says nothing about the 9th.
+    const neverSynced = !coveringRun
     const countryEverSeen = (linesByCountry?.get(countryCode) || 0) > 0
     if (!neverSynced && !countryEverSeen) {
       return buildChannelShell(meta, 'not_configured', {
@@ -210,8 +217,10 @@ async function loadNoonChannel(channelKey, bounds, fx, ads) {
       })
     }
     const warning = neverSynced
-      ? `${meta.label}: no Noon orders export has been run yet for this account — press Refresh to pull ${bounds.dateYmd} from the Noon API`
-      : `${meta.label}: the Noon orders export returned no ${countryCode} order for ${bounds.dateYmd} (last export ${lastRun.finished_at ? new Date(lastRun.finished_at).toISOString() : 'n/a'} covered ${lastRun.from_date} → ${lastRun.to_date})`
+      ? `${meta.label}: no Noon orders export has covered ${bounds.dateYmd} yet${
+          lastRun ? ` (the last one covered ${lastRun.from_date} → ${lastRun.to_date})` : ''
+        } — press Refresh to pull it from the Noon API`
+      : `${meta.label}: the Noon orders export returned no ${countryCode} order for ${bounds.dateYmd} (export ${coveringRun.finished_at ? new Date(coveringRun.finished_at).toISOString() : 'n/a'} covered ${coveringRun.from_date} → ${coveringRun.to_date})`
     return buildChannelShell(meta, neverSynced ? 'pending' : 'available', {
       dataSource,
       lastSyncedAt: lastRun?.finished_at ? new Date(lastRun.finished_at).toISOString() : null,

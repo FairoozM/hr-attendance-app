@@ -137,6 +137,12 @@
   opacity: 0.75;
 }
 
+.der-refresh-step {
+  font-size: 11px;
+  color: #475569;
+  white-space: nowrap;
+}
+
 .der-ch-head--amazon_uae { background: #93c5fd; }
 .der-ch-head--amazon_ksa { background: #a5b4fc; }
 .der-ch-head--noon_uae { background: #fcd34d; }
