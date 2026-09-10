@@ -40,7 +40,8 @@ function lastRunFor(data) {
 }
 
 /**
- * @param {{ lines: object[], finance?: object[], statements?: object[], countries?: [string, number][], lastRun?: object|null }} data
+ * @param {{ lines: object[], finance?: object[], statements?: object[], countries?: [string, number][],
+ *           lastRun?: object|null, skuSales?: object[], skuSalesError?: Error }} data
  */
 function loadProviderWith(data) {
   const restores = [
@@ -51,6 +52,10 @@ function loadProviderWith(data) {
       countLinesByCountry: async () => new Map(data.countries || [['AE', data.lines.length]]),
       selectNoonFinanceByOrders: async (orderNumbers) =>
         (data.finance || []).filter((r) => orderNumbers.includes(r.order_nr)),
+      selectNoonSkuDailySales: async () => {
+        if (data.skuSalesError) throw data.skuSalesError
+        return data.skuSales || []
+      },
       selectLastSuccessfulRun: async () => lastRunFor(data),
       // Mirrors the store's own `from_date <= ymd AND to_date >= ymd` filter.
       findSuccessfulRunCoveringDate: async (_category, ymd) => {
@@ -299,6 +304,7 @@ test('a failing money lookup leaves the orders listed with Pending money', async
       ensureNoonOrderTables: async () => {},
       selectNoonOrderLines: async () => [line('NAEI90079648553', 'NAEI90079648553-1')],
       countLinesByCountry: async () => new Map([['AE', 1]]),
+      selectNoonSkuDailySales: async () => [],
       selectNoonFinanceByOrders: async () => {
         throw new Error('finance cache unreachable')
       },
@@ -336,6 +342,7 @@ test('Dubai day boundaries decide inclusion, using the Noon order timestamp in U
       selectNoonOrderLines: async ({ start, end }) =>
         [inside, after].filter((l) => l.order_placed_at >= start && l.order_placed_at < end),
       countLinesByCountry: async () => new Map([['AE', 2]]),
+      selectNoonSkuDailySales: async () => [],
       selectNoonFinanceByOrders: async () => [],
       selectLastSuccessfulRun: async () => ({ from_date: '2026-09-08', to_date: '2026-09-08' }),
       findSuccessfulRunCoveringDate: async () => ({ from_date: '2026-09-08', to_date: '2026-09-08' }),
@@ -508,11 +515,253 @@ test('finance rows map Noon money and drop account-level lines that belong to no
   )
 })
 
+test("Noon's sales report rows map their units and revenue, and browse-only rows carry no price", () => {
+  const { mapSkuSalesRow } = require('../src/services/noon/noonOrdersExportService')
+  const now = new Date('2026-09-10T06:00:00Z')
+
+  const sold = mapSkuSalesRow(
+    {
+      Visit_Date: '2026-09-08',
+      Partner_SKU: 'LIFEP7-MIX-29-5C-GRAY',
+      SKU: 'Z15BF5B8CB05061E0D9BDZ-1',
+      Currency_Code: 'AED',
+      Country_Code: 'AE',
+      Your_Visitors: '4',
+      Gross_Units: '2',
+      Shipped_Units: '2',
+      Cancelled_Units: '0',
+      Revenue_Shipped: '1330',
+    },
+    now,
+  )
+  assert.equal(sold.noonSku, 'Z15BF5B8CB05061E0D9BDZ-1')
+  assert.equal(sold.partnerSku, 'LIFEP7-MIX-29-5C-GRAY')
+  assert.equal(sold.salesDate, '2026-09-08')
+  assert.equal(sold.countryCode, 'AE')
+  assert.equal(sold.revenueShipped, 1330)
+  assert.equal(sold.shippedUnits, 2)
+
+  // Most rows in this report are products that were only browsed. Their blank cells must not become
+  // zeros that look like a real zero-priced sale.
+  const browsed = mapSkuSalesRow(
+    {
+      Visit_Date: '2026-09-08',
+      SKU: 'ZBROWSEDZ-1',
+      Country_Code: 'AE',
+      Your_Visitors: '1',
+      Gross_Units: '',
+      Shipped_Units: '',
+      Cancelled_Units: '',
+      Revenue_Shipped: '',
+    },
+    now,
+  )
+  assert.equal(browsed.revenueShipped, null)
+  assert.equal(browsed.shippedUnits, null)
+
+  assert.equal(mapSkuSalesRow({ SKU: 'ZXZ-1', Visit_Date: 'not-a-date' }, now), null)
+  assert.equal(mapSkuSalesRow({ SKU: '', Visit_Date: '2026-09-08' }, now), null)
+})
+
+/** One row of Noon's per-SKU daily sales report. */
+function skuSales(noonSku, overrides = {}) {
+  return {
+    noon_sku: noonSku,
+    partner_sku: null,
+    currency: 'AED',
+    gross_units: '1',
+    shipped_units: '1',
+    cancelled_units: '0',
+    revenue_shipped: '100',
+    last_synced_at: new Date('2026-09-09T12:00:00Z'),
+    ...overrides,
+  }
+}
+
+/**
+ * The 2026-09-08 Noon UAE regression: Noon settles an order 1–8 days after it is placed, so summing
+ * only the settled orders reported AED 590 of a day Noon itself puts at AED 2,329. The unsettled
+ * orders have to be valued from Noon's own per-SKU sales report.
+ */
+test("unsettled Noon orders are valued from Noon's own per-SKU sales report", async () => {
+  const { mod, restore } = loadProviderWith({
+    lines: [
+      line('NAEI90030698898', 'NAEI90030698898-1', { noon_sku: 'ZA6F6C76B118328A2B8FBZ-1', item_status: 'delivered' }),
+      line('NAEI90054571054', 'NAEI90054571054-1', { noon_sku: 'Z15BF5B8CB05061E0D9BDZ-1' }),
+      line('NAEI90039477915', 'NAEI90039477915-1', { noon_sku: 'Z15BF5B8CB05061E0D9BDZ-1' }),
+    ],
+    // Only the first order has reached a Noon statement.
+    finance: [
+      { order_nr: 'NAEI90030698898', net_proceeds: '474', referral_fee: '-74.66', logistics: '0', currency: 'AED' },
+    ],
+    skuSales: [
+      skuSales('ZA6F6C76B118328A2B8FBZ-1', { revenue_shipped: '474', shipped_units: '1', gross_units: '1' }),
+      // Two units of the same SKU sold that day for 1330 in total, so 665 each.
+      skuSales('Z15BF5B8CB05061E0D9BDZ-1', { revenue_shipped: '1330', shipped_units: '2', gross_units: '2' }),
+    ],
+  })
+  try {
+    const ch = await mod.loadNoonChannel('noon_uae', dubaiDayBounds('2026-09-08'), FX, NO_ADS)
+    assert.equal(ch.summary.salesAmountAED, 1804, '474 settled + 665 + 665 from the sales report')
+    assert.equal(ch.reconciliation.settledOrders, 1)
+    assert.equal(ch.reconciliation.ordersFromSalesReport, 2)
+    assert.equal(ch.reconciliation.ordersWithoutNoonAmount, 0)
+
+    const settledOrder = ch.orders.find((o) => o.orderId === 'NAEI90030698898')
+    assert.equal(settledOrder.amountSource, 'noon_finance_transaction_report')
+    assert.equal(settledOrder.amountAED, 474)
+    assert.equal(settledOrder.commissionAED, 74.66)
+
+    const priced = ch.orders.find((o) => o.orderId === 'NAEI90054571054')
+    assert.equal(priced.amountSource, 'noon_sku_daily_sales_report')
+    assert.equal(priced.amountAED, 665)
+    // Noon publishes fees only at settlement, so they stay Pending rather than becoming zero.
+    assert.equal(priced.commissionAED, null)
+    assert.equal(priced.shippingAED, null)
+
+    // Commission covers only the settled order, so it must not be presented as the day's commission
+    // without saying that the rest is Pending.
+    assert.equal(ch.summary.commissionAED, 74.66)
+    assert.ok(ch.warnings.some((w) => /valued from Noon's own per-SKU sales report/.test(w)))
+    assert.ok(ch.warnings.some((w) => /has not settled 2 of 3 order\(s\)/.test(w)))
+  } finally {
+    restore()
+  }
+})
+
+test('a settled order keeps its settled value even when the sales report disagrees', async () => {
+  // Verified on 2026-09-08: order NAEI90088924890 showed 35 in the sales report but settled at 0
+  // because it was returned. Settlement is what Noon actually pays, so it wins.
+  const { mod, restore } = loadProviderWith({
+    lines: [line('NAEI90088924890', 'NAEI90088924890-1', { noon_sku: 'Z8B25C016097B404F1DB6Z-1' })],
+    finance: [
+      { order_nr: 'NAEI90088924890', net_proceeds: '0', referral_fee: '0', logistics: '0', currency: 'AED' },
+    ],
+    skuSales: [skuSales('Z8B25C016097B404F1DB6Z-1', { revenue_shipped: '35' })],
+  })
+  try {
+    const ch = await mod.loadNoonChannel('noon_uae', dubaiDayBounds('2026-09-08'), FX, NO_ADS)
+    assert.equal(ch.orders[0].amountAED, 0)
+    assert.equal(ch.orders[0].amountSource, 'noon_finance_transaction_report')
+    assert.equal(ch.summary.salesAmountAED, 0)
+  } finally {
+    restore()
+  }
+})
+
+test('an order the sales report cannot price fully stays Pending and the shortfall is stated', async () => {
+  const { mod, restore } = loadProviderWith({
+    lines: [
+      line('NAEI90000000001', 'NAEI90000000001-1', { noon_sku: 'ZPRICEDZ-1' }),
+      line('NAEI90000000002', 'NAEI90000000002-1', { noon_sku: 'ZUNKNOWNZ-1' }),
+    ],
+    finance: [],
+    skuSales: [skuSales('ZPRICEDZ-1', { revenue_shipped: '250' })],
+  })
+  try {
+    const ch = await mod.loadNoonChannel('noon_uae', dubaiDayBounds('2026-09-08'), FX, NO_ADS)
+    assert.equal(ch.summary.salesAmountAED, 250)
+    assert.equal(ch.reconciliation.ordersWithoutNoonAmount, 1)
+    assert.equal(ch.orders.find((o) => o.orderId === 'NAEI90000000002').amountAED, null)
+    // The number shown is smaller than the real day, so the report has to say so out loud.
+    assert.ok(
+      ch.warnings.some((w) => /Noon Amount is lower than the real day/.test(w)),
+      'a partial total must never be presented as the whole day',
+    )
+  } finally {
+    restore()
+  }
+})
+
+test('a multi-unit order is priced per unit, not once', async () => {
+  const { mod, restore } = loadProviderWith({
+    lines: [
+      line('NAEI90000000003', 'NAEI90000000003-1', { noon_sku: 'ZMULTIZ-1' }),
+      line('NAEI90000000003', 'NAEI90000000003-2', { noon_sku: 'ZMULTIZ-1' }),
+      line('NAEI90000000003', 'NAEI90000000003-3', { noon_sku: 'ZMULTIZ-1' }),
+    ],
+    finance: [],
+    skuSales: [skuSales('ZMULTIZ-1', { revenue_shipped: '300', shipped_units: '3', gross_units: '3' })],
+  })
+  try {
+    const ch = await mod.loadNoonChannel('noon_uae', dubaiDayBounds('2026-09-08'), FX, NO_ADS)
+    assert.equal(ch.summary.quantity, 3)
+    assert.equal(ch.orders[0].amountAED, 300, '100 per unit times three units')
+  } finally {
+    restore()
+  }
+})
+
+test('a SKU that shipped nothing yet is still priced from its gross units', async () => {
+  const { mod, restore } = loadProviderWith({
+    lines: [line('NAEI90000000004', 'NAEI90000000004-1', { noon_sku: 'ZFRESHZ-1', item_status: 'exported' })],
+    finance: [],
+    skuSales: [skuSales('ZFRESHZ-1', { shipped_units: '0', gross_units: '2', revenue_shipped: '240' })],
+  })
+  try {
+    const ch = await mod.loadNoonChannel('noon_uae', dubaiDayBounds('2026-09-08'), FX, NO_ADS)
+    assert.equal(ch.orders[0].amountAED, 120)
+  } finally {
+    restore()
+  }
+})
+
+test('a refunded Noon settlement is not flipped into a positive sale', async () => {
+  // Noon posts a refund as a negative order_update against the original order. Taking the absolute
+  // value of the summed proceeds would turn a refund back into revenue.
+  const { mod, restore } = loadProviderWith({
+    lines: [line('NAEI90000000005', 'NAEI90000000005-1')],
+    finance: [
+      { order_nr: 'NAEI90000000005', net_proceeds: '-120', referral_fee: '-10', logistics: '0', currency: 'AED' },
+    ],
+  })
+  try {
+    const ch = await mod.loadNoonChannel('noon_uae', dubaiDayBounds('2026-09-08'), FX, NO_ADS)
+    assert.equal(ch.orders[0].amountAED, -120)
+    assert.equal(ch.summary.salesAmountAED, -120)
+    assert.equal(ch.orders[0].commissionAED, 10, 'fees are costs, so they are reported positive')
+  } finally {
+    restore()
+  }
+})
+
+test('a failed sales-report lookup warns instead of quietly shrinking the Noon day', async () => {
+  const { mod, restore } = loadProviderWith({
+    lines: [line('NAEI90000000006', 'NAEI90000000006-1')],
+    finance: [],
+    skuSalesError: new Error('relation "noon_sku_daily_sales" does not exist'),
+  })
+  try {
+    const ch = await mod.loadNoonChannel('noon_uae', dubaiDayBounds('2026-09-08'), FX, NO_ADS)
+    assert.equal(ch.summary.salesAmountAED, null)
+    assert.ok(ch.warnings.some((w) => /per-SKU sales lookup failed/.test(w)))
+  } finally {
+    restore()
+  }
+})
+
 test('Noon provider reads no accounting system and no catalog price', () => {
   const src = require('node:fs').readFileSync(
     require.resolve('../src/services/dailyEcommerceReport/providers/noonOrdersProvider'),
     'utf8',
   )
   assert.ok(!/zoho/i.test(src))
-  assert.ok(!/\bprice\b/.test(src), 'a catalog price is not a sale amount and must not be used')
+  // A catalog or offer price is what an item is listed at, not what it sold for, so it must never
+  // become a sale amount. Noon's per-SKU sales report is a different thing: it is the revenue Noon
+  // itself booked for that SKU on that day, and the unit price is derived from it.
+  for (const forbidden of [
+    /sale_price/,
+    /offer_price/,
+    /list_price/,
+    /\bmsrp\b/i,
+    /pricing\/v1/,
+    /noonProductService/,
+    /noonSnapshot/,
+  ]) {
+    assert.ok(!forbidden.test(src), `catalog pricing source ${forbidden} must not be used`)
+  }
+  assert.ok(
+    /revenue_shipped/.test(src),
+    "the unit price must come from Noon's own reported revenue, not a catalog figure",
+  )
 })

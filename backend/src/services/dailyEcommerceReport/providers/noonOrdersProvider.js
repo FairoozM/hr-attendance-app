@@ -13,9 +13,15 @@
  * (`noon_financeweb_transactionviewreportonitemlevel` → `noon_order_finance_rows`), with
  * already-imported Noon settlement statements (`noon_payment_clearing_rows`) as a second
  * Noon-issued source for older orders. Both are matched by Noon order number rather than by a
- * printed date, because Noon prints statement dates in mixed formats. Noon writes an order into
- * the finance report only when it settles it, so orders it has not settled yet are listed in full
- * with their amount marked Pending, never zero.
+ * printed date, because Noon prints statement dates in mixed formats.
+ *
+ * Noon settles an order 1 to 8 days after it is placed, so on a recent day most orders have no
+ * settlement yet. Summing only the settled ones would report a fraction of the day as if it were the
+ * whole day — on 2026-09-08 that was AED 590 of a day Noon itself puts at AED 2,329. So an unsettled
+ * order is priced from Noon's own per-SKU daily sales report (`noon_sku_daily_sales`), matched on
+ * Noon sku and the order's Noon calendar date. Where an order has since settled, that report's unit
+ * price equals the settled net proceeds exactly, which is why it is trusted for the ones that have
+ * not. An order neither source prices stays Pending, never zero.
  */
 
 const { query } = require('../../../db')
@@ -53,8 +59,12 @@ async function loadSettledMoney(orderNumbers, fallbackCurrency, fx) {
     const orderNr = String(row.order_nr || '').trim()
     if (!orderNr) continue
     const currency = String(row.currency || fallbackCurrency)
+    // Noon posts a refund as a negative `order_update` against the original order, so the summed net
+    // proceeds can legitimately be negative or zero. Taking its absolute value would turn a refunded
+    // order back into a positive sale, so the sign is kept. Fees are always negative in Noon's
+    // report, and they are cost rows here, so those are the ones made positive.
     map.set(orderNr, {
-      amount: toAed(Math.abs(toFiniteNumber(row.net_proceeds, 0)), currency, fx),
+      amount: toAed(toFiniteNumber(row.net_proceeds, 0), currency, fx),
       commission: toAed(Math.abs(toFiniteNumber(row.referral_fee, 0)), currency, fx),
       shipping: toAed(Math.abs(toFiniteNumber(row.logistics, 0)), currency, fx),
       currency,
@@ -79,7 +89,7 @@ async function loadSettledMoney(orderNumbers, fallbackCurrency, fx) {
     if (!orderNr || map.has(orderNr)) continue
     const currency = String(row.currency || fallbackCurrency)
     map.set(orderNr, {
-      amount: toAed(Math.abs(toFiniteNumber(row.net_proceed, 0)), currency, fx),
+      amount: toAed(toFiniteNumber(row.net_proceed, 0), currency, fx),
       commission: toAed(Math.abs(toFiniteNumber(row.referral_fee, 0)), currency, fx),
       shipping: toAed(Math.abs(toFiniteNumber(row.logistics, 0)), currency, fx),
       currency,
@@ -87,6 +97,55 @@ async function loadSettledMoney(orderNumbers, fallbackCurrency, fx) {
     })
   }
   return map
+}
+
+/**
+ * Noon's own selling price per unit, per Noon sku, for one Noon calendar day.
+ *
+ * Noon reports the day's revenue and units per SKU, so the unit price is revenue ÷ units. `shipped`
+ * is preferred because `revenue_shipped` is the revenue of those units; when a SKU shipped nothing
+ * that day, gross units are used so an order placed but not yet shipped is still priced.
+ *
+ * A SKU with revenue but no units at all yields no price rather than a division by zero.
+ *
+ * @param {string} countryCode
+ * @param {string[]} salesYmds Noon calendar dates the day's orders fall on
+ * @returns {Promise<{ priceBySku: Map<string, { unitPrice: number, currency: string|null, basis: string, lastSyncedAt: Date|null }>, error: string|null }>}
+ */
+async function loadNoonSkuUnitPrices(countryCode, salesYmds) {
+  /** @type {Map<string, { unitPrice: number, currency: string|null, basis: string, lastSyncedAt: Date|null }>} */
+  const priceBySku = new Map()
+  for (const ymd of salesYmds) {
+    let rows
+    try {
+      rows = await noonStore.selectNoonSkuDailySales(countryCode, ymd)
+    } catch (err) {
+      console.error(
+        `[dailyEcommerceReport] noon ${countryCode} sku daily sales lookup failed for ${ymd}:`,
+        err,
+      )
+      return { priceBySku, error: err && err.message ? err.message : String(err) }
+    }
+    for (const row of rows) {
+      const sku = String(row.noon_sku || '').trim()
+      if (!sku) continue
+      const revenue = toFiniteNumber(row.revenue_shipped, 0)
+      const shipped = toFiniteNumber(row.shipped_units, 0)
+      const gross = toFiniteNumber(row.gross_units, 0)
+      const units = shipped > 0 ? shipped : gross
+      if (!units || !revenue) continue
+      // Two Noon calendar days can both touch one Dubai day; the first priced day wins, and the
+      // second only fills SKUs the first did not price.
+      if (priceBySku.has(sku)) continue
+      priceBySku.set(sku, {
+        unitPrice: revenue / units,
+        currency: row.currency ? String(row.currency).toUpperCase() : null,
+        basis: shipped > 0 ? 'shipped_units' : 'gross_units',
+        lastSyncedAt: row.last_synced_at ? new Date(row.last_synced_at) : null,
+      })
+    }
+  }
+  return { priceBySku, error: null }
 }
 
 /** `Z…Z-1` in the orders export is Noon's psku plus a variant index. */
@@ -302,30 +361,88 @@ async function loadNoonChannel(channelKey, bounds, fx, ads) {
   }
 
   const warnings = []
+
+  // Noon settles days later, so without its own sales report a recent day would report only the
+  // handful of orders that happen to have settled.
+  const { priceBySku, error: salesPriceError } = await loadNoonSkuUnitPrices(countryCode, [
+    bounds.dateYmd,
+  ])
+  if (salesPriceError) {
+    warnings.push(
+      `${meta.label}: Noon per-SKU sales lookup failed (${salesPriceError}); unsettled orders will have no amount`,
+    )
+  }
+
   const orders = []
   let quantity = 0
   let salesAmountAED = 0
   let commissionKnown = 0
   let shippingKnown = 0
   let settledOrders = 0
+  let pricedFromSalesReport = 0
+  let unpricedOrders = 0
 
   for (const [orderNr, bucket] of byOrder.entries()) {
-    // Collapse repeated units of one SKU into a single line with its real quantity.
+    // Collapse repeated units of one SKU into a single line with its real quantity. Noon's psku is
+    // kept per line because the sales report is keyed by it, not by our own item code.
     const bySku = new Map()
     for (const item of bucket.items) {
-      if (!bySku.has(item.sku)) bySku.set(item.sku, { sku: item.sku, quantity: 0, status: item.status })
+      if (!bySku.has(item.sku)) {
+        bySku.set(item.sku, {
+          sku: item.sku,
+          quantity: 0,
+          status: item.status,
+          noonSku: item.noonSku,
+        })
+      }
       bySku.get(item.sku).quantity += item.quantity
     }
     const items = [...bySku.values()]
     const orderQty = items.reduce((acc, i) => acc + i.quantity, 0)
     quantity += orderQty
 
-    const money = settled.get(orderNr) || null
+    const settledMoney = settled.get(orderNr) || null
+
+    // Noon's own price for this order's SKUs on this day. Only used when every line can be priced —
+    // a partly priced order would be a smaller number pretending to be the order's value.
+    let salesReportAmount = null
+    let salesReportCurrency = null
+    if (!settledMoney && priceBySku.size > 0) {
+      let total = 0
+      let allPriced = true
+      for (const line of items) {
+        const priced = line.noonSku ? priceBySku.get(String(line.noonSku).trim()) : null
+        if (!priced) {
+          allPriced = false
+          break
+        }
+        total += priced.unitPrice * line.quantity
+        if (!salesReportCurrency) salesReportCurrency = priced.currency
+      }
+      if (allPriced) salesReportAmount = total
+    }
+
+    let money = settledMoney
     if (money) {
       settledOrders += 1
+    } else if (salesReportAmount != null) {
+      money = {
+        amount: toAed(salesReportAmount, salesReportCurrency || meta.currency, fx),
+        // Noon publishes fees only at settlement, so they stay unknown rather than becoming zero.
+        commission: null,
+        shipping: null,
+        currency: salesReportCurrency || meta.currency,
+        source: 'noon_sku_daily_sales_report',
+      }
+      pricedFromSalesReport += 1
+    } else {
+      unpricedOrders += 1
+    }
+
+    if (money) {
       salesAmountAED += money.amount
-      commissionKnown += money.commission
-      shippingKnown += money.shipping
+      if (money.commission != null) commissionKnown += money.commission
+      if (money.shipping != null) shippingKnown += money.shipping
     }
 
     orders.push({
@@ -333,12 +450,12 @@ async function loadNoonChannel(channelKey, bounds, fx, ads) {
       orderNumber: orderNr,
       orderDate: bucket.placedAt ? bucket.placedAt.toISOString() : null,
       status: [...bucket.statuses].join(', '),
-      items,
+      items: items.map(({ sku, quantity: q, status }) => ({ sku, quantity: q, status })),
       amountAED: money ? round2(money.amount) : null,
-      commissionAED: money ? round2(money.commission) : null,
-      shippingAED: money ? round2(money.shipping) : null,
+      commissionAED: money && money.commission != null ? round2(money.commission) : null,
+      shippingAED: money && money.shipping != null ? round2(money.shipping) : null,
       amountSource: money ? money.source : 'pending_noon_settlement',
-      feesSource: money ? money.source : null,
+      feesSource: settledMoney ? settledMoney.source : null,
     })
   }
 
@@ -351,17 +468,31 @@ async function loadNoonChannel(channelKey, bounds, fx, ads) {
     )
   } else if (unsettled > 0) {
     warnings.push(
-      `${meta.label}: Noon has not settled ${unsettled} of ${orders.length} order(s) for ${bounds.dateYmd}. Noon publishes per-order proceeds and fees only in its settlement report, so those orders show Pending instead of an amount.`,
+      `${meta.label}: Noon has not settled ${unsettled} of ${orders.length} order(s) for ${bounds.dateYmd}, so their commission and shipping are Pending — Noon publishes per-order fees only in its settlement report`,
+    )
+  }
+  if (pricedFromSalesReport > 0) {
+    warnings.push(
+      `${meta.label}: ${pricedFromSalesReport} unsettled order(s) are valued from Noon's own per-SKU sales report for ${bounds.dateYmd} and are included in Noon Amount`,
+    )
+  }
+  // The whole point of pulling the sales report: never show part of a day as if it were the day.
+  if (unpricedOrders > 0) {
+    warnings.push(
+      `${meta.label}: ${unpricedOrders} of ${orders.length} order(s) have no Noon-reported money in either the settlement report or the per-SKU sales report for ${bounds.dateYmd}, so Noon Amount is lower than the real day — press Refresh once Noon publishes them`,
     )
   }
   if (cancelledLines > 0) {
     warnings.push(`${meta.label}: ${cancelledLines} cancelled Noon item line(s) excluded`)
   }
 
-  const anySettled = !settlementFailed && settledOrders > 0
+  const anyMoney = !settlementFailed && settledOrders + pricedFromSalesReport > 0
   const salesTotal = round2(salesAmountAED)
-  const commissionAED = anySettled ? round2(commissionKnown) : null
-  const shippingAED = anySettled ? round2(shippingKnown) : null
+  // Fees exist only for settled orders, so they stay unknown while nothing has settled — reporting 0
+  // would claim Noon charged no commission on the day.
+  const feesKnown = !settlementFailed && settledOrders > 0
+  const commissionAED = feesKnown ? round2(commissionKnown) : null
+  const shippingAED = feesKnown ? round2(shippingKnown) : null
 
   const financials = computeChannelFinancials({
     salesAmountAED: salesTotal,
@@ -388,16 +519,19 @@ async function loadNoonChannel(channelKey, bounds, fx, ads) {
       includedOrders: orders.length,
       cancelledLines,
       settledOrders,
+      ordersFromSalesReport: pricedFromSalesReport,
+      ordersWithoutNoonAmount: unpricedOrders,
+      skusPricedBySalesReport: priceBySku.size,
     },
     summary: {
       quantity,
-      salesAmountAED: anySettled ? salesTotal : null,
+      salesAmountAED: anyMoney ? salesTotal : null,
       adSpendAED: ads.adSpendAED,
       clicks: ads.clicks,
       commissionAED,
       shippingAED,
-      costPercentage: anySettled ? financials.costPercentage : null,
-      balanceAED: anySettled ? financials.balanceAED : null,
+      costPercentage: anyMoney ? financials.costPercentage : null,
+      balanceAED: anyMoney ? financials.balanceAED : null,
     },
   })
 }
@@ -405,6 +539,7 @@ async function loadNoonChannel(channelKey, bounds, fx, ads) {
 module.exports = {
   loadNoonChannel,
   loadSettledMoney,
+  loadNoonSkuUnitPrices,
   loadPartnerSkus,
   noonPskuOf,
   countryCodeFor,

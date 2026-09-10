@@ -6,6 +6,12 @@
  * Source chain: Amazon SP-API → `amazon_orders` / `amazon_order_items`
  * (written only by `amazonOrdersSyncService`) → report.
  *
+ * Order money comes from `OrderTotal` where Amazon publishes it. While an order is `Pending` Amazon
+ * withholds `OrderTotal` *and* every item money field from the Orders API, so those orders fall back
+ * to Amazon's own flat-file order report (`amazon_order_report_lines`), which does carry their price
+ * from the moment the order is placed. On 2026-09-09 UAE that was the difference between AED 1,306
+ * (Orders API only) and the true AED 2,411.
+ *
  * Order numbers are the real Amazon order IDs (123-1234567-1234567) and the
  * marketplace split uses `marketplace_key` / `marketplace_id` from SP-API.
  *
@@ -121,6 +127,72 @@ async function findCoveringOrdersSync(marketplaceKey, bounds) {
     // rather than silently choosing either answer.
     console.error(
       `[dailyEcommerceReport] amazon ${marketplaceKey} sync-log lookup failed:`,
+      err,
+    )
+    return null
+  }
+}
+
+/**
+ * Amazon's flat-file order report, grouped per order.
+ *
+ * This is the only Amazon source that reports money for a `Pending` order, so it is what keeps a
+ * same-day Amazon Amount honest. Returns null when the lookup itself fails, so the caller can warn
+ * instead of quietly reporting a smaller day.
+ *
+ * @param {'uae'|'ksa'} marketplaceKey
+ * @param {{ start: Date, end: Date }} bounds
+ * @returns {Promise<{ byOrder: Map<string, { amount: number, currency: string|null, lines: object[], lastSyncedAt: Date|null }>, error: string|null }>}
+ */
+async function loadOrderReportAmounts(marketplaceKey, bounds) {
+  const cacheStore = require('../../amazonOrdersCacheStore')
+  /** @type {Map<string, { amount: number, currency: string|null, lines: object[], lastSyncedAt: Date|null }>} */
+  const byOrder = new Map()
+  let rows
+  try {
+    rows = await cacheStore.selectOrderReportLines(marketplaceKey, bounds.start, bounds.end)
+  } catch (err) {
+    console.error(
+      `[dailyEcommerceReport] amazon ${marketplaceKey} order-report lookup failed:`,
+      err,
+    )
+    return { byOrder, error: err && err.message ? err.message : String(err) }
+  }
+  for (const row of rows) {
+    const orderId = String(row.amazon_order_id || '').trim()
+    if (!orderId) continue
+    if (!byOrder.has(orderId)) {
+      byOrder.set(orderId, { amount: 0, currency: null, lines: [], lastSyncedAt: null })
+    }
+    const bucket = byOrder.get(orderId)
+    bucket.amount += toFiniteNumber(row.line_amount, 0)
+    if (!bucket.currency && row.currency) bucket.currency = String(row.currency).toUpperCase()
+    bucket.lines.push(row)
+    const syncedAt = row.last_synced_at ? new Date(row.last_synced_at) : null
+    if (syncedAt && (!bucket.lastSyncedAt || syncedAt > bucket.lastSyncedAt)) {
+      bucket.lastSyncedAt = syncedAt
+    }
+  }
+  for (const bucket of byOrder.values()) bucket.amount = round2(bucket.amount)
+  return { byOrder, error: null }
+}
+
+/**
+ * Was Amazon's order report actually pulled for this day? Used only to word a warning correctly:
+ * "Amazon reported no money" and "we never asked Amazon's report" are different problems.
+ *
+ * @param {'uae'|'ksa'} marketplaceKey
+ * @param {{ start: Date, end: Date }} bounds
+ */
+async function findCoveringOrderReportRun(marketplaceKey, bounds) {
+  try {
+    const {
+      findSuccessfulReportRunCoveringRange,
+    } = require('../../amazonOrderReportSyncService')
+    return await findSuccessfulReportRunCoveringRange(marketplaceKey, bounds.start, bounds.end)
+  } catch (err) {
+    console.error(
+      `[dailyEcommerceReport] amazon ${marketplaceKey} order-report run lookup failed:`,
       err,
     )
     return null
@@ -252,6 +324,16 @@ async function loadAmazonChannel(marketplaceKey, bounds, fx, ads) {
     itemsByOrder.get(oid).push(item)
   }
 
+  const { byOrder: reportByOrder, error: reportError } = await loadOrderReportAmounts(
+    marketplaceKey,
+    bounds,
+  )
+  if (reportError) {
+    warnings.push(
+      `${meta.label}: Amazon order-report lookup failed (${reportError}); orders Amazon has not authorised yet will have no amount`,
+    )
+  }
+
   let feesByOrder = new Map()
   let feeLookupFailed = false
   try {
@@ -276,10 +358,21 @@ async function loadAmazonChannel(marketplaceKey, bounds, fx, ads) {
   let missingItems = 0
   let missingAmount = 0
   let derivedAmounts = 0
+  let reportAmounts = 0
+  const reportMismatches = []
 
   for (const row of included) {
     const orderId = String(row.amazon_order_id)
     const itemRows = itemsByOrder.get(orderId) || []
+    const reportOrder = reportByOrder.get(orderId) || null
+
+    // Per-SKU money for a Pending order exists only in the order report, so use it to fill the
+    // drill-down lines the Orders API left blank.
+    const reportLineBySku = new Map()
+    for (const line of reportOrder ? reportOrder.lines : []) {
+      const key = String(line.seller_sku || line.asin || '').trim().toUpperCase()
+      if (key) reportLineBySku.set(key, line)
+    }
 
     const items = []
     let lineQty = 0
@@ -287,10 +380,15 @@ async function loadAmazonChannel(marketplaceKey, bounds, fx, ads) {
       const sku = String(li.seller_sku || li.asin || '').trim()
       const qty = Math.max(0, Math.trunc(toFiniteNumber(li.quantity_ordered, 0)))
       lineQty += qty
+      let lineAmount = li.item_amount == null ? null : round2(toFiniteNumber(li.item_amount, 0))
+      if (lineAmount == null) {
+        const reportLine = reportLineBySku.get(sku.toUpperCase())
+        if (reportLine) lineAmount = round2(toFiniteNumber(reportLine.line_amount, 0))
+      }
       items.push({
         sku: sku || '(SKU pending item sync)',
         quantity: qty,
-        lineAmount: li.item_amount == null ? undefined : round2(toFiniteNumber(li.item_amount, 0)),
+        lineAmount: lineAmount == null ? undefined : lineAmount,
       })
     }
     if (!items.length) {
@@ -299,22 +397,35 @@ async function loadAmazonChannel(marketplaceKey, bounds, fx, ads) {
     }
 
     // `OrderTotal` is Amazon's own order-level figure, counted exactly once per order. Amazon
-    // withholds it while an order is Pending, so fall back to the Amazon-reported line breakdown
-    // and flag the order as derived. If Amazon reported no money at all, the value stays unknown.
+    // withholds it while an order is Pending, so fall back to Amazon's flat-file order report, which
+    // publishes the same order's price immediately, and only then to the cached item breakdown. If
+    // no Amazon source reported money at all, the value stays unknown rather than becoming zero.
     let amountSource = 'amazon_order_total'
     let originalAmount = row.order_amount == null ? null : toFiniteNumber(row.order_amount, 0)
     let currency = String(row.currency_code || '').trim().toUpperCase()
     if (originalAmount == null) {
-      const derived = deriveOrderAmountFromItems(itemRows)
+      const derived = reportOrder
+        ? { amount: reportOrder.amount, currency: reportOrder.currency, source: 'amazon_order_report' }
+        : (() => {
+            const fromItems = deriveOrderAmountFromItems(itemRows)
+            return fromItems ? { ...fromItems, source: 'amazon_order_items' } : null
+          })()
       if (derived) {
         originalAmount = derived.amount
         currency = String(derived.currency || meta.currency).trim().toUpperCase()
-        amountSource = 'amazon_order_items'
-        derivedAmounts += 1
+        amountSource = derived.source
+        if (derived.source === 'amazon_order_report') reportAmounts += 1
+        else derivedAmounts += 1
       } else {
         amountSource = 'pending_at_amazon'
         missingAmount += 1
       }
+    } else if (reportOrder && Math.abs(reportOrder.amount - originalAmount) > 0.011) {
+      // Both Amazon sources spoke and disagree by more than currency rounding. Keep `OrderTotal` —
+      // it is the order-level figure Amazon settles on — but never hide the discrepancy.
+      reportMismatches.push(
+        `${orderId} (OrderTotal ${round2(originalAmount)} vs order report ${reportOrder.amount})`,
+      )
     }
     if (!currency) currency = meta.currency
     const amountAED = originalAmount == null ? null : toAed(originalAmount, currency, fx)
@@ -351,14 +462,29 @@ async function loadAmazonChannel(marketplaceKey, bounds, fx, ads) {
       `${meta.label}: ${missingItems} order(s) have no cached Amazon line items yet (run an Amazon orders sync with items)`,
     )
   }
+  if (reportAmounts > 0) {
+    warnings.push(
+      `${meta.label}: ${reportAmounts} order(s) are still Pending at Amazon, which withholds OrderTotal from the Orders API, so their amount comes from Amazon's own order report (item price, tax, shipping and promotions) and is included in Amazon Amount`,
+    )
+  }
   if (derivedAmounts > 0) {
     warnings.push(
       `${meta.label}: ${derivedAmounts} order(s) had no Amazon OrderTotal yet, so their amount is derived from Amazon's own item price, tax, shipping and promotion figures`,
     )
   }
   if (missingAmount > 0) {
+    // Two very different causes, and blaming Amazon for the wrong one sends whoever reads this
+    // looking in the wrong place.
+    const reportPulled = reportError ? null : await findCoveringOrderReportRun(marketplaceKey, bounds)
     warnings.push(
-      `${meta.label}: ${missingAmount} order(s) are still Pending at Amazon and carry no Amazon-reported money at all, so they are listed without an amount and excluded from Amazon Amount — refresh once Amazon authorises them`,
+      reportPulled || reportError
+        ? `${meta.label}: ${missingAmount} order(s) carry no Amazon-reported money in either the Orders API or the Amazon order report, so they are listed without an amount and excluded from Amazon Amount`
+        : `${meta.label}: ${missingAmount} order(s) have no amount because Amazon withholds it from the Orders API while an order is Pending, and Amazon's order report has not been pulled for ${bounds.dateYmd} yet — press Refresh to pull it`,
+    )
+  }
+  if (reportMismatches.length > 0) {
+    warnings.push(
+      `${meta.label}: Amazon's OrderTotal and its own order report disagree on ${reportMismatches.length} order(s) — ${reportMismatches.slice(0, 5).join('; ')}${reportMismatches.length > 5 ? '; …' : ''}`,
     )
   }
 
@@ -384,12 +510,16 @@ async function loadAmazonChannel(marketplaceKey, bounds, fx, ads) {
     shippingAED,
   })
 
-  const lastSyncedAt = included.length
-    ? included.reduce((acc, r) => {
-        const t = r.last_synced_at ? new Date(r.last_synced_at).getTime() : 0
-        return t > acc ? t : acc
-      }, 0)
-    : 0
+  // The order report is pulled separately from the Orders API sync, so the freshest of the two is
+  // what the page's "data as of" line should show.
+  let lastSyncedAt = included.reduce((acc, r) => {
+    const t = r.last_synced_at ? new Date(r.last_synced_at).getTime() : 0
+    return t > acc ? t : acc
+  }, 0)
+  for (const bucket of reportByOrder.values()) {
+    const t = bucket.lastSyncedAt ? bucket.lastSyncedAt.getTime() : 0
+    if (t > lastSyncedAt) lastSyncedAt = t
+  }
 
   return buildChannelShell(meta, 'available', {
     dataSource: 'amazon_sp_api_orders_cache',
@@ -409,8 +539,18 @@ async function loadAmazonChannel(marketplaceKey, bounds, fx, ads) {
       rawOrderTotalCurrency: meta.currency,
       normalizedSalesAED: salesAmountAED,
       ordersFromOrderTotal: orders.filter((o) => o.amountSource === 'amazon_order_total').length,
+      ordersFromOrderReport: reportAmounts,
       ordersDerivedFromItems: derivedAmounts,
       ordersWithoutAmazonAmount: missingAmount,
+      // What Amazon's own order report says the included orders are worth, so the report figure can
+      // be checked against the Seller Central order export without re-deriving anything.
+      reportOrderTotalSum: round2(
+        included.reduce(
+          (acc, r) => acc + (reportByOrder.get(String(r.amazon_order_id))?.amount ?? 0),
+          0,
+        ),
+      ),
+      orderTotalReportMismatches: reportMismatches.length,
     },
     orders,
     adsStatus: ads.adsStatus,
@@ -432,6 +572,7 @@ async function loadAmazonChannel(marketplaceKey, bounds, fx, ads) {
 module.exports = {
   loadAmazonChannel,
   deriveOrderAmountFromItems,
+  loadOrderReportAmounts,
   EXCLUDED_STATUSES,
   FEE_CATEGORIES,
 }

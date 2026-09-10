@@ -60,6 +60,47 @@ async function ensureAmazonOrdersCacheTables() {
   await query(`CREATE INDEX IF NOT EXISTS idx_amazon_order_items_sku ON amazon_order_items (seller_sku)`)
   await query(`CREATE INDEX IF NOT EXISTS idx_amazon_order_items_asin ON amazon_order_items (asin)`)
 
+  // Money from Amazon's flat-file order report. The Orders API withholds `OrderTotal` and every
+  // item money field while an order is `Pending`, yet the report already carries `item-price` for
+  // it, so these rows are what lets a same-day report show the real amount instead of nothing.
+  // Buyer-identifying report columns (ship-city / state / postal-code / country, product-name) are
+  // deliberately never stored.
+  await query(`
+    CREATE TABLE IF NOT EXISTS amazon_order_report_lines (
+      id BIGSERIAL PRIMARY KEY,
+      marketplace_key VARCHAR(8) NOT NULL CHECK (marketplace_key IN ('uae', 'ksa')),
+      amazon_order_id VARCHAR(64) NOT NULL,
+      order_item_id VARCHAR(64) NOT NULL DEFAULT '',
+      purchase_date TIMESTAMPTZ,
+      order_status VARCHAR(64),
+      item_status VARCHAR(64),
+      seller_sku VARCHAR(512),
+      asin VARCHAR(32),
+      quantity INTEGER,
+      currency VARCHAR(8),
+      item_price NUMERIC(16, 4),
+      item_tax NUMERIC(16, 4),
+      shipping_price NUMERIC(16, 4),
+      shipping_tax NUMERIC(16, 4),
+      gift_wrap_price NUMERIC(16, 4),
+      gift_wrap_tax NUMERIC(16, 4),
+      item_promotion_discount NUMERIC(16, 4),
+      ship_promotion_discount NUMERIC(16, 4),
+      line_amount NUMERIC(16, 4),
+      report_id VARCHAR(64),
+      last_synced_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (marketplace_key, amazon_order_id, order_item_id)
+    )
+  `)
+  await query(
+    `CREATE INDEX IF NOT EXISTS idx_amazon_order_report_lines_mk_purchase ON amazon_order_report_lines (marketplace_key, purchase_date)`
+  )
+  await query(
+    `CREATE INDEX IF NOT EXISTS idx_amazon_order_report_lines_order ON amazon_order_report_lines (marketplace_key, amazon_order_id)`
+  )
+
   await query(`
     CREATE TABLE IF NOT EXISTS amazon_sync_log (
       id BIGSERIAL PRIMARY KEY,
@@ -527,17 +568,152 @@ async function selectRecentApiCallsByMarketplace(marketplaceKey, limit = 50) {
   return r.rows
 }
 
+function reportLineNumber(value) {
+  if (value == null) return null
+  const text = String(value).trim()
+  if (!text) return null
+  const n = Number(text.replace(/,/g, ''))
+  return Number.isFinite(n) ? n : null
+}
+
 /**
- * Whether a successful orders sync window fully covers [createdAfter, createdBefore).
+ * Writes one report run's lines, then drops rows in the same purchase-date window that this run did
+ * not return. Without that delete a line Amazon later removed (a cancelled item, a re-keyed order
+ * item id) would keep inflating the day forever.
+ *
+ * @param {'uae'|'ksa'} marketplaceKey
+ * @param {{ start: Date, end: Date }} window purchase-date range the report covered
+ * @param {object[]} lines parsed report lines
+ * @param {string|null} reportId
+ * @returns {Promise<{ saved: number, removed: number }>}
+ */
+async function replaceOrderReportLines(marketplaceKey, window, lines, reportId = null) {
+  let saved = 0
+  // Kept as two parallel arrays rather than one joined key: PostgreSQL `text` cannot hold a NUL byte,
+  // so any separator-based key risks an "invalid byte sequence for encoding UTF8" on the delete.
+  /** @type {string[]} */
+  const seenOrderIds = []
+  /** @type {string[]} */
+  const seenItemIds = []
+  for (const line of lines || []) {
+    const orderId = String(line.amazonOrderId || '').trim()
+    if (!orderId) continue
+    const orderItemId = String(line.orderItemId || '').trim()
+    await query(
+      `INSERT INTO amazon_order_report_lines (
+         marketplace_key, amazon_order_id, order_item_id, purchase_date, order_status, item_status,
+         seller_sku, asin, quantity, currency,
+         item_price, item_tax, shipping_price, shipping_tax, gift_wrap_price, gift_wrap_tax,
+         item_promotion_discount, ship_promotion_discount, line_amount, report_id, last_synced_at
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,NOW())
+       ON CONFLICT (marketplace_key, amazon_order_id, order_item_id) DO UPDATE SET
+         purchase_date = EXCLUDED.purchase_date,
+         order_status = EXCLUDED.order_status,
+         item_status = EXCLUDED.item_status,
+         seller_sku = EXCLUDED.seller_sku,
+         asin = EXCLUDED.asin,
+         quantity = EXCLUDED.quantity,
+         currency = EXCLUDED.currency,
+         item_price = EXCLUDED.item_price,
+         item_tax = EXCLUDED.item_tax,
+         shipping_price = EXCLUDED.shipping_price,
+         shipping_tax = EXCLUDED.shipping_tax,
+         gift_wrap_price = EXCLUDED.gift_wrap_price,
+         gift_wrap_tax = EXCLUDED.gift_wrap_tax,
+         item_promotion_discount = EXCLUDED.item_promotion_discount,
+         ship_promotion_discount = EXCLUDED.ship_promotion_discount,
+         line_amount = EXCLUDED.line_amount,
+         report_id = EXCLUDED.report_id,
+         last_synced_at = NOW(),
+         updated_at = NOW()`,
+      [
+        marketplaceKey,
+        orderId,
+        orderItemId,
+        line.purchaseDate || null,
+        line.orderStatus || null,
+        line.itemStatus || null,
+        line.sellerSku || null,
+        line.asin || null,
+        line.quantity == null ? null : Math.trunc(reportLineNumber(line.quantity) ?? 0),
+        line.currency || null,
+        reportLineNumber(line.itemPrice),
+        reportLineNumber(line.itemTax),
+        reportLineNumber(line.shippingPrice),
+        reportLineNumber(line.shippingTax),
+        reportLineNumber(line.giftWrapPrice),
+        reportLineNumber(line.giftWrapTax),
+        reportLineNumber(line.itemPromotionDiscount),
+        reportLineNumber(line.shipPromotionDiscount),
+        reportLineNumber(line.lineAmount),
+        reportId,
+      ]
+    )
+    saved += 1
+    seenOrderIds.push(orderId)
+    seenItemIds.push(orderItemId)
+  }
+
+  const del = await query(
+    `DELETE FROM amazon_order_report_lines t
+     WHERE t.marketplace_key = $1
+       AND t.purchase_date >= $2::timestamptz
+       AND t.purchase_date < $3::timestamptz
+       AND NOT EXISTS (
+         SELECT 1
+         FROM unnest($4::text[], $5::text[]) AS seen (amazon_order_id, order_item_id)
+         WHERE seen.amazon_order_id = t.amazon_order_id
+           AND seen.order_item_id = t.order_item_id
+       )`,
+    [marketplaceKey, window.start, window.end, seenOrderIds, seenItemIds]
+  )
+  return { saved, removed: del.rowCount || 0 }
+}
+
+/**
+ * Report lines that carry money for a purchase-date window.
+ *
+ * Cancelled lines are excluded rather than summed as zero: a cancelled item contributes nothing, and
+ * an order whose every line is cancelled must not surface as an AED 0.00 sale. Lines where Amazon
+ * reported no money at all are excluded too, so a missing amount stays unknown instead of zero.
+ *
+ * @param {'uae'|'ksa'} marketplaceKey
+ * @param {Date} start
+ * @param {Date} end
+ */
+async function selectOrderReportLines(marketplaceKey, start, end) {
+  const r = await query(
+    `SELECT amazon_order_id, order_item_id, seller_sku, asin, quantity, currency,
+            line_amount, item_status, last_synced_at
+     FROM amazon_order_report_lines
+     WHERE marketplace_key = $1
+       AND purchase_date >= $2::timestamptz
+       AND purchase_date < $3::timestamptz
+       AND COALESCE(item_status, '') NOT ILIKE 'cancel%'
+       AND line_amount IS NOT NULL
+     ORDER BY amazon_order_id, order_item_id`,
+    [marketplaceKey, start, end]
+  )
+  return r.rows || []
+}
+
+/**
+ * Whether a successful sync window fully covers [createdAfter, createdBefore).
  * @param {string} marketplaceKey 'uae' | 'ksa'
  * @param {Date} createdAfter
  * @param {Date} createdBefore
+ * @param {string} [syncType='orders']
  */
-async function findSuccessfulSyncCoveringRange(marketplaceKey, createdAfter, createdBefore) {
+async function findSuccessfulSyncCoveringRange(
+  marketplaceKey,
+  createdAfter,
+  createdBefore,
+  syncType = 'orders'
+) {
   const r = await query(
     `SELECT finished_at, created_after, created_before
      FROM amazon_sync_log
-     WHERE sync_type = 'orders'
+     WHERE sync_type = $4
        AND marketplace_key = $1
        AND status = 'success'
        AND created_after IS NOT NULL
@@ -546,7 +722,7 @@ async function findSuccessfulSyncCoveringRange(marketplaceKey, createdAfter, cre
        AND created_before >= $3::timestamptz
      ORDER BY finished_at DESC NULLS LAST
      LIMIT 1`,
-    [marketplaceKey, createdAfter, createdBefore]
+    [marketplaceKey, createdAfter, createdBefore, syncType]
   )
   return r.rows[0] || null
 }
@@ -618,6 +794,8 @@ module.exports = {
   selectRecentApiCalls,
   selectRecentApiCallsByMarketplace,
   selectRecentSyncLogs,
+  replaceOrderReportLines,
+  selectOrderReportLines,
   findSuccessfulSyncCoveringRange,
   getLatestSuccessfulOrdersSyncFinishedAt,
   getOrdersCacheCoverage,

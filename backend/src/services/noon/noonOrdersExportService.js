@@ -28,6 +28,8 @@ const store = require('./noonOrdersStore')
 
 const ORDERS_EXPORT_CATEGORY = 'noon_noonoms_ordersexport'
 const FINANCE_EXPORT_CATEGORY = 'noon_financeweb_transactionviewreportonitemlevel'
+/** Noon's per-SKU daily views-and-sales report — the only Noon feed that prices an unsettled day. */
+const SKU_SALES_EXPORT_CATEGORY = 'noon_catalog_reports_productviewsandsalesdata'
 const CREATE_PATH = '/impex/v1/export/create'
 const STATUS_PATH = '/impex/v1/export/status'
 const MAX_POLLS = 40
@@ -376,14 +378,124 @@ async function syncNoonFinance({ fromYmd, toYmd, sleepFn }) {
   }
 }
 
+/**
+ * One row of Noon's per-SKU daily sales report.
+ *
+ * Rows for a SKU that was only browsed carry no units and no revenue; they are kept out by the
+ * caller rather than stored as a zero-priced SKU.
+ */
+function mapSkuSalesRow(raw, lastSyncedAt) {
+  const noonSku = String(raw.SKU || '').trim()
+  const salesDate = String(raw.Visit_Date || '').trim()
+  if (!noonSku || !/^\d{4}-\d{2}-\d{2}$/.test(salesDate)) return null
+  return {
+    countryCode: String(raw.Country_Code || '').trim().toUpperCase() || 'AE',
+    salesDate,
+    noonSku,
+    partnerSku: String(raw.Partner_SKU || '').trim() || null,
+    currency: String(raw.Currency_Code || '').trim().toUpperCase() || null,
+    grossUnits: parseMoney(raw.Gross_Units),
+    shippedUnits: parseMoney(raw.Shipped_Units),
+    cancelledUnits: parseMoney(raw.Cancelled_Units),
+    revenueShipped: parseMoney(raw.Revenue_Shipped),
+    rawRow: raw,
+    lastSyncedAt,
+  }
+}
+
+/**
+ * Fetch and cache Noon's own per-SKU daily sales figures for one country and date window.
+ *
+ * This is the only Noon feed that prices a day before settlement: the OMS orders export carries no
+ * money at all and the finance report only lists an order once Noon settles it, 1–8 days later.
+ *
+ * Note the lower-case country code. Noon's Impex matches this parameter case-sensitively and answers
+ * an upper-case `AE` with an empty report instead of an error, so passing `AE` here silently returns
+ * a day with no sales.
+ *
+ * @param {{ countryCode: string, fromYmd: string, toYmd: string, sleepFn?: (ms: number) => Promise<void> }} opts
+ */
+async function syncNoonSkuDailySales({ countryCode, fromYmd, toYmd, sleepFn }) {
+  assertNoonConfigured()
+  const from = ymd(fromYmd)
+  const to = ymd(toYmd)
+  const country = String(countryCode || 'ae').trim().toLowerCase()
+  await store.ensureNoonOrderTables()
+  const runId = await store.insertExportRun({
+    exportCategoryCode: SKU_SALES_EXPORT_CATEGORY,
+    fromDate: from,
+    toDate: to,
+    status: 'running',
+  })
+
+  try {
+    const { exportCode, pollCount, rows } = await runExport({
+      exportCategoryCode: SKU_SALES_EXPORT_CATEGORY,
+      params: { country, from_date: from, to_date: to, lang: 'en' },
+      sleepFn,
+    })
+    const now = new Date()
+    let saved = 0
+    let skippedNoMoney = 0
+    const dates = new Set()
+    for (const raw of rows) {
+      const mapped = mapSkuSalesRow(raw, now)
+      if (!mapped) continue
+      const anyUnits =
+        (mapped.grossUnits || 0) !== 0 ||
+        (mapped.shippedUnits || 0) !== 0 ||
+        (mapped.cancelledUnits || 0) !== 0 ||
+        (mapped.revenueShipped || 0) !== 0
+      if (!anyUnits) {
+        skippedNoMoney += 1
+        continue
+      }
+      await store.upsertNoonSkuDailySales(mapped)
+      saved += 1
+      dates.add(mapped.salesDate)
+    }
+    await store.updateExportRun(runId, {
+      exportCode,
+      status: 'success',
+      rowsParsed: rows.length,
+      rowsSaved: saved,
+      pollCount,
+      finishedAt: new Date(),
+    })
+    return {
+      exportCategoryCode: SKU_SALES_EXPORT_CATEGORY,
+      exportCode,
+      countryCode: country,
+      fromDate: from,
+      toDate: to,
+      pollCount,
+      rowsParsed: rows.length,
+      rowsSaved: saved,
+      rowsWithoutUnits: skippedNoMoney,
+      datesWithSales: [...dates].sort(),
+    }
+  } catch (err) {
+    await store.updateExportRun(runId, {
+      status: 'failed',
+      errorMessage: err && err.message ? String(err.message).slice(0, 500) : 'noon_export_failed',
+      pollCount: err?.pollCount ?? null,
+      finishedAt: new Date(),
+    })
+    throw err
+  }
+}
+
 module.exports = {
   syncNoonOrders,
   syncNoonFinance,
+  syncNoonSkuDailySales,
   mapFinanceRow,
+  mapSkuSalesRow,
   runExport,
   parseCsv,
   parseNoonTimestamp,
   mapOrderRow,
   ORDERS_EXPORT_CATEGORY,
   FINANCE_EXPORT_CATEGORY,
+  SKU_SALES_EXPORT_CATEGORY,
 }

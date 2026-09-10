@@ -11,7 +11,8 @@
  *
  * Providers are settled independently, so one failing marketplace never blocks the others.
  *
- * - Amazon UAE/KSA: SP-API orders sync, every NextToken page, items included
+ * - Amazon UAE/KSA: SP-API orders sync (every NextToken page, items included) plus the flat-file
+ *   order report, which is the only Amazon source that reports money for a still-Pending order
  * - Noon: OMS orders export plus the finance item-level transaction report, via the Partner API
  * - Life Smile: read-only live query against the website database, so only read access is probed
  */
@@ -111,6 +112,34 @@ async function syncAmazonMarketplace(marketplaceKey, bounds) {
   }
 }
 
+/**
+ * Amazon's flat-file order report for the same UAE day.
+ *
+ * This is a separate step from the Orders API sync on purpose: `getOrders` omits `OrderTotal` and
+ * every item money field while an order is `Pending`, so without this report a day with fresh orders
+ * reports only part of its value. Run for both marketplaces alongside the orders sync, and settled
+ * independently so a report failure cannot take the orders sync down with it.
+ */
+async function syncAmazonOrderReportForDay(marketplaceKey, bounds) {
+  const { syncAmazonOrderReport } = require('../amazonOrderReportSyncService')
+  const result = await syncAmazonOrderReport({
+    marketplaceKey,
+    dataStartTime: bounds.start,
+    dataEndTime: bounds.end,
+  })
+  return {
+    status: 'ok',
+    reportId: result.reportId,
+    reused: result.reused,
+    polls: result.polls,
+    rowsParsed: result.rowsParsed,
+    rowsSaved: result.rowsSaved,
+    rowsRemoved: result.rowsRemoved,
+    uniqueOrders: result.uniqueOrders,
+    linesWithoutMoney: result.linesWithoutMoney,
+  }
+}
+
 async function syncNoonOrdersForDay(bounds) {
   const { syncNoonOrders } = require('../noon/noonOrdersExportService')
   // Noon filters the export by order date in its own calendar, so ask for the day before as well
@@ -129,6 +158,35 @@ async function syncNoonOrdersForDay(bounds) {
     rowsSaved: result.rowsSaved,
     uniqueOrders: result.uniqueOrders,
     linesByCountry: result.linesByCountry,
+  }
+}
+
+/**
+ * Noon's own per-SKU daily sales report for the day.
+ *
+ * Noon settles an order 1 to 8 days after it is placed, and neither the OMS orders export nor the
+ * finance report can value a recent day: the first carries no money at all and the second lists an
+ * order only once it settles. This report is what lets an unsettled day show its real Noon Amount
+ * instead of the fraction that happens to have settled.
+ *
+ * Only the UAE marketplace is pulled — this partner account has no SA contract, and Noon answers a
+ * country it has no store in with an empty report.
+ */
+async function syncNoonSkuSalesForDay(bounds) {
+  const { syncNoonSkuDailySales } = require('../noon/noonOrdersExportService')
+  const result = await syncNoonSkuDailySales({
+    countryCode: 'ae',
+    fromYmd: bounds.dateYmd,
+    toYmd: bounds.dateYmd,
+  })
+  return {
+    status: 'ok',
+    exportCategoryCode: result.exportCategoryCode,
+    exportCode: result.exportCode,
+    rowsParsed: result.rowsParsed,
+    rowsSaved: result.rowsSaved,
+    rowsWithoutUnits: result.rowsWithoutUnits,
+    datesWithSales: result.datesWithSales,
   }
 }
 
@@ -230,20 +288,27 @@ async function runRefresh(job, { skipAmazon = false, skipNoon = false } = {}) {
   }
 
   if (skipAmazon) {
-    sync.amazon_uae = { status: 'skipped', message: 'sync_amazon=0' }
-    sync.amazon_ksa = { status: 'skipped', message: 'sync_amazon=0' }
+    for (const mk of ['uae', 'ksa']) {
+      sync[`amazon_${mk}`] = { status: 'skipped', message: 'sync_amazon=0' }
+      sync[`amazon_${mk}_report`] = { status: 'skipped', message: 'sync_amazon=0' }
+    }
   } else {
     for (const mk of ['uae', 'ksa']) {
       track(`amazon_${mk}`, `Amazon ${mk.toUpperCase()}`, () => syncAmazonMarketplace(mk, bounds))
+      track(`amazon_${mk}_report`, `Amazon ${mk.toUpperCase()} order report`, () =>
+        syncAmazonOrderReportForDay(mk, bounds),
+      )
     }
   }
 
   if (skipNoon) {
     sync.noon = { status: 'skipped', message: 'sync_noon=0' }
     sync.noon_finance = { status: 'skipped', message: 'sync_noon=0' }
+    sync.noon_sku_sales = { status: 'skipped', message: 'sync_noon=0' }
   } else {
     track('noon', 'Noon orders export', () => syncNoonOrdersForDay(bounds))
     track('noon_finance', 'Noon finance export', () => syncNoonFinanceForDay(bounds))
+    track('noon_sku_sales', 'Noon per-SKU sales report', () => syncNoonSkuSalesForDay(bounds))
   }
 
   track('life_smile', 'Life Smile website read access', () => probeLifeSmileAccess(bounds))

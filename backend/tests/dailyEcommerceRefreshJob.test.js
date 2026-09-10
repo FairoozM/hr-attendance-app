@@ -39,17 +39,42 @@ const deferred = () => {
 }
 
 /**
- * @param {{ amazon?: Function, noonOrders?: Function, noonFinance?: Function,
- *           website?: object, report?: object|Function }} behaviour
+ * @param {{ amazon?: Function, amazonReport?: Function, noonOrders?: Function,
+ *           noonFinance?: Function, noonSkuSales?: Function, website?: object,
+ *           report?: object|Function }} behaviour
  */
 function loadJobServiceWith(behaviour = {}) {
-  const calls = { amazon: [], noonOrders: [], noonFinance: [], website: 0, report: [] }
+  const calls = {
+    amazon: [],
+    amazonReport: [],
+    noonOrders: [],
+    noonFinance: [],
+    noonSkuSales: [],
+    website: 0,
+    report: [],
+  }
   const restores = [
     stubModule('../src/services/amazonOrdersSyncService', {
       syncAmazonOrders: async (opts) => {
         calls.amazon.push(opts)
         if (behaviour.amazon) return behaviour.amazon(opts)
         return { ordersFetched: 3, ordersSaved: 3, orderItemsFetched: 4, pagesFetched: 1 }
+      },
+    }),
+    stubModule('../src/services/amazonOrderReportSyncService', {
+      syncAmazonOrderReport: async (opts) => {
+        calls.amazonReport.push(opts)
+        if (behaviour.amazonReport) return behaviour.amazonReport(opts)
+        return {
+          reportId: '58382020706',
+          reused: false,
+          polls: 1,
+          rowsParsed: 15,
+          rowsSaved: 15,
+          rowsRemoved: 0,
+          uniqueOrders: 15,
+          linesWithoutMoney: 1,
+        }
       },
     }),
     stubModule('../src/services/noon/noonOrdersExportService', {
@@ -62,6 +87,18 @@ function loadJobServiceWith(behaviour = {}) {
         calls.noonFinance.push(opts)
         if (behaviour.noonFinance) return behaviour.noonFinance(opts)
         return { exportCode: 'EXP2', pollCount: 5, rowsParsed: 0, rowsSaved: 0, ordersWithMoney: 0 }
+      },
+      syncNoonSkuDailySales: async (opts) => {
+        calls.noonSkuSales.push(opts)
+        if (behaviour.noonSkuSales) return behaviour.noonSkuSales(opts)
+        return {
+          exportCategoryCode: 'noon_catalog_reports_productviewsandsalesdata',
+          exportCode: 'EXP3',
+          rowsParsed: 201,
+          rowsSaved: 9,
+          rowsWithoutUnits: 192,
+          datesWithSales: ['2026-09-09'],
+        }
       },
     }),
     stubModule('../src/db/lifesmileWebsiteDb', {
@@ -135,13 +172,17 @@ test('the job reports per-integration progress while it runs', async () => {
     await new Promise((r) => setTimeout(r, 30))
     const mid = mod.getRefreshJob(started.jobId)
     assert.equal(mid.status, 'running')
-    assert.equal(mid.progress.totalSteps, 5, 'two Amazon accounts, two Noon exports, one website')
-    assert.ok(mid.progress.completedSteps < 5 && mid.progress.completedSteps > 0)
+    assert.equal(
+      mid.progress.totalSteps,
+      8,
+      'two Amazon order syncs, two Amazon order reports, three Noon exports, one website',
+    )
+    assert.ok(mid.progress.completedSteps < 8 && mid.progress.completedSteps > 0)
     assert.equal(mid.report, null, 'no report until every integration has settled')
 
     gate.resolve()
     const done = await waitForJob(mod, started.jobId)
-    assert.equal(done.progress.completedSteps, 5)
+    assert.equal(done.progress.completedSteps, 8)
     assert.ok(done.report)
   } finally {
     restore()
@@ -301,6 +342,59 @@ test('Amazon is re-synced for the exact Dubai day, forced, with items', async ()
   }
 })
 
+test('the Amazon order report is pulled for the same Dubai day, per marketplace', async () => {
+  // Without this step a day with still-Pending orders under-reports Amazon: the Orders API omits
+  // OrderTotal and every item money field until Amazon authorises the payment, while this report
+  // carries the price from the moment the order is placed.
+  const { mod, calls, restore } = loadJobServiceWith({})
+  try {
+    const done = await waitForJob(mod, mod.startRefreshJob({ date: '2026-09-09' }).jobId)
+    assert.deepEqual(calls.amazonReport.map((c) => c.marketplaceKey), ['uae', 'ksa'])
+    for (const call of calls.amazonReport) {
+      assert.equal(call.dataStartTime.toISOString(), '2026-09-08T20:00:00.000Z')
+      assert.equal(call.dataEndTime.toISOString(), '2026-09-09T20:00:00.000Z')
+    }
+    assert.equal(done.sync.amazon_uae_report.status, 'ok')
+    assert.equal(done.sync.amazon_ksa_report.rowsSaved, 15)
+  } finally {
+    restore()
+  }
+})
+
+test('a failed order report does not take the Amazon orders sync down with it', async () => {
+  const { mod, restore } = loadJobServiceWith({
+    amazonReport: async ({ marketplaceKey }) => {
+      if (marketplaceKey === 'uae') throw new Error('report ended as FATAL')
+      return { reportId: 'r2', reused: false, polls: 2, rowsParsed: 0, rowsSaved: 0, rowsRemoved: 0, uniqueOrders: 0, linesWithoutMoney: 0 }
+    },
+  })
+  try {
+    const done = await waitForJob(mod, mod.startRefreshJob({ date: '2026-09-09' }).jobId)
+    assert.equal(done.status, 'completed')
+    assert.equal(done.sync.amazon_uae_report.status, 'error')
+    assert.match(done.sync.amazon_uae_report.message, /report ended as FATAL/)
+    assert.equal(done.sync.amazon_uae.status, 'ok', 'the orders sync is untouched')
+    assert.equal(done.sync.amazon_ksa_report.status, 'ok')
+  } finally {
+    restore()
+  }
+})
+
+test('skipping Amazon skips its order report too', async () => {
+  const { mod, calls, restore } = loadJobServiceWith({})
+  try {
+    const done = await waitForJob(
+      mod,
+      mod.startRefreshJob({ date: '2026-09-09', skipAmazon: true }).jobId,
+    )
+    assert.equal(calls.amazonReport.length, 0)
+    assert.equal(done.sync.amazon_uae_report.status, 'skipped')
+    assert.equal(done.sync.amazon_ksa_report.status, 'skipped')
+  } finally {
+    restore()
+  }
+})
+
 test('the Noon orders export overshoots backwards, so the Dubai boundary cannot clip an order', async () => {
   const { mod, calls, restore } = loadJobServiceWith({})
   try {
@@ -309,6 +403,40 @@ test('the Noon orders export overshoots backwards, so the Dubai boundary cannot 
     // calendar, so asking from the 7th guarantees the early hours of the Dubai day are inside the
     // window. `order_placed_at` then decides inclusion precisely.
     assert.deepEqual(calls.noonOrders[0], { fromYmd: '2026-09-07', toYmd: '2026-09-09' })
+  } finally {
+    restore()
+  }
+})
+
+test("Noon's per-SKU sales report is pulled for the report date with a lower-case country", async () => {
+  // Noon matches the country parameter case-sensitively and answers an upper-case "AE" with an empty
+  // report rather than an error, which would silently price the day at nothing.
+  const { mod, calls, restore } = loadJobServiceWith({})
+  try {
+    const done = await waitForJob(mod, mod.startRefreshJob({ date: '2026-09-09' }).jobId)
+    assert.deepEqual(calls.noonSkuSales, [
+      { countryCode: 'ae', fromYmd: '2026-09-09', toYmd: '2026-09-09' },
+    ])
+    assert.equal(done.sync.noon_sku_sales.status, 'ok')
+    assert.equal(done.sync.noon_sku_sales.rowsSaved, 9)
+  } finally {
+    restore()
+  }
+})
+
+test('a failed Noon sales report leaves the orders and finance exports alone', async () => {
+  const { mod, restore } = loadJobServiceWith({
+    noonSkuSales: async () => {
+      throw new Error('noon sales export timed out')
+    },
+  })
+  try {
+    const done = await waitForJob(mod, mod.startRefreshJob({ date: '2026-09-09' }).jobId)
+    assert.equal(done.status, 'completed')
+    assert.equal(done.sync.noon_sku_sales.status, 'error')
+    assert.match(done.sync.noon_sku_sales.message, /noon sales export timed out/)
+    assert.equal(done.sync.noon.status, 'ok')
+    assert.equal(done.sync.noon_finance.status, 'ok')
   } finally {
     restore()
   }
@@ -339,8 +467,10 @@ test('skip flags leave an integration untouched and say so', async () => {
     )
     assert.equal(calls.amazon.length, 0)
     assert.equal(calls.noonOrders.length, 0)
+    assert.equal(calls.noonSkuSales.length, 0)
     assert.equal(done.sync.amazon_uae.status, 'skipped')
     assert.equal(done.sync.noon.status, 'skipped')
+    assert.equal(done.sync.noon_sku_sales.status, 'skipped')
     assert.equal(done.sync.life_smile.status, 'ok', 'skipping Amazon does not skip the website')
   } finally {
     restore()

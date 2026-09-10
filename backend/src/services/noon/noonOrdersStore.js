@@ -119,6 +119,90 @@ async function createNoonOrderTables() {
     `CREATE INDEX IF NOT EXISTS idx_noon_order_finance_rows_order_nr
      ON noon_order_finance_rows (order_nr)`,
   )
+
+  // Noon's own per-SKU, per-day sales report
+  // (`noon_catalog_reports_productviewsandsalesdata`). The OMS orders export carries no money and
+  // the finance report only appears once Noon settles an order, 1–8 days later, so this is the only
+  // Noon source that prices a recent day. Verified against Noon UAE for 2026-09-08: where an order
+  // had settled, `revenue_shipped / shipped_units` equalled the settled net proceeds exactly.
+  await ddl(`
+    CREATE TABLE IF NOT EXISTS noon_sku_daily_sales (
+      id BIGSERIAL PRIMARY KEY,
+      country_code TEXT NOT NULL,
+      sales_date DATE NOT NULL,
+      noon_sku TEXT NOT NULL,
+      partner_sku TEXT,
+      currency TEXT,
+      gross_units NUMERIC(14,4),
+      shipped_units NUMERIC(14,4),
+      cancelled_units NUMERIC(14,4),
+      revenue_shipped NUMERIC(14,4),
+      raw_row JSONB NOT NULL DEFAULT '{}'::jsonb,
+      last_synced_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (country_code, sales_date, noon_sku)
+    )
+  `)
+  await ddl(
+    `CREATE INDEX IF NOT EXISTS idx_noon_sku_daily_sales_date
+     ON noon_sku_daily_sales (country_code, sales_date)`,
+  )
+}
+
+async function upsertNoonSkuDailySales(row) {
+  await query(
+    `INSERT INTO noon_sku_daily_sales (
+       country_code, sales_date, noon_sku, partner_sku, currency,
+       gross_units, shipped_units, cancelled_units, revenue_shipped, raw_row, last_synced_at, updated_at
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$11)
+     ON CONFLICT (country_code, sales_date, noon_sku) DO UPDATE SET
+       partner_sku = EXCLUDED.partner_sku,
+       currency = EXCLUDED.currency,
+       gross_units = EXCLUDED.gross_units,
+       shipped_units = EXCLUDED.shipped_units,
+       cancelled_units = EXCLUDED.cancelled_units,
+       revenue_shipped = EXCLUDED.revenue_shipped,
+       raw_row = EXCLUDED.raw_row,
+       last_synced_at = EXCLUDED.last_synced_at,
+       updated_at = EXCLUDED.last_synced_at`,
+    [
+      row.countryCode,
+      row.salesDate,
+      row.noonSku,
+      row.partnerSku ?? null,
+      row.currency ?? null,
+      row.grossUnits ?? null,
+      row.shippedUnits ?? null,
+      row.cancelledUnits ?? null,
+      row.revenueShipped ?? null,
+      JSON.stringify(row.rawRow ?? {}),
+      row.lastSyncedAt ?? new Date(),
+    ],
+  )
+}
+
+/**
+ * Noon's reported sales for one country and calendar date, keyed by Noon sku.
+ *
+ * Rows with no units at all are the "browsed but not bought" rows and carry no price, so they are
+ * left out rather than becoming a zero-priced SKU.
+ *
+ * @param {string} countryCode
+ * @param {string} salesYmd
+ */
+async function selectNoonSkuDailySales(countryCode, salesYmd) {
+  const res = await query(
+    `SELECT noon_sku, partner_sku, currency, gross_units, shipped_units, cancelled_units,
+            revenue_shipped, last_synced_at
+     FROM noon_sku_daily_sales
+     WHERE UPPER(country_code) = UPPER($1)
+       AND sales_date = $2::date
+       AND COALESCE(revenue_shipped, 0) <> 0
+       AND (COALESCE(shipped_units, 0) <> 0 OR COALESCE(gross_units, 0) <> 0)`,
+    [countryCode, salesYmd],
+  )
+  return res.rows || []
 }
 
 async function upsertNoonOrderLine(row) {
@@ -347,6 +431,8 @@ module.exports = {
   countLinesByCountry,
   upsertNoonFinanceRow,
   selectNoonFinanceByOrders,
+  upsertNoonSkuDailySales,
+  selectNoonSkuDailySales,
   insertExportRun,
   updateExportRun,
   selectLastSuccessfulRun,

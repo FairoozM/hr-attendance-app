@@ -31,6 +31,12 @@ const MAX_AMAZON_SP_API_HTTP_TIMEOUT_MS = 120_000;
 
 const SANDBOX_DEFAULT_MARKETPLACE_ID = 'ATVPDKIKX0DER';
 const AMAZON_LISTINGS_REPORT_TYPE = 'GET_MERCHANT_LISTINGS_DATA';
+/**
+ * Flat-file order report, keyed by purchase date. The Orders API withholds `OrderTotal` and every
+ * item money field while an order is `Pending`, but this report publishes `item-price` for the same
+ * order straight away, so it is the only authoritative source for a day that still has fresh orders.
+ */
+const AMAZON_ALL_ORDERS_REPORT_TYPE = 'GET_FLAT_FILE_ALL_ORDERS_DATA_BY_ORDER_DATE_GENERAL';
 
 function resolveAmazonSpApiHttpTimeoutMs(value = process.env.AMAZON_SP_API_HTTP_TIMEOUT_MS) {
   const parsed = parseInt(String(value == null ? '' : value).trim(), 10);
@@ -785,6 +791,39 @@ async function createAmazonListingsReport(params = {}) {
   });
 }
 
+/**
+ * Requests the flat-file order report for a purchase-date window.
+ *
+ * Unlike the listings report this one is filtered by data window, so `dataStartTime` /
+ * `dataEndTime` are required: without them Amazon returns its own default range.
+ *
+ * @param {{ marketplaceKey?: string, marketplaceId?: string, reportType?: string,
+ *           dataStartTime: Date|string, dataEndTime: Date|string }} params
+ */
+async function createAmazonOrdersReport(params = {}) {
+  const p = params && typeof params === 'object' ? params : {};
+  const mk = normalizeMarketplaceKey(p.marketplaceKey != null ? p.marketplaceKey : 'uae');
+  const marketplaceId = String(p.marketplaceId || marketplaceIdForKey(mk)).trim();
+  const reportType =
+    String(p.reportType || AMAZON_ALL_ORDERS_REPORT_TYPE).trim() || AMAZON_ALL_ORDERS_REPORT_TYPE;
+  if (p.dataStartTime == null || p.dataEndTime == null) {
+    const err = new Error('createAmazonOrdersReport requires dataStartTime and dataEndTime');
+    err.code = 'AMAZON_REPORT_WINDOW_REQUIRED';
+    throw err;
+  }
+  return callAmazonSpApi(REPORTS_2021_PATH, {
+    marketplaceKey: mk,
+    method: 'POST',
+    data: {
+      reportType,
+      marketplaceIds: [marketplaceId],
+      dataStartTime: iso8601Z(p.dataStartTime),
+      dataEndTime: iso8601Z(p.dataEndTime),
+    },
+    amazonOperation: 'createOrdersReport',
+  });
+}
+
 async function getAmazonReport(reportId, options = {}) {
   const opts = options && typeof options === 'object' ? options : {};
   const mk = normalizeMarketplaceKey(opts.marketplaceKey != null ? opts.marketplaceKey : 'uae');
@@ -898,12 +937,14 @@ module.exports = {
   searchAmazonCatalogItems,
   marketplaceIdForKey,
   createAmazonListingsReport,
+  createAmazonOrdersReport,
   listAmazonReports,
   getAmazonReport,
   getAmazonReportDocument,
   downloadAmazonReportDocument,
   getAmazonFbaInventorySummaries,
   AMAZON_LISTINGS_REPORT_TYPE,
+  AMAZON_ALL_ORDERS_REPORT_TYPE,
   buildAmazonSpHttpErrorFromResult,
   describeAmazonSpApiFailure,
   throwAmazonSpApiIfFailed,

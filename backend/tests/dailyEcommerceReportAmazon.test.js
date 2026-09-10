@@ -35,7 +35,8 @@ function freshModule(relativePath) {
 
 /**
  * Load the Amazon provider against canned database rows.
- * @param {{ orders: object[], items: object[], fees?: object[], coveringSync?: object|null }} data
+ * @param {{ orders: object[], items: object[], fees?: object[], coveringSync?: object|null,
+ *           reportLines?: object[], reportLinesError?: Error, coveringReportRun?: object|null }} data
  */
 function loadProviderWith(data) {
   const restores = [
@@ -52,6 +53,16 @@ function loadProviderWith(data) {
         data.coveringSync === undefined
           ? { finished_at: new Date('2026-09-09T12:00:00Z') }
           : data.coveringSync,
+      selectOrderReportLines: async () => {
+        if (data.reportLinesError) throw data.reportLinesError
+        return data.reportLines || []
+      },
+    }),
+    stubModule('../src/services/amazonOrderReportSyncService', {
+      findSuccessfulReportRunCoveringRange: async () =>
+        data.coveringReportRun === undefined
+          ? { finished_at: new Date('2026-09-10T05:10:00Z') }
+          : data.coveringReportRun,
     }),
   ]
   const mod = freshModule('../src/services/dailyEcommerceReport/providers/amazonOrdersProvider')
@@ -178,8 +189,166 @@ test('a Pending order with no Amazon money is listed without an amount, never as
     assert.equal(ch.summary.salesAmountAED, 569)
     assert.equal(ch.reconciliation.ordersWithoutAmazonAmount, 1)
     assert.equal(ch.reconciliation.ordersDerivedFromItems, 1)
-    assert.ok(ch.warnings.some((w) => /still Pending at Amazon/.test(w)))
+    assert.ok(ch.warnings.some((w) => /no Amazon-reported money in either the Orders API/.test(w)))
     assert.ok(ch.warnings.some((w) => /derived from Amazon's own item price/.test(w)))
+  } finally {
+    restore()
+  }
+})
+
+/**
+ * The 2026-09-09 Amazon UAE regression: Amazon withholds `OrderTotal` and every item money field
+ * while an order is `Pending`, so the Orders API alone reported AED 1,306.00 of a day that Amazon's
+ * own order report put at AED 2,411.00. The report has to supply the missing AED 1,105.00.
+ */
+test('Pending orders take their amount from Amazon\'s order report instead of being dropped', async () => {
+  const orderRow = (id, amount) => ({
+    amazon_order_id: id,
+    purchase_date: new Date('2026-09-09T08:15:39Z'),
+    order_status: amount == null ? 'Pending' : 'Shipped',
+    currency_code: amount == null ? null : 'AED',
+    order_amount: amount == null ? null : `${amount}.0000`,
+    last_synced_at: new Date('2026-09-10T04:53:00Z'),
+  })
+  const reportLine = (id, sku, amount) => ({
+    amazon_order_id: id,
+    order_item_id: `${id}-1`,
+    seller_sku: sku,
+    asin: null,
+    quantity: 1,
+    currency: 'AED',
+    line_amount: `${amount}.0000`,
+    item_status: 'Unshipped',
+    last_synced_at: new Date('2026-09-10T05:10:00Z'),
+  })
+
+  const { mod, restore } = loadProviderWith({
+    orders: [
+      orderRow('404-1517091-1373964', 226),
+      orderRow('406-7702438-5147528', null),
+      orderRow('405-4121841-4744320', null),
+    ],
+    items: [
+      { amazon_order_id: '404-1517091-1373964', seller_sku: '2FP17SET-BEIGE', quantity_ordered: 1, item_amount: '226.0000', item_currency_code: 'AED', raw_safe_json: { ItemPrice: money(226) } },
+      // Amazon returns the SKU but no money at all for a Pending order.
+      { amazon_order_id: '406-7702438-5147528', seller_sku: 'LIFEP17-MIX-14-1-BEIGE-001', quantity_ordered: 1, item_amount: null, item_currency_code: null, raw_safe_json: { QuantityOrdered: 1 } },
+      { amazon_order_id: '405-4121841-4744320', seller_sku: 'LIFEP32-36P', quantity_ordered: 1, item_amount: null, item_currency_code: null, raw_safe_json: { QuantityOrdered: 1 } },
+    ],
+    reportLines: [
+      reportLine('404-1517091-1373964', '2FP17SET-BEIGE', 226),
+      reportLine('406-7702438-5147528', 'LIFEP17-MIX-14-1-BEIGE-001', 466),
+      reportLine('405-4121841-4744320', 'LIFEP32-36P', 196),
+    ],
+  })
+  try {
+    const ch = await mod.loadAmazonChannel('uae', dubaiDayBounds('2026-09-09'), FX, NO_ADS)
+    assert.equal(ch.summary.salesAmountAED, 888)
+    assert.equal(ch.reconciliation.ordersWithoutAmazonAmount, 0)
+    assert.equal(ch.reconciliation.ordersFromOrderReport, 2)
+    assert.equal(ch.reconciliation.ordersFromOrderTotal, 1)
+    assert.equal(ch.reconciliation.reportOrderTotalSum, 888)
+
+    const pending = ch.orders.find((o) => o.orderId === '406-7702438-5147528')
+    assert.equal(pending.amountSource, 'amazon_order_report')
+    assert.equal(pending.amountAED, 466)
+    // The per-SKU drill-down line is filled from the report too, not left blank.
+    assert.equal(pending.items[0].lineAmount, 466)
+
+    // An order Amazon does publish OrderTotal for keeps using it.
+    assert.equal(ch.orders.find((o) => o.orderId === '404-1517091-1373964').amountSource, 'amazon_order_total')
+    assert.equal(ch.reconciliation.orderTotalReportMismatches, 0)
+    assert.ok(ch.warnings.some((w) => /withholds OrderTotal from the Orders API/.test(w)))
+  } finally {
+    restore()
+  }
+})
+
+test('OrderTotal wins over the order report but a real disagreement is reported', async () => {
+  const { mod, restore } = loadProviderWith({
+    orders: [
+      {
+        amazon_order_id: '111-2222222-3333333',
+        purchase_date: new Date('2026-09-09T10:00:00Z'),
+        order_status: 'Shipped',
+        currency_code: 'AED',
+        order_amount: '100.0000',
+        last_synced_at: new Date(),
+      },
+    ],
+    items: [
+      { amazon_order_id: '111-2222222-3333333', seller_sku: 'A', quantity_ordered: 1, item_amount: '100.0000', item_currency_code: 'AED', raw_safe_json: { ItemPrice: money(100) } },
+    ],
+    reportLines: [
+      { amazon_order_id: '111-2222222-3333333', order_item_id: 'x', seller_sku: 'A', quantity: 1, currency: 'AED', line_amount: '140.0000', item_status: 'Shipped', last_synced_at: new Date() },
+    ],
+  })
+  try {
+    const ch = await mod.loadAmazonChannel('uae', dubaiDayBounds('2026-09-09'), FX, NO_ADS)
+    assert.equal(ch.summary.salesAmountAED, 100)
+    assert.equal(ch.orders[0].amountSource, 'amazon_order_total')
+    assert.equal(ch.reconciliation.orderTotalReportMismatches, 1)
+    assert.ok(ch.warnings.some((w) => /disagree on 1 order/.test(w)))
+  } finally {
+    restore()
+  }
+})
+
+test('a Pending order says whether the order report was pulled or never asked', async () => {
+  const pendingOnly = {
+    orders: [
+      {
+        amazon_order_id: '406-0596638-4236302',
+        purchase_date: new Date('2026-09-09T10:00:00Z'),
+        order_status: 'Pending',
+        currency_code: null,
+        order_amount: null,
+        last_synced_at: new Date(),
+      },
+    ],
+    items: [
+      { amazon_order_id: '406-0596638-4236302', seller_sku: 'SAUP17-16-BEIGE', quantity_ordered: 1, item_amount: null, item_currency_code: null, raw_safe_json: { QuantityOrdered: 1 } },
+    ],
+    reportLines: [],
+  }
+
+  const neverPulled = loadProviderWith({ ...pendingOnly, coveringReportRun: null })
+  try {
+    const ch = await neverPulled.mod.loadAmazonChannel('uae', dubaiDayBounds('2026-09-09'), FX, NO_ADS)
+    assert.ok(ch.warnings.some((w) => /order report has not been pulled for 2026-09-09 yet/.test(w)))
+  } finally {
+    neverPulled.restore()
+  }
+
+  const pulled = loadProviderWith(pendingOnly)
+  try {
+    const ch = await pulled.mod.loadAmazonChannel('uae', dubaiDayBounds('2026-09-09'), FX, NO_ADS)
+    assert.ok(ch.warnings.some((w) => /no Amazon-reported money in either the Orders API/.test(w)))
+  } finally {
+    pulled.restore()
+  }
+})
+
+test('a failed order-report lookup warns instead of quietly shrinking the day', async () => {
+  const { mod, restore } = loadProviderWith({
+    orders: [
+      {
+        amazon_order_id: '111-2222222-3333333',
+        purchase_date: new Date('2026-09-09T10:00:00Z'),
+        order_status: 'Pending',
+        currency_code: null,
+        order_amount: null,
+        last_synced_at: new Date(),
+      },
+    ],
+    items: [
+      { amazon_order_id: '111-2222222-3333333', seller_sku: 'A', quantity_ordered: 1, item_amount: null, item_currency_code: null, raw_safe_json: { QuantityOrdered: 1 } },
+    ],
+    reportLinesError: new Error('relation "amazon_order_report_lines" does not exist'),
+  })
+  try {
+    const ch = await mod.loadAmazonChannel('uae', dubaiDayBounds('2026-09-09'), FX, NO_ADS)
+    assert.equal(ch.summary.salesAmountAED, null)
+    assert.ok(ch.warnings.some((w) => /order-report lookup failed/.test(w)))
   } finally {
     restore()
   }
@@ -412,6 +581,7 @@ test('the covering-sync check tolerates the sync window ending one millisecond e
           ? { finished_at: new Date() }
           : null
       },
+      selectOrderReportLines: async () => [],
     }),
   ]
   try {
