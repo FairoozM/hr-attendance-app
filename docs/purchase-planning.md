@@ -172,7 +172,8 @@ sequenceDiagram
 
 - Preconditions: latest Vigil upload + at least one `pending` low-stock SKU
 - If any pending SKU lacks `zoho_item_id`, runs synchronous `refreshLowStockZohoEnrichment()` first
-- Uses sales and bundle usage already stored on pending rows from Step 3 enrichment (no second full Zoho sales/composite pull at generate time)
+- Uses sales and bundle usage already stored on pending rows from Step 3 enrichment
+- If every pending row has bundle usage `0`, generate re-pulls 92-day sales + composite BOMs so MIX/kit consumption is not lost
 - For each pending SKU: match Vigil, compute quantities, insert plan line, mark SKU `planned`
 - UI blocks Generate while enrichment runs or SKUs lack Zoho IDs
 
@@ -211,8 +212,8 @@ included = finalQty > 0 AND vigil matched AND wholesale > 0
 
 **Bundle/composite usage:**
 
-- Scans 92-day sales lines for composite-looking SKUs (MIX, SET, KIT, etc.)
-- Fetches up to **80** composite item definitions from Zoho (`MAX_COMPOSITE_USAGE_LOOKUPS`)
+- Loads the active Zoho composite catalog and intersects it with 92-day sales (also keeps MIX/SET/KIT/COMBO/BUNDLE SKU heuristic as fallback)
+- Fetches composite BOMs with cached, concurrent Zoho detail lookups (no 80-item cap)
 - Rolls component usage back to individual SKUs
 
 **Direct sales:**
@@ -321,7 +322,7 @@ These are architectural constraints worth knowing when using the module:
 
 - **Vigil not pinned to plan**: refresh uses latest Vigil upload, not `source_upload_id`
 - **Delete draft does not revert** `planned` SKUs back to `pending`
-- **Composite cap**: only first 80 composite products get bundle usage calculated
+- **Composite lookups**: enrichment and draft refresh fetch every sold composite BOM (cached, concurrency 5); generate still uses stored pending-row totals unless those bundle totals are all zero
 - **CloudFront 30s timeout** vs heavy sync Zoho work on generate/refresh (client allows 120s)
 - **Final qty input** saves on blur/Enter (local draft state; no per-keystroke PUT)
 - **Duplicate PO** not blocked server-side for `sent_to_zoho` plans

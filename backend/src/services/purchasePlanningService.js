@@ -18,13 +18,16 @@ const parseWarehouseScopedStockOnHand = zohoWeeklyInternals.parseWarehouseScoped
 const { fetchItemsRawForWarehouse } = require('../integrations/zoho/zohoAdapter')
 const { getSales } = require('../integrations/zoho/weeklyReportZohoTransactions')
 const { readZohoConfig, INVENTORY_V1 } = require('../integrations/zoho/zohoConfig')
-const { fetchCompositeItemDetail, zohoApiRequest } = require('../integrations/zoho/zohoInventoryClient')
+const { fetchCompositeItemDetail, fetchCompositeItemsList, zohoApiRequest } = require('../integrations/zoho/zohoInventoryClient')
 const { fetchWarehouses } = require('../integrations/zoho/zohoWarehouses')
 const { getResolvedReportVendor } = require('./weeklyReportReportVendor')
 
 const DEFAULT_PURCHASE_PLANNING_WAREHOUSE_NAME = 'LIFE SMILE'
 const DEFAULT_PURCHASE_PLANNING_REPORT_GROUP = 'default'
-const MAX_COMPOSITE_USAGE_LOOKUPS = 80
+const COMPOSITE_LIST_PER_PAGE = 200
+const MAX_COMPOSITE_LIST_PAGES = 50
+const COMPOSITE_DETAIL_CONCURRENCY = 5
+const COMPOSITE_CATALOG_TTL_MS = 30 * 60 * 1000
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -427,6 +430,7 @@ async function saveUploadedLowStockSkus(skus) {
 
 const ENRICHMENT_STALE_MS = 20 * 60 * 1000
 const emptySalesAggregate = () => ({ byItemId: new Map(), bySku: new Map() })
+const emptyBundleUsage = () => ({ byItemId: new Map(), bySku: new Map() })
 
 const lowStockEnrichmentJob = {
   running: false,
@@ -499,11 +503,21 @@ function queueLowStockZohoEnrichment() {
   })
 }
 
-async function fetchEnrichmentSalesAggregate() {
+async function fetchEnrichmentUsageAggregates() {
   const fromDate = isoDateDaysAgo(92)
   const toDate = todayIso()
   const sales = await getSales(fromDate, toDate)
-  return aggregateSalesLines(sales.lines)
+  const lines = sales && Array.isArray(sales.lines) ? sales.lines : []
+  let bundleUsageAggregate = emptyBundleUsage()
+  try {
+    bundleUsageAggregate = await buildCompositeUsageAggregate(lines)
+  } catch (err) {
+    console.error('[purchase-planning] enrichment bundle usage failed (direct sales still saved):', err)
+  }
+  return {
+    salesAggregate: aggregateSalesLines(lines),
+    bundleUsageAggregate,
+  }
 }
 
 async function refreshLowStockZohoEnrichment() {
@@ -548,10 +562,13 @@ async function refreshLowStockZohoEnrichment() {
     )
   }
 
-  // Phase 2: direct sales only (skip composite detail lookups — they hung enrichment for 25+ SKUs).
+  // Phase 2: 3-month direct sales + composite/bundle consumption (cached, bounded concurrency).
   let salesAggregate = emptySalesAggregate()
+  let bundleUsageAggregate = emptyBundleUsage()
   try {
-    salesAggregate = await fetchEnrichmentSalesAggregate()
+    const fetched = await fetchEnrichmentUsageAggregates()
+    salesAggregate = fetched.salesAggregate
+    bundleUsageAggregate = fetched.bundleUsageAggregate
   } catch (err) {
     console.error('[purchase-planning] enrichment sales fetch failed (Zoho matches saved):', err)
   }
@@ -564,16 +581,20 @@ async function refreshLowStockZohoEnrichment() {
       sku: item.sku,
       zoho_item_id: item.zohoItemId,
     })
+    const totalBundleUsageLast3Months = bundleUsageQtyForItem(bundleUsageAggregate, {
+      sku: item.sku,
+      zoho_item_id: item.zohoItemId,
+    })
     await query(
       `
         UPDATE purchase_low_stock_items
         SET
           total_sales_last_3_months = $2,
-          total_bundle_usage_last_3_months = 0,
+          total_bundle_usage_last_3_months = $3,
           updated_at = NOW()
         WHERE id = $1
       `,
-      [row.id, totalSalesLast3Months]
+      [row.id, totalSalesLast3Months, totalBundleUsageLast3Months]
     )
   }
 
@@ -808,43 +829,134 @@ function lineLooksLikeComposite(line) {
   return /\b(MIX|SET|KIT|COMBO|BUNDLE)\b/.test(text) || /(?:^|-)MIX(?:-|$)/.test(text) || /(?:^|-)SET(?:-|$)/.test(text)
 }
 
+async function mapWithLimit(list, limit, fn) {
+  if (!Array.isArray(list) || list.length === 0) return []
+  const out = new Array(list.length)
+  let next = 0
+  const workerCount = Math.min(Math.max(1, Number(limit) || 1), list.length)
+  async function worker() {
+    for (;;) {
+      const i = next
+      next += 1
+      if (i >= list.length) return
+      out[i] = await fn(list[i], i)
+    }
+  }
+  await Promise.all(Array.from({ length: workerCount }, worker))
+  return out
+}
+
+function compositeIdFromRow(row) {
+  return clean((row && (row.composite_item_id || row.item_id || row.id)) || '')
+}
+
+let compositeCatalogCache = { ids: null, expiresAt: 0 }
+let compositeCatalogInflight = null
+
+async function listActiveCompositeItemIds() {
+  const now = Date.now()
+  if (compositeCatalogCache.ids && now < compositeCatalogCache.expiresAt) {
+    return compositeCatalogCache.ids
+  }
+  if (compositeCatalogInflight) return compositeCatalogInflight
+  if (typeof fetchCompositeItemsList !== 'function') return new Set()
+
+  compositeCatalogInflight = (async () => {
+    const ids = new Set()
+    for (let page = 1; page <= MAX_COMPOSITE_LIST_PAGES; page += 1) {
+      const json = await fetchCompositeItemsList({
+        page,
+        per_page: COMPOSITE_LIST_PER_PAGE,
+        filter_by: 'Status.Active',
+      }, {
+        source: 'purchase_planning_composite_list',
+        skipCache: false,
+        cacheCategory: 'items_list',
+      })
+      const rows = Array.isArray(json && json.composite_items) ? json.composite_items : []
+      for (const row of rows) {
+        const id = compositeIdFromRow(row)
+        if (id) ids.add(id)
+      }
+      const hasMore = json && json.page_context && json.page_context.has_more_page === true
+      if (!hasMore || rows.length === 0 || rows.length < COMPOSITE_LIST_PER_PAGE) break
+    }
+    compositeCatalogCache = { ids, expiresAt: Date.now() + COMPOSITE_CATALOG_TTL_MS }
+    return ids
+  })()
+
+  try {
+    return await compositeCatalogInflight
+  } finally {
+    compositeCatalogInflight = null
+  }
+}
+
 async function getCompositeMappedItems(compositeItemId) {
   const detail = await fetchCompositeItemDetail(compositeItemId, {
     source: 'purchase_planning_composite_usage_detail',
+    skipCache: false,
+    cacheCategory: 'item_detail',
   })
   const entity = detail && detail.composite_item ? detail.composite_item : detail
   return Array.isArray(entity && entity.mapped_items) ? entity.mapped_items : []
 }
 
-async function buildCompositeUsageAggregate(lines, fetchMappedItems = getCompositeMappedItems) {
-  const usage = { byItemId: new Map(), bySku: new Map() }
-  const compositeSales = []
+async function buildCompositeUsageAggregate(lines, fetchMappedItems = getCompositeMappedItems, options = {}) {
+  const usage = emptyBundleUsage()
+  const salesByItemId = new Map()
+  const heuristicIds = new Set()
   for (const line of Array.isArray(lines) ? lines : []) {
     const qtySold = toNumber(line.quantity, 0)
     const itemId = clean(line.item_id)
-    if (qtySold > 0 && itemId && lineLooksLikeComposite(line)) compositeSales.push({ itemId, qtySold })
+    if (qtySold <= 0 || !itemId) continue
+    salesByItemId.set(itemId, (salesByItemId.get(itemId) || 0) + qtySold)
+    if (lineLooksLikeComposite(line)) heuristicIds.add(itemId)
   }
 
-  const uniqueCompositeIds = [...new Set(compositeSales.map((sale) => sale.itemId))]
-    .slice(0, MAX_COMPOSITE_USAGE_LOOKUPS)
+  let catalogIds = new Set()
+  const listCompositeIds = options && typeof options.listCompositeIds === 'function'
+    ? options.listCompositeIds
+    : listActiveCompositeItemIds
+  try {
+    catalogIds = await listCompositeIds()
+    if (!(catalogIds instanceof Set)) catalogIds = new Set(catalogIds || [])
+  } catch (err) {
+    if (!err || err.code !== 'ZOHO_NOT_CONFIGURED') {
+      console.error('[purchase-planning] composite catalog list failed, falling back to SKU heuristic:', err)
+    }
+    catalogIds = new Set()
+  }
+
+  const uniqueCompositeIds = []
+  const seen = new Set()
+  const addId = (id) => {
+    const key = clean(id)
+    if (!key || seen.has(key) || !salesByItemId.has(key)) return
+    seen.add(key)
+    uniqueCompositeIds.push(key)
+  }
+  for (const id of catalogIds) addId(id)
+  for (const id of heuristicIds) addId(id)
+
   const mappedByCompositeId = new Map()
-  for (const itemId of uniqueCompositeIds) {
+  await mapWithLimit(uniqueCompositeIds, COMPOSITE_DETAIL_CONCURRENCY, async (itemId) => {
     try {
       mappedByCompositeId.set(itemId, await fetchMappedItems(itemId))
     } catch (err) {
       mappedByCompositeId.set(itemId, [])
     }
-  }
+  })
 
-  for (const sale of compositeSales) {
-    const mappedItems = mappedByCompositeId.get(sale.itemId) || []
+  for (const [itemId, qtySold] of salesByItemId) {
+    const mappedItems = mappedByCompositeId.get(itemId) || []
     for (const component of mappedItems) {
       const componentQty = toNumber(component.quantity, 0)
       if (componentQty <= 0) continue
       addUsage(usage, {
         itemId: component.item_id,
         sku: component.sku || component.item_code || component.name,
-        qty: sale.qtySold * componentQty,
+        qty: qtySold * componentQty,
       })
     }
   }
@@ -852,13 +964,7 @@ async function buildCompositeUsageAggregate(lines, fetchMappedItems = getComposi
 }
 
 async function fetchLast3MonthsSalesAggregate() {
-  const fromDate = isoDateDaysAgo(92)
-  const toDate = todayIso()
-  const sales = await getSales(fromDate, toDate)
-  return {
-    salesAggregate: aggregateSalesLines(sales.lines),
-    bundleUsageAggregate: await buildCompositeUsageAggregate(sales.lines),
-  }
+  return fetchEnrichmentUsageAggregates()
 }
 
 async function getBundleUsageBySku() {
@@ -981,6 +1087,22 @@ async function generatePlan({ createdBy }) {
   const vigilRows = coerceVigilRowsFromUpload(upload)
   const warnings = []
 
+  let liveSalesAggregate = null
+  let liveBundleUsage = null
+  const storedBundlesAllZero = lowStock.every(
+    (item) => Number(item.totalBundleUsageLast3Months || 0) === 0
+  )
+  if (storedBundlesAllZero) {
+    try {
+      const fetched = await fetchLast3MonthsSalesAggregate()
+      liveSalesAggregate = fetched.salesAggregate
+      liveBundleUsage = fetched.bundleUsageAggregate
+    } catch (err) {
+      console.error('[purchase-planning] generatePlan live usage fetch failed; using stored enrichment:', err)
+      warnings.push('Could not refresh 3-month sales/bundle usage from Zoho; using last enrichment values.')
+    }
+  }
+
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
@@ -998,7 +1120,11 @@ async function generatePlan({ createdBy }) {
     const vigilIndexes = buildVigilIndexes(vigilRows)
     for (const item of lowStock) {
       const match = matchZohoSkuToVigilWithIndexes(vigilIndexes, item.sku)
-      const { totalSales, totalBundle } = planUsageFromEnrichedPendingItem(item)
+      let { totalSales, totalBundle } = planUsageFromEnrichedPendingItem(item)
+      if (liveSalesAggregate && liveBundleUsage) {
+        totalSales = salesQtyForItem(liveSalesAggregate, { sku: item.sku, zoho_item_id: item.zohoItemId })
+        totalBundle = bundleUsageQtyForItem(liveBundleUsage, { sku: item.sku, zoho_item_id: item.zohoItemId })
+      }
       const totalUsage = totalSales + totalBundle
       const averageMonthlyUsage = totalUsage / 3
       const available = match.matched ? Math.max(0, Math.floor(match.wholesaleAvailableQty)) : 0
@@ -1516,6 +1642,7 @@ module.exports = {
   _internals: {
     buildZohoItemIndex,
     buildCompositeUsageAggregate,
+    lineLooksLikeComposite,
     bundleUsageQtyForItem,
     calculatePlanQuantities,
     planUsageFromEnrichedPendingItem,

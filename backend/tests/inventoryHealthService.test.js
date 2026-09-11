@@ -468,13 +468,13 @@ test('buildBundleUsageForLines reuses composite mapped-item cache across windows
     const mapped = await fetchMapped(id)
     cache.set(id, mapped)
     return mapped
-  })
+  }, { listCompositeIds: async () => new Set() })
   const usage2 = await buildCompositeUsageAggregate(lines, async (id) => {
     if (cache.has(id)) return cache.get(id)
     const mapped = await fetchMapped(id)
     cache.set(id, mapped)
     return mapped
-  })
+  }, { listCompositeIds: async () => new Set() })
   assert.equal(detailCalls, 1)
   assert.equal(usage1.byItemId.get('comp-1'), 2)
   assert.equal(usage2.byItemId.get('comp-1'), 2)

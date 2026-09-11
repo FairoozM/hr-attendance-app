@@ -287,12 +287,68 @@ test('purchase planning composite usage rolls sold kits down to component quanti
         { item_id: 'component-a', sku: 'COMP-A', quantity: 2 },
         { item_id: 'component-b', sku: 'COMP-B', quantity: 1 },
       ]
-      : []
+      : [],
+    { listCompositeIds: async () => new Set() }
   )
 
   assert.equal(_internals.bundleUsageQtyForItem(usage, { sku: 'COMP-A', zoho_item_id: 'component-a' }), 6)
   assert.equal(_internals.bundleUsageQtyForItem(usage, { sku: 'COMP-B', zoho_item_id: 'component-b' }), 3)
   assert.equal(_internals.bundleUsageQtyForItem(usage, { sku: 'REGULAR-1', zoho_item_id: 'regular-1' }), 0)
+})
+
+test('purchase planning treats LIFEP17 MIX catalog codes as composites', async () => {
+  assert.equal(_internals.lineLooksLikeComposite({ sku: 'LIFEP17-MIX-31-6B-BLACK' }), true)
+  const usage = await _internals.buildCompositeUsageAggregate(
+    [
+      { item_id: 'mix-1', sku: 'LIFEP17-MIX-31-6B-BLACK', name: 'LIFEP17-MIX-31-6B-BLACK', quantity: 2 },
+      { item_id: 'mix-2', sku: 'LIFEP17-MIX-31-5A-BLACK', name: 'LIFEP17-MIX-31-5A-BLACK', quantity: 4 },
+    ],
+    async () => [{ item_id: 'component-a', sku: 'LIFEP17-36-BLACK', quantity: 1 }],
+    { listCompositeIds: async () => new Set() }
+  )
+  assert.equal(
+    _internals.bundleUsageQtyForItem(usage, { sku: 'LIFEP17-36-BLACK', zoho_item_id: 'component-a' }),
+    6
+  )
+})
+
+test('purchase planning composite usage looks up every sold kit, not only the first 80', async () => {
+  const lines = []
+  const mapped = new Map()
+  for (let i = 1; i <= 85; i += 1) {
+    const kitId = `kit-${i}`
+    lines.push({ item_id: kitId, sku: `KIT-${i}-SET`, name: `KIT-${i}-SET`, quantity: 1 })
+    mapped.set(kitId, [{ item_id: `comp-${i}`, sku: `COMP-${i}`, quantity: 1 }])
+  }
+  mapped.set('kit-85', [{ item_id: 'component-a', sku: 'LIFEP17-36-BLACK', quantity: 3 }])
+  const fetched = []
+  const usage = await _internals.buildCompositeUsageAggregate(
+    lines,
+    async (itemId) => {
+      fetched.push(itemId)
+      return mapped.get(itemId) || []
+    },
+    { listCompositeIds: async () => new Set() }
+  )
+  assert.equal(fetched.length, 85)
+  assert.equal(
+    _internals.bundleUsageQtyForItem(usage, { sku: 'LIFEP17-36-BLACK', zoho_item_id: 'component-a' }),
+    3
+  )
+})
+
+test('purchase planning composite usage includes catalog composites even without MIX/SET in the SKU', async () => {
+  const usage = await _internals.buildCompositeUsageAggregate(
+    [{ item_id: 'bundle-1', sku: '6291109119999', name: 'LifeSmile Pillow Pack', quantity: 4 }],
+    async (itemId) => itemId === 'bundle-1'
+      ? [{ item_id: 'component-a', sku: 'LIFEP17-36-BLACK', quantity: 2 }]
+      : [],
+    { listCompositeIds: async () => new Set(['bundle-1']) }
+  )
+  assert.equal(
+    _internals.bundleUsageQtyForItem(usage, { sku: 'LIFEP17-36-BLACK', zoho_item_id: 'component-a' }),
+    8
+  )
 })
 
 test('purchase planning quantities use sales plus bundle usage and cap final qty by Vigil stock', () => {

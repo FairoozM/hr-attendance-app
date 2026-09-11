@@ -44,6 +44,7 @@ function loadServiceWithDb(responderOverrides = {}) {
   const restoreZohoApi = mockModule('../integrations/zoho/zohoInventoryClient', {
     zohoApiRequest: async () => ({ purchaseorder: { purchaseorder_id: 'PO-1' } }),
     fetchCompositeItemDetail: async () => ({ mapped_items: [] }),
+    fetchCompositeItemsList: async () => ({ composite_items: [] }),
   })
   const restoreVendor = mockModule('../services/weeklyReportReportVendor', {
     getResolvedReportVendor: () => ({ vendorId: 'vendor-1', source: 'test' }),
