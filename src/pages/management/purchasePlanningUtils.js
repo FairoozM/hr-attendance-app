@@ -450,6 +450,9 @@ export function computePlanReviewSummary(plan) {
   const missingPrices = included.filter(
     (item) => Number(item.finalQty || 0) > 0 && (!Number.isFinite(Number(item.purchasePrice)) || Number(item.purchasePrice) <= 0)
   )
+  const inactiveIncluded = included.filter(
+    (item) => Number(item.finalQty || 0) > 0 && item.zohoItemActive === false
+  )
   const cappedByVigil = items.filter(
     (item) =>
       item.included &&
@@ -468,6 +471,8 @@ export function computePlanReviewSummary(plan) {
     estimatedValue,
     missingPricesCount: missingPrices.length,
     missingPrices,
+    inactiveCount: inactiveIncluded.length,
+    inactiveItems: inactiveIncluded,
     cappedByVigilCount: cappedByVigil.length,
   }
 }
@@ -480,17 +485,28 @@ export function computePoReadiness(plan) {
   const invalidQty = includedLines.filter((item) => Number(item.finalQty || 0) <= 0)
   const reasons = []
   if (plan?.status === 'sent_to_zoho') reasons.push('This plan was already sent to Zoho.')
-  if (plan?.status !== 'draft') reasons.push('Only draft plans can create a purchase order.')
+  if (plan?.status !== 'draft' && plan?.status !== 'failed') {
+    reasons.push('Only draft plans can create a purchase order.')
+  }
   if (includedLines.length === 0) reasons.push('No included lines with quantity greater than zero.')
   if (invalidQty.length > 0) reasons.push('Some included lines have invalid quantity.')
   if (summary.missingPricesCount > 0) {
     reasons.push(`${summary.missingPricesCount} included line(s) missing purchase price in All Prices.`)
+  }
+  if (summary.inactiveCount > 0) {
+    reasons.push(
+      `${summary.inactiveCount} included line(s) are inactive or deleted in Zoho: ${summary.inactiveItems
+        .slice(0, 5)
+        .map((item) => item.sku)
+        .join(', ')}${summary.inactiveCount > 5 ? '…' : ''}`
+    )
   }
   return { ready: reasons.length === 0, reasons, includedLines, summary }
 }
 
 export function getPlanRowBadges(item) {
   const badges = []
+  if (item.zohoItemActive === false) badges.push({ key: 'inactive-zoho', label: 'Inactive in Zoho', tone: 'danger' })
   if (item.matchType === 'not_found') badges.push({ key: 'no-vigil', label: 'No Vigil Match', tone: 'danger' })
   if (Number(item.wholesaleAvailableQty || 0) <= 0) badges.push({ key: 'zero-wholesale', label: 'Zero Wholesale Stock', tone: 'danger' })
   if (

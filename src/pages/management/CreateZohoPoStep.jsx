@@ -41,16 +41,23 @@ export function CreateZohoPoStep({
     )
   }
 
-  if (plan.status !== 'draft') {
+  if (plan.status !== 'draft' && plan.status !== 'failed') {
     return (
-      <p className="pp-hint pp-hint--warn">
-        Only draft plans can create a purchase order. Current status: {plan.status}.
-      </p>
+      <div className="pp-step-content">
+        <p className="pp-hint pp-hint--warn">
+          Only draft plans can create a purchase order. Current status: {plan.status}.
+        </p>
+      </div>
     )
   }
 
   return (
     <div className="pp-step-content">
+      {plan.status === 'failed' && plan.zohoError && (
+        <div className="page-error" role="alert">
+          Last Zoho error: {plan.zohoError}
+        </div>
+      )}
       <div className="pp-po-confirm-card">
         <h3>Final confirmation</h3>
         <p>Review totals before sending a draft purchase order to Zoho Inventory.</p>
@@ -78,6 +85,10 @@ export function CreateZohoPoStep({
           <div>
             <dt>Missing prices</dt>
             <dd>{summary.missingPricesCount}</dd>
+          </div>
+          <div>
+            <dt>Inactive in Zoho</dt>
+            <dd>{summary.inactiveCount}</dd>
           </div>
         </dl>
 

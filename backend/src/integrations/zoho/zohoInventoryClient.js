@@ -37,13 +37,20 @@ async function zohoApiRequest(path, searchParams, method, body, meta) {
   return zohoInventoryJsonRequest(path, searchParams, method, body, m)
 }
 
-function makeItemsPageParams(page, per, warehouseId = null) {
+/**
+ * @param {number} page
+ * @param {number} per
+ * @param {string|null} [warehouseId]
+ * @param {{ includeInactive?: boolean }} [options]
+ */
+function makeItemsPageParams(page, per, warehouseId = null, options = {}) {
   const c = readZohoConfig()
   const p = new URLSearchParams()
   p.set('organization_id', c.organizationId)
   p.set('page', String(page))
   p.set('per_page', String(per))
-  if (!itemsIncludeInactive()) {
+  const includeInactive = Boolean(options.includeInactive) || itemsIncludeInactive()
+  if (!includeInactive) {
     p.set('filter_by', 'Status.Active')
   }
   if (warehouseId) {
@@ -54,8 +61,15 @@ function makeItemsPageParams(page, per, warehouseId = null) {
   return p
 }
 
-async function fetchItemsPage(page, per, warehouseId = null) {
-  const scope = itemsIncludeInactive() ? 'all' : 'active'
+/**
+ * @param {number} page
+ * @param {number} per
+ * @param {string|null} [warehouseId]
+ * @param {{ includeInactive?: boolean }} [options]
+ */
+async function fetchItemsPage(page, per, warehouseId = null, options = {}) {
+  const includeInactive = Boolean(options.includeInactive) || itemsIncludeInactive()
+  const scope = includeInactive ? 'all' : 'active'
   const meta = {
     cacheCategory: 'items_list',
     cacheKey: `zoho:items_list:p${page}:per${per}:wh${warehouseId || 'all'}:${scope}`,
@@ -63,7 +77,7 @@ async function fetchItemsPage(page, per, warehouseId = null) {
   }
   const json = await zohoInventoryJsonRequest(
     `${INVENTORY_V1}/items`,
-    makeItemsPageParams(page, per, warehouseId),
+    makeItemsPageParams(page, per, warehouseId, { includeInactive }),
     'GET',
     undefined,
     meta
@@ -83,20 +97,28 @@ async function fetchItemsPage(page, per, warehouseId = null) {
   }
 }
 
-async function listItemsPaged(warehouseId = null) {
+/**
+ * @param {string|null} [warehouseId]
+ * @param {{ includeInactive?: boolean }} [options]
+ */
+async function listItemsPaged(warehouseId = null, options = {}) {
   const c = readZohoConfig()
   if (c.code !== 'ok') {
     const e = new Error('Zoho not configured')
     e.code = 'ZOHO_NOT_CONFIGURED'
     throw e
   }
+  const includeInactive = Boolean(options.includeInactive) || itemsIncludeInactive()
   const per = DEFAULT_PER_PAGE
   const all = []
   const t0 = Date.now()
-  const label = warehouseId ? `[zoho-items-wh] wh=${warehouseId}` : '[zoho-items]'
+  const scopeLabel = includeInactive ? 'all' : 'active'
+  const label = warehouseId
+    ? `[zoho-items-wh] wh=${warehouseId} scope=${scopeLabel}`
+    : `[zoho-items] scope=${scopeLabel}`
 
   console.log(`${label} fetching page 1/${MAX_ITEMS_PAGES}…`)
-  const first = await fetchItemsPage(1, per, warehouseId)
+  const first = await fetchItemsPage(1, per, warehouseId, { includeInactive })
   all.push(...first.items)
 
   if (!first.hasMore || first.items.length === 0 || first.items.length < per) {
@@ -116,7 +138,9 @@ async function listItemsPaged(warehouseId = null) {
       pages.push(p)
     }
     console.log(`${label} fetching pages ${pages[0]}-${pages[pages.length - 1]}/${estimatedPages}…`)
-    const results = await Promise.all(pages.map((p) => fetchItemsPage(p, per, warehouseId)))
+    const results = await Promise.all(
+      pages.map((p) => fetchItemsPage(p, per, warehouseId, { includeInactive }))
+    )
 
     let stop = false
     for (const result of results) {
@@ -144,8 +168,11 @@ async function listItemsPaged(warehouseId = null) {
   return all
 }
 
-async function listAllItems() {
-  return listItemsPaged(null)
+/**
+ * @param {{ includeInactive?: boolean }} [options]
+ */
+async function listAllItems(options = {}) {
+  return listItemsPaged(null, options)
 }
 
 /**
@@ -270,9 +297,13 @@ async function fetchZohoItemImageBuffer(itemId) {
   return { buffer: body, contentType: contentType || 'image/jpeg' }
 }
 
-async function listItemsForWarehouse(warehouseId) {
+/**
+ * @param {string} warehouseId
+ * @param {{ includeInactive?: boolean }} [options]
+ */
+async function listItemsForWarehouse(warehouseId, options = {}) {
   const wid = String(warehouseId).trim()
-  return listItemsPaged(wid)
+  return listItemsPaged(wid, options)
 }
 
 /**

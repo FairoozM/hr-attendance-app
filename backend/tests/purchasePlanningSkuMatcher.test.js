@@ -273,6 +273,7 @@ test('purchase planning item index matches Zoho item names and prefers warehouse
     itemName: 'DSH-14',
     zohoItemId: 'z1',
     currentZohoStock: 2,
+    zohoItemActive: true,
   })
 })
 

@@ -126,18 +126,22 @@ const _warehouseItemsCache = new Map()
  * `warehouse_id` is supplied to the items endpoint.
  *
  * Cached separately from the global `fetchAllItemsRaw` cache.
+ * Active-only and include-inactive fetches use separate cache keys.
  *
  * @param {string} warehouseId
+ * @param {{ includeInactive?: boolean }} [options]
  * @returns {Promise<object[]>}
  */
-async function fetchItemsRawForWarehouse(warehouseId) {
+async function fetchItemsRawForWarehouse(warehouseId, options = {}) {
   const wid = String(warehouseId || '').trim()
   if (!wid) return []
-  const hit = _warehouseItemsCache.get(wid)
+  const includeInactive = Boolean(options.includeInactive)
+  const cacheKey = includeInactive ? `${wid}:all` : wid
+  const hit = _warehouseItemsCache.get(cacheKey)
   if (hit && Date.now() < hit.expiresAt) return hit.items
-  const items = await listItemsForWarehouse(wid)
+  const items = await listItemsForWarehouse(wid, { includeInactive })
   if (ITEMS_CACHE_TTL_MS > 0) {
-    _warehouseItemsCache.set(wid, { items, expiresAt: Date.now() + ITEMS_CACHE_TTL_MS })
+    _warehouseItemsCache.set(cacheKey, { items, expiresAt: Date.now() + ITEMS_CACHE_TTL_MS })
   }
   return items
 }

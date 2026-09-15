@@ -98,15 +98,36 @@ export function ReviewPlanStep({
           <span className="doc-summary-card__count">{summary.missingPricesCount}</span>
           <span className="doc-summary-card__label">Missing prices</span>
         </div>
+        <div className="doc-summary-card doc-summary-card--expired">
+          <span className="doc-summary-card__count">{summary.inactiveCount}</span>
+          <span className="doc-summary-card__label">Inactive in Zoho</span>
+        </div>
         <div className="doc-summary-card doc-summary-card--due-soon">
           <span className="doc-summary-card__count">{summary.cappedByVigilCount}</span>
           <span className="doc-summary-card__label">Vigil capped</span>
         </div>
       </div>
 
+      {plan.status === 'failed' && plan.zohoError && (
+        <div className="page-error" role="alert">
+          Last Zoho error: {plan.zohoError}
+        </div>
+      )}
+
       {summary.missingPricesCount > 0 && (
         <p className="pp-hint pp-hint--warn">
           {summary.missingPricesCount} included line(s) need purchase price in All Prices before creating a PO.
+        </p>
+      )}
+
+      {summary.inactiveCount > 0 && (
+        <p className="pp-hint pp-hint--warn">
+          {summary.inactiveCount} included line(s) are inactive or deleted in Zoho. Exclude them or reactivate in Zoho
+          before creating a PO: {summary.inactiveItems
+            .slice(0, 8)
+            .map((item) => item.sku)
+            .join(', ')}
+          {summary.inactiveCount > 8 ? '…' : ''}
         </p>
       )}
 

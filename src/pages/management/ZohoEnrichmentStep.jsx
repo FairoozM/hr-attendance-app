@@ -20,6 +20,14 @@ export function ZohoEnrichmentStep({
     () => pending.filter((item) => String(item.zohoItemId || '').trim()),
     [pending]
   )
+  const matchedActive = useMemo(
+    () => matched.filter((item) => item.zohoItemActive !== false),
+    [matched]
+  )
+  const matchedInactive = useMemo(
+    () => matched.filter((item) => item.zohoItemActive === false),
+    [matched]
+  )
   const unmatched = useMemo(
     () => pending.filter((item) => !String(item.zohoItemId || '').trim()),
     [pending]
@@ -39,8 +47,8 @@ export function ZohoEnrichmentStep({
     statusLabel = 'Failed'
     statusTone = 'danger'
   } else if (hasPending && unmatched.length === 0 && matched.length > 0) {
-    statusLabel = 'Completed'
-    statusTone = 'success'
+    statusLabel = matchedInactive.length > 0 ? 'Completed with warnings' : 'Completed'
+    statusTone = matchedInactive.length > 0 ? 'warning' : 'success'
   }
 
   if (!hasPending) {
@@ -69,6 +77,10 @@ export function ZohoEnrichmentStep({
           <div>
             <dt>Matched in Zoho</dt>
             <dd>{matched.length}</dd>
+          </div>
+          <div>
+            <dt>Inactive in Zoho</dt>
+            <dd>{matchedInactive.length}</dd>
           </div>
           <div>
             <dt>Unmatched</dt>
@@ -105,15 +117,58 @@ export function ZohoEnrichmentStep({
         <UnmatchedLowStockTable items={unmatched} onRemove={onRemoveUnmatched} removingId={removingLowStockId} />
       )}
 
+      {matchedInactive.length > 0 && (
+        <div className="pp-enrichment-list pp-enrichment-list--unmatched">
+          <div className="pp-enrichment-list__head">
+            <div>
+              <strong>Warning: {matchedInactive.length} SKU(s) inactive or deleted in Zoho</strong>
+              <span>
+                These match a Zoho item but cannot be raised on a purchase order. Reactivate in Zoho or remove them before
+                Step 6.
+              </span>
+            </div>
+          </div>
+          <div className="doc-table-wrap pp-enrichment-list__table-wrap">
+            <table className="doc-table pp-enrichment-list__table">
+              <thead>
+                <tr>
+                  <th>SKU</th>
+                  <th>Product name</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {matchedInactive.map((item) => (
+                  <tr key={item.id || item.sku}>
+                    <td className="pp-mono">{item.sku}</td>
+                    <td>{item.itemName || '—'}</td>
+                    <td>
+                      <Badge tone="danger">Inactive in Zoho</Badge>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {unmatched.length === 0 && hasPending && matched.length > 0 && !enrichmentRunning && (
-        <p className="pp-step-done-hint">All pending SKUs are matched in Zoho. You can proceed to Step 4.</p>
+        <p className="pp-step-done-hint">
+          {matchedInactive.length > 0
+            ? `All pending SKUs are matched in Zoho (${matchedInactive.length} inactive). You can proceed to Step 4; inactive lines will be excluded from the PO.`
+            : 'All pending SKUs are matched in Zoho. You can proceed to Step 4.'}
+        </p>
       )}
 
       {matched.length > 0 && (
         <div className="pp-enrichment-list pp-enrichment-list--matched">
           <div className="pp-enrichment-list__head">
             <div>
-              <strong>Matched in Zoho ({matched.length})</strong>
+              <strong>
+                Matched in Zoho ({matched.length}
+                {matchedInactive.length > 0 ? ` · ${matchedActive.length} active` : ''})
+              </strong>
             </div>
             <button type="button" className="btn btn--sm" onClick={() => setShowMatched((v) => !v)}>
               {showMatched ? 'Hide table' : 'Show table'}
@@ -135,13 +190,29 @@ export function ZohoEnrichmentStep({
                 <tbody>
                   {matched.map((item) => (
                     <tr key={item.id || item.sku}>
-                      <td className="pp-mono">{item.sku}</td>
+                      <td className="pp-mono">
+                        {item.sku}
+                        {item.zohoItemActive === false ? (
+                          <>
+                            {' '}
+                            <Badge tone="danger">Inactive</Badge>
+                          </>
+                        ) : null}
+                      </td>
                       <td>{item.itemName || '—'}</td>
                       <td>{fmt(item.currentZohoStock)}</td>
                       <td>{fmt(item.totalSalesLast3Months)}</td>
                       <td>{fmt(item.totalBundleUsageLast3Months)}</td>
-                      <td className={getStockRemark(item) ? 'pp-remark pp-remark--danger' : 'pp-remark'}>
-                        {getStockRemark(item) || '—'}
+                      <td
+                        className={
+                          getStockRemark(item) || item.zohoItemActive === false
+                            ? 'pp-remark pp-remark--danger'
+                            : 'pp-remark'
+                        }
+                      >
+                        {item.zohoItemActive === false
+                          ? 'Inactive/deleted in Zoho — cannot raise PO'
+                          : getStockRemark(item) || '—'}
                       </td>
                     </tr>
                   ))}

@@ -113,6 +113,7 @@ function mapLowStockRow(row) {
     sku: row.sku,
     itemName: row.item_name,
     zohoItemId: row.zoho_item_id,
+    zohoItemActive: row.zoho_item_active == null ? null : Boolean(row.zoho_item_active),
     currentZohoStock: Number(row.current_zoho_stock || 0),
     vigilCode: row.vigil_code || '',
     vigilStock: Number(row.vigil_stock || 0),
@@ -159,6 +160,7 @@ function mapPlanItemRow(row) {
     sku: row.sku,
     itemName: row.item_name,
     zohoItemId: row.zoho_item_id,
+    zohoItemActive: row.zoho_item_active == null ? null : Boolean(row.zoho_item_active),
     currentZohoStock: Number(row.current_zoho_stock || 0),
     vigilCode: row.vigil_code || '',
     wholesaleAvailableQty: Number(row.wholesale_available_qty || 0),
@@ -283,15 +285,35 @@ async function ensurePurchasePlanningTables() {
     ALTER TABLE purchase_plan_items
     ADD COLUMN IF NOT EXISTS purchase_price NUMERIC(14, 4)
   `)
+  await query(`
+    ALTER TABLE purchase_low_stock_items
+    ADD COLUMN IF NOT EXISTS zoho_item_active BOOLEAN
+  `)
+  await query(`
+    ALTER TABLE purchase_plan_items
+    ADD COLUMN IF NOT EXISTS zoho_item_active BOOLEAN
+  `)
   await query(`CREATE INDEX IF NOT EXISTS idx_purchase_plan_items_plan_id ON purchase_plan_items(purchase_plan_id)`)
   await query(`CREATE INDEX IF NOT EXISTS idx_purchase_plan_items_sku ON purchase_plan_items(sku)`)
+}
+
+function isZohoItemActive(raw) {
+  if (!raw || typeof raw !== 'object') return false
+  const status = String(raw.status || raw.item_status || '').trim().toLowerCase()
+  if (status === 'inactive' || status === 'deleted') return false
+  return true
 }
 
 function buildZohoItemIndex(items, warehouseId = '') {
   const bySku = new Map()
   const addKey = (raw, entry) => {
     const key = normalizeSku(raw)
-    if (!key || bySku.has(key)) return
+    if (!key) return
+    const existing = bySku.get(key)
+    if (existing) {
+      // Prefer an active Zoho item over an inactive/deleted duplicate for the same key.
+      if (existing.zohoItemActive || !entry.zohoItemActive) return
+    }
     bySku.set(key, entry)
   }
   for (const item of Array.isArray(items) ? items : []) {
@@ -304,6 +326,7 @@ function buildZohoItemIndex(items, warehouseId = '') {
       itemName,
       zohoItemId: clean(item.item_id || item.id),
       currentZohoStock: Number.isFinite(forSale) && forSale > onHand ? forSale : onHand,
+      zohoItemActive: isZohoItemActive(item),
     }
     const identifiers = [
       primaryCode,
@@ -321,7 +344,7 @@ function buildZohoItemIndex(items, warehouseId = '') {
 
 async function enrichUploadedLowStockSkus(skus) {
   const warehouse = await resolvePurchasePlanningWarehouse()
-  const items = await fetchItemsRawForWarehouse(warehouse.warehouseId)
+  const items = await fetchItemsRawForWarehouse(warehouse.warehouseId, { includeInactive: true })
   const bySku = buildZohoItemIndex(items, warehouse.warehouseId)
   return skus.map((rawSku) => {
     const uploadedSku = clean(rawSku)
@@ -333,6 +356,7 @@ async function enrichUploadedLowStockSkus(skus) {
         zohoItemId: '',
         currentZohoStock: 0,
         matchedInZoho: false,
+        zohoItemActive: null,
       }
     }
     return {
@@ -361,11 +385,12 @@ async function persistLowStockItems(items) {
     const result = await query(
       `
         INSERT INTO purchase_low_stock_items
-          (sku, item_name, zoho_item_id, current_zoho_stock, total_sales_last_3_months, total_bundle_usage_last_3_months, low_stock_detected_at, status, updated_at)
-        VALUES ($1, $2, $3, $4, $5, $6, NOW(), 'pending', NOW())
+          (sku, item_name, zoho_item_id, zoho_item_active, current_zoho_stock, total_sales_last_3_months, total_bundle_usage_last_3_months, low_stock_detected_at, status, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), 'pending', NOW())
         ON CONFLICT (sku) DO UPDATE SET
           item_name = EXCLUDED.item_name,
           zoho_item_id = EXCLUDED.zoho_item_id,
+          zoho_item_active = EXCLUDED.zoho_item_active,
           current_zoho_stock = EXCLUDED.current_zoho_stock,
           total_sales_last_3_months = EXCLUDED.total_sales_last_3_months,
           total_bundle_usage_last_3_months = EXCLUDED.total_bundle_usage_last_3_months,
@@ -378,6 +403,7 @@ async function persistLowStockItems(items) {
         item.sku,
         item.itemName || '',
         item.zohoItemId || '',
+        item.zohoItemActive == null ? null : Boolean(item.zohoItemActive),
         item.currentZohoStock || 0,
         item.totalSalesLast3Months || 0,
         item.totalBundleUsageLast3Months || 0,
@@ -549,7 +575,8 @@ async function refreshLowStockZohoEnrichment() {
         SET
           item_name = $2,
           zoho_item_id = $3,
-          current_zoho_stock = $4,
+          zoho_item_active = $4,
+          current_zoho_stock = $5,
           updated_at = NOW()
         WHERE id = $1
       `,
@@ -557,6 +584,7 @@ async function refreshLowStockZohoEnrichment() {
         row.id,
         item && item.matchedInZoho ? item.itemName : '',
         item && item.matchedInZoho ? item.zohoItemId : '',
+        item && item.matchedInZoho ? item.zohoItemActive !== false : null,
         item && item.matchedInZoho ? item.currentZohoStock : 0,
       ]
     )
@@ -987,7 +1015,8 @@ function nextZohoPurchaseOrderReference(planNumber) {
   return `${base || 'PP'}-${stamp}-${suffix}`
 }
 
-function planItemNotes(match, available, wasAdjustedForVigil) {
+function planItemNotes(match, available, wasAdjustedForVigil, zohoItemActive = true) {
+  if (zohoItemActive === false) return 'Inactive/deleted in Zoho — cannot raise PO'
   if (!match.matched) return 'No matching Vigil stock row'
   if (available <= 0) return 'Unavailable in wholesale stock'
   if (wasAdjustedForVigil) return 'Vigil stock below required usage; final qty auto-adjusted'
@@ -995,6 +1024,7 @@ function planItemNotes(match, available, wasAdjustedForVigil) {
 }
 
 const SYSTEM_PLAN_NOTES = new Set([
+  'Inactive/deleted in Zoho — cannot raise PO',
   'No matching Vigil stock row',
   'Unavailable in wholesale stock',
   'Vigil stock below required usage; final qty auto-adjusted',
@@ -1133,24 +1163,25 @@ async function generatePlan({ createdBy }) {
         totalBundle,
         vigilAvailable: available,
       })
-      const included = finalQty > 0 && available > 0 && match.matched
-      const notes = planItemNotes(match, available, wasAdjustedForVigil)
+      const zohoItemActive = item.zohoItemActive !== false
+      const included = finalQty > 0 && available > 0 && match.matched && zohoItemActive
+      const notes = planItemNotes(match, available, wasAdjustedForVigil, zohoItemActive)
 
       const itemResult = await client.query(
         `
           INSERT INTO purchase_plan_items (
-            purchase_plan_id, sku, item_name, zoho_item_id, current_zoho_stock,
+            purchase_plan_id, sku, item_name, zoho_item_id, zoho_item_active, current_zoho_stock,
             vigil_code, wholesale_available_qty, match_type,
             total_sales_last_3_months, total_bundle_usage_last_3_months,
             total_usage_last_3_months, average_monthly_usage,
             suggested_qty, final_qty, included, notes
           )
           VALUES (
-            $1, $2, $3, $4, $5,
-            $6, $7, $8,
-            $9, $10,
-            $11, $12,
-            $13, $14, $15, $16
+            $1, $2, $3, $4, $5, $6,
+            $7, $8, $9,
+            $10, $11,
+            $12, $13,
+            $14, $15, $16, $17
           )
           RETURNING *
         `,
@@ -1159,6 +1190,7 @@ async function generatePlan({ createdBy }) {
           item.sku,
           item.itemName,
           item.zohoItemId,
+          item.zohoItemActive == null ? null : Boolean(item.zohoItemActive),
           item.currentZohoStock,
           match.matchedVigilCode || '',
           available,
@@ -1237,9 +1269,11 @@ async function refreshDraftPlanZohoData(planId) {
       totalBundle,
       vigilAvailable: available,
     })
-    const autoIncluded = autoFinalQty > 0 && available > 0 && match.matched
-    const autoNotes = planItemNotes(match, available, wasAdjustedForVigil)
+    const zohoItemActive = zoho.matchedInZoho ? zoho.zohoItemActive !== false : true
+    const autoIncluded = autoFinalQty > 0 && available > 0 && match.matched && zohoItemActive
+    const autoNotes = planItemNotes(match, available, wasAdjustedForVigil, zohoItemActive)
     const userFields = resolveRefreshUserFields(item, autoFinalQty, autoIncluded, autoNotes)
+    const included = zohoItemActive ? userFields.included : false
 
     await query(
       `
@@ -1247,25 +1281,27 @@ async function refreshDraftPlanZohoData(planId) {
         SET
           item_name = $2,
           zoho_item_id = $3,
-          current_zoho_stock = $4,
-          vigil_code = $5,
-          wholesale_available_qty = $6,
-          match_type = $7,
-          total_sales_last_3_months = $8,
-          total_bundle_usage_last_3_months = $9,
-          total_usage_last_3_months = $10,
-          average_monthly_usage = $11,
-          suggested_qty = $12,
-          final_qty = $13,
-          included = $14,
-          notes = $15,
-          purchase_price = $16
+          zoho_item_active = $4,
+          current_zoho_stock = $5,
+          vigil_code = $6,
+          wholesale_available_qty = $7,
+          match_type = $8,
+          total_sales_last_3_months = $9,
+          total_bundle_usage_last_3_months = $10,
+          total_usage_last_3_months = $11,
+          average_monthly_usage = $12,
+          suggested_qty = $13,
+          final_qty = $14,
+          included = $15,
+          notes = $16,
+          purchase_price = $17
         WHERE id = $1
       `,
       [
         item.id,
         zoho.matchedInZoho ? zoho.itemName : '',
         zoho.matchedInZoho ? zoho.zohoItemId : '',
+        zoho.matchedInZoho ? zoho.zohoItemActive !== false : null,
         zoho.matchedInZoho ? zoho.currentZohoStock : 0,
         match.matchedVigilCode || '',
         available,
@@ -1276,7 +1312,7 @@ async function refreshDraftPlanZohoData(planId) {
         averageMonthlyUsage,
         suggestedQty,
         userFields.finalQty,
-        userFields.included,
+        included,
         userFields.notes,
         userFields.purchasePrice,
       ]
@@ -1535,6 +1571,29 @@ async function createZohoPurchaseOrder(planId, options = {}) {
       throw err
     }
 
+    const warehouse = await resolvePurchasePlanningWarehouse()
+    const zohoCatalog = await fetchItemsRawForWarehouse(warehouse.warehouseId, { includeInactive: true })
+    const byItemId = new Map()
+    for (const raw of Array.isArray(zohoCatalog) ? zohoCatalog : []) {
+      const id = clean(raw && (raw.item_id || raw.id))
+      if (!id || byItemId.has(id)) continue
+      byItemId.set(id, raw)
+    }
+    const inactiveSelected = selected.filter((item) => {
+      const raw = byItemId.get(clean(item.zohoItemId))
+      return !raw || !isZohoItemActive(raw)
+    })
+    if (inactiveSelected.length > 0) {
+      const skus = inactiveSelected.map((item) => item.sku)
+      const preview = skus.slice(0, 10).join(', ')
+      const err = new Error(
+        `${inactiveSelected.length} Zoho item(s) are inactive or deleted: ${preview}${skus.length > 10 ? '…' : ''}`
+      )
+      err.code = 'ZOHO_ITEMS_INACTIVE'
+      err.details = { skus, count: inactiveSelected.length }
+      throw err
+    }
+
     for (const item of selected) {
       await client.query(
         `UPDATE purchase_plan_items SET purchase_price = $3 WHERE purchase_plan_id = $1 AND id = $2`,
@@ -1601,7 +1660,22 @@ async function createZohoPurchaseOrder(planId, options = {}) {
     } catch (_) {
       // ignore rollback failure
     }
-    if (planId && err && err.code !== 'DUPLICATE_PO' && err.code !== 'PLAN_NOT_FOUND' && err.code !== 'NO_PO_LINES' && err.code !== 'ZOHO_PO_PRICE_REQUIRED') {
+    if (err && err.code === 'ZOHO_ITEMS_INACTIVE' && planId && Array.isArray(err.details?.skus) && err.details.skus.length > 0) {
+      try {
+        await query(
+          `
+            UPDATE purchase_plan_items
+            SET zoho_item_active = false, included = false
+            WHERE purchase_plan_id = $1
+              AND sku = ANY($2::text[])
+          `,
+          [planId, err.details.skus]
+        )
+      } catch (_) {
+        // ignore follow-up flag update failure
+      }
+    }
+    if (planId && err && err.code !== 'DUPLICATE_PO' && err.code !== 'PLAN_NOT_FOUND' && err.code !== 'NO_PO_LINES' && err.code !== 'ZOHO_PO_PRICE_REQUIRED' && err.code !== 'ZOHO_ITEMS_INACTIVE') {
       try {
         await query(
           `UPDATE purchase_plans SET status = 'failed', zoho_error = $2 WHERE id = $1 AND status IN ('draft', 'failed')`,
@@ -1641,6 +1715,7 @@ module.exports = {
   createZohoPurchaseOrder,
   _internals: {
     buildZohoItemIndex,
+    isZohoItemActive,
     buildCompositeUsageAggregate,
     lineLooksLikeComposite,
     bundleUsageQtyForItem,
