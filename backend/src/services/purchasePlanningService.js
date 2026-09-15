@@ -1607,7 +1607,6 @@ async function createZohoPurchaseOrder(planId, options = {}) {
       purchaseorder_number: requestedPoNumber,
       date: todayIso(),
       reference_number: zohoReferenceNumber,
-      notes: `Generated from HR & BI Purchase Planning plan ${plan.planNumber}. Review completed by admin before sending.`,
       line_items: selected.map((item) => ({
         item_id: item.zohoItemId,
         quantity: item.finalQty,

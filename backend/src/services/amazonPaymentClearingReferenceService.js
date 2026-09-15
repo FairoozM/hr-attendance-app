@@ -1,7 +1,7 @@
 // Builds consistent, audit-friendly Zoho reference numbers and descriptions for
 // every accounting entry generated from an Amazon settlement batch. The goal is
 // that a finance user opening Zoho months later can immediately identify the
-// Amazon settlement period, the settlement/report IDs, and the HR & BI batch
+// Amazon settlement period, the settlement/report IDs, and the clearing batch
 // that produced the entry.
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']

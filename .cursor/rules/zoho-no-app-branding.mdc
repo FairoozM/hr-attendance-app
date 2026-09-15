@@ -1,0 +1,32 @@
+---
+description: Never put HR & BI / app branding into Zoho payloads or headers
+alwaysApply: true
+---
+
+# Zoho: no app branding
+
+Never send this app’s name, product name, or internal branding into Zoho (Inventory, Books, or any Zoho API).
+
+## Forbidden in Zoho-bound fields
+
+Do not put any of these (or close variants) in `notes`, `description`, `memo`, `reference_number`, line descriptions, journal narration, User-Agent, or any other Zoho payload/header:
+
+- `HR & BI`, `HR&BI`, `HR and BI`
+- `hr-attendance`, `hr-attendance-app`, `hr-attendance-backend`
+- `Purchase Planning` as a product/app label (plan numbers like `PP-…` in references are fine)
+- Phrases like “Generated from … app”, “Review completed by admin before sending”
+
+## Required behavior
+
+- Leave Zoho `notes` empty / omit them unless the user explicitly supplies business text for Zoho.
+- Use a neutral User-Agent (e.g. `lifesmile-zoho-client`), never app-repo names.
+- Operational IDs (PO numbers, settlement IDs, batch `#123`) are OK when they do not name this app.
+- Internal comments and UI copy may mention the module; Zoho-facing strings must not.
+
+```js
+// ❌ BAD — visible in Zoho Notes
+notes: `Generated from HR & BI Purchase Planning plan ${plan.planNumber}. …`
+
+// ✅ GOOD — omit notes, or only vendor/business text the user asked for
+const payload = { vendor_id, purchaseorder_number, date, reference_number, line_items }
+```

@@ -18,7 +18,7 @@ function httpsRequestJson(url, opts = {}) {
     const timeoutMs = opts.timeoutMs || 20000
     const headers = {
       Accept: 'application/json',
-      'User-Agent': 'hr-attendance-backend/weekly-reports',
+      'User-Agent': 'lifesmile-zoho-client',
       ...opts.headers,
     }
     if (body && !headers['Content-Type']) {
@@ -103,7 +103,7 @@ function httpsRequestBuffer(url, opts = {}) {
     const timeoutMs = opts.timeoutMs || 20000
     const headers = {
       Accept: '*/*',
-      'User-Agent': 'hr-attendance-backend/weekly-reports',
+      'User-Agent': 'lifesmile-zoho-client',
       ...opts.headers,
     }
     if (body && !headers['Content-Type']) {
