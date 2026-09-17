@@ -400,7 +400,7 @@ export interface PaymentClearingPreview {
   auditLog?: ClearingAuditEntry[]
   storedRowCount?: number
   message?: string
-  marketplace: 'KSA'
+  marketplace: 'KSA' | 'UAE'
   report: {
     reportId: string
     reportDocumentId: string

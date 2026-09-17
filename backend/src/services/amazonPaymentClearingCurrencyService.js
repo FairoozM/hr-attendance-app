@@ -43,9 +43,9 @@ function sarAmountToAed(amount) {
   return round2((Number(amount) || 0) * SAR_TO_AED_RATE)
 }
 
-function settlementCurrencyForCustomer(customerName, parsedCurrency = 'SAR') {
+function settlementCurrencyForCustomer(customerName, parsedCurrency = '', fallbackCurrency = 'SAR') {
   if (isLegacyKsaPaymentClearingCustomer(customerName)) return LEGACY_SETTLEMENT_DISPLAY_CURRENCY
-  return clean(parsedCurrency) || 'SAR'
+  return clean(parsedCurrency) || clean(fallbackCurrency) || 'SAR'
 }
 
 function convertLegacySettlementAmount(amount, customerName) {

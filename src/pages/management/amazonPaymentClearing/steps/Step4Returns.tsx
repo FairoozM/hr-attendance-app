@@ -91,7 +91,7 @@ export function Step4Returns({ ctx }: { ctx: ClearingContext }) {
           </button>
         ))}
         {blockingRows.length ? (
-          <button className="ainv-btn ainv-btn--sm" type="button" onClick={() => exportCreditNoteRows(blockingRows)}>
+          <button className="ainv-btn ainv-btn--sm" type="button" onClick={() => exportCreditNoteRows(blockingRows, ctx.marketplace)}>
             Export blocked
           </button>
         ) : null}

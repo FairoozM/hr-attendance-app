@@ -83,7 +83,27 @@ function parseDelimitedRows(text) {
   return { headers, rows }
 }
 
-function extractReportMetadata(rows) {
+function inferCurrencyFromMarketplaceName(name) {
+  const n = clean(name).toLowerCase()
+  if (!n) return ''
+  if (n.includes('amazon.ae') || n.includes('amazon ae') || /(^|[.\s_-])ae($|[.\s_-])/.test(n)) return 'AED'
+  if (n.includes('amazon.sa') || n.includes('amazon sa') || /(^|[.\s_-])sa($|[.\s_-])/.test(n)) return 'SAR'
+  return ''
+}
+
+function defaultSettlementCurrency(rows, options = {}) {
+  const fromOptions = clean(options.defaultCurrency).toUpperCase()
+  if (fromOptions) return fromOptions
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const inferred = inferCurrencyFromMarketplaceName(
+      row?.['marketplace-name'] || row?.marketplaceName || row?.['marketplace name']
+    )
+    if (inferred) return inferred
+  }
+  return 'SAR'
+}
+
+function extractReportMetadata(rows, defaultCurrency = 'SAR') {
   const firstWith = (keys, directKeys = []) => {
     for (const row of rows) {
       for (const directKey of directKeys) {
@@ -100,11 +120,11 @@ function extractReportMetadata(rows) {
     settlementStartDate: normalizeSettlementDate(firstWith(['settlement-start-date', 'settlement start date'], ['settlementStartDate'])),
     settlementEndDate: normalizeSettlementDate(firstWith(['settlement-end-date', 'settlement end date'], ['settlementEndDate'])),
     depositDate: normalizeSettlementDate(firstWith(['deposit-date', 'deposit date'], ['depositDate'])),
-    currency: firstWith(['currency', 'currency-code', 'currency code'], ['currency']) || 'SAR',
+    currency: firstWith(['currency', 'currency-code', 'currency code'], ['currency']) || defaultCurrency,
   }
 }
 
-function normalizeSettlementRow(row) {
+function normalizeSettlementRow(row, defaultCurrency = 'SAR') {
   const amount = parseAmount(pick(row, ['amount', 'amount-value', 'amount value']))
   const normalized = {
     settlementId: pick(row, ['settlement-id', 'settlement id']),
@@ -112,7 +132,7 @@ function normalizeSettlementRow(row) {
     settlementEndDate: normalizeSettlementDate(pick(row, ['settlement-end-date', 'settlement end date'])),
     depositDate: normalizeSettlementDate(pick(row, ['deposit-date', 'deposit date'])),
     totalAmount: parseAmount(pick(row, ['total-amount', 'total amount'])),
-    currency: pick(row, ['currency', 'currency-code', 'currency code']) || 'SAR',
+    currency: pick(row, ['currency', 'currency-code', 'currency code']) || defaultCurrency,
     transactionType: pick(row, ['transaction-type', 'transaction type']),
     orderId: pick(row, ['order-id', 'order id', 'amazon-order-id', 'amazon order id']),
     merchantOrderId: pick(row, ['merchant-order-id', 'merchant order id']),
@@ -130,7 +150,7 @@ function normalizeSettlementRow(row) {
   return normalized
 }
 
-function parseAmazonSettlementReport(text) {
+function parseAmazonSettlementReport(text, options = {}) {
   const warnings = []
   const { headers, rows } = parseDelimitedRows(text)
   if (headers.length === 0) {
@@ -148,7 +168,8 @@ function parseAmazonSettlementReport(text) {
     }
   }
 
-  const normalized = rows.map(normalizeSettlementRow)
+  const defaultCurrency = defaultSettlementCurrency(rows, options)
+  const normalized = rows.map((row) => normalizeSettlementRow(row, defaultCurrency))
   const missingOrderIdCount = normalized.filter((row) => !row.orderId && !isNonOrderLinkedAmazonFee(row)).length
   if (missingOrderIdCount > 0) {
     warnings.push(`${missingOrderIdCount} settlement row(s) do not include an Amazon order ID.`)
@@ -161,7 +182,7 @@ function parseAmazonSettlementReport(text) {
     rows: normalized,
     warnings,
     rawRowCount: rows.length,
-    metadata: extractReportMetadata(normalized),
+    metadata: extractReportMetadata(normalized, defaultCurrency),
     headers,
   }
 }
@@ -203,8 +224,8 @@ function settlementTextFromBuffer(buffer, fileName = '') {
   return buf.toString('utf8')
 }
 
-function parseAmazonSettlementReportBuffer(buffer, fileName = '') {
-  return parseAmazonSettlementReport(settlementTextFromBuffer(buffer, fileName))
+function parseAmazonSettlementReportBuffer(buffer, fileName = '', options = {}) {
+  return parseAmazonSettlementReport(settlementTextFromBuffer(buffer, fileName), options)
 }
 
 module.exports = {

@@ -6,6 +6,16 @@ import type {
   RefundReturnCreditNoteRow,
 } from '../../../api/amazonPaymentClearing'
 
+import { exportFilenamePrefix, type ClearingMarketplace } from './marketplaceConfig'
+
+function resolveExportFilename(filenameOrMarketplace: string, suffix: string) {
+  if (filenameOrMarketplace.endsWith('.xlsx')) return filenameOrMarketplace
+  if (filenameOrMarketplace === 'UAE' || filenameOrMarketplace === 'KSA') {
+    return `${exportFilenamePrefix(filenameOrMarketplace as ClearingMarketplace)}-${suffix}.xlsx`
+  }
+  return `amazon-ksa-${suffix}.xlsx`
+}
+
 function downloadSheet(sheetRows: Record<string, unknown>[], sheetName: string, filename: string) {
   const workbook = XLSX.utils.book_new()
   const worksheet = XLSX.utils.json_to_sheet(sheetRows.length ? sheetRows : [{ Info: 'No rows' }])
@@ -13,7 +23,11 @@ function downloadSheet(sheetRows: Record<string, unknown>[], sheetName: string, 
   XLSX.writeFile(workbook, filename)
 }
 
-export function exportParsedRows(rows: ParsedSettlementRow[], filename = 'amazon-ksa-parsed-rows.xlsx') {
+export function exportParsedRows(
+  rows: ParsedSettlementRow[],
+  filenameOrMarketplace: string = 'amazon-ksa-parsed-rows.xlsx'
+) {
+  const filename = resolveExportFilename(filenameOrMarketplace, 'parsed-rows')
   downloadSheet(
     rows.map((row) => ({
       '#': row.rowNumber,
@@ -36,8 +50,9 @@ export function exportParsedRows(rows: ParsedSettlementRow[], filename = 'amazon
 
 export function exportCreditNoteRows(
   rows: RefundReturnCreditNoteRow[],
-  filename = 'amazon-ksa-missing-credit-notes.xlsx'
+  filenameOrMarketplace = 'amazon-ksa-missing-credit-notes.xlsx'
 ) {
+  const filename = resolveExportFilename(filenameOrMarketplace, 'missing-credit-notes')
   downloadSheet(
     rows.map((row) => ({
       'Amazon Order ID': row.orderId,
@@ -55,7 +70,8 @@ export function exportCreditNoteRows(
   )
 }
 
-export function exportBlockingIssues(issues: BlockingIssue[], filename = 'amazon-ksa-blocking-issues.xlsx') {
+export function exportBlockingIssues(issues: BlockingIssue[], filenameOrMarketplace = 'amazon-ksa-blocking-issues.xlsx') {
+  const filename = resolveExportFilename(filenameOrMarketplace, 'blocking-issues')
   downloadSheet(
     issues.map((issue) => ({
       Code: issue.code,
@@ -69,7 +85,8 @@ export function exportBlockingIssues(issues: BlockingIssue[], filename = 'amazon
   )
 }
 
-export function exportUnmatchedOrders(preview: PaymentClearingPreview, filename = 'amazon-ksa-unmatched-orders.xlsx') {
+export function exportUnmatchedOrders(preview: PaymentClearingPreview, filenameOrMarketplace = 'amazon-ksa-unmatched-orders.xlsx') {
+  const filename = resolveExportFilename(filenameOrMarketplace, 'unmatched-orders')
   downloadSheet(
     (preview.unmatchedOrders || []).map((row) => ({
       'Amazon Order ID': row.orderId,

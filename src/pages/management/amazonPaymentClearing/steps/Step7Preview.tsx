@@ -4,7 +4,7 @@ import type { ClearingContext } from './clearingContext'
 export function Step7Preview({ ctx }: { ctx: ClearingContext }) {
   const { preview, paymentPreview } = ctx
   if (!preview) return null
-  const currency = previewCurrency(preview)
+  const currency = previewCurrency(preview, ctx.marketplace)
   const fmt = (value: number | null | undefined) => money(value, currency)
   return (
     <div className="apc-step-stack">
@@ -49,7 +49,7 @@ export function Step7Preview({ ctx }: { ctx: ClearingContext }) {
           />
           <PaymentClearingPreviewTable paymentPreview={paymentPreview} currency={currency} />
           <h3 className="ainv-page__title" style={{ fontSize: '1rem' }}>Amazon Fee Journal Preview</h3>
-          <AmazonFeeJournalPreviewTable rows={paymentPreview.amazonFeeJournalLines || []} />
+          <AmazonFeeJournalPreviewTable rows={paymentPreview.amazonFeeJournalLines || []} currency={currency} />
           {paymentPreview.warnings.length ? (
             <div className={paymentPreview.warnings.every(isLegacyPaymentClearingWarning) ? 'apc-alert' : 'apc-alert apc-alert--error'}>
               <ul>

@@ -2,7 +2,7 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 
 const { parseAmazonSettlementReport, parseAmazonSettlementReportBuffer, normalizeSettlementDate } = require('../src/services/amazonSettlementParserService')
-const { categorizeSettlementRow, CATEGORY, ROW_CLASS } = require('../src/services/amazonPaymentClearingCategoryService')
+const { categorizeSettlementRow, classifySettlementRow, isNonOrderLinkedAmazonFee, CATEGORY, ROW_CLASS } = require('../src/services/amazonPaymentClearingCategoryService')
 const {
   matchSettlementRowsToInvoices,
   matchRefundReturnRowsToCreditNotes,
@@ -996,13 +996,15 @@ test('deriveInvoiceRange caps Zoho fetch for historical settlements older than 9
 })
 
 test('deriveInvoiceRange extends Zoho fetch through today for late invoices', () => {
-  const range = deriveInvoiceRange([
-    { settlementStartDate: '2026-05-01', settlementEndDate: '2026-05-15', depositDate: '2026-05-20', postedDate: '2026-05-10' },
-  ])
   const today = new Date().toISOString().slice(0, 10)
-  assert.equal(range.settlementFromDate, '2026-05-01')
-  assert.equal(range.settlementToDate, '2026-05-20')
-  assert.equal(range.fromDate, '2026-01-01')
+  const start = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  const end = new Date(Date.now() - 16 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  const deposit = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  const range = deriveInvoiceRange([
+    { settlementStartDate: start, settlementEndDate: end, depositDate: deposit, postedDate: end },
+  ])
+  assert.equal(range.settlementFromDate, start)
+  assert.equal(range.settlementToDate, deposit)
   assert.equal(range.toDate, today)
 })
 
@@ -2573,6 +2575,10 @@ test('payment clearing marketplace config distinguishes KSA and UAE', () => {
   assert.equal(ksa.supportsLegacySarToAed, true)
   assert.equal(uae.supportsLegacySarToAed, false)
   assert.equal(uae.feeJournalAccountSuggestions.ADVERTISING.debitAccountName, 'Amazon Advertising Exp')
+  assert.equal(ksa.currency, 'SAR')
+  assert.equal(uae.currency, 'AED')
+  assert.equal(ksa.country, 'SA')
+  assert.equal(uae.country, 'AE')
   assert.doesNotThrow(() => assertBatchMarketplace({ marketplace: 'UAE' }, 'uae'))
   assert.throws(
     () => assertBatchMarketplace({ marketplace: 'KSA' }, 'uae'),
@@ -2601,3 +2607,157 @@ test('UAE payment preview uses Amazon undeposited account names', () => {
   assert.equal(plan.netBalancePayment.depositToAccountName, 'Amazon Undeposited Funds')
   assert.equal(plan.commissionPayment.depositToAccountName, 'Amazon Uncleared Commission Exp')
 })
+
+const UAE_SETTLEMENT_TSV = [
+  'settlement-id\tsettlement-start-date\tsettlement-end-date\tdeposit-date\ttotal-amount\tcurrency\ttransaction-type\torder-id\tmerchant-order-id\tamount-type\tamount-description\tamount\tsku\tquantity-purchased\tmarketplace-name',
+  '26091700001\t01.09.2026\t15.09.2026\t16.09.2026\t83.00\tAED\tOrder\t404-1111111-1111111\tM-1\tItemPrice\tPrincipal\t200.00\tSKU-UAE-1\t1\tAmazon.ae',
+  '26091700001\t01.09.2026\t15.09.2026\t16.09.2026\t83.00\tAED\tOrder\t404-1111111-1111111\tM-1\tItemFees\tCommission\t-20.00\tSKU-UAE-1\t1\tAmazon.ae',
+  '26091700001\t01.09.2026\t15.09.2026\t16.09.2026\t83.00\tAED\tOrder\t404-1111111-1111111\tM-1\tItemFees\tFBAPerUnitFulfillmentFee\t-8.00\tSKU-UAE-1\t1\tAmazon.ae',
+  '26091700001\t01.09.2026\t15.09.2026\t16.09.2026\t83.00\tAED\tRefund\t404-2222222-2222222\t\tItemPrice\tPrincipal\t-50.00\tSKU-UAE-2\t\tAmazon.ae',
+  '26091700001\t01.09.2026\t15.09.2026\t16.09.2026\t83.00\tAED\tServiceFee\t\t\tCost of Advertising\tTransactionTotalAmount\t-15.00\t\t\tAmazon.ae',
+  '26091700001\t01.09.2026\t15.09.2026\t16.09.2026\t83.00\tAED\tAmazonFees\t\t\tStorage Fee\tStorage Fee\t-5.00\t\t\tAmazon.ae',
+  '26091700001\t01.09.2026\t15.09.2026\t16.09.2026\t83.00\tAED\tAmazonFees\t\t\tPremium Services Fee\tBase fee\t-12.00\t\t\tAmazon.ae',
+  '26091700001\t01.09.2026\t15.09.2026\t16.09.2026\t83.00\tAED\tOther-Transaction\t\t\tSeller Flex\tSeller Flex Fee\t-7.00\t\t\tAmazon.ae',
+].join('\n')
+
+test('UAE settlement parser keeps AED and does not mix SAR', () => {
+  const parsed = parseAmazonSettlementReport(UAE_SETTLEMENT_TSV, { defaultCurrency: 'AED' })
+  assert.equal(parsed.rawRowCount, 8)
+  assert.equal(parsed.metadata.currency, 'AED')
+  assert.equal(parsed.metadata.settlementId, '26091700001')
+  assert.equal(parsed.metadata.settlementStartDate, '2026-09-01')
+  assert.equal(parsed.metadata.settlementEndDate, '2026-09-15')
+  assert.equal(parsed.metadata.depositDate, '2026-09-16')
+  assert.ok(parsed.rows.every((row) => row.currency === 'AED'))
+  assert.ok(parsed.rows.every((row) => row.currency !== 'SAR'))
+})
+
+test('UAE parser infers AED from Amazon.ae when currency column is missing', () => {
+  const text = [
+    'settlement-id\ttransaction-type\torder-id\tamount-type\tamount-description\tamount\tmarketplace-name',
+    'SET-AE\tOrder\t404-1111111-1111111\tItemPrice\tPrincipal\t10\tAmazon.ae',
+  ].join('\n')
+  const parsed = parseAmazonSettlementReport(text)
+  assert.equal(parsed.metadata.currency, 'AED')
+  assert.equal(parsed.rows[0].currency, 'AED')
+})
+
+test('KSA parser still defaults to SAR when currency and marketplace name are missing', () => {
+  const text = [
+    'settlement-id\ttransaction-type\torder-id\tamount-type\tamount-description\tamount',
+    'SET-SA\tOrder\t701-1\tItemPrice\tPrincipal\t10',
+  ].join('\n')
+  const parsed = parseAmazonSettlementReport(text)
+  assert.equal(parsed.metadata.currency, 'SAR')
+  assert.equal(parsed.rows[0].currency, 'SAR')
+})
+
+test('Seller Flex rows classify as FBA fulfillment, not unmatched sales', () => {
+  const row = {
+    transactionType: 'Other-Transaction',
+    amountType: 'Seller Flex',
+    amountDescription: 'Seller Flex Fee',
+    amount: -7,
+    orderId: '',
+  }
+  assert.equal(categorizeSettlementRow(row), CATEGORY.FBA_FULFILLMENT_FEE)
+  assert.equal(classifySettlementRow(row), ROW_CLASS.NON_ORDER_LINKED_AMAZON_FEE)
+  assert.equal(isNonOrderLinkedAmazonFee(row), true)
+})
+
+test('UAE sample settlement classifies, matches, and reconciles in AED', () => {
+  const parsed = parseAmazonSettlementReport(UAE_SETTLEMENT_TSV, { defaultCurrency: 'AED' })
+  const invoices = [
+    {
+      invoice_id: 'uae-inv-1',
+      invoice_number: 'INV-UAE-1',
+      reference_number: '404-1111111-1111111',
+      customer_name: 'Amazon',
+      total: 200,
+    },
+    {
+      invoice_id: 'uae-inv-2',
+      invoice_number: 'INV-UAE-2',
+      reference_number: '404-2222222-2222222',
+      customer_name: 'Amazon',
+      total: 50,
+    },
+  ]
+  const creditNotes = [
+    {
+      creditnote_id: 'uae-cn-1',
+      creditnote_number: 'CN-UAE-1',
+      reference_number: '404-2222222-2222222',
+      customer_id: 'cust-amazon',
+      total: 50,
+      status: 'open',
+    },
+  ]
+  const creditNoteMatch = matchRefundReturnRowsToCreditNotes(parsed.rows, invoices, creditNotes)
+  const preview = buildPreview({
+    report: {
+      marketplace: 'UAE',
+      reportDocumentId: 'uae-doc-1',
+      settlementId: parsed.metadata.settlementId,
+      settlementStartDate: parsed.metadata.settlementStartDate,
+      settlementEndDate: parsed.metadata.settlementEndDate,
+      depositDate: parsed.metadata.depositDate,
+      currency: parsed.metadata.currency,
+    },
+    rows: parsed.rows,
+    invoices,
+    matchedReturns: creditNoteMatch.matchedReturns,
+    missingCreditNotes: creditNoteMatch.missingCreditNotes,
+    creditNoteBlockingRows: creditNoteMatch.creditNoteBlockingRows,
+  })
+
+  const byClass = parsed.rows.reduce((acc, row) => {
+    acc[row.rowClass] = (acc[row.rowClass] || 0) + 1
+    return acc
+  }, {})
+  const unknownRows = parsed.rows.filter((row) => row.rowClass === ROW_CLASS.UNKNOWN || row.category === CATEGORY.OTHER)
+  const nonOrderRows = parsed.rows.filter((row) => isNonOrderLinkedAmazonFee(row))
+  const orderRows = parsed.rows.filter((row) => row.orderId && !isNonOrderLinkedAmazonFee(row))
+
+  assert.equal(preview.marketplace, 'UAE')
+  assert.equal(preview.report.currency, 'AED')
+  assert.equal(parsed.rawRowCount, 8)
+  assert.equal(orderRows.length, 4)
+  assert.equal(nonOrderRows.length, 4)
+  assert.equal(byClass[ROW_CLASS.SALE], 1)
+  assert.equal(byClass[ROW_CLASS.SHIPPING_FBA], 1)
+  assert.equal(byClass[ROW_CLASS.FEE], 1)
+  assert.equal(byClass[ROW_CLASS.REFUND], 1)
+  assert.equal(byClass[ROW_CLASS.NON_ORDER_LINKED_AMAZON_FEE], 4)
+  assert.equal(unknownRows.length, 0)
+  assert.equal(preview.matchedOrders.length, 1)
+  assert.equal(preview.unmatchedOrders.length, 0)
+  assert.equal(preview.matchedReturns.length, 1)
+  assert.equal((preview.creditNoteBlockingRows || []).length, 0)
+  assert.equal(preview.totals.amazonSettlementTotal, 83)
+  assert.equal(preview.totals.productSalesTotal, 200)
+  assert.equal(preview.totals.feesTotal, -67)
+  assert.equal(preview.totals.refundsTotal, -50)
+  assert.equal(preview.totals.adjustmentsTotal, 0)
+  assert.equal(preview.reconciliationSummary.actualAmazonSettlement, 83)
+  assert.equal(preview.reconciliationSummary.expectedAmazonDeposit, 83)
+  assert.equal(preview.reconciliationSummary.reconciliationDifference, 0)
+  assert.equal(preview.reconciliationSummary.reconciliationStatus, 'reconciled')
+  assert.ok(!preview.blockingIssues.some((issue) => issue.code === 'MISSING_ORDER_ID'))
+  assert.equal(
+    preview.nonOrderLinkedAmazonFeeMappings.every((row) => row.marketplace === 'UAE'),
+    true
+  )
+
+  const paymentPlan = buildInvoicePaymentPlan(preview.matchedOrders[0], 'Amazon', 'UAE')
+  assert.equal(paymentPlan.netBalancePayment.depositToAccountName, 'Amazon Undeposited Funds')
+  assert.equal(paymentPlan.commissionPayment.depositToAccountName, 'Amazon Uncleared Commission Exp')
+  assert.equal(paymentPlan.shippingFbaPayment.depositToAccountName, 'Amazon Uncleared Shipping Exp')
+
+  const reference = buildSettlementReference({
+    report: preview.report,
+    marketplace: 'UAE',
+  })
+  assert.match(reference.referenceBase, /^AMZ-UAE-/)
+})
+

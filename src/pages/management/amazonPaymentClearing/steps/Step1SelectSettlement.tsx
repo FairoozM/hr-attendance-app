@@ -148,7 +148,7 @@ export function Step1SelectSettlement({ ctx }: { ctx: ClearingContext }) {
                     <td>#{batch.batchId}</td>
                     <td>{batch.settlementId || '-'}</td>
                     <td>{dateRangeText(batch.settlementStartDate, batch.settlementEndDate)}</td>
-                    <td className="apc-money">{money(batch.amazonSettlementTotal)}</td>
+                    <td className="apc-money">{money(batch.amazonSettlementTotal, batch.currency || ctx.currency)}</td>
                     <td>{batch.zohoCustomerName || (ctx.marketplace === 'UAE' ? 'Amazon' : 'KSA-Amazon')}</td>
                     <td>{batch.matchedOrderCount}</td>
                     <td>{batch.creditNoteBlockerCount + batch.unmatchedOrderCount}</td>
@@ -188,7 +188,7 @@ export function Step1SelectSettlement({ ctx }: { ctx: ClearingContext }) {
             className="ainv-input"
             value={ctx.reportId}
             onChange={(e) => ctx.setReportId(e.target.value)}
-            placeholder="Leave blank to use latest KSA settlement"
+            placeholder={`Leave blank to use latest ${ctx.marketplace} settlement`}
           />
         </label>
         <label className="ainv-label">

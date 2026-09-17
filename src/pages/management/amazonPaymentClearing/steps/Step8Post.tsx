@@ -56,7 +56,7 @@ export function Step8Post({ ctx }: { ctx: ClearingContext }) {
             <div className="apc-muted">No manual journal entries were posted for this settlement.</div>
           ) : null}
           <p className="apc-muted">
-            Record Payments use the AMZ-KSA reference. Manual journals for Amazon fees use the settlement date-range
+            Record Payments use the {ctx.marketplace === 'UAE' ? 'AMZ-UAE' : 'AMZ-KSA'} reference. Manual journals for Amazon fees use the settlement date-range
             reference (for example, 29-Apr-2026 to 13-May-2026), so search Zoho Journals by that range if needed.
           </p>
           <p className="apc-muted">
@@ -107,7 +107,7 @@ export function Step8Post({ ctx }: { ctx: ClearingContext }) {
           <p className="apc-muted apc-table-caption">
             These mapped non-order Amazon fees are posted as Zoho manual journals, not invoice payments.
           </p>
-          <AmazonFeeJournalPreviewTable rows={journalLines} />
+          <AmazonFeeJournalPreviewTable rows={journalLines} currency={ctx.currency} />
         </section>
       ) : null}
 
@@ -133,7 +133,12 @@ export function Step8Post({ ctx }: { ctx: ClearingContext }) {
               <SummaryCard label="Journals Created" value={postingSummary.journalsCreated ?? 0} />
             </section>
           ) : null}
-          <PostedStoredEntriesTable postings={storedPostings} postingSummary={postingSummary} />
+          <PostedStoredEntriesTable
+            postings={storedPostings}
+            postingSummary={postingSummary}
+            marketplace={ctx.marketplace}
+            currency={ctx.currency}
+          />
         </section>
       ) : null}
 

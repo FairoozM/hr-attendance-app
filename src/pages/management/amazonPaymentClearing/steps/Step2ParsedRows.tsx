@@ -11,11 +11,11 @@ export function Step2ParsedRows({ ctx }: { ctx: ClearingContext }) {
     <div className="apc-step-stack">
       <section className="apc-summary-grid">
         <SummaryCard label="Parsed Rows" value={preview.rawRowCount} />
-        <SummaryCard label="Amazon Settlement Total" value={money(preview.totals.amazonSettlementTotal)} />
-        <SummaryCard label="Product Sales" value={money(preview.totals.productSalesTotal)} />
-        <SummaryCard label="Amazon Fees" value={money(preview.totals.feesTotal)} />
-        <SummaryCard label="Refund/Return Total" value={money(preview.totals.refundReturnTotal || 0)} />
-        <SummaryCard label="Adjustments" value={money(preview.totals.adjustmentsTotal)} />
+        <SummaryCard label="Amazon Settlement Total" value={money(preview.totals.amazonSettlementTotal, ctx.currency)} />
+        <SummaryCard label="Product Sales" value={money(preview.totals.productSalesTotal, ctx.currency)} />
+        <SummaryCard label="Amazon Fees" value={money(preview.totals.feesTotal, ctx.currency)} />
+        <SummaryCard label="Refund/Return Total" value={money(preview.totals.refundReturnTotal || 0, ctx.currency)} />
+        <SummaryCard label="Adjustments" value={money(preview.totals.adjustmentsTotal, ctx.currency)} />
       </section>
 
       <div className="apc-stage-panel__header">
@@ -27,7 +27,7 @@ export function Step2ParsedRows({ ctx }: { ctx: ClearingContext }) {
             onChange={(e) => search.setSearch(e.target.value)}
             placeholder="Search order ID, category, description..."
           />
-          <button className="ainv-btn ainv-btn--sm" type="button" onClick={() => exportParsedRows(allRows)}>
+          <button className="ainv-btn ainv-btn--sm" type="button" onClick={() => exportParsedRows(allRows, ctx.marketplace)}>
             Export Excel
           </button>
           {search.filter.rowNumbers ? (
@@ -43,6 +43,7 @@ export function Step2ParsedRows({ ctx }: { ctx: ClearingContext }) {
         focusedRowNumbers={search.filter.rowNumbers}
         canMarkAccountLevelFee={!ctx.isPosted}
         onMarkAccountLevelFee={ctx.onMarkAccountLevelFee}
+        currency={ctx.currency}
       />
 
       <details className="apc-details">

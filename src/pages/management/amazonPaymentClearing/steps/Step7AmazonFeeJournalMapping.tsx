@@ -146,7 +146,7 @@ export function Step7AmazonFeeJournalMapping({ ctx }: { ctx: ClearingContext }) 
       <section className="apc-summary-grid">
         <SummaryCard label="Fee Groups" value={rows.length} />
         <SummaryCard label="Unmapped Groups" value={unmappedCount} />
-        <SummaryCard label="Journal Total" value={money(total)} />
+        <SummaryCard label="Journal Total" value={money(total, ctx.currency)} />
       </section>
       <div className="apc-ref-card">
         <div className="apc-ref-card__eyebrow">Manual journal preview</div>
@@ -186,7 +186,7 @@ export function Step7AmazonFeeJournalMapping({ ctx }: { ctx: ClearingContext }) 
                   <td>{row.rawTransactionType || '-'}</td>
                   <td>{row.description || '-'}</td>
                   <td>{row.rowCount}</td>
-                  <td className="apc-money">{money(row.totalAmount)}</td>
+                  <td className="apc-money">{money(row.totalAmount, ctx.currency)}</td>
                   <td>{row.debitAccountName || debit?.accountName || '-'}</td>
                   <td>{row.creditAccountName || credit?.accountName || '-'}</td>
                   <td>

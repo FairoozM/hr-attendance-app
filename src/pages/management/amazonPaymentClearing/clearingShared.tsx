@@ -27,11 +27,24 @@ export function money(value: number | null | undefined, currency = 'SAR') {
   }).format(Number(value) || 0)
 }
 
-export function previewCurrency(preview?: { report?: { currency?: string }; zohoCustomerName?: string; batch?: { zohoCustomerName?: string } } | null) {
+export function previewCurrency(
+  preview?: { report?: { currency?: string }; marketplace?: string; zohoCustomerName?: string; batch?: { zohoCustomerName?: string } } | null,
+  marketplace?: string
+) {
   if (isLegacyKsaPaymentClearingCustomer(clearingCustomerName(preview))) return 'AED'
   const fromReport = String(preview?.report?.currency || '').trim().toUpperCase()
   if (fromReport) return fromReport
+  const market = String(preview?.marketplace || marketplace || '').trim().toUpperCase()
+  if (market === 'UAE') return 'AED'
   return 'SAR'
+}
+
+export function previewMoney(
+  value: number | null | undefined,
+  preview?: Parameters<typeof previewCurrency>[0] | null,
+  marketplace?: string
+) {
+  return money(value, previewCurrency(preview, marketplace))
 }
 
 export const LEGACY_KSA_ZOHO_CUSTOMER_NAME = 'Life Smile Business'
@@ -150,6 +163,7 @@ export function LifecycleBadge({ status }: { status?: string }) {
 
 export function PivotTable({ preview }: { preview: PaymentClearingPreview }) {
   if (!preview.pivot.length) return <div className="apc-empty">No category rows to show yet.</div>
+  const currency = previewCurrency(preview)
   return (
     <div className="apc-table-wrap">
       <table className="apc-table">
@@ -157,7 +171,7 @@ export function PivotTable({ preview }: { preview: PaymentClearingPreview }) {
           <tr>
             <th>Category</th>
             <th>Count</th>
-            <th className="apc-money">Total SAR</th>
+            <th className="apc-money">Total {currency}</th>
           </tr>
         </thead>
         <tbody>
@@ -165,7 +179,7 @@ export function PivotTable({ preview }: { preview: PaymentClearingPreview }) {
             <tr key={row.category}>
               <td>{row.category}</td>
               <td>{row.count}</td>
-              <td className="apc-money">{money(row.total)}</td>
+              <td className="apc-money">{money(row.total, currency)}</td>
             </tr>
           ))}
         </tbody>
@@ -178,6 +192,7 @@ export function SettlementLevelFeesTable({ preview }: { preview: PaymentClearing
   if (!preview.settlementLevelFees.length) {
     return <div className="apc-empty">No settlement-level fees in this report.</div>
   }
+  const currency = previewCurrency(preview)
   return (
     <div className="apc-table-wrap">
       <table className="apc-table">
@@ -185,7 +200,7 @@ export function SettlementLevelFeesTable({ preview }: { preview: PaymentClearing
           <tr>
             <th>Category</th>
             <th>Count</th>
-            <th className="apc-money">Total</th>
+            <th className="apc-money">Total {currency}</th>
           </tr>
         </thead>
         <tbody>
@@ -193,7 +208,7 @@ export function SettlementLevelFeesTable({ preview }: { preview: PaymentClearing
             <tr key={row.category}>
               <td>{row.category}</td>
               <td>{row.count}</td>
-              <td className="apc-money">{money(row.total)}</td>
+              <td className="apc-money">{money(row.total, currency)}</td>
             </tr>
           ))}
         </tbody>
@@ -202,7 +217,15 @@ export function SettlementLevelFeesTable({ preview }: { preview: PaymentClearing
   )
 }
 
-export function AmazonFeeJournalMappingTable({ rows }: { rows: AmazonFeeJournalMapping[] }) {
+export function AmazonFeeJournalMappingTable({
+  rows,
+  marketplace = 'KSA',
+  currency = 'SAR',
+}: {
+  rows: AmazonFeeJournalMapping[]
+  marketplace?: string
+  currency?: string
+}) {
   if (!rows.length) return <div className="apc-empty">No account-level Amazon fees need manual journal mapping.</div>
   return (
     <div className="apc-table-wrap apc-table-wrap--wide">
@@ -227,7 +250,7 @@ export function AmazonFeeJournalMappingTable({ rows }: { rows: AmazonFeeJournalM
               <td>{row.rawTransactionType || '-'}</td>
               <td>{row.description || '-'}</td>
               <td>{row.rowCount}</td>
-              <td className="apc-money">{money(row.totalAmount)}</td>
+              <td className="apc-money">{money(row.totalAmount, currency)}</td>
               <td>
                 {row.debitAccountName || '-'}
                 {row.debitAccountId ? <div className="apc-muted apc-cell-sub">id: {row.debitAccountId}</div> : null}
@@ -246,7 +269,11 @@ export function AmazonFeeJournalMappingTable({ rows }: { rows: AmazonFeeJournalM
                 </span>
               </td>
               <td>
-                <code className="apc-ref">AMAZON_KSA_FEE_JOURNAL_ACCOUNT_MAP</code>
+                <code className="apc-ref">
+                  {String(marketplace).toUpperCase() === 'UAE'
+                    ? 'Saved UAE fee journal mapping'
+                    : 'Saved KSA fee journal mapping'}
+                </code>
               </td>
             </tr>
           ))}
@@ -256,7 +283,13 @@ export function AmazonFeeJournalMappingTable({ rows }: { rows: AmazonFeeJournalM
   )
 }
 
-export function AmazonFeeJournalPreviewTable({ rows }: { rows: AmazonFeeJournalLine[] }) {
+export function AmazonFeeJournalPreviewTable({
+  rows,
+  currency = 'SAR',
+}: {
+  rows: AmazonFeeJournalLine[]
+  currency?: string
+}) {
   if (!rows.length) return <div className="apc-empty">No Amazon fee journal lines in this preview.</div>
   return (
     <div className="apc-table-wrap apc-table-wrap--wide">
@@ -280,7 +313,7 @@ export function AmazonFeeJournalPreviewTable({ rows }: { rows: AmazonFeeJournalL
               <td>{row.notes || '-'}</td>
               <td>{row.debit.accountName || '-'}{row.debit.accountId ? <div className="apc-muted apc-cell-sub">id: {row.debit.accountId}</div> : null}</td>
               <td>{row.credit.accountName || '-'}{row.credit.accountId ? <div className="apc-muted apc-cell-sub">id: {row.credit.accountId}</div> : null}</td>
-              <td className="apc-money">{money(Math.abs(row.totalAmount))}</td>
+              <td className="apc-money">{money(Math.abs(row.totalAmount), currency)}</td>
               <td>{row.status}</td>
             </tr>
           ))}
@@ -374,7 +407,15 @@ export function SettlementReconciliation({ preview }: { preview: PaymentClearing
   )
 }
 
-export function ReturnCreditNotesTable({ rows, emptyText }: { rows: RefundReturnCreditNoteRow[]; emptyText: string }) {
+export function ReturnCreditNotesTable({
+  rows,
+  emptyText,
+  currency = 'SAR',
+}: {
+  rows: RefundReturnCreditNoteRow[]
+  emptyText: string
+  currency?: string
+}) {
   if (!rows.length) return <div className="apc-empty">{emptyText}</div>
   return (
     <div className="apc-table-wrap apc-table-wrap--wide">
@@ -397,11 +438,11 @@ export function ReturnCreditNotesTable({ rows, emptyText }: { rows: RefundReturn
             <tr key={`${row.orderId}-${row.zohoCreditNoteId || row.blockingReason || idx}`}>
               <td>{row.orderId || '-'}</td>
               <td>{row.rowClass}</td>
-              <td className="apc-money">{money(row.amazonRefundAmount)}</td>
+              <td className="apc-money">{money(row.amazonRefundAmount, currency)}</td>
               <td>{row.zohoInvoiceNumber || row.zohoInvoiceId || '-'}</td>
               <td>{row.zohoCreditNoteNumber || row.zohoCreditNoteId || '-'}</td>
-              <td className="apc-money">{money(row.creditNoteAmount)}</td>
-              <td className="apc-money">{money(row.creditNoteDifference)}</td>
+              <td className="apc-money">{money(row.creditNoteAmount, currency)}</td>
+              <td className="apc-money">{money(row.creditNoteDifference, currency)}</td>
               <td>{row.status}</td>
               <td>{row.blockingReason || '-'}</td>
             </tr>
@@ -613,6 +654,7 @@ export function MatchedOrdersTable({ preview }: { preview: PaymentClearingPrevie
 
 export function UnmatchedOrdersTable({ preview }: { preview: PaymentClearingPreview }) {
   if (!preview.unmatchedOrders.length) return <div className="apc-empty">No unmatched orders.</div>
+  const currency = previewCurrency(preview)
   return (
     <div className="apc-table-wrap apc-table-wrap--wide">
       <table className="apc-table">
@@ -630,10 +672,10 @@ export function UnmatchedOrdersTable({ preview }: { preview: PaymentClearingPrev
           {preview.unmatchedOrders.map((row) => (
             <tr key={row.orderId}>
               <td>{row.orderId}</td>
-              <td className="apc-money">{money(row.principalTotal)}</td>
-              <td className="apc-money">{money(row.grossAmazonTotal)}</td>
-              <td className="apc-money">{money(row.totalFees)}</td>
-              <td className="apc-money">{money(row.netSettlementAmount)}</td>
+              <td className="apc-money">{money(row.principalTotal, currency)}</td>
+              <td className="apc-money">{money(row.grossAmazonTotal, currency)}</td>
+              <td className="apc-money">{money(row.totalFees, currency)}</td>
+              <td className="apc-money">{money(row.netSettlementAmount, currency)}</td>
               <td>{row.reason}</td>
             </tr>
           ))}
@@ -646,6 +688,7 @@ export function UnmatchedOrdersTable({ preview }: { preview: PaymentClearingPrev
 export function NetNegativeReturnOrdersTable({ preview }: { preview: PaymentClearingPreview }) {
   const rows = preview.netNegativeReturnOrders || []
   if (!rows.length) return <div className="apc-empty">No net-negative orders detected in this settlement.</div>
+  const currency = previewCurrency(preview)
   return (
     <div className="apc-table-wrap apc-table-wrap--wide">
       <table className="apc-table">
@@ -663,8 +706,8 @@ export function NetNegativeReturnOrdersTable({ preview }: { preview: PaymentClea
             <tr key={row.orderId}>
               <td>{row.orderId}</td>
               <td>{row.zohoInvoiceNumber || row.zohoPoNumber || '-'}</td>
-              <td className="apc-money">{money(row.principalTotal)}</td>
-              <td className="apc-money">{money(row.netSettlementAmount)}</td>
+              <td className="apc-money">{money(row.principalTotal, currency)}</td>
+              <td className="apc-money">{money(row.netSettlementAmount, currency)}</td>
               <td>Clear via Zoho credit note / sales return — not invoice payment</td>
             </tr>
           ))}
@@ -777,9 +820,13 @@ export function PaymentClearingPreviewTable({ paymentPreview, currency = 'SAR' }
 export function PostedStoredEntriesTable({
   postings,
   postingSummary,
+  marketplace = 'KSA',
+  currency = 'SAR',
 }: {
   postings: ClearingPosting[]
   postingSummary?: PostingSummary
+  marketplace?: string
+  currency?: string
 }) {
   const paymentRows = postings.filter((row) => !isFeeJournalPostingType(row.paymentType))
   const journalRows = postings.filter((row) => isFeeJournalPostingType(row.paymentType))
@@ -808,7 +855,7 @@ export function PostedStoredEntriesTable({
               {paymentRows.map((row) => (
                 <tr key={row.id}>
                   <td>{row.paymentType}</td>
-                  <td className="apc-money">{money(row.amount)}</td>
+                  <td className="apc-money">{money(row.amount, currency)}</td>
                   <td><code className="apc-ref">{row.referenceNumber || '-'}</code></td>
                   <td>{row.description ? <pre className="apc-description">{row.description}</pre> : '-'}</td>
                   <td>{row.zohoPaymentId || '-'}</td>
@@ -823,7 +870,7 @@ export function PostedStoredEntriesTable({
         <div className="apc-table-wrap apc-table-wrap--wide">
           <p className="apc-muted apc-table-caption">
             Posted Zoho manual journals for account-level Amazon fees. These use the settlement date-range reference, not
-            the AMZ-KSA payment reference above.
+            the {String(marketplace).toUpperCase() === 'UAE' ? 'AMZ-UAE' : 'AMZ-KSA'} payment reference above.
           </p>
           <table className="apc-table">
             <thead>

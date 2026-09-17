@@ -361,7 +361,7 @@ async function validateInvoiceBalancesForPosting(paymentPreview, opts = {}) {
       commissionAmount: round2(plan.commissionPayment?.amount),
       shippingAmount: round2(plan.shippingFbaPayment?.amount),
       message:
-        `Invoice ${invoiceNumber} balance due is SAR ${balanceDue} but clearing requires SAR ${plannedTotal}. ` +
+        `Invoice ${invoiceNumber} balance due is ${balanceDue} but clearing requires ${plannedTotal}. ` +
         'The invoice may already be paid or have credit notes applied in Zoho.',
     })
   }

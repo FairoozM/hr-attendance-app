@@ -203,6 +203,27 @@ async function resolveAccountByCode(accountCode) {
   return accounts.find((account) => String(account?.account_code || account?.code || '').trim() === code) || null
 }
 
+async function resolveAccountByName(accountName) {
+  const name = clean(accountName).toLowerCase()
+  if (!name) return null
+  const accounts = (await fetchChartOfAccounts()).map(mapChartAccount)
+  return accounts.find((account) => clean(account.accountName).toLowerCase() === name) || null
+}
+
+async function resolveAccountByCodeOrName(accountCode, accountName) {
+  const byName = await resolveAccountByName(accountName)
+  if (byName?.accountId) {
+    return {
+      account_id: byName.accountId,
+      id: byName.accountId,
+      account_name: byName.accountName,
+      name: byName.accountName,
+      account_code: byName.accountCode,
+    }
+  }
+  return resolveAccountByCode(accountCode)
+}
+
 function marketplaceFromPaymentOrOpts(payment = {}, opts = {}) {
   return opts.marketplace || payment.marketplace || 'KSA'
 }
@@ -231,7 +252,7 @@ async function resolveConfiguredDepositAccount(payment, opts = {}) {
   }
   const depositToAccountId = clean(payment.depositToAccountId)
   if (!depositToAccountId) {
-    const cached = await store.getAccountMappingByCode(clean(payment.depositToAccountCode))
+    const cached = await store.getAccountMappingByCode(clean(payment.depositToAccountCode), marketplace)
     if (cached?.accountId) {
       return {
         accountId: cached.accountId,
@@ -244,6 +265,7 @@ async function resolveConfiguredDepositAccount(payment, opts = {}) {
       const discovered = await resolveDepositAccount(payment, { ...opts, allowChartLookup: true, marketplace })
       if (discovered?.accountId) {
         await store.upsertAccountMapping({
+          marketplace,
           accountCode: clean(payment.depositToAccountCode),
           accountName: discovered.accountName || payment.depositToAccountName || '',
           accountId: discovered.accountId,
@@ -279,7 +301,9 @@ async function resolveDepositAccount(payment, opts = {}) {
         source: configuredAccount.source,
       }
     }
-    const account = payment.depositToAccountId ? null : await resolveAccountByCode(payment.depositToAccountCode)
+    const account = payment.depositToAccountId
+      ? null
+      : await resolveAccountByCodeOrName(payment.depositToAccountCode, payment.depositToAccountName)
     const depositToAccountId = payment.depositToAccountId || account?.account_id || account?.id || ''
     if (!depositToAccountId) {
       const err = new Error(`Zoho account not found for account code ${payment.depositToAccountCode}`)
@@ -493,7 +517,7 @@ async function getAccountDiagnostics(marketplace = 'KSA') {
   }
 
   const sampleAccountLookupResult = []
-  const cachedMappings = await store.getAccountMappings().catch(() => [])
+  const cachedMappings = await store.getAccountMappings(marketplace).catch(() => [])
   for (const code of Object.keys(paymentAccountEnv)) {
     const configured = configuredAccountByCode(code, marketplace)
     if (configured) {
@@ -518,9 +542,10 @@ async function getAccountDiagnostics(marketplace = 'KSA') {
       continue
     }
     if (chartOfAccountsAccessResult.ok) {
-      const discovered = await resolveAccountByCode(code).catch(() => null)
+      const discovered = await resolveAccountByCodeOrName(code, paymentAccountEnv[code].defaultName).catch(() => null)
       if (discovered) {
         const mapping = await store.upsertAccountMapping({
+          marketplace,
           accountCode: code,
           accountName: discovered.account_name || discovered.name || paymentAccountEnv[code].defaultName,
           accountId: discovered.account_id || discovered.id,

@@ -9,13 +9,15 @@ export function ClearingStepper({
   activeStep,
   stepStatuses,
   onStepClick,
+  marketplace = 'KSA',
 }: {
   activeStep: number
   stepStatuses: Record<number, StepStatus>
   onStepClick: (id: number) => void
+  marketplace?: 'KSA' | 'UAE'
 }) {
   return (
-    <nav className="apc-stepper" aria-label="Amazon KSA payment clearing workflow">
+    <nav className="apc-stepper" aria-label={`Amazon ${marketplace} payment clearing workflow`}>
       <ol className="apc-stepper__list">
         {CLEARING_STEPS.map((step) => {
           const status = stepStatuses[step.id] || 'not_started'

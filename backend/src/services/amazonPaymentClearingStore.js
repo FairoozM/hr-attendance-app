@@ -145,13 +145,41 @@ async function ensureAmazonPaymentClearingTables() {
   await query(`ALTER TABLE amazon_payment_clearing_postings ADD COLUMN IF NOT EXISTS mapping_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb`)
   await query(`
     CREATE TABLE IF NOT EXISTS amazon_payment_clearing_account_mappings (
-      account_code VARCHAR(32) PRIMARY KEY,
+      account_code VARCHAR(32) NOT NULL,
+      marketplace VARCHAR(16) NOT NULL DEFAULT 'KSA',
       account_name TEXT,
       account_id VARCHAR(128) NOT NULL,
       source VARCHAR(128) NOT NULL DEFAULT 'chartofaccounts',
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (marketplace, account_code)
     )
+  `)
+  await query(`ALTER TABLE amazon_payment_clearing_account_mappings ADD COLUMN IF NOT EXISTS marketplace VARCHAR(16) NOT NULL DEFAULT 'KSA'`)
+  await query(`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conrelid = 'amazon_payment_clearing_account_mappings'::regclass
+          AND contype = 'p'
+          AND conname = 'amazon_payment_clearing_account_mappings_pkey'
+      ) AND NOT EXISTS (
+        SELECT 1
+        FROM pg_index i
+        JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+        WHERE i.indrelid = 'amazon_payment_clearing_account_mappings'::regclass
+          AND i.indisprimary
+          AND a.attname = 'marketplace'
+      ) THEN
+        ALTER TABLE amazon_payment_clearing_account_mappings
+          DROP CONSTRAINT amazon_payment_clearing_account_mappings_pkey;
+        ALTER TABLE amazon_payment_clearing_account_mappings
+          ADD CONSTRAINT amazon_payment_clearing_account_mappings_pkey
+          PRIMARY KEY (marketplace, account_code);
+      END IF;
+    END $$
   `)
   await query(`
     CREATE TABLE IF NOT EXISTS amazon_payment_clearing_fee_journal_mappings (
@@ -392,7 +420,7 @@ async function insertClearingRows(client, batchId, preview, rows, report) {
         row.category || null,
         isNonOrderLinkedAmazonFee(row) ? 'NON_ORDER_LINKED_AMAZON_FEE' : (row.rowClass || null),
         num(row.amount),
-        row.currency || report.currency || 'SAR',
+        row.currency || report.currency || (String(preview.marketplace || '').toUpperCase() === 'UAE' ? 'AED' : 'SAR'),
         creditNoteRow?.zohoInvoiceId || order?.zohoInvoiceId || null,
         creditNoteRow?.zohoInvoiceNumber || order?.zohoInvoiceNumber || null,
         creditNoteRow?.zohoCreditNoteId || null,
@@ -789,14 +817,17 @@ async function getLatestPaymentPreviewForBatch(batchId) {
   }
 }
 
-async function getAccountMappings() {
+async function getAccountMappings(marketplace = 'KSA') {
   const result = await query(
-    `SELECT account_code, account_name, account_id, source, updated_at
+    `SELECT account_code, marketplace, account_name, account_id, source, updated_at
      FROM amazon_payment_clearing_account_mappings
-     ORDER BY account_code ASC`
+     WHERE marketplace = $1
+     ORDER BY account_code ASC`,
+    [String(marketplace || 'KSA').toUpperCase()]
   )
   return result.rows.map((row) => ({
     accountCode: row.account_code,
+    marketplace: row.marketplace || 'KSA',
     accountName: row.account_name || '',
     accountId: row.account_id || '',
     source: row.source || '',
@@ -804,17 +835,18 @@ async function getAccountMappings() {
   }))
 }
 
-async function getAccountMappingByCode(accountCode) {
+async function getAccountMappingByCode(accountCode, marketplace = 'KSA') {
   const result = await query(
-    `SELECT account_code, account_name, account_id, source, updated_at
+    `SELECT account_code, marketplace, account_name, account_id, source, updated_at
      FROM amazon_payment_clearing_account_mappings
-     WHERE account_code = $1`,
-    [String(accountCode)]
+     WHERE marketplace = $1 AND account_code = $2`,
+    [String(marketplace || 'KSA').toUpperCase(), String(accountCode)]
   )
   const row = result.rows[0]
   if (!row) return null
   return {
     accountCode: row.account_code,
+    marketplace: row.marketplace || 'KSA',
     accountName: row.account_name || '',
     accountId: row.account_id || '',
     source: row.source || '',
@@ -822,22 +854,29 @@ async function getAccountMappingByCode(accountCode) {
   }
 }
 
-async function upsertAccountMapping({ accountCode, accountName, accountId, source }) {
+async function upsertAccountMapping({ accountCode, accountName, accountId, source, marketplace = 'KSA' }) {
   const result = await query(
     `INSERT INTO amazon_payment_clearing_account_mappings (
-      account_code, account_name, account_id, source, created_at, updated_at
-    ) VALUES ($1,$2,$3,$4,NOW(),NOW())
-    ON CONFLICT (account_code) DO UPDATE
+      marketplace, account_code, account_name, account_id, source, created_at, updated_at
+    ) VALUES ($1,$2,$3,$4,$5,NOW(),NOW())
+    ON CONFLICT (marketplace, account_code) DO UPDATE
     SET account_name = EXCLUDED.account_name,
         account_id = EXCLUDED.account_id,
         source = EXCLUDED.source,
         updated_at = NOW()
-    RETURNING account_code, account_name, account_id, source, updated_at`,
-    [String(accountCode), accountName || null, String(accountId), source || 'chartofaccounts']
+    RETURNING account_code, marketplace, account_name, account_id, source, updated_at`,
+    [
+      String(marketplace || 'KSA').toUpperCase(),
+      String(accountCode),
+      accountName || null,
+      String(accountId),
+      source || 'chartofaccounts',
+    ]
   )
   const row = result.rows[0]
   return {
     accountCode: row.account_code,
+    marketplace: row.marketplace || 'KSA',
     accountName: row.account_name || '',
     accountId: row.account_id || '',
     source: row.source || '',

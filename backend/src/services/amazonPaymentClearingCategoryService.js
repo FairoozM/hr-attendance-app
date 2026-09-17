@@ -149,6 +149,8 @@ function categorizeSettlementRow(row) {
     hay.includes('fba') ||
     hay.includes('fulfillment') ||
     hay.includes('fulfilment') ||
+    hay.includes('seller flex') ||
+    hay.includes('sellerflex') ||
     hay.includes('pick') ||
     hay.includes('pack') ||
     hay.includes('weight handling')
@@ -342,6 +344,8 @@ function normalizeAmazonFeeType(row) {
     hay.includes('shipping fee') ||
     hay.includes('fulfillment fee') ||
     hay.includes('fulfilment fee') ||
+    hay.includes('seller flex') ||
+    hay.includes('sellerflex') ||
     hay.includes('shipping chargeback') ||
     hay.includes('delivery service fee')
   ) {

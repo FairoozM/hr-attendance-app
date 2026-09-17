@@ -49,7 +49,7 @@ export function Step9ReturnFeeClearing({ ctx }: { ctx: ClearingContext }) {
       ) : varianceBlockers > 0 ? (
         <p className="apc-muted">
           {varianceBlockers} return order(s) have fee residuals that need a variance account or manual review before
-          journals can post. Set <code>AMAZON_KSA_ZOHO_RETURN_VARIANCE_ACCOUNT_ID</code> on the backend or review the
+          journals can post. Set <code>{ctx.marketplace === 'UAE' ? 'AMAZON_UAE_ZOHO_RETURN_VARIANCE_ACCOUNT_ID' : 'AMAZON_KSA_ZOHO_RETURN_VARIANCE_ACCOUNT_ID'}</code> on the backend or review the
           planned journal table below.
         </p>
       ) : null}
@@ -83,8 +83,8 @@ export function Step9ReturnFeeClearing({ ctx }: { ctx: ClearingContext }) {
 
       <section className="apc-summary-grid">
         <SummaryCard label="Return Orders" value={plan?.summary?.orderCount ?? '-'} />
-        <SummaryCard label="Commission Reversal" value={money(plan?.summary?.commissionReversalTotal ?? 0)} />
-        <SummaryCard label="Shipping Retained" value={money(plan?.summary?.shippingRetainedTotal ?? 0)} />
+        <SummaryCard label="Commission Reversal" value={money(plan?.summary?.commissionReversalTotal ?? 0, ctx.currency)} />
+        <SummaryCard label="Shipping Retained" value={money(plan?.summary?.shippingRetainedTotal ?? 0, ctx.currency)} />
         <SummaryCard label="Journal Lines" value={plan?.summary?.journalLineCount ?? '-'} />
         <SummaryCard label="Variance Blockers" value={plan?.summary?.varianceBlockerCount ?? 0} />
       </section>
@@ -110,10 +110,10 @@ export function Step9ReturnFeeClearing({ ctx }: { ctx: ClearingContext }) {
               (plan?.breakdowns || []).map((row) => (
                 <tr key={row.orderId}>
                   <td>{row.orderId}</td>
-                  <td className="apc-money">{money(row.customerRefundAmount)}</td>
-                  <td className="apc-money">{money(row.commissionReversal)}</td>
-                  <td className="apc-money">{money(row.shippingFbaRetained)}</td>
-                  <td className="apc-money">{money(row.netReturnSettlement)}</td>
+                  <td className="apc-money">{money(row.customerRefundAmount, ctx.currency)}</td>
+                  <td className="apc-money">{money(row.commissionReversal, ctx.currency)}</td>
+                  <td className="apc-money">{money(row.shippingFbaRetained, ctx.currency)}</td>
+                  <td className="apc-money">{money(row.netReturnSettlement, ctx.currency)}</td>
                 </tr>
               ))
             )}
@@ -144,7 +144,7 @@ export function Step9ReturnFeeClearing({ ctx }: { ctx: ClearingContext }) {
                 <tr key={row.key}>
                   <td>{row.orderId}</td>
                   <td>{row.feeType}</td>
-                  <td className="apc-money">{money(row.amount)}</td>
+                  <td className="apc-money">{money(row.amount, ctx.currency)}</td>
                   <td>{row.debit?.accountName || row.debit?.accountCode || '-'}</td>
                   <td>{row.credit?.accountName || row.credit?.accountCode || '-'}</td>
                   <td>{row.blockingReason || row.status}</td>

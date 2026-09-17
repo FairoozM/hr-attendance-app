@@ -202,16 +202,16 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
                   <td>
                     {row.zohoCreditNoteNumber || row.zohoCreditNoteId || (row.action.startsWith('create_') ? 'Will create' : '-')}
                   </td>
-                  <td className="apc-money">{row.creditNoteAmount ? money(row.creditNoteAmount) : '-'}</td>
-                  <td className="apc-money">{money(row.amazonRefundAmount ?? row.applyAmount)}</td>
+                  <td className="apc-money">{row.creditNoteAmount ? money(row.creditNoteAmount, ctx.currency) : '-'}</td>
+                  <td className="apc-money">{money(row.amazonRefundAmount ?? row.applyAmount, ctx.currency)}</td>
                   <td className="apc-money">
-                    {READY_ACTIONS.has(row.action) ? money(row.refundAmount ?? row.applyAmount) : '-'}
+                    {READY_ACTIONS.has(row.action) ? money(row.refundAmount ?? row.applyAmount, ctx.currency) : '-'}
                   </td>
                   <td>{row.refundAccountName || (READY_ACTIONS.has(row.action) ? undepositedFundsLabel(ctx.marketplace) : '-')}</td>
                   <td className="apc-money">
                     {(row.amountAlreadyRefunded ?? row.amountAlreadyApplied) != null &&
                     (row.amountAlreadyRefunded ?? row.amountAlreadyApplied)! > 0
-                      ? money(row.amountAlreadyRefunded ?? row.amountAlreadyApplied)
+                      ? money(row.amountAlreadyRefunded ?? row.amountAlreadyApplied, ctx.currency)
                       : '-'}
                   </td>
                   <td>{ACTION_LABEL[row.action] || row.action}</td>

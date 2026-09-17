@@ -256,7 +256,7 @@ async function buildAndSavePreviewFromParsed({
       settlementStartDate: metadata.settlementStartDate,
       settlementEndDate: metadata.settlementEndDate,
       depositDate: metadata.depositDate,
-      currency: settlementCurrencyForCustomer(zohoCustomerName, metadata.currency),
+      currency: settlementCurrencyForCustomer(zohoCustomerName, metadata.currency, cfg.currency),
       marketplace: cfg.code,
     },
     rows: settlementRows,
@@ -350,7 +350,7 @@ async function buildPreviewFromReport(options = {}) {
   }
 
   const reportText = await downloadSettlementReportDocument(report.reportDocumentId, options)
-  const parsed = parseAmazonSettlementReport(reportText)
+  const parsed = parseAmazonSettlementReport(reportText, { defaultCurrency: cfg.currency })
   return buildAndSavePreviewFromParsed({
     report,
     parsed,
@@ -369,7 +369,7 @@ async function buildPreviewFromUploadedSettlement(options = {}) {
   const cfg = marketplaceConfigFromOptions(options)
   const forceRefresh = options.forceRefresh === true
   const fileName = String(options.fileName || options.originalname || 'settlement.tsv').trim()
-  const parsed = parseAmazonSettlementReportBuffer(options.buffer, fileName)
+  const parsed = parseAmazonSettlementReportBuffer(options.buffer, fileName, { defaultCurrency: cfg.currency })
   const metadata = parsed.metadata || {}
   if (!metadata.settlementId && !(parsed.rows || []).length) {
     const err = new Error('Could not parse settlement rows from the uploaded file. Export the Amazon settlement as TSV/CSV or XLSX.')
@@ -652,7 +652,11 @@ function savedBatchToPreview(batch) {
       settlementStartDate: batch.report?.settlementStartDate || '',
       settlementEndDate: batch.report?.settlementEndDate || '',
       depositDate: batch.report?.depositDate || '',
-      currency: settlementCurrencyForCustomer(batch.zohoCustomerName, batch.report?.currency || 'SAR'),
+      currency: settlementCurrencyForCustomer(
+        batch.zohoCustomerName,
+        batch.report?.currency,
+        getPaymentClearingMarketplaceConfig(batch.marketplace || MARKETPLACE).currency
+      ),
     },
     totals: batch.totals || {},
     pivot: batch.pivot || [],
@@ -722,7 +726,7 @@ function storedRowsToSettlementRows(storedRows, report = {}, customerName = '') 
       transactionType: row.transactionType || raw.transactionType || '',
       amountType: row.amountType || raw.amountType || '',
       amountDescription: row.amountDescription || raw.amountDescription || '',
-      currency: row.currency || raw.currency || report.currency || 'SAR',
+      currency: row.currency || raw.currency || report.currency || (String(report.marketplace || '').toUpperCase() === 'UAE' ? 'AED' : 'SAR'),
       ...settlementDates,
     }
   })
@@ -1164,7 +1168,7 @@ async function listSavedBatches(limit = 50, options = {}) {
       settlementStartDate: batch.report?.settlementStartDate || '',
       settlementEndDate: batch.report?.settlementEndDate || '',
       depositDate: batch.report?.depositDate || '',
-      currency: settlementCurrencyForCustomer(batch.zohoCustomerName, batch.report?.currency || (cfg.code === 'UAE' ? 'AED' : 'SAR')),
+      currency: settlementCurrencyForCustomer(batch.zohoCustomerName, batch.report?.currency, cfg.currency),
       status: batch.status,
       lifecycleStatus: deriveLifecycleStatus(batch),
       postedToZoho: Boolean(batch.postedToZoho),

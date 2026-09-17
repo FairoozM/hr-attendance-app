@@ -22,17 +22,18 @@ import {
   type SavedBatchSummary,
   type SettlementReport,
 } from '../../../api/amazonPaymentClearing'
-import { isSettlementReconciliationAcceptable, legacySettlementMismatchBlocksClearing, safeError } from './clearingShared'
+import {
+  clearingBasePath,
+  clearingPageTitle,
+  defaultCurrency,
+  defaultZohoCustomerName,
+  marketplaceFromPathname,
+} from './marketplaceConfig'
+import { isSettlementReconciliationAcceptable, legacySettlementMismatchBlocksClearing, previewCurrency, safeError } from './clearingShared'
 import { CLEARING_STEPS, type StepStatus } from './clearingSteps'
 import { ClearingStepper, StepPanel } from './components/ClearingStepper'
 import { ForceRepostModal } from './components/ForceRepostModal'
 import { useClearingSearch } from './hooks/useClearingSearch'
-import {
-  clearingBasePath,
-  clearingPageTitle,
-  defaultZohoCustomerName,
-  marketplaceFromPathname,
-} from './marketplaceConfig'
 import type { ClearingContext } from './steps/clearingContext'
 import { Step1SelectSettlement } from './steps/Step1SelectSettlement'
 import { Step2ParsedRows } from './steps/Step2ParsedRows'
@@ -171,7 +172,7 @@ export function AmazonPaymentClearingPage() {
       setReturnFeeBlockerCount(0)
       setReturnFeePostComplete(false)
     }
-  }, [isPosted, preview?.batch?.batchId])
+  }, [isPosted, preview?.batch?.batchId, marketplace])
 
   useEffect(() => {
     void refreshPostClearingStepStatus()
@@ -187,7 +188,7 @@ export function AmazonPaymentClearingPage() {
     } finally {
       setLoadingBatches(false)
     }
-  }, [])
+  }, [marketplace])
 
   useEffect(() => {
     void loadSavedBatches()
@@ -202,7 +203,7 @@ export function AmazonPaymentClearingPage() {
         setZohoCustomers([])
       }
     })()
-  }, [])
+  }, [marketplace])
 
   const onFetchReports = useCallback(async () => {
     setLoadingReports(true)
@@ -268,7 +269,7 @@ export function AmazonPaymentClearingPage() {
         setPreviewing(false)
       }
     },
-    [applyPreview, loadSavedBatches, navigate, reportDocumentId, reportId, selectedZohoCustomer, zohoCustomerName]
+    [applyPreview, loadSavedBatches, marketplace, navigate, reportDocumentId, reportId, selectedZohoCustomer, zohoCustomerName]
   )
 
   const onRefreshFromAmazon = useCallback(() => {
@@ -362,7 +363,7 @@ export function AmazonPaymentClearingPage() {
     } finally {
       setApproving(false)
     }
-  }, [isApproved, isPosted, loadSavedBatches, navigate, preview?.batch?.batchId])
+  }, [isApproved, isPosted, loadSavedBatches, marketplace, navigate, preview?.batch?.batchId])
 
   const onGeneratePaymentPreview = useCallback(async () => {
     const batchId = preview?.batch?.batchId
@@ -381,7 +382,7 @@ export function AmazonPaymentClearingPage() {
     } finally {
       setGeneratingPaymentPreview(false)
     }
-  }, [canGeneratePaymentPreview, navigate, preview?.batch?.batchId])
+  }, [canGeneratePaymentPreview, marketplace, navigate, preview?.batch?.batchId])
 
   const onRunPosting = useCallback(
     async (dryRun: boolean) => {
@@ -412,7 +413,7 @@ export function AmazonPaymentClearingPage() {
         setPosting(false)
       }
     },
-    [loadSavedBatches, preview?.batch?.batchId, refreshPostClearingStepStatus]
+    [loadSavedBatches, marketplace, preview?.batch?.batchId, refreshPostClearingStepStatus]
   )
 
   const onPostReturnFeeJournals = useCallback(
@@ -444,7 +445,7 @@ export function AmazonPaymentClearingPage() {
         setPostingReturnFees(false)
       }
     },
-    [preview?.batch?.batchId, refreshPostClearingStepStatus]
+    [marketplace, preview?.batch?.batchId, refreshPostClearingStepStatus]
   )
 
   const onConfirmForceRepost = useCallback(
@@ -470,7 +471,7 @@ export function AmazonPaymentClearingPage() {
         setPosting(false)
       }
     },
-    [loadSavedBatches, preview?.batch?.batchId]
+    [loadSavedBatches, marketplace, preview?.batch?.batchId]
   )
 
   const onMarkAccountLevelFee = useCallback(
@@ -487,11 +488,12 @@ export function AmazonPaymentClearingPage() {
         setError(safeError(e))
       }
     },
-    [preview?.batch?.batchId]
+    [marketplace, preview?.batch?.batchId]
   )
 
   const ctx: ClearingContext = {
     marketplace,
+    currency: previewCurrency(preview, marketplace) || defaultCurrency(marketplace),
     preview,
     paymentPreview,
     postingResult,
@@ -611,7 +613,7 @@ export function AmazonPaymentClearingPage() {
   return (
     <div className="ainv-page apc-page">
       <section className="ainv-page__header">
-        <div className="ainv-page__eyebrow ainv-page__eyebrow--amber">Management · Amazon · KSA</div>
+        <div className="ainv-page__eyebrow ainv-page__eyebrow--amber">Management · Amazon · {marketplace}</div>
         <h1 className="ainv-page__title">{clearingPageTitle(marketplace)}</h1>
         <p className="ainv-page__lead">
           Fetch once, reconcile sales and returns against Zoho, and post grouped Record Payments — with every warning
@@ -623,7 +625,12 @@ export function AmazonPaymentClearingPage() {
         </div>
       </section>
 
-      <ClearingStepper activeStep={activeStep} stepStatuses={stepStatuses} onStepClick={goToStep} />
+      <ClearingStepper
+        marketplace={marketplace}
+        activeStep={activeStep}
+        stepStatuses={stepStatuses}
+        onStepClick={goToStep}
+      />
 
       {error ? <div className="apc-alert apc-alert--error" role="alert">{error}</div> : null}
       {notice ? <div className="apc-alert" role="status">{notice}</div> : null}

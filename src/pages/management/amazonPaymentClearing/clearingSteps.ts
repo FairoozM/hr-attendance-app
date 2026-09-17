@@ -13,7 +13,7 @@ export const CLEARING_STEPS: ClearingStep[] = [
     key: 'select',
     title: 'Select Settlement',
     description:
-      'Open a saved settlement batch from the database, or fetch a new Amazon KSA settlement report. Saved batches load instantly without calling Amazon again.',
+      'Open a saved settlement batch from the database, or fetch a new Amazon settlement report. Saved batches load instantly without calling Amazon again.',
   },
   {
     id: 2,

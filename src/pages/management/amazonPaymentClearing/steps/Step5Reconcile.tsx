@@ -10,12 +10,12 @@ export function Step5Reconcile({ ctx }: { ctx: ClearingContext }) {
   return (
     <div className="apc-step-stack">
       <section className="apc-summary-grid">
-        <SummaryCard label="Order Net Balance" value={money(preview.reconciliationSummary.orderLevelNetBalance)} />
-        <SummaryCard label="Refund/Return Impact" value={money(preview.reconciliationSummary.refundReturnImpact || 0)} />
-        <SummaryCard label="Settlement Deductions" value={money(preview.reconciliationSummary.settlementLevelDeductions)} />
-        <SummaryCard label="Expected Deposit" value={money(preview.reconciliationSummary.expectedAmazonDeposit)} />
-        <SummaryCard label="Actual Settlement" value={money(preview.reconciliationSummary.actualAmazonSettlement)} />
-        <SummaryCard label="Difference" value={money(preview.reconciliationSummary.reconciliationDifference)} />
+        <SummaryCard label="Order Net Balance" value={money(preview.reconciliationSummary.orderLevelNetBalance, ctx.currency)} />
+        <SummaryCard label="Refund/Return Impact" value={money(preview.reconciliationSummary.refundReturnImpact || 0, ctx.currency)} />
+        <SummaryCard label="Settlement Deductions" value={money(preview.reconciliationSummary.settlementLevelDeductions, ctx.currency)} />
+        <SummaryCard label="Expected Deposit" value={money(preview.reconciliationSummary.expectedAmazonDeposit, ctx.currency)} />
+        <SummaryCard label="Actual Settlement" value={money(preview.reconciliationSummary.actualAmazonSettlement, ctx.currency)} />
+        <SummaryCard label="Difference" value={money(preview.reconciliationSummary.reconciliationDifference, ctx.currency)} />
       </section>
 
       <SettlementReconciliation preview={preview} />
@@ -23,7 +23,7 @@ export function Step5Reconcile({ ctx }: { ctx: ClearingContext }) {
       <div className="apc-stage-panel__header">
         <h3 className="ainv-page__title" style={{ fontSize: '1rem' }}>Blocking issues</h3>
         {issues.length ? (
-          <button className="ainv-btn ainv-btn--sm" type="button" onClick={() => exportBlockingIssues(issues)}>
+          <button className="ainv-btn ainv-btn--sm" type="button" onClick={() => exportBlockingIssues(issues, ctx.marketplace)}>
             Export Excel
           </button>
         ) : null}

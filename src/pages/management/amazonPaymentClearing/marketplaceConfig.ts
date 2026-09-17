@@ -35,3 +35,21 @@ export function shippingAccountLabel(marketplace: ClearingMarketplace): string {
     ? 'Amazon Uncleared Shipping Exp'
     : 'KSA-Amazon Uncleared Shipping Exp'
 }
+
+export function defaultCurrency(marketplace: ClearingMarketplace): 'AED' | 'SAR' {
+  return marketplace === 'UAE' ? 'AED' : 'SAR'
+}
+
+export function paymentReferencePrefix(marketplace: ClearingMarketplace): string {
+  return marketplace === 'UAE' ? 'AMZ-UAE' : 'AMZ-KSA'
+}
+
+export function returnVarianceAccountEnv(marketplace: ClearingMarketplace): string {
+  return marketplace === 'UAE'
+    ? 'AMAZON_UAE_ZOHO_RETURN_VARIANCE_ACCOUNT_ID'
+    : 'AMAZON_KSA_ZOHO_RETURN_VARIANCE_ACCOUNT_ID'
+}
+
+export function exportFilenamePrefix(marketplace: ClearingMarketplace): string {
+  return marketplace === 'UAE' ? 'amazon-uae' : 'amazon-ksa'
+}

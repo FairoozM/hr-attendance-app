@@ -62,7 +62,7 @@ export function Step3MatchSales({ ctx }: { ctx: ClearingContext }) {
         <div className="apc-step-stack">
           {preview.unmatchedOrders.length ? (
             <div className="apc-button-row">
-              <button className="ainv-btn ainv-btn--sm" type="button" onClick={() => exportUnmatchedOrders(preview)}>
+              <button className="ainv-btn ainv-btn--sm" type="button" onClick={() => exportUnmatchedOrders(preview, ctx.marketplace)}>
                 Export Excel
               </button>
             </div>

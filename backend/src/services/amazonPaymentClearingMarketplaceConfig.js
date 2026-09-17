@@ -142,6 +142,10 @@ function feeJournalAccountSuggestions(key) {
         debitAccountName: 'Amazon Shipping Exp',
         creditAccountName: 'Amazon Uncleared Shipping Exp',
       },
+      SUBSCRIPTION: {
+        debitAccountName: 'Amazon Commission Exp',
+        creditAccountName: 'Amazon Uncleared Commission Exp',
+      },
       OTHER_ACCOUNT_LEVEL_FEE: {
         debitAccountName: '',
         creditAccountName: '',
@@ -172,6 +176,10 @@ function feeJournalAccountSuggestions(key) {
     SHIPPING_FBA: {
       debitAccountName: 'KSA Amazon Shipping Exp',
       creditAccountName: 'KSA-Amazon Uncleared Shipping Exp',
+    },
+    SUBSCRIPTION: {
+      debitAccountName: 'KSA Amazon Commission Exp',
+      creditAccountName: 'KSA-Amazon Uncleared Commission Exp',
     },
     OTHER_ACCOUNT_LEVEL_FEE: {
       debitAccountName: '',
@@ -208,6 +216,8 @@ function getPaymentClearingMarketplaceConfig(marketplace) {
     key,
     code,
     label: key === 'uae' ? 'Amazon UAE' : 'Amazon KSA',
+    currency: key === 'uae' ? 'AED' : 'SAR',
+    country: key === 'uae' ? 'AE' : 'SA',
     settlementReportType: readEnv(key, 'SETTLEMENT_REPORT_TYPE', DEFAULT_SETTLEMENT_REPORT_TYPE),
     settlementListDaysBack: readEnvNumber(key, 'SETTLEMENT_LIST_DAYS_BACK', AMAZON_LIST_REPORTS_MAX_DAYS_BACK),
     settlementListPageSize: readEnvNumber(key, 'SETTLEMENT_LIST_PAGE_SIZE', 100),

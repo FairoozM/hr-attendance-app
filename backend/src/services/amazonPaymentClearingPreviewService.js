@@ -794,8 +794,10 @@ function buildPreview({
     netNegativeReturnOrders,
   })
 
+  const marketplace = String(report.marketplace || 'KSA').toUpperCase() === 'UAE' ? 'UAE' : 'KSA'
+  const marketplaceCurrency = getPaymentClearingMarketplaceConfig(marketplace).currency
   const preview = {
-    marketplace: 'KSA',
+    marketplace,
     invoices,
     report: {
       reportId: report.reportId || '',
@@ -804,7 +806,7 @@ function buildPreview({
       settlementStartDate: report.settlementStartDate || '',
       settlementEndDate: report.settlementEndDate || '',
       depositDate: report.depositDate || '',
-      currency: report.currency || 'SAR',
+      currency: report.currency || marketplaceCurrency,
     },
     totals: {
       amazonSettlementTotal,
