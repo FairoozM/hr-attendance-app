@@ -60,8 +60,13 @@ async function fetchAccountDetail(accountId) {
 
 /**
  * Sum sales_with_tax from Books salesbycustomer for [fromDate, toDate].
+ * @param {string} fromDate
+ * @param {string} toDate
+ * @param {{ entityList?: string }} [opts] — e.g. `creditnote` to match Zoho UI with invoices filtered out
  */
-async function fetchSalesByCustomerTotal(fromDate, toDate) {
+async function fetchSalesByCustomerTotal(fromDate, toDate, opts = {}) {
+  const entityList = clean(opts.entityList)
+  const returnsOnly = entityList === 'creditnote'
   let page = 1
   let salesWithTax = 0
   let sales = 0
@@ -73,6 +78,7 @@ async function fetchSalesByCustomerTotal(fromDate, toDate) {
       page: String(page),
       per_page: '200',
     })
+    if (entityList) sp.set('entity_list', entityList)
     const json = await zohoBooksJsonRequest(
       `${BOOKS_V3}/reports/salesbycustomer`,
       sp,
@@ -82,8 +88,11 @@ async function fetchSalesByCustomerTotal(fromDate, toDate) {
     )
     const batch = Array.isArray(json?.sales) ? json.sales : []
     for (const row of batch) {
-      salesWithTax += toNumber(row.sales_with_tax)
-      sales += toNumber(row.sales)
+      const swt = toNumber(row.sales_with_tax)
+      const s = toNumber(row.sales)
+      // Credit-note-only report shows negatives in the Zoho UI; store as positive return amounts.
+      salesWithTax += returnsOnly ? Math.abs(swt) : swt
+      sales += returnsOnly ? Math.abs(s) : s
       rows.push(row)
     }
     if (!json?.page_context?.has_more_page) break
@@ -93,7 +102,13 @@ async function fetchSalesByCustomerTotal(fromDate, toDate) {
     salesWithTax: round2(salesWithTax),
     sales: round2(sales),
     rows,
+    entityList: entityList || null,
   }
+}
+
+/** Sales-by-customer restricted to credit notes (Zoho “filter out invoices”). */
+async function fetchSalesByCustomerReturnsTotal(fromDate, toDate) {
+  return fetchSalesByCustomerTotal(fromDate, toDate, { entityList: 'creditnote' })
 }
 
 /**
@@ -289,6 +304,7 @@ module.exports = {
   fetchChartOfAccountsRaw,
   fetchAccountDetail,
   fetchSalesByCustomerTotal,
+  fetchSalesByCustomerReturnsTotal,
   fetchInvoicesForDay,
   fetchCreditNotesForDay,
   fetchAllBankTransactions,

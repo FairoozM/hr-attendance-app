@@ -1,10 +1,7 @@
 /**
  * Management Ecommerce Summary — DAY / MONTH / YEAR / expenses / returns / ratios.
- * Sales from Zoho Books salesbycustomer + invoices/credit notes; expenses from Fixed/Flexible CoA parents.
- *
- * Call pattern is intentionally serial / low-concurrency: parallel Zoho bursts hit HTTP 429.
- * Month avg uses calendar days in the month through the report date (not one salesbycustomer
- * call per day) so the build stays inside reasonable wall time under job polling.
+ * Sales from Zoho Books salesbycustomer; returns from salesbycustomer entity_list=creditnote
+ * (matches Zoho UI with invoices filtered out). Expenses from Fixed/Flexible CoA parents.
  */
 
 const { dailyEcommerceLedgerAccounts: CFG } = require('../../config/dailyEcommerceLedgerAccounts')
@@ -25,9 +22,8 @@ const {
 } = require('../ecommerceAccounting/accountNature')
 const {
   fetchSalesByCustomerTotal,
+  fetchSalesByCustomerReturnsTotal,
   fetchInvoicesForDay,
-  fetchCreditNotesForDay,
-  fetchCreditNotes,
   fetchChartOfAccountsRaw,
   fetchExpenseTotalsSplit,
 } = require('../ecommerceAccounting/zohoBooksReads')
@@ -78,9 +74,8 @@ async function buildEcommerceSummaryReport(opts = {}) {
   const yearToDateSales = await fetchSalesByCustomerTotal(yearStart, reportDate)
   const monthToDateSales = await fetchSalesByCustomerTotal(monthStart, reportDate)
 
-  // Phase 2 — day invoice / CN detail
+  // Phase 2 — day invoice detail (cash vs credit); returns come from salesbycustomer below
   const dayInvoices = await fetchInvoicesForDay(reportDate)
-  const dayCreditNotes = await fetchCreditNotesForDay(reportDate)
 
   let cashSales = 0
   let creditSales = 0
@@ -103,7 +98,22 @@ async function buildEcommerceSummaryReport(opts = {}) {
   creditSales = round2(creditSales)
 
   const hasPaymentMode = invoiceDetails.some((r) => r.paymentMode)
-  const saleReturn = round2((dayCreditNotes.rows || []).reduce((s, cn) => s + toNumber(cn.total), 0))
+
+  // Phase 3 — returns via salesbycustomer entity_list=creditnote (Zoho UI: invoices filtered out)
+  const dayReturns = await fetchSalesByCustomerReturnsTotal(reportDate, reportDate)
+  const openingReturns =
+    before >= yearStart
+      ? await fetchSalesByCustomerReturnsTotal(yearStart, before)
+      : { salesWithTax: 0 }
+  const totalReturns = await fetchSalesByCustomerReturnsTotal(yearStart, reportDate)
+  const monthReturnsSbc = await fetchSalesByCustomerReturnsTotal(monthStart, reportDate)
+
+  const saleReturn = round2(dayReturns.salesWithTax)
+  const openingSaleReturn = round2(openingReturns.salesWithTax)
+  const totalSaleReturn = round2(totalReturns.salesWithTax)
+  const monthReturns = round2(monthReturnsSbc.salesWithTax)
+  const todaySaleReturn = saleReturn
+
   const dayGrossFromInvoices = round2(cashSales + creditSales)
   const todaySalesGross =
     dayGrossFromInvoices > 0 ? dayGrossFromInvoices : round2(daySales.salesWithTax + saleReturn)
@@ -120,24 +130,6 @@ async function buildEcommerceSummaryReport(opts = {}) {
 
   const yearAvgPerDay = totalDays > 0 ? round2(yearTotal / totalDays) : null
   const yearAvgPerMonth = monthNumber > 0 ? round2(yearTotal / monthNumber) : null
-
-  // Phase 3 — returns: one YTD credit-note pull
-  const yearCn = await fetchCreditNotes(yearStart, reportDate)
-  let openingSaleReturn = 0
-  let totalSaleReturn = 0
-  let monthReturns = 0
-  for (const cn of yearCn.rows || []) {
-    const d = clean(cn.date || cn.creditnote_date)
-    const amt = toNumber(cn.total)
-    if (!d || d > reportDate || d < yearStart) continue
-    totalSaleReturn += amt
-    if (d < reportDate) openingSaleReturn += amt
-    if (d >= monthStart && d <= reportDate) monthReturns += amt
-  }
-  openingSaleReturn = round2(openingSaleReturn)
-  totalSaleReturn = round2(totalSaleReturn)
-  monthReturns = round2(monthReturns)
-  const todaySaleReturn = saleReturn
 
   // Phase 4 — CoA + Fixed/Flexible (3 P&L ranges)
   const chartAccounts = await fetchChartOfAccountsRaw()
@@ -251,6 +243,8 @@ async function buildEcommerceSummaryReport(opts = {}) {
         'Fixed/Flexible totals sum P&L lines for Zoho parent + descendants only (not all Operating Expense accounts).',
       monthAvgDenominator:
         'Month Avg Sale / Day uses calendar days through the selected date (avoids per-day Zoho report calls).',
+      saleReturns:
+        'Sale returns use Zoho Sales by Customer with entity_list=creditnote (same as filtering out invoices in the Zoho UI), sales_with_tax absolute.',
     },
   }
 }
