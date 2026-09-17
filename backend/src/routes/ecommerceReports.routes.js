@@ -7,6 +7,8 @@ const {
   startDailyEcommerceLedger,
   getDailyEcommerceLedgerJob,
   getEcommerceSummaryReport,
+  startEcommerceSummaryReport,
+  getEcommerceSummaryJob,
 } = require('../controllers/ecommerceReportsController')
 
 const router = express.Router()
@@ -32,11 +34,25 @@ router.get(
   getDailyEcommerceLedgerJob
 )
 
-// GET /api/reports/ecommerce?date=YYYY-MM-DD  (management Ecommerce Summary)
+// Sync build (scripts). UI uses /build + poll.
 router.get(
   '/ecommerce',
   requirePermission('weekly_reports', 'view'),
   getEcommerceSummaryReport
+)
+
+// POST /api/reports/ecommerce/build { date? } -> 202 { jobId }
+router.post(
+  '/ecommerce/build',
+  requirePermission('weekly_reports', 'view'),
+  startEcommerceSummaryReport
+)
+
+// GET /api/reports/ecommerce/build/:jobId
+router.get(
+  '/ecommerce/build/:jobId',
+  requirePermission('weekly_reports', 'view'),
+  getEcommerceSummaryJob
 )
 
 module.exports = router

@@ -10,6 +10,10 @@ const {
 const {
   buildEcommerceSummaryReport,
 } = require('../services/ecommerceSummary/ecommerceSummaryService')
+const {
+  startSummaryJob,
+  getSummaryJob,
+} = require('../services/ecommerceSummary/ecommerceSummaryJobService')
 const { assertYmd, todayUaeYmd } = require('../services/ecommerceAccounting/accountNature')
 
 function resolveDate(req) {
@@ -72,6 +76,7 @@ async function getDailyEcommerceLedgerJob(req, res) {
   }
 }
 
+/** Sync build for scripts. UI must use start + poll (CloudFront ~30s). */
 async function getEcommerceSummaryReport(req, res) {
   try {
     const date = resolveDate(req)
@@ -87,9 +92,42 @@ async function getEcommerceSummaryReport(req, res) {
   }
 }
 
+async function startEcommerceSummaryReport(req, res) {
+  try {
+    const date = resolveDate(req)
+    const job = startSummaryJob({ date })
+    return res.status(202).json(job)
+  } catch (err) {
+    const status = err.code === 'BAD_REQUEST' ? 400 : 500
+    console.error('[ecommerceSummary] start', err)
+    return res.status(status).json({
+      error: err.message || 'Failed to start Ecommerce Summary build',
+      code: err.code || 'SUMMARY_JOB_START_ERROR',
+    })
+  }
+}
+
+async function getEcommerceSummaryJob(req, res) {
+  try {
+    const job = getSummaryJob(req.params.jobId)
+    if (!job) {
+      return res.status(404).json({
+        error: 'Summary job not found — it may have expired. Try again.',
+        code: 'SUMMARY_JOB_NOT_FOUND',
+      })
+    }
+    return res.json(job)
+  } catch (err) {
+    console.error('[ecommerceSummary] job status', err)
+    return res.status(500).json({ error: 'Failed to read summary job status' })
+  }
+}
+
 module.exports = {
   getDailyEcommerceLedger,
   startDailyEcommerceLedger,
   getDailyEcommerceLedgerJob,
   getEcommerceSummaryReport,
+  startEcommerceSummaryReport,
+  getEcommerceSummaryJob,
 }

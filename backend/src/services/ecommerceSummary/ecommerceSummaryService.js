@@ -50,15 +50,25 @@ function classifyInvoiceCashCredit(inv) {
 }
 
 async function sumSalesByDay(fromYmd, toYmd) {
-  const map = new Map()
+  const days = []
   let cur = fromYmd
-  // Cap concurrent days — use monthly salesbycustomer per day only when range small;
-  // for month avg we need days-with-sales: fetch whole month once then we need daily.
-  // salesbycustomer is period aggregate only — walk day by day (bounded by month length ≤ 31).
   while (cur <= toYmd) {
-    const { salesWithTax } = await fetchSalesByCustomerTotal(cur, cur)
-    map.set(cur, salesWithTax)
+    days.push(cur)
     cur = addDaysYmd(cur, 1)
+  }
+  // salesbycustomer is period-only — need one call per day for days-with-sales (≤ 31).
+  // Parallelize with a small pool so Zoho rate limits stay sane but wall time drops.
+  const map = new Map()
+  const concurrency = 6
+  for (let i = 0; i < days.length; i += concurrency) {
+    const chunk = days.slice(i, i + concurrency)
+    const results = await Promise.all(
+      chunk.map(async (d) => {
+        const { salesWithTax } = await fetchSalesByCustomerTotal(d, d)
+        return [d, salesWithTax]
+      })
+    )
+    for (const [d, salesWithTax] of results) map.set(d, salesWithTax)
   }
   return map
 }

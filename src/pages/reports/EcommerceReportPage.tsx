@@ -1,15 +1,20 @@
 /**
  * Ecommerce Report (management summary) — DAY / MONTH / YEAR / expenses / returns / ratios.
  * Route: /#/reports/ecommerce-report
+ *
+ * Build often exceeds the 25s client / ~30s CloudFront window (month day-by-day Zoho
+ * sales), so the page starts a background job and polls — same pattern as the ledger.
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { jsPDF } from 'jspdf'
 import html2canvas from 'html2canvas'
 import { api } from '../../api/client'
 import './EcommerceReportPage.css'
 
 const IANA_UAE = 'Asia/Dubai'
+const POLL_MS = 1500
+const MAX_WAIT_MS = 5 * 60 * 1000
 
 function todayUaeYmd(now = new Date()) {
   return new Intl.DateTimeFormat('en-CA', {
@@ -26,6 +31,10 @@ function addDaysYmd(dateYmd: string, delta: number) {
     `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}T12:00:00+04:00`
   )
   return todayUaeYmd(new Date(noon.getTime() + delta * 86400000))
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 function fmt(n: number | null | undefined) {
@@ -52,6 +61,15 @@ type SummaryReport = {
   limitations?: Record<string, string>
 }
 
+type SummaryJob = {
+  jobId: string
+  date: string
+  status: 'queued' | 'running' | 'completed' | 'failed'
+  progress?: string
+  error?: string | null
+  report?: SummaryReport | null
+}
+
 function MetricRows({ rows }: { rows: { label: string; value: number | null | undefined; deduct?: boolean }[] }) {
   return (
     <dl className="er-metrics">
@@ -69,25 +87,62 @@ export function EcommerceReportPage() {
   const [date, setDate] = useState(todayUaeYmd)
   const [report, setReport] = useState<SummaryReport | null>(null)
   const [loading, setLoading] = useState(false)
+  const [progress, setProgress] = useState('')
   const [error, setError] = useState('')
   const [printRoot, setPrintRoot] = useState<HTMLDivElement | null>(null)
+  const loadTokenRef = useRef<symbol | null>(null)
 
   const load = useCallback(async (ymd: string) => {
     setLoading(true)
     setError('')
+    setProgress('Starting…')
+    setReport(null)
+    const token = Symbol('summary-load')
+    loadTokenRef.current = token
+    const cancelled = () => loadTokenRef.current !== token
     try {
-      const data = (await api.get(`/api/reports/ecommerce?date=${encodeURIComponent(ymd)}`)) as SummaryReport
-      setReport(data)
+      const started = (await api.post('/api/reports/ecommerce/build', { date: ymd })) as SummaryJob
+      let job = started
+      const deadline = Date.now() + MAX_WAIT_MS
+      while (job.status === 'queued' || job.status === 'running') {
+        if (cancelled()) return
+        if (Date.now() > deadline) {
+          throw new Error(
+            'Report is still building on the server. Wait a minute and open this date again.'
+          )
+        }
+        setProgress(job.progress || 'Loading Zoho summary…')
+        await sleep(POLL_MS)
+        if (cancelled()) return
+        job = (await api.get(
+          `/api/reports/ecommerce/build/${encodeURIComponent(job.jobId)}`,
+          { timeoutMs: 15_000 }
+        )) as SummaryJob
+      }
+      if (cancelled()) return
+      if (job.status === 'failed') {
+        throw new Error(job.error || 'Summary build failed')
+      }
+      if (!job.report) {
+        throw new Error('Summary job finished without a report')
+      }
+      setReport(job.report)
+      setProgress('')
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load report')
-      setReport(null)
+      if (!cancelled()) {
+        setError(err instanceof Error ? err.message : 'Failed to load report')
+        setReport(null)
+      }
     } finally {
-      setLoading(false)
+      if (!cancelled()) setLoading(false)
     }
   }, [])
 
   useEffect(() => {
     void load(date)
+    return () => {
+      loadTokenRef.current = null
+    }
   }, [date, load])
 
   const exportPdf = async () => {
@@ -112,15 +167,27 @@ export function EcommerceReportPage() {
           </p>
         </div>
         <div className="er-controls">
-          <button type="button" onClick={() => setDate((d) => addDaysYmd(d, -1))}>
+          <button type="button" onClick={() => setDate((d) => addDaysYmd(d, -1))} disabled={loading}>
             Previous Day
           </button>
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-          <button type="button" onClick={() => setDate((d) => addDaysYmd(d, 1))} disabled={date >= todayUaeYmd()}>
+          <input
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            disabled={loading}
+          />
+          <button
+            type="button"
+            onClick={() => setDate((d) => addDaysYmd(d, 1))}
+            disabled={loading || date >= todayUaeYmd()}
+          >
             Next Day
           </button>
-          <button type="button" onClick={() => setDate(todayUaeYmd())}>
+          <button type="button" onClick={() => setDate(todayUaeYmd())} disabled={loading}>
             Today
+          </button>
+          <button type="button" onClick={() => void load(date)} disabled={loading}>
+            {loading ? 'Building…' : 'Reload'}
           </button>
           <button type="button" onClick={() => window.print()}>
             Print
@@ -131,7 +198,11 @@ export function EcommerceReportPage() {
         </div>
       </header>
 
-      {loading && <div className="er-banner">Loading…</div>}
+      {loading && (
+        <div className="er-banner">
+          Loading…{progress ? ` ${progress}` : ''}
+        </div>
+      )}
       {error && <div className="er-banner er-banner--err">{error}</div>}
       {(report?.warnings || []).map((w) => (
         <div key={w} className="er-banner er-banner--warn">
