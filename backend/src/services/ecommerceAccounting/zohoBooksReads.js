@@ -1,0 +1,251 @@
+/**
+ * Zoho Books read helpers for Ecommerce Ledger / Summary.
+ */
+
+const { zohoBooksJsonRequest } = require('../zohoApiClient')
+const { fetchInvoices, fetchCreditNotes } = require('../../integrations/zoho/zohoBooksClient')
+const { clean, toNumber, round2 } = require('./accountNature')
+
+const BOOKS_V3 = '/books/v3'
+
+async function fetchChartOfAccountsRaw() {
+  const all = []
+  let page = 1
+  while (page <= 20) {
+    const params = new URLSearchParams({
+      showbalance: 'true',
+      page: String(page),
+      per_page: '200',
+    })
+    const json = await zohoBooksJsonRequest(
+      `${BOOKS_V3}/chartofaccounts`,
+      params,
+      'GET',
+      undefined,
+      { source: 'ecommerce_accounting_coa', skipCache: true }
+    )
+    const batch = Array.isArray(json?.chartofaccounts) ? json.chartofaccounts : []
+    all.push(...batch)
+    if (!json?.page_context?.has_more_page) break
+    page += 1
+  }
+  return all.map((a) => ({
+    accountId: clean(a.account_id || a.id),
+    accountName: clean(a.account_name || a.name),
+    accountCode: clean(a.account_code || a.code),
+    accountType: clean(a.account_type || a.type),
+    parentAccountId: clean(a.parent_account_id || a.parent_id || ''),
+    isActive: a.is_active !== false,
+    currentBalance: toNumber(a.current_balance ?? a.balance),
+    closingBalance:
+      a.closing_balance != null && a.closing_balance !== ''
+        ? toNumber(a.closing_balance)
+        : null,
+    raw: a,
+  }))
+}
+
+async function fetchAccountDetail(accountId) {
+  const id = clean(accountId)
+  if (!id) return null
+  const json = await zohoBooksJsonRequest(
+    `${BOOKS_V3}/chartofaccounts/${encodeURIComponent(id)}`,
+    new URLSearchParams(),
+    'GET',
+    undefined,
+    { source: 'ecommerce_accounting_account_detail', skipCache: true }
+  )
+  return json?.chart_of_account || json?.chartofaccount || null
+}
+
+/**
+ * Sum sales_with_tax from Books salesbycustomer for [fromDate, toDate].
+ */
+async function fetchSalesByCustomerTotal(fromDate, toDate) {
+  let page = 1
+  let salesWithTax = 0
+  let sales = 0
+  const rows = []
+  while (page <= 30) {
+    const sp = new URLSearchParams({
+      from_date: fromDate,
+      to_date: toDate,
+      page: String(page),
+      per_page: '200',
+    })
+    const json = await zohoBooksJsonRequest(
+      `${BOOKS_V3}/reports/salesbycustomer`,
+      sp,
+      'GET',
+      undefined,
+      { source: 'ecommerce_accounting_salesbycustomer', skipCache: true }
+    )
+    const batch = Array.isArray(json?.sales) ? json.sales : []
+    for (const row of batch) {
+      salesWithTax += toNumber(row.sales_with_tax)
+      sales += toNumber(row.sales)
+      rows.push(row)
+    }
+    if (!json?.page_context?.has_more_page) break
+    page += 1
+  }
+  return {
+    salesWithTax: round2(salesWithTax),
+    sales: round2(sales),
+    rows,
+  }
+}
+
+/**
+ * Invoices for a single day — fetch range then filter client-side
+ * (Zoho list date filters are unreliable / newest-first truncated).
+ */
+async function fetchInvoicesForDay(dateYmd) {
+  const { rows, truncated } = await fetchInvoices(dateYmd, dateYmd)
+  const dayRows = (rows || []).filter((r) => clean(r.date) === dateYmd)
+  return { rows: dayRows, truncated, fetched: (rows || []).length }
+}
+
+async function fetchCreditNotesForDay(dateYmd) {
+  const { rows, truncated } = await fetchCreditNotes(dateYmd, dateYmd)
+  const dayRows = (rows || []).filter((r) => clean(r.date || r.creditnote_date) === dateYmd)
+  return { rows: dayRows, truncated, fetched: (rows || []).length }
+}
+
+/**
+ * Paginate bank transactions for an account (client-side date filter).
+ */
+async function fetchAllBankTransactions(accountId) {
+  const id = clean(accountId)
+  if (!id) return []
+  const all = []
+  let page = 1
+  while (page <= 50) {
+    const sp = new URLSearchParams({
+      account_id: id,
+      page: String(page),
+      per_page: '200',
+      filter_by: 'Status.All',
+    })
+    const json = await zohoBooksJsonRequest(
+      `${BOOKS_V3}/banktransactions`,
+      sp,
+      'GET',
+      undefined,
+      { source: 'ecommerce_accounting_bank_tx', skipCache: true }
+    )
+    const batch = Array.isArray(json?.banktransactions) ? json.banktransactions : []
+    all.push(...batch)
+    if (!json?.page_context?.has_more_page) break
+    page += 1
+  }
+  return all
+}
+
+async function fetchExpensesForDay(dateYmd) {
+  const all = []
+  let page = 1
+  while (page <= 20) {
+    const sp = new URLSearchParams({
+      date_start: dateYmd,
+      date_end: dateYmd,
+      page: String(page),
+      per_page: '200',
+    })
+    const json = await zohoBooksJsonRequest(
+      `${BOOKS_V3}/expenses`,
+      sp,
+      'GET',
+      undefined,
+      { source: 'ecommerce_accounting_expenses', skipCache: true }
+    )
+    const batch = Array.isArray(json?.expenses) ? json.expenses : []
+    all.push(...batch.filter((e) => clean(e.date) === dateYmd))
+    if (!json?.page_context?.has_more_page) break
+    page += 1
+  }
+  return all
+}
+
+/**
+ * Operating Expense total from P&L for [fromDate, toDate].
+ */
+async function fetchOperatingExpenseTotal(fromDate, toDate) {
+  const sp = new URLSearchParams({ from_date: fromDate, to_date: toDate })
+  const json = await zohoBooksJsonRequest(
+    `${BOOKS_V3}/reports/profitandloss`,
+    sp,
+    'GET',
+    undefined,
+    { source: 'ecommerce_accounting_pnl', skipCache: true }
+  )
+  let operating = null
+  let nonOperating = null
+  function walk(nodes) {
+    for (const n of nodes || []) {
+      if (n.name === 'Operating Expense' || n.total_label === 'Total Operating Expense') {
+        operating = toNumber(n.total)
+      }
+      if (n.name === 'Non Operating Expense' || n.total_label === 'Total Non Operating Expense') {
+        nonOperating = toNumber(n.total)
+      }
+      if (Array.isArray(n.account_transactions)) walk(n.account_transactions)
+    }
+  }
+  walk(json?.profit_and_loss)
+  return {
+    operatingExpense: operating == null ? null : round2(operating),
+    nonOperatingExpense: nonOperating == null ? null : round2(nonOperating),
+    raw: json,
+  }
+}
+
+/**
+ * Sum P&L amounts for accounts whose id is in accountIdSet under expense trees.
+ */
+async function fetchExpenseTotalsByAccountIds(fromDate, toDate, accountIdSet) {
+  const sp = new URLSearchParams({ from_date: fromDate, to_date: toDate })
+  const json = await zohoBooksJsonRequest(
+    `${BOOKS_V3}/reports/profitandloss`,
+    sp,
+    'GET',
+    undefined,
+    { source: 'ecommerce_accounting_pnl_accounts', skipCache: true }
+  )
+  const set = accountIdSet instanceof Set ? accountIdSet : new Set(accountIdSet || [])
+  let total = 0
+  const matched = []
+  function walk(nodes) {
+    for (const n of nodes || []) {
+      const id = clean(n.account_id)
+      if (id && set.has(id)) {
+        const amt = toNumber(n.total)
+        total += amt
+        matched.push({
+          accountId: id,
+          accountName: clean(n.name),
+          accountCode: clean(n.account_code),
+          total: round2(amt),
+        })
+      }
+      if (Array.isArray(n.account_transactions)) walk(n.account_transactions)
+    }
+  }
+  walk(json?.profit_and_loss)
+  return { total: round2(total), matched, raw: json }
+}
+
+module.exports = {
+  BOOKS_V3,
+  fetchChartOfAccountsRaw,
+  fetchAccountDetail,
+  fetchSalesByCustomerTotal,
+  fetchInvoicesForDay,
+  fetchCreditNotesForDay,
+  fetchAllBankTransactions,
+  fetchExpensesForDay,
+  fetchOperatingExpenseTotal,
+  fetchExpenseTotalsByAccountIds,
+  fetchInvoices,
+  fetchCreditNotes,
+}

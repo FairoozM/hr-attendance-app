@@ -487,6 +487,8 @@ export function Layout() {
     if (location.pathname.startsWith('/prices/saved-composite-items')) return 'Saved Composite Items'
     if (location.pathname.startsWith('/management/document-expiry')) return 'Document Expiry Tracker'
     if (location.pathname.startsWith('/management/subscriptions')) return 'Subscription Management'
+    if (location.pathname.startsWith('/reports/daily-ecommerce-ledger')) return 'Daily Ecommerce Ledger'
+    if (location.pathname.startsWith('/reports/ecommerce-report')) return 'Ecommerce Report'
     if (location.pathname.startsWith('/reports/daily-ecommerce')) return 'Daily Ecommerce Report'
     if (location.pathname.startsWith('/reports/weekly-report/weekly-ads'))   return 'Weekly Ads Report'
     if (location.pathname.startsWith('/reports/weekly-report/sales'))        return 'Weekly Sales Reports'
@@ -652,6 +654,8 @@ export function Layout() {
 
   const REPORTS_ITEMS = [
     hasWeeklyReportsAccess && { label: 'Daily Ecommerce Report', to: '/reports/daily-ecommerce' },
+    hasWeeklyReportsAccess && { label: 'Daily Ecommerce Ledger', to: '/reports/daily-ecommerce-ledger' },
+    hasWeeklyReportsAccess && { label: 'Ecommerce Report', to: '/reports/ecommerce-report' },
     hasWeeklyReportsAccess && { label: 'Weekly Ads Report',    to: '/reports/weekly-report/weekly-ads' },
     hasWeeklyReportsAccess && { label: 'Weekly Sales Reports', to: '/reports/weekly-report/sales'      },
     hasWeeklyReportsAccess && { label: 'Sales vs Expenses',    to: '/reports/sales-vs-expenses'        },

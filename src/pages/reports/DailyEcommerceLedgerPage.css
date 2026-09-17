@@ -1,0 +1,238 @@
+.del-page {
+  --del-bg: #0f1419;
+  --del-panel: #171d25;
+  --del-border: #2a3441;
+  --del-text: #e8eef5;
+  --del-muted: #9aa8b8;
+  --del-accent: #5b9fd4;
+  --del-danger: #e07a7a;
+  min-height: 100%;
+  padding: 1.25rem 1.5rem 3rem;
+  background: radial-gradient(1200px 600px at 10% -10%, #1a2430 0%, var(--del-bg) 55%);
+  color: var(--del-text);
+}
+
+.del-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-bottom: 1.25rem;
+}
+
+.del-header h1 {
+  margin: 0;
+  font-size: 1.65rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.del-subtitle {
+  margin: 0.25rem 0 0;
+  color: var(--del-muted);
+}
+
+.del-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.del-controls button,
+.del-controls input[type='date'] {
+  background: var(--del-panel);
+  border: 1px solid var(--del-border);
+  color: var(--del-text);
+  border-radius: 6px;
+  padding: 0.4rem 0.7rem;
+  font-size: 0.85rem;
+}
+
+.del-controls button:hover:not(:disabled) {
+  border-color: var(--del-accent);
+}
+
+.del-controls button:disabled {
+  opacity: 0.45;
+}
+
+.del-skeleton,
+.del-error,
+.del-empty {
+  padding: 1.25rem;
+  border-radius: 8px;
+  border: 1px solid var(--del-border);
+  background: var(--del-panel);
+}
+
+.del-error {
+  border-color: #5c3030;
+  color: var(--del-danger);
+}
+
+.del-print-meta {
+  display: none;
+}
+
+.del-section {
+  background: var(--del-panel);
+  border: 1px solid var(--del-border);
+  border-radius: 10px;
+  margin-bottom: 0.75rem;
+  overflow: hidden;
+}
+
+.del-section--warn {
+  border-color: #5a4a2a;
+}
+
+.del-section__head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1rem;
+}
+
+.del-section__toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+
+.del-section__toggle h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.del-section__chevron {
+  color: var(--del-muted);
+  width: 1rem;
+}
+
+.del-section__summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.85rem;
+  color: var(--del-muted);
+  font-size: 0.82rem;
+}
+
+.del-section__summary strong {
+  color: var(--del-text);
+  font-weight: 600;
+}
+
+.del-section__note {
+  margin: 0;
+  padding: 0 1rem 0.75rem;
+  color: #d2b48c;
+  font-size: 0.8rem;
+}
+
+.del-section__body {
+  border-top: 1px solid var(--del-border);
+  padding: 0.75rem 1rem 1rem;
+}
+
+.del-section__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  margin-bottom: 0.6rem;
+}
+
+.del-section__search {
+  flex: 1;
+  min-width: 180px;
+  background: #0f1419;
+  border: 1px solid var(--del-border);
+  color: var(--del-text);
+  border-radius: 6px;
+  padding: 0.4rem 0.65rem;
+}
+
+.del-section__acct {
+  color: var(--del-muted);
+  font-size: 0.78rem;
+}
+
+.del-table-wrap {
+  overflow-x: auto;
+}
+
+.del-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.del-table th,
+.del-table td {
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid #243040;
+  text-align: left;
+}
+
+.del-table th {
+  color: var(--del-muted);
+  font-weight: 500;
+}
+
+.del-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.del-table .neg {
+  color: var(--del-danger);
+}
+
+.del-row--open,
+.del-row--close {
+  background: #121820;
+  font-weight: 600;
+}
+
+.del-row--return td {
+  color: var(--del-danger);
+}
+
+.del-row--sum td {
+  color: var(--del-accent);
+  font-weight: 600;
+}
+
+@media print {
+  .del-controls {
+    display: none !important;
+  }
+  .del-page {
+    background: #fff;
+    color: #111;
+    padding: 0;
+  }
+  .del-print-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    margin-bottom: 0.75rem;
+  }
+  .del-section {
+    break-inside: avoid;
+    background: #fff;
+    border-color: #ccc;
+  }
+  .del-section__search {
+    display: none;
+  }
+}

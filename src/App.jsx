@@ -95,6 +95,8 @@ import { SavedCompositeItemsCustomPage } from './pages/prices/SavedCompositeItem
 import { CompositeItemsPriceReportsPage } from './pages/prices/CompositeItemsPriceReportsPage'
 import { WeeklyAdsReportPage } from './pages/reports/WeeklyAdsReportPage'
 import { DailyEcommerceReportPage } from './pages/reports/DailyEcommerceReportPage'
+import { DailyEcommerceLedgerPage } from './pages/reports/DailyEcommerceLedgerPage'
+import { EcommerceReportPage } from './pages/reports/EcommerceReportPage'
 import { WeeklySalesReportPage } from './pages/reports/WeeklySalesReportPage'
 import { WeeklyCombinedSalesReportPage } from './pages/reports/WeeklyCombinedSalesReportPage'
 import { KsaVatReportPage } from './pages/reports/KsaVatReportPage'
@@ -1098,6 +1100,22 @@ function AppContent() {
             element={
               <PermissionGuard module="weekly_reports" action="view">
                 <DailyEcommerceReportPage />
+              </PermissionGuard>
+            }
+          />
+          <Route
+            path="daily-ecommerce-ledger"
+            element={
+              <PermissionGuard module="weekly_reports" action="view">
+                <DailyEcommerceLedgerPage />
+              </PermissionGuard>
+            }
+          />
+          <Route
+            path="ecommerce-report"
+            element={
+              <PermissionGuard module="weekly_reports" action="view">
+                <EcommerceReportPage />
               </PermissionGuard>
             }
           />
