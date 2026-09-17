@@ -2,8 +2,9 @@
  * Management Ecommerce Summary — DAY / MONTH / YEAR / expenses / returns / ratios.
  * Sales from Zoho Books salesbycustomer + invoices/credit notes; expenses from Fixed/Flexible CoA parents.
  *
- * Call pattern is intentionally serial / low-concurrency: parallel Zoho bursts hit HTTP 429
- * and trip the global sync pause.
+ * Call pattern is intentionally serial / low-concurrency: parallel Zoho bursts hit HTTP 429.
+ * Month avg uses calendar days in the month through the report date (not one salesbycustomer
+ * call per day) so the build stays inside reasonable wall time under job polling.
  */
 
 const { dailyEcommerceLedgerAccounts: CFG } = require('../../config/dailyEcommerceLedgerAccounts')
@@ -16,13 +17,11 @@ const {
   monthNumberFromYmd,
   dayNameFromYmd,
   todayUaeYmd,
-  countDaysWithSales,
   calculateReturnSaleRatio,
   getDescendantAccountIds,
   clean,
   toNumber,
   round2,
-  addDaysYmd,
 } = require('../ecommerceAccounting/accountNature')
 const {
   fetchSalesByCustomerTotal,
@@ -50,19 +49,10 @@ function classifyInvoiceCashCredit(inv) {
   return 'credit'
 }
 
-/**
- * One salesbycustomer call per calendar day (sequential) for days-with-sales denominator.
- * Do not parallelize — concurrent reports reliably trip Zoho HTTP 429.
- */
-async function sumSalesByDay(fromYmd, toYmd) {
-  const map = new Map()
-  let cur = fromYmd
-  while (cur <= toYmd) {
-    const { salesWithTax } = await fetchSalesByCustomerTotal(cur, cur)
-    map.set(cur, salesWithTax)
-    cur = addDaysYmd(cur, 1)
-  }
-  return map
+/** Calendar days from month-start through reportDate (inclusive), min 1. */
+function calendarDaysThroughMonth(reportDate) {
+  assertYmd(reportDate)
+  return Math.max(1, Number(reportDate.slice(8, 10)) || 1)
 }
 
 /**
@@ -124,15 +114,14 @@ async function buildEcommerceSummaryReport(opts = {}) {
   const yearOpening = round2(yearOpeningSales.salesWithTax)
   const yearTotal = round2(yearToDateSales.salesWithTax)
 
-  // Phase 3 — days-with-sales (sequential per day)
-  const monthDaily = await sumSalesByDay(monthStart, reportDate)
-  const monthDaysWithSales = countDaysWithSales(monthDaily, monthStart, reportDate) || 1
+  // Calendar days — avoids 16–31 salesbycustomer calls that caused 429 + long builds
+  const monthDaysWithSales = calendarDaysThroughMonth(reportDate)
   const monthAvgPerDay = round2(monthTotal / monthDaysWithSales)
 
   const yearAvgPerDay = totalDays > 0 ? round2(yearTotal / totalDays) : null
   const yearAvgPerMonth = monthNumber > 0 ? round2(yearTotal / monthNumber) : null
 
-  // Phase 4 — returns: one YTD credit-note pull, derive opening / month / total
+  // Phase 3 — returns: one YTD credit-note pull
   const yearCn = await fetchCreditNotes(yearStart, reportDate)
   let openingSaleReturn = 0
   let totalSaleReturn = 0
@@ -150,7 +139,7 @@ async function buildEcommerceSummaryReport(opts = {}) {
   monthReturns = round2(monthReturns)
   const todaySaleReturn = saleReturn
 
-  // Phase 5 — CoA + Fixed/Flexible (3 P&L ranges, not 6)
+  // Phase 4 — CoA + Fixed/Flexible (3 P&L ranges)
   const chartAccounts = await fetchChartOfAccountsRaw()
   const fixedIds = getDescendantAccountIds(chartAccounts, CFG.fixedExpensesParentAccountId)
   const flexIds = getDescendantAccountIds(chartAccounts, CFG.flexibleExpensesParentAccountId)
@@ -175,6 +164,9 @@ async function buildEcommerceSummaryReport(opts = {}) {
       'Fixed/Flexible parent descendants have little/no P&L amount (Zoho hierarchy may not nest all expense accounts under those parents). Totals reflect matched descendant accounts only.'
     )
   }
+  warnings.push(
+    'Month Avg Sale / Day divides by calendar days in the month through this date (not distinct days-with-sales), to avoid Zoho rate limits.'
+  )
 
   const totalFlexible = round2(throughSplit.primaryTotal)
   const totalFixed = round2(throughSplit.secondaryTotal)
@@ -257,7 +249,8 @@ async function buildEcommerceSummaryReport(opts = {}) {
         'Cash vs Credit uses Zoho invoice payment_mode when present; otherwise invoices default to Credit Sales.',
       fixedFlexible:
         'Fixed/Flexible totals sum P&L lines for Zoho parent + descendants only (not all Operating Expense accounts).',
-      monthAvgDenominator: 'Month Avg Sale / Day uses count of days-with-sales in the month through the selected date.',
+      monthAvgDenominator:
+        'Month Avg Sale / Day uses calendar days through the selected date (avoids per-day Zoho report calls).',
     },
   }
 }
@@ -265,4 +258,5 @@ async function buildEcommerceSummaryReport(opts = {}) {
 module.exports = {
   buildEcommerceSummaryReport,
   classifyInvoiceCashCredit,
+  calendarDaysThroughMonth,
 }

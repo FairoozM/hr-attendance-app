@@ -101,7 +101,12 @@ export function EcommerceReportPage() {
     loadTokenRef.current = token
     const cancelled = () => loadTokenRef.current !== token
     try {
-      const started = (await api.post('/api/reports/ecommerce/build', { date: ymd })) as SummaryJob
+      // Short timeouts — each hop must stay under CloudFront; the build runs in the background.
+      const started = (await api.post(
+        '/api/reports/ecommerce/build',
+        { date: ymd },
+        { timeoutMs: 20_000 }
+      )) as SummaryJob
       let job = started
       const deadline = Date.now() + MAX_WAIT_MS
       while (job.status === 'queued' || job.status === 'running') {
@@ -116,7 +121,7 @@ export function EcommerceReportPage() {
         if (cancelled()) return
         job = (await api.get(
           `/api/reports/ecommerce/build/${encodeURIComponent(job.jobId)}`,
-          { timeoutMs: 15_000 }
+          { timeoutMs: 20_000 }
         )) as SummaryJob
       }
       if (cancelled()) return
@@ -129,8 +134,8 @@ export function EcommerceReportPage() {
         }
         throw new Error(errMsg)
       }
-      if (!job.report) {
-        throw new Error('Summary job finished without a report')
+      if (!job.report || !job.report.day) {
+        throw new Error('Summary job finished without a report — hard-refresh the page and try again.')
       }
       setReport(job.report)
       setProgress('')
@@ -240,7 +245,7 @@ export function EcommerceReportPage() {
                 { label: 'Avg Sale / Day', value: report.month.averageSalePerDay },
               ]}
             />
-            <p className="er-hint">Denominator: {report.month.daysWithSalesDenominator} days with sales</p>
+            <p className="er-hint">Denominator: {report.month.daysWithSalesDenominator} calendar days in month</p>
           </section>
           <section className="er-card">
             <h2>Year</h2>

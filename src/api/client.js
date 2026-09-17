@@ -57,6 +57,13 @@ function timeoutMsForPath(path, explicitMs) {
   if (normalized.includes('/inventory-health')) return 300_000
   if (normalized.includes('/bulk-quantity-adjustments')) return 300_000
   if (normalized.includes('/account-watchlist')) return 180_000
+  // Ecommerce Books reports must use short per-request timeouts + job polling (never one long GET).
+  if (
+    normalized.includes('/reports/ecommerce') ||
+    normalized.includes('/reports/daily-ecommerce-ledger')
+  ) {
+    return 20_000
+  }
   return API_REQUEST_TIMEOUT_MS
 }
 

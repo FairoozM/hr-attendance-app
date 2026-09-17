@@ -76,12 +76,17 @@ async function getDailyEcommerceLedgerJob(req, res) {
   }
 }
 
-/** Sync build for scripts. UI must use start + poll (CloudFront ~30s). */
+/** Sync only when ?sync=1 (scripts). Default GET starts a job so browsers never wait on one long request. */
 async function getEcommerceSummaryReport(req, res) {
   try {
     const date = resolveDate(req)
-    const report = await buildEcommerceSummaryReport({ date })
-    return res.json(report)
+    const wantSync = String(req.query?.sync || '').trim() === '1'
+    if (wantSync) {
+      const report = await buildEcommerceSummaryReport({ date })
+      return res.json(report)
+    }
+    const job = startSummaryJob({ date })
+    return res.status(202).json(job)
   } catch (err) {
     const status = err.code === 'BAD_REQUEST' ? 400 : 500
     console.error('[ecommerceSummary]', err)
