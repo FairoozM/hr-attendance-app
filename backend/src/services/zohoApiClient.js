@@ -84,6 +84,14 @@ function pauseFrom429() {
   console.warn('[zoho-api] PAUSED Zoho sync jobs until', new Date(syncPausedUntil).toISOString(), '(HTTP 429)')
 }
 
+/** Clear the in-memory pause so Books retries / report jobs can continue after a cooldown. */
+function clearSyncPause() {
+  if (syncPausedUntil > Date.now()) {
+    console.warn('[zoho-api] clearing sync pause (was until', new Date(syncPausedUntil).toISOString(), ')')
+  }
+  syncPausedUntil = 0
+}
+
 function isSyncPaused() {
   return Date.now() < syncPausedUntil
 }
@@ -611,11 +619,14 @@ async function zohoBooksJsonRequest(path, searchParams, method, body, meta = {})
 
   let token = await getZohoAccessToken()
   let transportAttempt = 0
+  let rateAttempt = 0
   let lastErr
+  const maxTransportRetries = 2
+  const max429Retries = 3
 
-  while (transportAttempt <= 2) {
+  while (transportAttempt <= maxTransportRetries) {
     try {
-      return await runInventoryJsonOnce({
+      const result = await runInventoryJsonOnce({
         url,
         method: methodU,
         body,
@@ -630,10 +641,25 @@ async function zohoBooksJsonRequest(path, searchParams, method, body, meta = {})
           token = t
         },
       })
+      // Successful Books call — drop pause so sibling report requests are not blocked.
+      clearSyncPause()
+      return result
     } catch (err) {
       lastErr = err
+      if (err && err.code === 'ZOHO_HTTP_429' && rateAttempt < max429Retries) {
+        const backoff = [10_000, 25_000, 45_000][rateAttempt] || 45_000
+        console.warn(
+          `[zoho-api] Books 429 — waiting ${backoff}ms then retry ${rateAttempt + 1}/${max429Retries}`,
+          pathBase
+        )
+        clearSyncPause()
+        await sleep(backoff)
+        rateAttempt += 1
+        token = await getZohoAccessToken()
+        continue
+      }
       if (err && err.code === 'ZOHO_HTTP_429') throw err
-      if (transportAttempt >= 2) break
+      if (transportAttempt >= maxTransportRetries) break
       const ok =
         isRetriableTransportError(err) ||
         (err && err.httpStatus && isRetriableHttpStatus(err.httpStatus))
@@ -668,6 +694,7 @@ module.exports = {
   getDailySuccessCount,
   invalidateDailyCountCache,
   isSyncPaused,
+  clearSyncPause,
   TTL_MS,
   CACHE_ENABLED,
 }

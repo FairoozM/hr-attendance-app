@@ -1,6 +1,9 @@
 /**
  * Management Ecommerce Summary — DAY / MONTH / YEAR / expenses / returns / ratios.
  * Sales from Zoho Books salesbycustomer + invoices/credit notes; expenses from Fixed/Flexible CoA parents.
+ *
+ * Call pattern is intentionally serial / low-concurrency: parallel Zoho bursts hit HTTP 429
+ * and trip the global sync pause.
  */
 
 const { dailyEcommerceLedgerAccounts: CFG } = require('../../config/dailyEcommerceLedgerAccounts')
@@ -27,8 +30,7 @@ const {
   fetchCreditNotesForDay,
   fetchCreditNotes,
   fetchChartOfAccountsRaw,
-  fetchExpenseTotalsByAccountIds,
-  fetchOperatingExpenseTotal,
+  fetchExpenseTotalsSplit,
 } = require('../ecommerceAccounting/zohoBooksReads')
 
 /**
@@ -41,7 +43,6 @@ function classifyInvoiceCashCredit(inv) {
   const balance = toNumber(inv.balance ?? inv.balance_due)
   if (mode.includes('cash')) return 'cash'
   if (status === 'paid' && (mode.includes('cash') || mode === '')) {
-    // Paid without explicit mode — treat as cash only when mode says cash; else credit settlement.
     if (mode.includes('cash')) return 'cash'
   }
   if (mode.includes('cash')) return 'cash'
@@ -49,26 +50,17 @@ function classifyInvoiceCashCredit(inv) {
   return 'credit'
 }
 
+/**
+ * One salesbycustomer call per calendar day (sequential) for days-with-sales denominator.
+ * Do not parallelize — concurrent reports reliably trip Zoho HTTP 429.
+ */
 async function sumSalesByDay(fromYmd, toYmd) {
-  const days = []
+  const map = new Map()
   let cur = fromYmd
   while (cur <= toYmd) {
-    days.push(cur)
+    const { salesWithTax } = await fetchSalesByCustomerTotal(cur, cur)
+    map.set(cur, salesWithTax)
     cur = addDaysYmd(cur, 1)
-  }
-  // salesbycustomer is period-only — need one call per day for days-with-sales (≤ 31).
-  // Parallelize with a small pool so Zoho rate limits stay sane but wall time drops.
-  const map = new Map()
-  const concurrency = 6
-  for (let i = 0; i < days.length; i += concurrency) {
-    const chunk = days.slice(i, i + concurrency)
-    const results = await Promise.all(
-      chunk.map(async (d) => {
-        const { salesWithTax } = await fetchSalesByCustomerTotal(d, d)
-        return [d, salesWithTax]
-      })
-    )
-    for (const [d, salesWithTax] of results) map.set(d, salesWithTax)
   }
   return map
 }
@@ -85,25 +77,20 @@ async function buildEcommerceSummaryReport(opts = {}) {
   const monthStart = monthStartYmd(reportDate)
   const before = previousYmd(reportDate)
 
-  const [
-    dayInvoices,
-    dayCreditNotes,
-    daySales,
-    monthOpeningSales,
-    yearOpeningSales,
-    yearToDateSales,
-    monthToDateSales,
-    chartAccounts,
-  ] = await Promise.all([
-    fetchInvoicesForDay(reportDate),
-    fetchCreditNotesForDay(reportDate),
-    fetchSalesByCustomerTotal(reportDate, reportDate),
-    before >= monthStart ? fetchSalesByCustomerTotal(monthStart, before) : Promise.resolve({ salesWithTax: 0 }),
-    before >= yearStart ? fetchSalesByCustomerTotal(yearStart, before) : Promise.resolve({ salesWithTax: 0 }),
-    fetchSalesByCustomerTotal(yearStart, reportDate),
-    fetchSalesByCustomerTotal(monthStart, reportDate),
-    fetchChartOfAccountsRaw(),
-  ])
+  // Phase 1 — period sales aggregates (one at a time)
+  const daySales = await fetchSalesByCustomerTotal(reportDate, reportDate)
+  const monthOpeningSales =
+    before >= monthStart
+      ? await fetchSalesByCustomerTotal(monthStart, before)
+      : { salesWithTax: 0 }
+  const yearOpeningSales =
+    before >= yearStart ? await fetchSalesByCustomerTotal(yearStart, before) : { salesWithTax: 0 }
+  const yearToDateSales = await fetchSalesByCustomerTotal(yearStart, reportDate)
+  const monthToDateSales = await fetchSalesByCustomerTotal(monthStart, reportDate)
+
+  // Phase 2 — day invoice / CN detail
+  const dayInvoices = await fetchInvoicesForDay(reportDate)
+  const dayCreditNotes = await fetchCreditNotesForDay(reportDate)
 
   let cashSales = 0
   let creditSales = 0
@@ -125,12 +112,11 @@ async function buildEcommerceSummaryReport(opts = {}) {
   cashSales = round2(cashSales)
   creditSales = round2(creditSales)
 
-  // If Zoho list has no payment_mode and everything classified credit, keep limitation note.
   const hasPaymentMode = invoiceDetails.some((r) => r.paymentMode)
   const saleReturn = round2((dayCreditNotes.rows || []).reduce((s, cn) => s + toNumber(cn.total), 0))
   const dayGrossFromInvoices = round2(cashSales + creditSales)
-  const dayNetFromInvoices = round2(dayGrossFromInvoices - saleReturn)
-  const todaySalesGross = dayGrossFromInvoices > 0 ? dayGrossFromInvoices : round2(daySales.salesWithTax + saleReturn)
+  const todaySalesGross =
+    dayGrossFromInvoices > 0 ? dayGrossFromInvoices : round2(daySales.salesWithTax + saleReturn)
   const dayTotalSales = round2(daySales.salesWithTax)
 
   const monthOpening = round2(monthOpeningSales.salesWithTax)
@@ -138,7 +124,7 @@ async function buildEcommerceSummaryReport(opts = {}) {
   const yearOpening = round2(yearOpeningSales.salesWithTax)
   const yearTotal = round2(yearToDateSales.salesWithTax)
 
-  // Days-with-sales for month average (choice A)
+  // Phase 3 — days-with-sales (sequential per day)
   const monthDaily = await sumSalesByDay(monthStart, reportDate)
   const monthDaysWithSales = countDaysWithSales(monthDaily, monthStart, reportDate) || 1
   const monthAvgPerDay = round2(monthTotal / monthDaysWithSales)
@@ -146,70 +132,61 @@ async function buildEcommerceSummaryReport(opts = {}) {
   const yearAvgPerDay = totalDays > 0 ? round2(yearTotal / totalDays) : null
   const yearAvgPerMonth = monthNumber > 0 ? round2(yearTotal / monthNumber) : null
 
-  // Returns YTD
-  const [yearReturnsBefore, yearReturnsThrough] = await Promise.all([
-    before >= yearStart
-      ? fetchCreditNotes(yearStart, before).then((r) =>
-          round2((r.rows || []).reduce((s, cn) => s + toNumber(cn.total), 0))
-        )
-      : Promise.resolve(0),
-    fetchCreditNotes(yearStart, reportDate).then((r) =>
-      round2((r.rows || []).reduce((s, cn) => s + toNumber(cn.total), 0))
-    ),
-  ])
-  const openingSaleReturn = yearReturnsBefore
-  const totalSaleReturn = yearReturnsThrough
+  // Phase 4 — returns: one YTD credit-note pull, derive opening / month / total
+  const yearCn = await fetchCreditNotes(yearStart, reportDate)
+  let openingSaleReturn = 0
+  let totalSaleReturn = 0
+  let monthReturns = 0
+  for (const cn of yearCn.rows || []) {
+    const d = clean(cn.date || cn.creditnote_date)
+    const amt = toNumber(cn.total)
+    if (!d || d > reportDate || d < yearStart) continue
+    totalSaleReturn += amt
+    if (d < reportDate) openingSaleReturn += amt
+    if (d >= monthStart && d <= reportDate) monthReturns += amt
+  }
+  openingSaleReturn = round2(openingSaleReturn)
+  totalSaleReturn = round2(totalSaleReturn)
+  monthReturns = round2(monthReturns)
   const todaySaleReturn = saleReturn
 
-  // Fixed / Flexible via parent descendants on P&L
+  // Phase 5 — CoA + Fixed/Flexible (3 P&L ranges, not 6)
+  const chartAccounts = await fetchChartOfAccountsRaw()
   const fixedIds = getDescendantAccountIds(chartAccounts, CFG.fixedExpensesParentAccountId)
   const flexIds = getDescendantAccountIds(chartAccounts, CFG.flexibleExpensesParentAccountId)
   const fixedSet = new Set(fixedIds)
   const flexSet = new Set(flexIds)
 
-  const [flexOpening, flexThrough, fixedOpening, fixedThrough, flexToday, fixedToday] =
-    await Promise.all([
-      before >= yearStart
-        ? fetchExpenseTotalsByAccountIds(yearStart, before, flexSet)
-        : Promise.resolve({ total: 0, matched: [] }),
-      fetchExpenseTotalsByAccountIds(yearStart, reportDate, flexSet),
-      before >= yearStart
-        ? fetchExpenseTotalsByAccountIds(yearStart, before, fixedSet)
-        : Promise.resolve({ total: 0, matched: [] }),
-      fetchExpenseTotalsByAccountIds(yearStart, reportDate, fixedSet),
-      fetchExpenseTotalsByAccountIds(reportDate, reportDate, flexSet),
-      fetchExpenseTotalsByAccountIds(reportDate, reportDate, fixedSet),
-    ])
+  const throughSplit = await fetchExpenseTotalsSplit(yearStart, reportDate, flexSet, fixedSet)
+  const openingSplit =
+    before >= yearStart
+      ? await fetchExpenseTotalsSplit(yearStart, before, flexSet, fixedSet)
+      : { primaryTotal: 0, secondaryTotal: 0 }
+  const todaySplit = await fetchExpenseTotalsSplit(reportDate, reportDate, flexSet, fixedSet)
 
-  // Fallback: if Fixed/Flexible P&L children sum ~0, use Operating Expense split note
   const warnings = []
   if (!hasPaymentMode) {
     warnings.push(
       'Zoho invoice list did not expose payment_mode for this day; Cash Sales may be 0 and all invoice totals classified as Credit Sales.'
     )
   }
-  if (Math.abs(flexThrough.total) < 0.01 && Math.abs(fixedThrough.total) < 0.01) {
+  if (Math.abs(throughSplit.primaryTotal) < 0.01 && Math.abs(throughSplit.secondaryTotal) < 0.01) {
     warnings.push(
       'Fixed/Flexible parent descendants have little/no P&L amount (Zoho hierarchy may not nest all expense accounts under those parents). Totals reflect matched descendant accounts only.'
     )
   }
 
-  const totalFlexible = round2(flexThrough.total)
-  const totalFixed = round2(fixedThrough.total)
-  const openingFlexible = round2(flexOpening.total)
-  const openingFixed = round2(fixedOpening.total)
-  const todayFlexible = round2(flexToday.total)
-  const todayFixed = round2(fixedToday.total)
+  const totalFlexible = round2(throughSplit.primaryTotal)
+  const totalFixed = round2(throughSplit.secondaryTotal)
+  const openingFlexible = round2(openingSplit.primaryTotal)
+  const openingFixed = round2(openingSplit.secondaryTotal)
+  const todayFlexible = round2(todaySplit.primaryTotal)
+  const todayFixed = round2(todaySplit.secondaryTotal)
 
-  // Month returns for ratio: need month return total
-  const monthReturns = await fetchCreditNotes(monthStart, reportDate).then((r) =>
-    round2((r.rows || []).reduce((s, cn) => s + toNumber(cn.total), 0))
-  )
   const monthGrossApprox = round2(monthTotal + monthReturns)
 
   const dayRatio = calculateReturnSaleRatio(saleReturn, todaySalesGross || dayGrossFromInvoices)
   const monthRatio = calculateReturnSaleRatio(monthReturns, monthGrossApprox || monthTotal)
-  // Year: legacy 11% = returns / net year total
   const yearRatio = calculateReturnSaleRatio(totalSaleReturn, yearTotal)
 
   return {
@@ -271,7 +248,6 @@ async function buildEcommerceSummaryReport(opts = {}) {
       day: dayRatio,
       month: monthRatio,
       year: yearRatio,
-      /** percent points for UI */
       dayDisplay: dayRatio == null ? null : Math.round(dayRatio),
       monthDisplay: monthRatio == null ? null : Math.round(monthRatio),
       yearDisplay: yearRatio == null ? null : Math.round(yearRatio),

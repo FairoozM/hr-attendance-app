@@ -224,6 +224,15 @@ async function fetchOperatingExpenseTotal(fromDate, toDate) {
  * Sum P&L amounts for accounts whose id is in accountIdSet under expense trees.
  */
 async function fetchExpenseTotalsByAccountIds(fromDate, toDate, accountIdSet) {
+  const split = await fetchExpenseTotalsSplit(fromDate, toDate, accountIdSet, new Set())
+  return { total: split.primaryTotal, matched: split.primaryMatched, raw: split.raw }
+}
+
+/**
+ * One P&L fetch → totals for two account id sets (Fixed vs Flexible).
+ * Avoids duplicate profitandloss calls for the same date range.
+ */
+async function fetchExpenseTotalsSplit(fromDate, toDate, primarySet, secondarySet) {
   const sp = new URLSearchParams({ from_date: fromDate, to_date: toDate })
   const json = await zohoBooksJsonRequest(
     `${BOOKS_V3}/reports/profitandloss`,
@@ -232,27 +241,47 @@ async function fetchExpenseTotalsByAccountIds(fromDate, toDate, accountIdSet) {
     undefined,
     { source: 'ecommerce_accounting_pnl_accounts', skipCache: true }
   )
-  const set = accountIdSet instanceof Set ? accountIdSet : new Set(accountIdSet || [])
-  let total = 0
-  const matched = []
+  const primary = primarySet instanceof Set ? primarySet : new Set(primarySet || [])
+  const secondary = secondarySet instanceof Set ? secondarySet : new Set(secondarySet || [])
+  let primaryTotal = 0
+  let secondaryTotal = 0
+  const primaryMatched = []
+  const secondaryMatched = []
   function walk(nodes) {
     for (const n of nodes || []) {
       const id = clean(n.account_id)
-      if (id && set.has(id)) {
+      if (id) {
         const amt = toNumber(n.total)
-        total += amt
-        matched.push({
-          accountId: id,
-          accountName: clean(n.name),
-          accountCode: clean(n.account_code),
-          total: round2(amt),
-        })
+        if (primary.has(id)) {
+          primaryTotal += amt
+          primaryMatched.push({
+            accountId: id,
+            accountName: clean(n.name),
+            accountCode: clean(n.account_code),
+            total: round2(amt),
+          })
+        }
+        if (secondary.has(id)) {
+          secondaryTotal += amt
+          secondaryMatched.push({
+            accountId: id,
+            accountName: clean(n.name),
+            accountCode: clean(n.account_code),
+            total: round2(amt),
+          })
+        }
       }
       if (Array.isArray(n.account_transactions)) walk(n.account_transactions)
     }
   }
   walk(json?.profit_and_loss)
-  return { total: round2(total), matched, raw: json }
+  return {
+    primaryTotal: round2(primaryTotal),
+    secondaryTotal: round2(secondaryTotal),
+    primaryMatched,
+    secondaryMatched,
+    raw: json,
+  }
 }
 
 module.exports = {
@@ -267,6 +296,7 @@ module.exports = {
   fetchExpensesForDay,
   fetchOperatingExpenseTotal,
   fetchExpenseTotalsByAccountIds,
+  fetchExpenseTotalsSplit,
   fetchInvoices,
   fetchCreditNotes,
 }
