@@ -121,7 +121,13 @@ export function EcommerceReportPage() {
       }
       if (cancelled()) return
       if (job.status === 'failed') {
-        throw new Error(job.error || 'Summary build failed')
+        const errMsg = job.error || 'Summary build failed'
+        if (/429|rate limit|sync paused/i.test(errMsg)) {
+          throw new Error(
+            'Zoho is rate-limiting right now. Wait about a minute, then hit Reload — the build retries automatically.'
+          )
+        }
+        throw new Error(errMsg)
       }
       if (!job.report) {
         throw new Error('Summary job finished without a report')
