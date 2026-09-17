@@ -27,7 +27,7 @@ function stubReads(stubs) {
         fetchInvoicesForDay: stubs.fetchInvoicesForDay,
         fetchCreditNotesForDay: stubs.fetchCreditNotesForDay,
         fetchAccountDetail: stubs.fetchAccountDetail,
-        fetchAllBankTransactions: stubs.fetchAllBankTransactions,
+        fetchBankTransactionsSince: stubs.fetchBankTransactionsSince,
         fetchExpensesForDay: stubs.fetchExpensesForDay,
         fetchOperatingExpenseTotal: stubs.fetchOperatingExpenseTotal,
       }
@@ -72,7 +72,7 @@ describe('dailyEcommerceLedgerService (mocked Zoho)', () => {
         account_type: 'cash',
         closing_balance: 1024.89,
       }),
-      fetchAllBankTransactions: async () => [],
+      fetchBankTransactionsSince: async () => [],
       fetchExpensesForDay: async () => [],
       fetchOperatingExpenseTotal: async (from, to) => {
         if (from === to) return { operatingExpense: 0 }
@@ -103,7 +103,7 @@ describe('dailyEcommerceLedgerService (mocked Zoho)', () => {
         account_type: 'bank',
         closing_balance: 100,
       }),
-      fetchAllBankTransactions: async () => [],
+      fetchBankTransactionsSince: async () => [],
       fetchExpensesForDay: async () => [],
       fetchOperatingExpenseTotal: async () => ({ operatingExpense: 0 }),
     })
@@ -127,7 +127,7 @@ describe('dailyEcommerceLedgerService (mocked Zoho)', () => {
         account_type: 'cash',
         closing_balance: 0,
       }),
-      fetchAllBankTransactions: async () => [],
+      fetchBankTransactionsSince: async () => [],
       fetchExpensesForDay: async () => [
         {
           expense_id: 'e1',
@@ -169,7 +169,7 @@ describe('dailyEcommerceLedgerService (mocked Zoho)', () => {
         account_type: 'bank',
         closing_balance: 29183.85,
       }),
-      fetchAllBankTransactions: async () => [
+      fetchBankTransactionsSince: async () => [
         { date: '2026-09-13', amount: 1000, debit_or_credit: 'credit', transaction_id: 't1', description: 'later' },
         { date: '2026-09-20', amount: 26101.53, debit_or_credit: 'credit', transaction_id: 't2', description: 'later2' },
       ],
@@ -201,7 +201,7 @@ describe('dailyEcommerceLedgerService (mocked Zoho)', () => {
         }
         return { account_name: 'X', account_type: 'cash', closing_balance: 0 }
       },
-      fetchAllBankTransactions: async (id) => {
+      fetchBankTransactionsSince: async (id) => {
         if (id !== '4265011000000543429') return []
         return [
           {
@@ -238,7 +238,7 @@ describe('dailyEcommerceLedgerService (mocked Zoho)', () => {
       fetchInvoicesForDay: async () => ({ rows: [], truncated: false }),
       fetchCreditNotesForDay: async () => ({ rows: [], truncated: false }),
       fetchAccountDetail: async () => ({ account_name: 'X', account_type: 'cash', closing_balance: 0 }),
-      fetchAllBankTransactions: async () => [],
+      fetchBankTransactionsSince: async () => [],
       fetchExpensesForDay: async () => [],
       fetchOperatingExpenseTotal: async () => ({ operatingExpense: 0 }),
     })
@@ -253,7 +253,7 @@ describe('dailyEcommerceLedgerService (mocked Zoho)', () => {
       fetchInvoicesForDay: async () => ({ rows: [], truncated: false }),
       fetchCreditNotesForDay: async () => ({ rows: [], truncated: false }),
       fetchAccountDetail: async () => ({ account_name: 'X', account_type: 'cash', closing_balance: 0 }),
-      fetchAllBankTransactions: async () => [],
+      fetchBankTransactionsSince: async () => [],
       fetchExpensesForDay: async () => [],
       fetchOperatingExpenseTotal: async () => ({ operatingExpense: 0 }),
     })

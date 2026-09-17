@@ -1,6 +1,9 @@
 /**
  * Daily Ecommerce Ledger — Zoho Books opening / day movements / closing.
  * Route: /#/reports/daily-ecommerce-ledger
+ *
+ * Build can take >25s (many Zoho bank pages), so the page starts a background
+ * job and polls — same pattern as Daily Ecommerce Report refresh.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -11,6 +14,8 @@ import { LedgerSection, type LedgerSectionData } from './LedgerSection'
 import './DailyEcommerceLedgerPage.css'
 
 const IANA_UAE = 'Asia/Dubai'
+const POLL_MS = 1500
+const MAX_WAIT_MS = 5 * 60 * 1000
 
 function todayUaeYmd(now = new Date()) {
   return new Intl.DateTimeFormat('en-CA', {
@@ -40,6 +45,10 @@ function formatDisplayDate(ymd: string) {
   })
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
 type LedgerReport = {
   reportDate: string
   dayName: string
@@ -55,30 +64,78 @@ type LedgerReport = {
   }
 }
 
+type LedgerJob = {
+  jobId: string
+  date: string
+  status: 'queued' | 'running' | 'completed' | 'failed'
+  progress?: string
+  error?: string | null
+  report?: LedgerReport | null
+}
+
 export function DailyEcommerceLedgerPage() {
   const [date, setDate] = useState(todayUaeYmd)
   const [report, setReport] = useState<LedgerReport | null>(null)
   const [loading, setLoading] = useState(false)
+  const [progress, setProgress] = useState('')
   const [error, setError] = useState('')
   const printRef = useRef<HTMLDivElement>(null)
+  const loadTokenRef = useRef<symbol | null>(null)
 
   const load = useCallback(async (ymd: string) => {
     setLoading(true)
     setError('')
+    setProgress('Starting…')
+    setReport(null)
+    const token = Symbol('ledger-load')
+    loadTokenRef.current = token
+    const cancelled = () => loadTokenRef.current !== token
     try {
-      const data = (await api.get(`/api/reports/daily-ecommerce-ledger?date=${encodeURIComponent(ymd)}`)) as LedgerReport
-      setReport(data)
+      const started = (await api.post('/api/reports/daily-ecommerce-ledger/build', {
+        date: ymd,
+      })) as LedgerJob
+      let job = started
+      const deadline = Date.now() + MAX_WAIT_MS
+      while (job.status === 'queued' || job.status === 'running') {
+        if (cancelled()) return
+        if (Date.now() > deadline) {
+          throw new Error(
+            'Ledger is still building on the server. Wait a minute and open this date again.'
+          )
+        }
+        setProgress(job.progress || 'Loading Zoho ledgers…')
+        await sleep(POLL_MS)
+        if (cancelled()) return
+        job = (await api.get(
+          `/api/reports/daily-ecommerce-ledger/build/${encodeURIComponent(job.jobId)}`,
+          { timeoutMs: 15_000 }
+        )) as LedgerJob
+      }
+      if (cancelled()) return
+      if (job.status === 'failed') {
+        throw new Error(job.error || 'Ledger build failed')
+      }
+      if (!job.report) {
+        throw new Error('Ledger job finished without a report')
+      }
+      setReport(job.report)
+      setProgress('')
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Failed to load ledger'
-      setError(message)
-      setReport(null)
+      if (!cancelled()) {
+        const message = err instanceof Error ? err.message : 'Failed to load ledger'
+        setError(message)
+        setReport(null)
+      }
     } finally {
-      setLoading(false)
+      if (!cancelled()) setLoading(false)
     }
   }, [])
 
   useEffect(() => {
     void load(date)
+    return () => {
+      loadTokenRef.current = null
+    }
   }, [date, load])
 
   const exportPdf = async () => {
@@ -118,15 +175,27 @@ export function DailyEcommerceLedgerPage() {
           </p>
         </div>
         <div className="del-controls">
-          <button type="button" onClick={() => setDate((d) => addDaysYmd(d, -1))}>
+          <button type="button" onClick={() => setDate((d) => addDaysYmd(d, -1))} disabled={loading}>
             Previous Day
           </button>
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-          <button type="button" onClick={() => setDate((d) => addDaysYmd(d, 1))} disabled={date >= todayUaeYmd()}>
+          <input
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            disabled={loading}
+          />
+          <button
+            type="button"
+            onClick={() => setDate((d) => addDaysYmd(d, 1))}
+            disabled={loading || date >= todayUaeYmd()}
+          >
             Next Day
           </button>
-          <button type="button" onClick={() => setDate(todayUaeYmd())}>
+          <button type="button" onClick={() => setDate(todayUaeYmd())} disabled={loading}>
             Today
+          </button>
+          <button type="button" onClick={() => void load(date)} disabled={loading}>
+            {loading ? 'Building…' : 'Reload'}
           </button>
           <button type="button" onClick={() => window.print()}>
             Print
@@ -137,7 +206,11 @@ export function DailyEcommerceLedgerPage() {
         </div>
       </header>
 
-      {loading && <div className="del-skeleton">Loading ledger from Zoho…</div>}
+      {loading && (
+        <div className="del-skeleton">
+          Loading ledger from Zoho…{progress ? ` ${progress}` : ''}
+        </div>
+      )}
       {error && <div className="del-error">{error}</div>}
       {!loading && !error && !report && <div className="del-empty">No ledger data.</div>}
 

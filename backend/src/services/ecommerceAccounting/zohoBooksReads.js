@@ -113,12 +113,14 @@ async function fetchCreditNotesForDay(dateYmd) {
 }
 
 /**
- * Paginate bank transactions for an account (client-side date filter).
+ * Paginate bank transactions from newest, keeping only rows on/after sinceYmd.
+ * Stops once a full page is older than sinceYmd (no need for full history).
  */
-async function fetchAllBankTransactions(accountId) {
+async function fetchBankTransactionsSince(accountId, sinceYmd) {
   const id = clean(accountId)
-  if (!id) return []
-  const all = []
+  const since = clean(sinceYmd)
+  if (!id || !since) return []
+  const kept = []
   let page = 1
   while (page <= 50) {
     const sp = new URLSearchParams({
@@ -126,6 +128,8 @@ async function fetchAllBankTransactions(accountId) {
       page: String(page),
       per_page: '200',
       filter_by: 'Status.All',
+      sort_column: 'date',
+      sort_order: 'D',
     })
     const json = await zohoBooksJsonRequest(
       `${BOOKS_V3}/banktransactions`,
@@ -135,11 +139,27 @@ async function fetchAllBankTransactions(accountId) {
       { source: 'ecommerce_accounting_bank_tx', skipCache: true }
     )
     const batch = Array.isArray(json?.banktransactions) ? json.banktransactions : []
-    all.push(...batch)
+    if (!batch.length) break
+
+    let olderOnly = true
+    for (const t of batch) {
+      const d = clean(t.date)
+      if (!d) continue
+      if (d >= since) {
+        kept.push(t)
+        olderOnly = false
+      }
+    }
+    if (olderOnly) break
     if (!json?.page_context?.has_more_page) break
     page += 1
   }
-  return all
+  return kept
+}
+
+/** @deprecated prefer fetchBankTransactionsSince — kept for callers that need full history */
+async function fetchAllBankTransactions(accountId) {
+  return fetchBankTransactionsSince(accountId, '2000-01-01')
 }
 
 async function fetchExpensesForDay(dateYmd) {
@@ -243,6 +263,7 @@ module.exports = {
   fetchInvoicesForDay,
   fetchCreditNotesForDay,
   fetchAllBankTransactions,
+  fetchBankTransactionsSince,
   fetchExpensesForDay,
   fetchOperatingExpenseTotal,
   fetchExpenseTotalsByAccountIds,

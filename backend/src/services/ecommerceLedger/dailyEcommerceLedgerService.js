@@ -19,7 +19,7 @@ const {
   fetchInvoicesForDay,
   fetchCreditNotesForDay,
   fetchAccountDetail,
-  fetchAllBankTransactions,
+  fetchBankTransactionsSince,
   fetchExpensesForDay,
   fetchOperatingExpenseTotal,
 } = require('../ecommerceAccounting/zohoBooksReads')
@@ -70,7 +70,7 @@ async function buildBankStyleSection({
   const type = clean(detail?.account_type || accountType)
   const rawClosing = toNumber(detail?.closing_balance ?? detail?.current_balance ?? detail?.balance)
 
-  const txs = await fetchAllBankTransactions(id)
+  const txs = await fetchBankTransactionsSince(id, reportDate)
   const onDay = []
   const afterDay = []
   for (const t of txs) {
@@ -319,16 +319,16 @@ async function buildDailyEcommerceLedger(opts = {}) {
   const reportDate = assertYmd(opts.date || require('../ecommerceAccounting/accountNature').todayUaeYmd())
   const dayName = dayNameFromYmd(reportDate)
 
-  const sales = await buildSalesSection(reportDate)
-  const cashInHand = await buildBankStyleSection({
+  const salesP = buildSalesSection(reportDate)
+  const cashP = buildBankStyleSection({
     key: 'cashInHand',
     title: 'Cash in Hand',
     accountId: CFG.cashInHandAccountId,
     accountType: 'cash',
     reportDate,
   })
-  const expenses = await buildExpenseSection(reportDate)
-  const basmatPayable = await buildBankStyleSection({
+  const expensesP = buildExpenseSection(reportDate)
+  const basmatP = buildBankStyleSection({
     key: 'basmatPayable',
     title: 'Basmat Payable Against Cash',
     accountId: CFG.basmatPayableAgainstCashAccountId,
@@ -336,34 +336,26 @@ async function buildDailyEcommerceLedger(opts = {}) {
     balanceNature: CFG.basmatPayableBalanceNature || 'credit_normal',
     reportDate,
   })
-  if (basmatPayable.accountName) {
-    basmatPayable.accountName =
-      basmatPayable.accountName || CFG.basmatPayableAgainstCashAccountName
-  }
-
-  let purchasePayments = emptySection('Purchase & Payments', {
-    key: 'purchasePayments',
-    configMissing: !CFG.purchasePaymentsAccountId,
-    warnings: CFG.purchasePaymentsAccountId
-      ? []
-      : [
-          'Purchase & Payments account ID not configured (DAILY_LEDGER_PURCHASE_PAYMENTS_ACCOUNT_ID). No Zoho account matched legacy opening 541,492.02 during probe.',
-        ],
-    columns: ['reference', 'description', 'debit', 'credit', 'balance'],
-  })
-  if (CFG.purchasePaymentsAccountId) {
-    purchasePayments = await buildBankStyleSection({
-      key: 'purchasePayments',
-      title: 'Purchase & Payments',
-      accountId: CFG.purchasePaymentsAccountId,
-      reportDate,
-    })
-  }
-
-  const banks = []
-  for (const id of CFG.bankAccountIds || []) {
-    banks.push(
-      await buildBankStyleSection({
+  const purchaseP = CFG.purchasePaymentsAccountId
+    ? buildBankStyleSection({
+        key: 'purchasePayments',
+        title: 'Purchase & Payments',
+        accountId: CFG.purchasePaymentsAccountId,
+        reportDate,
+      })
+    : Promise.resolve(
+        emptySection('Purchase & Payments', {
+          key: 'purchasePayments',
+          configMissing: true,
+          warnings: [
+            'Purchase & Payments account ID not configured (DAILY_LEDGER_PURCHASE_PAYMENTS_ACCOUNT_ID). No Zoho account matched legacy opening 541,492.02 during probe.',
+          ],
+          columns: ['reference', 'description', 'debit', 'credit', 'balance'],
+        })
+      )
+  const banksP = Promise.all(
+    (CFG.bankAccountIds || []).map((id) =>
+      buildBankStyleSection({
         key: `bank:${id}`,
         title: 'Bank',
         accountId: id,
@@ -371,15 +363,10 @@ async function buildDailyEcommerceLedger(opts = {}) {
         reportDate,
       })
     )
-  }
-  for (const b of banks) {
-    if (b.accountName) b.title = b.accountName
-  }
-
-  const creditCards = []
-  for (const id of CFG.creditCardAccountIds || []) {
-    creditCards.push(
-      await buildBankStyleSection({
+  )
+  const cardsP = Promise.all(
+    (CFG.creditCardAccountIds || []).map((id) =>
+      buildBankStyleSection({
         key: `creditCard:${id}`,
         title: 'Credit Card',
         accountId: id,
@@ -387,6 +374,17 @@ async function buildDailyEcommerceLedger(opts = {}) {
         reportDate,
       })
     )
+  )
+
+  const [sales, cashInHand, expenses, basmatPayable, purchasePayments, banks, creditCards] =
+    await Promise.all([salesP, cashP, expensesP, basmatP, purchaseP, banksP, cardsP])
+
+  if (basmatPayable.accountName) {
+    basmatPayable.accountName =
+      basmatPayable.accountName || CFG.basmatPayableAgainstCashAccountName
+  }
+  for (const b of banks) {
+    if (b.accountName) b.title = b.accountName
   }
   for (const c of creditCards) {
     if (c.accountName) c.title = c.accountName
