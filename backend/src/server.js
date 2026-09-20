@@ -18,6 +18,7 @@ const { Server } = require('socket.io')
 
 const app = require('./app')
 const { testConnection } = require('./db')
+const { planAutomaticStartupJobs } = require('./config/startupSafeguards')
 const { getOptionalFlagDecision } = require('./services/weeklyReportReportVendor')
 const { readZohoConfig } = require('./integrations/zoho/zohoConfig')
 
@@ -54,12 +55,17 @@ const io = new Server(server, {
 app.set('io', io)
 
 async function startServer() {
+  // Home MacBook against live AWS RDS: set DISABLE_STARTUP_BACKGROUND_JOBS=1 so boot does
+  // not schedule Zoho sync, inventory warm, or subscription notification writers.
+  // Production leaves this unset so normal deployment behavior is unchanged.
+  const startupJobs = planAutomaticStartupJobs()
+
   console.log('[boot] Running database migrations / health checks before accepting traffic…')
   try {
     await testConnection()
     console.log('[boot] Database ready.')
 
-    if (/^(1|true|yes)$/i.test(String(process.env.ZOHO_AUTO_SYNC_ON_START || ''))) {
+    if (startupJobs.zohoAutoSync) {
       console.log('[zoho] ZOHO_AUTO_SYNC_ON_START=1 — background items refresh scheduled')
       setImmediate(() => {
         const { fetchAllItemsRaw } = require('./integrations/zoho/zohoAdapter')
@@ -67,6 +73,11 @@ async function startServer() {
           console.error('[zoho] ZOHO_AUTO_SYNC_ON_START fetch failed:', err.message || err)
         })
       })
+    } else if (
+      startupJobs.disableAll &&
+      /^(1|true|yes)$/i.test(String(process.env.ZOHO_AUTO_SYNC_ON_START || ''))
+    ) {
+      console.log('[zoho] ZOHO_AUTO_SYNC_ON_START ignored because DISABLE_STARTUP_BACKGROUND_JOBS=1')
     }
   } catch (err) {
     console.error('Database startup failed:', err.message)
@@ -107,7 +118,13 @@ async function startServer() {
     console.log('[routes]   GET  /api/auth/me         → { user } (Bearer token)')
     console.log('[routes] … /api/employees, /api/attendance, /api/annual-leave (auth as required)')
 
-    if (!/^(0|false|no)$/i.test(String(process.env.INVENTORY_HEALTH_WARM_ON_START || '1'))) {
+    if (startupJobs.disableAll) {
+      console.log(
+        '[boot] DISABLE_STARTUP_BACKGROUND_JOBS=1 — skipping inventory warm and subscription sync timers'
+      )
+    }
+
+    if (startupJobs.inventoryHealthWarm) {
       setImmediate(() => {
         try {
           const { readDiskCacheEntry } = require('./services/inventoryHealthDiskCache')
@@ -139,21 +156,23 @@ async function startServer() {
       })
     }
 
-    const MS_PER_DAY = 24 * 60 * 60 * 1000
-    setImmediate(() => {
-      // Go through the coalescer rather than calling the service directly: it holds the advisory
-      // lock and the shared interval, so a boot or timer tick cannot overlap a request-path sync
-      // (or a peer instance's sync) and clobber rows mid-pass.
-      const { syncSubscriptions } = require('./services/notificationsService')
-      syncSubscriptions().catch((err) => {
-        console.warn('[subscriptions] initial notification sync failed:', err?.message || err)
-      })
-      setInterval(() => {
+    if (startupJobs.subscriptionSync) {
+      const MS_PER_DAY = 24 * 60 * 60 * 1000
+      setImmediate(() => {
+        // Go through the coalescer rather than calling the service directly: it holds the advisory
+        // lock and the shared interval, so a boot or timer tick cannot overlap a request-path sync
+        // (or a peer instance's sync) and clobber rows mid-pass.
+        const { syncSubscriptions } = require('./services/notificationsService')
         syncSubscriptions().catch((err) => {
-          console.warn('[subscriptions] daily notification sync failed:', err?.message || err)
+          console.warn('[subscriptions] initial notification sync failed:', err?.message || err)
         })
-      }, MS_PER_DAY)
-    })
+        setInterval(() => {
+          syncSubscriptions().catch((err) => {
+            console.warn('[subscriptions] daily notification sync failed:', err?.message || err)
+          })
+        }, MS_PER_DAY)
+      })
+    }
 
     const opt = getOptionalFlagDecision()
     if (opt.effective) {

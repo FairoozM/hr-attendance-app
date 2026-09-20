@@ -122,12 +122,48 @@ function parseConnectionString(connectionString) {
 }
 
 /**
+ * Optional TLS server name for verified RDS over a localhost tunnel (SSM/VPN).
+ * Production connects to the RDS hostname directly and leaves this unset.
+ * Only `*.rds.amazonaws.com` is accepted so this cannot weaken TLS to an arbitrary name.
+ */
+function resolveTlsServernameOverride(env = process.env) {
+  const override = typeof env.DATABASE_TLS_SERVERNAME === 'string' ? env.DATABASE_TLS_SERVERNAME.trim() : ''
+  if (!override) return null
+  if (!isRdsHostname(override)) {
+    throw new Error(
+      'DATABASE_TLS_SERVERNAME must be an Amazon RDS hostname (*.rds.amazonaws.com). ' +
+        'It is only for verified TLS through a loopback tunnel to private RDS.'
+    )
+  }
+  return override
+}
+
+/**
  * TLS settings for the resolved host.
  * - loopback PostgreSQL: no TLS, matching local development
+ * - loopback + DATABASE_TLS_SERVERNAME (RDS): verified RDS TLS (SSM/VPN port-forward)
  * - *.rds.amazonaws.com: the pinned Amazon RDS regional root CAs, chain and hostname verified
  * - any other remote host: TLS with the system trust store, still fully verified
  */
-function buildSslConfig(host) {
+function buildSslConfig(host, { tlsServername = null } = {}) {
+  if (tlsServername) {
+    if (!isLocalHostname(host) && String(host).trim().toLowerCase() !== tlsServername.toLowerCase()) {
+      throw new Error(
+        'DATABASE_TLS_SERVERNAME may only be used when DATABASE_URL points at a loopback tunnel ' +
+          'host, or when it already matches the RDS hostname.'
+      )
+    }
+    return {
+      ssl: {
+        rejectUnauthorized: true,
+        servername: tlsServername,
+        minVersion: 'TLSv1.2',
+        ca: loadRdsCaBundle(),
+      },
+      tlsMode: 'verified-rds-tunnel',
+    }
+  }
+
   if (isLocalHostname(host)) return { ssl: false, tlsMode: 'disabled-localhost' }
 
   const common = {
@@ -147,9 +183,13 @@ function buildSslConfig(host) {
  * Full pool configuration plus a credential-free description for logging.
  * `describe` is the only shape callers should ever log.
  */
-function buildPoolConfig(connectionString = process.env.DATABASE_URL || DEFAULT_CONNECTION_STRING) {
+function buildPoolConfig(
+  connectionString = process.env.DATABASE_URL || DEFAULT_CONNECTION_STRING,
+  { env = process.env } = {}
+) {
   const parsed = parseConnectionString(connectionString)
-  const { ssl, tlsMode } = buildSslConfig(parsed.host)
+  const tlsServername = resolveTlsServernameOverride(env)
+  const { ssl, tlsMode } = buildSslConfig(parsed.host, { tlsServername })
 
   const poolConfig = {
     host: parsed.host,
@@ -170,6 +210,7 @@ function buildPoolConfig(connectionString = process.env.DATABASE_URL || DEFAULT_
       port: parsed.port,
       database: parsed.database,
       tls: tlsMode,
+      tlsServername: tlsServername || null,
       caCertificates: ssl && ssl.ca ? countCertificates(ssl.ca) : 0,
       rejectUnauthorized: ssl === false ? null : ssl.rejectUnauthorized,
       ignoredSslUrlParams: parsed.ignoredSslParams,
@@ -207,5 +248,6 @@ module.exports = {
   isRdsHostname,
   loadRdsCaBundle,
   parseConnectionString,
+  resolveTlsServernameOverride,
   sanitizeDbError,
 }

@@ -191,3 +191,46 @@ test('the logged connection description carries no credentials', () => {
   assert.equal(serialized.includes('hr_app'), false)
   assert.equal(describe.tls, 'verified-rds')
 })
+
+// ── SSM / VPN tunnel to private RDS ──────────────────────────────────────────
+
+test('loopback tunnel with DATABASE_TLS_SERVERNAME uses verified RDS TLS', () => {
+  const tunnelUrl = 'postgres://hr_app:rds-dev-secret@127.0.0.1:15432/hr_attendance'
+  const { poolConfig, tlsMode, describe } = buildPoolConfig(tunnelUrl, {
+    env: { DATABASE_TLS_SERVERNAME: RDS_HOST },
+  })
+  assert.equal(tlsMode, 'verified-rds-tunnel')
+  assert.equal(poolConfig.host, '127.0.0.1')
+  assert.equal(poolConfig.port, 15432)
+  assert.equal(poolConfig.ssl.rejectUnauthorized, true)
+  assert.equal(poolConfig.ssl.servername, RDS_HOST)
+  assert.ok(poolConfig.ssl.ca.includes('-----BEGIN CERTIFICATE-----'))
+  assert.equal(describe.tlsServername, RDS_HOST)
+  assert.equal(describe.caCertificates, 3)
+})
+
+test('DATABASE_TLS_SERVERNAME rejects non-RDS hostnames', () => {
+  assert.throws(
+    () =>
+      buildPoolConfig(LOCAL_URL, {
+        env: { DATABASE_TLS_SERVERNAME: 'db.example.com' },
+      }),
+    /DATABASE_TLS_SERVERNAME must be an Amazon RDS hostname/
+  )
+})
+
+test('DATABASE_TLS_SERVERNAME cannot target a mismatched remote host', () => {
+  assert.throws(
+    () =>
+      buildPoolConfig('postgres://hr_app:x@db.example.internal:5432/hr_attendance', {
+        env: { DATABASE_TLS_SERVERNAME: RDS_HOST },
+      }),
+    /loopback tunnel/
+  )
+})
+
+test('without DATABASE_TLS_SERVERNAME, localhost still disables TLS', () => {
+  const { tlsMode, poolConfig } = buildPoolConfig(LOCAL_URL, { env: {} })
+  assert.equal(tlsMode, 'disabled-localhost')
+  assert.equal(poolConfig.ssl, false)
+})

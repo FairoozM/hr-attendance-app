@@ -5,6 +5,7 @@ const {
   DEFAULT_CONNECTION_STRING,
   sanitizeDbError,
 } = require('./dbConnectionConfig')
+const { runStartupDbGate, shouldSkipSchemaChanges } = require('../config/startupSafeguards')
 
 const { poolConfig, describe: connectionDescription } = buildPoolConfig(
   process.env.DATABASE_URL || DEFAULT_CONNECTION_STRING
@@ -1104,32 +1105,7 @@ async function grantAliHassanInfluencerPerformancePermissionOnce() {
   await query(`INSERT INTO schema_patches (id) VALUES ($1)`, [patchId])
 }
 
-async function testConnection() {
-  let result
-  try {
-    result = await query('SELECT NOW()')
-  } catch (e) {
-    const safe = sanitizeDbError(e)
-    console.error(
-      '[db] Connection to %s:%s/%s failed (tls=%s): %s',
-      connectionDescription.host,
-      connectionDescription.port,
-      connectionDescription.database,
-      connectionDescription.tls,
-      safe.message
-    )
-    throw new Error(`Database connection failed: ${safe.message}`)
-  }
-  const now = result.rows[0]?.now
-  console.log(
-    '[db] Connected to %s:%s/%s (tls=%s, caCertificates=%d). Server time: %s',
-    connectionDescription.host,
-    connectionDescription.port,
-    connectionDescription.database,
-    connectionDescription.tls,
-    connectionDescription.caCertificates,
-    now
-  )
+async function applyStartupSchemaChanges() {
   await ensureEmployeesTable()
   await ensureEmployeeExtendedColumns()
   await ensureEmployeesAlternateEmployeeColumn()
@@ -1409,6 +1385,42 @@ async function testConnection() {
     await ensureIsoQmsTables()
   } catch (e) {
     console.error('[db] ensureIsoQmsTables skipped/failed (non-fatal):', e.message || e)
+  }
+}
+
+async function testConnection() {
+  let gate
+  try {
+    gate = await runStartupDbGate({
+      query,
+      skipSchemaChanges: shouldSkipSchemaChanges(),
+      applySchema: applyStartupSchemaChanges,
+    })
+  } catch (e) {
+    const safe = sanitizeDbError(e)
+    console.error(
+      '[db] Connection to %s:%s/%s failed (tls=%s): %s',
+      connectionDescription.host,
+      connectionDescription.port,
+      connectionDescription.database,
+      connectionDescription.tls,
+      safe.message
+    )
+    throw new Error(`Database connection failed: ${safe.message}`)
+  }
+  console.log(
+    '[db] Connected to %s:%s/%s (tls=%s, caCertificates=%d). Server time: %s',
+    connectionDescription.host,
+    connectionDescription.port,
+    connectionDescription.database,
+    connectionDescription.tls,
+    connectionDescription.caCertificates,
+    gate.now
+  )
+  // Home / laptop against live RDS: connect and serve traffic without CREATE/ALTER or
+  // one-shot data migrations. Production and normal local Postgres leave this unset.
+  if (!gate.schemaApplied) {
+    console.log('[db] DB_SKIP_SCHEMA_CHANGES=1 — skipping automatic schema ensure/migrate steps')
   }
 }
 
