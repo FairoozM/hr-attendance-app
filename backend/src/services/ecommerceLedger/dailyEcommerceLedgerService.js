@@ -13,6 +13,7 @@ const {
   clean,
   toNumber,
   round2,
+  invoiceTotalInCompanyCurrency,
 } = require('../ecommerceAccounting/accountNature')
 const {
   fetchSalesByCustomerTotal,
@@ -161,7 +162,7 @@ async function buildSalesSection(reportDate) {
     .slice()
     .sort((a, b) => clean(a.invoice_number).localeCompare(clean(b.invoice_number)))
     .map((inv) => {
-      const sale = round2(toNumber(inv.total))
+      const sale = invoiceTotalInCompanyCurrency(inv)
       return {
         reference: clean(inv.invoice_number),
         description: clean(inv.customer_name || inv.reference_number || ''),
@@ -173,6 +174,8 @@ async function buildSalesSection(reportDate) {
         paymentMode: clean(inv.payment_mode || inv.paymentMode || ''),
         status: clean(inv.status),
         date: clean(inv.date),
+        currencyCode: clean(inv.currency_code || ''),
+        exchangeRate: toNumber(inv.exchange_rate) || null,
       }
     })
 

@@ -10,8 +10,13 @@ const {
   dayOfYearFromYmd,
   getDescendantAccountIds,
   isDebitNormalAccount,
+  invoiceTotalInCompanyCurrency,
+  round2,
 } = require('../src/services/ecommerceAccounting/accountNature')
-const { classifyInvoiceCashCredit } = require('../src/services/ecommerceSummary/ecommerceSummaryService')
+const {
+  classifyInvoiceCashCredit,
+  sumDayCashCreditSales,
+} = require('../src/services/ecommerceSummary/ecommerceSummaryService')
 const { emptySection } = require('../src/services/ecommerceLedger/dailyEcommerceLedgerService')
 
 describe('ecommerceAccounting helpers', () => {
@@ -90,6 +95,62 @@ describe('cash vs credit classification', () => {
 
   it('defaults marketplace invoices without mode to credit', () => {
     assert.equal(classifyInvoiceCashCredit({ status: 'sent', total: 100 }), 'credit')
+  })
+})
+
+describe('invoice company-currency conversion (AED)', () => {
+  it('leaves AED invoices unchanged when exchange_rate is 1', () => {
+    assert.equal(
+      invoiceTotalInCompanyCurrency({ total: 175, currency_code: 'AED', exchange_rate: 1 }),
+      175
+    )
+  })
+
+  it('converts SAR invoice total with Zoho exchange_rate (INV-044029 2026-09-18)', () => {
+    // Proven: 949 SAR × 0.979 = 929.07 AED; raw 949 was the +19.93 Credit Sales bug.
+    assert.equal(
+      invoiceTotalInCompanyCurrency({
+        invoice_number: 'INV-044029',
+        total: 949,
+        currency_code: 'SAR',
+        exchange_rate: 0.979,
+      }),
+      929.07
+    )
+    assert.equal(round2(949 - 929.07), 19.93)
+  })
+
+  it('treats missing exchange_rate as 1', () => {
+    assert.equal(invoiceTotalInCompanyCurrency({ total: 100 }), 100)
+  })
+})
+
+describe('Day card cash/credit/return consistency', () => {
+  it('Credit Sales uses AED so Cash+Credit−Return matches Total Sales (18 Sep 2026 shape)', () => {
+    // Minimal fixture: AED invoices totaling 9694.92 company currency + one SAR invoice.
+    // 9694.92 + 929.07 = 10623.99 gross; return 1401 → total 9222.99.
+    const invoices = [
+      { invoice_number: 'INV-AED', customer_name: 'Amazon', total: 4285.99, currency_code: 'AED', exchange_rate: 1, status: 'sent' },
+      { invoice_number: 'INV-044029', customer_name: 'KSA-Amazon', total: 949, currency_code: 'SAR', exchange_rate: 0.979, status: 'sent' },
+      { invoice_number: 'INV-N', customer_name: 'Noon', total: 3297.98, currency_code: 'AED', exchange_rate: 1, status: 'sent' },
+      { invoice_number: 'INV-W', customer_name: 'Website', total: 695.85, currency_code: 'AED', exchange_rate: 1, status: 'sent' },
+      { invoice_number: 'INV-B', customer_name: 'Burjman Shop - Web & App', total: 1240.1, currency_code: 'AED', exchange_rate: 1, status: 'overdue' },
+      { invoice_number: 'INV-S', customer_name: 'Staff Ecommerce', total: 175, currency_code: 'AED', exchange_rate: 1, status: 'overdue' },
+    ]
+    // Adjust Amazon down so customer buckets match Zoho UI gross without double-counting:
+    // UI Amazon 4285.99 already is the Amazon channel total; keep as above.
+    const { cashSales, creditSales } = sumDayCashCreditSales(invoices)
+    assert.equal(cashSales, 0)
+    assert.equal(creditSales, 10623.99)
+
+    const saleReturn = 1401
+    const totalSales = round2(cashSales + creditSales - saleReturn)
+    assert.equal(totalSales, 9222.99)
+    // Bug shape: summing foreign total without FX made credit 10643.92 and credit−return 9242.92
+    const buggyCredit = round2(invoices.reduce((s, inv) => s + Number(inv.total), 0))
+    assert.equal(buggyCredit, 10643.92)
+    assert.equal(round2(buggyCredit - saleReturn), 9242.92)
+    assert.notEqual(creditSales, buggyCredit)
   })
 })
 

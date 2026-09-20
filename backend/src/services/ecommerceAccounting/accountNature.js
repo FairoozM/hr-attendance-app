@@ -36,6 +36,20 @@ function toNumber(value) {
 }
 
 /**
+ * Zoho invoice list `total` is in the invoice currency. Sales-by-customer and
+ * company reporting are in base currency (AED). Multiply by exchange_rate when
+ * present so SAR (etc.) invoices are not summed as if they were AED.
+ *
+ * Example (2026-09-18 INV-044029): total 949 SAR × 0.979 = 929.07 AED.
+ */
+function invoiceTotalInCompanyCurrency(inv) {
+  const total = toNumber(inv?.total)
+  const rate = toNumber(inv?.exchange_rate)
+  const fx = rate > 0 ? rate : 1
+  return round2(total * fx)
+}
+
+/**
  * @param {string} accountType
  * @param {'debit_normal'|'credit_normal'|null|undefined} natureOverride
  */
@@ -189,6 +203,7 @@ module.exports = {
   DEBIT_NORMAL_TYPES,
   clean,
   toNumber,
+  invoiceTotalInCompanyCurrency,
   isDebitNormalAccount,
   applyAccountMovement,
   getDescendantAccountIds,

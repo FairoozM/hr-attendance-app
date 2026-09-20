@@ -19,6 +19,7 @@ const {
   clean,
   toNumber,
   round2,
+  invoiceTotalInCompanyCurrency,
 } = require('../ecommerceAccounting/accountNature')
 const {
   fetchSalesByCustomerTotal,
@@ -43,6 +44,38 @@ function classifyInvoiceCashCredit(inv) {
   if (mode.includes('cash')) return 'cash'
   if (balance <= 0.001 && status === 'paid' && /cash|petty/i.test(mode)) return 'cash'
   return 'credit'
+}
+
+/**
+ * Split day invoices into cash vs credit using company-currency (AED) totals.
+ * Foreign-currency invoices must use exchange_rate — never raw `total` alone.
+ */
+function sumDayCashCreditSales(invoiceRows) {
+  let cashSales = 0
+  let creditSales = 0
+  const invoiceDetails = []
+  for (const inv of invoiceRows || []) {
+    const total = invoiceTotalInCompanyCurrency(inv)
+    const kind = classifyInvoiceCashCredit(inv)
+    if (kind === 'cash') cashSales += total
+    else creditSales += total
+    invoiceDetails.push({
+      invoiceNumber: clean(inv.invoice_number),
+      customerName: clean(inv.customer_name),
+      total,
+      currencyCode: clean(inv.currency_code || inv.currency_symbol),
+      exchangeRate: toNumber(inv.exchange_rate) || null,
+      foreignTotal: round2(toNumber(inv.total)),
+      paymentMode: clean(inv.payment_mode || inv.paymentMode),
+      status: clean(inv.status),
+      classification: kind,
+    })
+  }
+  return {
+    cashSales: round2(cashSales),
+    creditSales: round2(creditSales),
+    invoiceDetails,
+  }
 }
 
 /** Calendar days from month-start through reportDate (inclusive), min 1. */
@@ -74,28 +107,10 @@ async function buildEcommerceSummaryReport(opts = {}) {
   const yearToDateSales = await fetchSalesByCustomerTotal(yearStart, reportDate)
   const monthToDateSales = await fetchSalesByCustomerTotal(monthStart, reportDate)
 
-  // Phase 2 — day invoice detail (cash vs credit); returns come from salesbycustomer below
+  // Phase 2 — day invoice detail (cash vs credit in company currency); returns from salesbycustomer
   const dayInvoices = await fetchInvoicesForDay(reportDate)
 
-  let cashSales = 0
-  let creditSales = 0
-  const invoiceDetails = []
-  for (const inv of dayInvoices.rows || []) {
-    const total = round2(toNumber(inv.total))
-    const kind = classifyInvoiceCashCredit(inv)
-    if (kind === 'cash') cashSales += total
-    else creditSales += total
-    invoiceDetails.push({
-      invoiceNumber: clean(inv.invoice_number),
-      customerName: clean(inv.customer_name),
-      total,
-      paymentMode: clean(inv.payment_mode || inv.paymentMode),
-      status: clean(inv.status),
-      classification: kind,
-    })
-  }
-  cashSales = round2(cashSales)
-  creditSales = round2(creditSales)
+  const { cashSales, creditSales, invoiceDetails } = sumDayCashCreditSales(dayInvoices.rows || [])
 
   const hasPaymentMode = invoiceDetails.some((r) => r.paymentMode)
 
@@ -115,9 +130,13 @@ async function buildEcommerceSummaryReport(opts = {}) {
   const todaySaleReturn = saleReturn
 
   const dayGrossFromInvoices = round2(cashSales + creditSales)
+  // Prefer Cash + Credit − Return so Day cards stay algebraically consistent (returns once).
+  // Fall back to salesbycustomer net when the invoice list is empty.
+  const dayTotalFromParts = round2(dayGrossFromInvoices - saleReturn)
+  const sbcNet = round2(daySales.salesWithTax)
   const todaySalesGross =
-    dayGrossFromInvoices > 0 ? dayGrossFromInvoices : round2(daySales.salesWithTax + saleReturn)
-  const dayTotalSales = round2(daySales.salesWithTax)
+    dayGrossFromInvoices > 0 ? dayGrossFromInvoices : round2(sbcNet + saleReturn)
+  const dayTotalSales = dayGrossFromInvoices > 0 ? dayTotalFromParts : sbcNet
 
   const monthOpening = round2(monthOpeningSales.salesWithTax)
   const monthTotal = round2(monthToDateSales.salesWithTax)
@@ -149,6 +168,11 @@ async function buildEcommerceSummaryReport(opts = {}) {
   if (!hasPaymentMode) {
     warnings.push(
       'Zoho invoice list did not expose payment_mode for this day; Cash Sales may be 0 and all invoice totals classified as Credit Sales.'
+    )
+  }
+  if (dayGrossFromInvoices > 0 && Math.abs(dayTotalFromParts - sbcNet) > 0.02) {
+    warnings.push(
+      `Day Total Sales from invoices − returns (${dayTotalFromParts}) differs from salesbycustomer net (${sbcNet}). Using invoice − return for Day cards.`
     )
   }
   if (Math.abs(throughSplit.primaryTotal) < 0.01 && Math.abs(throughSplit.secondaryTotal) < 0.01) {
@@ -238,13 +262,13 @@ async function buildEcommerceSummaryReport(opts = {}) {
     },
     limitations: {
       cashCredit:
-        'Cash vs Credit uses Zoho invoice payment_mode when present; otherwise invoices default to Credit Sales.',
+        'Cash vs Credit uses Zoho invoice payment_mode when present; otherwise invoices default to Credit Sales. Amounts are company currency (invoice total × exchange_rate).',
       fixedFlexible:
         'Fixed/Flexible totals sum P&L lines for Zoho parent + descendants only (not all Operating Expense accounts).',
       monthAvgDenominator:
         'Month Avg Sale / Day uses calendar days through the selected date (avoids per-day Zoho report calls).',
       saleReturns:
-        'Sale returns use Zoho Sales by Customer with entity_list=creditnote (same as filtering out invoices in the Zoho UI), sales_with_tax absolute.',
+        'Sale returns use Zoho Sales by Customer with entity_list=creditnote (same as filtering out invoices in the Zoho UI), sales_with_tax absolute. Day Total Sales = Cash + Credit − Return (returns once).',
     },
   }
 }
@@ -252,5 +276,6 @@ async function buildEcommerceSummaryReport(opts = {}) {
 module.exports = {
   buildEcommerceSummaryReport,
   classifyInvoiceCashCredit,
+  sumDayCashCreditSales,
   calendarDaysThroughMonth,
 }
