@@ -8,28 +8,8 @@ const { clean, toNumber, round2 } = require('./accountNature')
 
 const BOOKS_V3 = '/books/v3'
 
-async function fetchChartOfAccountsRaw() {
-  const all = []
-  let page = 1
-  while (page <= 20) {
-    const params = new URLSearchParams({
-      showbalance: 'true',
-      page: String(page),
-      per_page: '200',
-    })
-    const json = await zohoBooksJsonRequest(
-      `${BOOKS_V3}/chartofaccounts`,
-      params,
-      'GET',
-      undefined,
-      { source: 'ecommerce_accounting_coa', skipCache: true }
-    )
-    const batch = Array.isArray(json?.chartofaccounts) ? json.chartofaccounts : []
-    all.push(...batch)
-    if (!json?.page_context?.has_more_page) break
-    page += 1
-  }
-  return all.map((a) => ({
+function mapChartAccountRow(a) {
+  return {
     accountId: clean(a.account_id || a.id),
     accountName: clean(a.account_name || a.name),
     accountCode: clean(a.account_code || a.code),
@@ -42,7 +22,56 @@ async function fetchChartOfAccountsRaw() {
         ? toNumber(a.closing_balance)
         : null,
     raw: a,
-  }))
+  }
+}
+
+/**
+ * Paginate chart of accounts.
+ * @param {{ filterBy?: string, showBalance?: boolean, source?: string }} [opts]
+ */
+async function fetchChartOfAccountsRaw(opts = {}) {
+  const filterBy = clean(opts.filterBy)
+  const showBalance = opts.showBalance === true
+  const source = clean(opts.source) || 'ecommerce_accounting_coa'
+  const all = []
+  let page = 1
+  while (page <= 30) {
+    const params = new URLSearchParams({
+      page: String(page),
+      per_page: '200',
+    })
+    if (filterBy) params.set('filter_by', filterBy)
+    if (showBalance) params.set('showbalance', 'true')
+    const json = await zohoBooksJsonRequest(
+      `${BOOKS_V3}/chartofaccounts`,
+      params,
+      'GET',
+      undefined,
+      { source, skipCache: true }
+    )
+    const batch = Array.isArray(json?.chartofaccounts) ? json.chartofaccounts : []
+    all.push(...batch)
+    if (!json?.page_context?.has_more_page) break
+    page += 1
+  }
+  return all.map(mapChartAccountRow)
+}
+
+/**
+ * Full expense CoA for Fixed/Flexible hierarchy.
+ *
+ * Do NOT use showbalance=true here: Zoho then applies show_rows=non_zero and
+ * AccountType.Active, which drops most zero-balance expense accounts (and their
+ * parent links). Default Active list is similarly incomplete for expenses.
+ * AccountType.Expense returns the real parent/child tree (nested under
+ * Fixed Expense / Flexible Expense).
+ */
+async function fetchExpenseChartOfAccountsRaw() {
+  return fetchChartOfAccountsRaw({
+    filterBy: 'AccountType.Expense',
+    showBalance: false,
+    source: 'ecommerce_accounting_coa_expense',
+  })
 }
 
 async function fetchAccountDetail(accountId) {
@@ -236,72 +265,93 @@ async function fetchOperatingExpenseTotal(fromDate, toDate) {
 }
 
 /**
- * Sum P&L amounts for accounts whose id is in accountIdSet under expense trees.
+ * Zoho Expense Summary by Category rows for [fromDate, toDate].
+ * API may include non-expense accounts; callers should filter by CoA as needed.
  */
-async function fetchExpenseTotalsByAccountIds(fromDate, toDate, accountIdSet) {
-  const split = await fetchExpenseTotalsSplit(fromDate, toDate, accountIdSet, new Set())
-  return { total: split.primaryTotal, matched: split.primaryMatched, raw: split.raw }
+async function fetchExpensesByCategory(fromDate, toDate) {
+  const all = []
+  let page = 1
+  while (page <= 30) {
+    const sp = new URLSearchParams({
+      from_date: fromDate,
+      to_date: toDate,
+      page: String(page),
+      per_page: '200',
+    })
+    const json = await zohoBooksJsonRequest(
+      `${BOOKS_V3}/reports/expensesbycategory`,
+      sp,
+      'GET',
+      undefined,
+      { source: 'ecommerce_accounting_expenses_by_category', skipCache: true }
+    )
+    const batch = Array.isArray(json?.expense) ? json.expense : []
+    all.push(...batch)
+    if (!json?.page_context?.has_more_page) break
+    page += 1
+  }
+  return all
 }
 
 /**
- * One P&L fetch → totals for two account id sets (Fixed vs Flexible).
- * Avoids duplicate profitandloss calls for the same date range.
+ * Sum expense-category amounts for accounts in two id sets (Flexible vs Fixed).
+ *
+ * Uses Zoho `expensesbycategory` field `amount` (without tax) — same as the
+ * UI "Expense Summary by Category → Amount" column — not `amount_with_tax`.
  */
 async function fetchExpenseTotalsSplit(fromDate, toDate, primarySet, secondarySet) {
-  const sp = new URLSearchParams({ from_date: fromDate, to_date: toDate })
-  const json = await zohoBooksJsonRequest(
-    `${BOOKS_V3}/reports/profitandloss`,
-    sp,
-    'GET',
-    undefined,
-    { source: 'ecommerce_accounting_pnl_accounts', skipCache: true }
-  )
+  const rows = await fetchExpensesByCategory(fromDate, toDate)
   const primary = primarySet instanceof Set ? primarySet : new Set(primarySet || [])
   const secondary = secondarySet instanceof Set ? secondarySet : new Set(secondarySet || [])
   let primaryTotal = 0
   let secondaryTotal = 0
   const primaryMatched = []
   const secondaryMatched = []
-  function walk(nodes) {
-    for (const n of nodes || []) {
-      const id = clean(n.account_id)
-      if (id) {
-        const amt = toNumber(n.total)
-        if (primary.has(id)) {
-          primaryTotal += amt
-          primaryMatched.push({
-            accountId: id,
-            accountName: clean(n.name),
-            accountCode: clean(n.account_code),
-            total: round2(amt),
-          })
-        }
-        if (secondary.has(id)) {
-          secondaryTotal += amt
-          secondaryMatched.push({
-            accountId: id,
-            accountName: clean(n.name),
-            accountCode: clean(n.account_code),
-            total: round2(amt),
-          })
-        }
-      }
-      if (Array.isArray(n.account_transactions)) walk(n.account_transactions)
+  for (const r of rows) {
+    const id = clean(r.account_id)
+    if (!id) continue
+    // Without tax — matches Zoho Expense Summary by Category "Amount"
+    const amt = toNumber(r.amount)
+    if (primary.has(id)) {
+      primaryTotal += amt
+      primaryMatched.push({
+        accountId: id,
+        accountName: clean(r.account_name),
+        accountCode: clean(r.account_code),
+        total: round2(amt),
+      })
+    }
+    if (secondary.has(id)) {
+      secondaryTotal += amt
+      secondaryMatched.push({
+        accountId: id,
+        accountName: clean(r.account_name),
+        accountCode: clean(r.account_code),
+        total: round2(amt),
+      })
     }
   }
-  walk(json?.profit_and_loss)
   return {
     primaryTotal: round2(primaryTotal),
     secondaryTotal: round2(secondaryTotal),
     primaryMatched,
     secondaryMatched,
-    raw: json,
+    raw: { expense: rows },
   }
+}
+
+/**
+ * Sum expense-category amounts (without tax) for accounts in accountIdSet.
+ */
+async function fetchExpenseTotalsByAccountIds(fromDate, toDate, accountIdSet) {
+  const split = await fetchExpenseTotalsSplit(fromDate, toDate, accountIdSet, new Set())
+  return { total: split.primaryTotal, matched: split.primaryMatched, raw: split.raw }
 }
 
 module.exports = {
   BOOKS_V3,
   fetchChartOfAccountsRaw,
+  fetchExpenseChartOfAccountsRaw,
   fetchAccountDetail,
   fetchSalesByCustomerTotal,
   fetchSalesByCustomerReturnsTotal,
@@ -311,6 +361,7 @@ module.exports = {
   fetchBankTransactionsSince,
   fetchExpensesForDay,
   fetchOperatingExpenseTotal,
+  fetchExpensesByCategory,
   fetchExpenseTotalsByAccountIds,
   fetchExpenseTotalsSplit,
   fetchInvoices,

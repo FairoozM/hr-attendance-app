@@ -13,6 +13,7 @@ const {
 const {
   startSummaryJob,
   getSummaryJob,
+  getCachedSummaryForDate,
 } = require('../services/ecommerceSummary/ecommerceSummaryJobService')
 const { assertYmd, todayUaeYmd } = require('../services/ecommerceAccounting/accountNature')
 
@@ -97,6 +98,25 @@ async function getEcommerceSummaryReport(req, res) {
   }
 }
 
+/**
+ * Read-only cache probe — never starts a Zoho build.
+ * status: ready | missing | building
+ */
+async function getEcommerceSummaryCached(req, res) {
+  try {
+    const date = resolveDate(req)
+    const cached = getCachedSummaryForDate(date)
+    return res.json(cached)
+  } catch (err) {
+    const status = err.code === 'BAD_REQUEST' ? 400 : 500
+    console.error('[ecommerceSummary] cached', err)
+    return res.status(status).json({
+      error: err.message || 'Failed to read cached Ecommerce Summary',
+      code: err.code || 'SUMMARY_CACHE_ERROR',
+    })
+  }
+}
+
 async function startEcommerceSummaryReport(req, res) {
   try {
     const date = resolveDate(req)
@@ -133,6 +153,7 @@ module.exports = {
   startDailyEcommerceLedger,
   getDailyEcommerceLedgerJob,
   getEcommerceSummaryReport,
+  getEcommerceSummaryCached,
   startEcommerceSummaryReport,
   getEcommerceSummaryJob,
 }

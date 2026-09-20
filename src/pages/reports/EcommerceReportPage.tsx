@@ -1,37 +1,27 @@
 /**
  * Ecommerce Report (management summary) — DAY / MONTH / YEAR / expenses / returns / ratios.
- * Route: /#/reports/ecommerce-report
+ * Route: /#/reports/ecommerce-report?date=YYYY-MM-DD&view=day
  *
- * Build often exceeds the 25s client / ~30s CloudFront window (month day-by-day Zoho
- * sales), so the page starts a background job and polls — same pattern as the ledger.
+ * Opening/refresh restores the URL date but does **not** auto-build (Zoho is expensive).
+ * Explicit Load / Build fetches; in-memory server cache may hydrate a recent build.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { jsPDF } from 'jspdf'
 import html2canvas from 'html2canvas'
 import { api } from '../../api/client'
+import {
+  addDaysYmd,
+  mergeEcommerceReportSearchParams,
+  parseEcommerceReportSearchParams,
+  todayUaeYmd,
+  type EcommerceReportView,
+} from './ecommerceReportUrl'
 import './EcommerceReportPage.css'
 
-const IANA_UAE = 'Asia/Dubai'
 const POLL_MS = 1500
 const MAX_WAIT_MS = 5 * 60 * 1000
-
-function todayUaeYmd(now = new Date()) {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: IANA_UAE,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(now)
-}
-
-function addDaysYmd(dateYmd: string, delta: number) {
-  const [y, m, d] = dateYmd.split('-').map(Number)
-  const noon = new Date(
-    `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}T12:00:00+04:00`
-  )
-  return todayUaeYmd(new Date(noon.getTime() + delta * 86400000))
-}
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -70,6 +60,14 @@ type SummaryJob = {
   report?: SummaryReport | null
 }
 
+type CachedProbe = {
+  status: 'ready' | 'missing' | 'building'
+  date: string
+  jobId?: string | null
+  progress?: string
+  report?: SummaryReport | null
+}
+
 function MetricRows({ rows }: { rows: { label: string; value: number | null | undefined; deduct?: boolean }[] }) {
   return (
     <dl className="er-metrics">
@@ -84,80 +82,207 @@ function MetricRows({ rows }: { rows: { label: string; value: number | null | un
 }
 
 export function EcommerceReportPage() {
-  const [date, setDate] = useState(todayUaeYmd)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const { date, view } = useMemo(
+    () => parseEcommerceReportSearchParams(searchParams),
+    [searchParams]
+  )
+
   const [report, setReport] = useState<SummaryReport | null>(null)
   const [loading, setLoading] = useState(false)
+  const [cacheChecking, setCacheChecking] = useState(false)
   const [progress, setProgress] = useState('')
   const [error, setError] = useState('')
   const [printRoot, setPrintRoot] = useState<HTMLDivElement | null>(null)
-  const loadTokenRef = useRef<symbol | null>(null)
+  const loadTokenRef = useRef(0)
+  const selectedDateRef = useRef(date)
+  selectedDateRef.current = date
 
-  const load = useCallback(async (ymd: string) => {
-    setLoading(true)
-    setError('')
-    setProgress('Starting…')
-    setReport(null)
-    const token = Symbol('summary-load')
-    loadTokenRef.current = token
-    const cancelled = () => loadTokenRef.current !== token
-    try {
-      // Short timeouts — each hop must stay under CloudFront; the build runs in the background.
-      const started = (await api.post(
-        '/api/reports/ecommerce/build',
-        { date: ymd },
-        { timeoutMs: 20_000 }
-      )) as SummaryJob
-      let job = started
-      const deadline = Date.now() + MAX_WAIT_MS
-      while (job.status === 'queued' || job.status === 'running') {
-        if (cancelled()) return
-        if (Date.now() > deadline) {
-          throw new Error(
-            'Report is still building on the server. Wait a minute and open this date again.'
-          )
-        }
-        setProgress(job.progress || 'Loading Zoho summary…')
-        await sleep(POLL_MS)
-        if (cancelled()) return
-        job = (await api.get(
-          `/api/reports/ecommerce/build/${encodeURIComponent(job.jobId)}`,
-          { timeoutMs: 20_000 }
-        )) as SummaryJob
-      }
-      if (cancelled()) return
-      if (job.status === 'failed') {
-        const errMsg = job.error || 'Summary build failed'
-        if (/429|rate limit|sync paused/i.test(errMsg)) {
-          throw new Error(
-            'Zoho is rate-limiting right now. Wait about a minute, then hit Reload — the build retries automatically.'
-          )
-        }
-        throw new Error(errMsg)
-      }
-      if (!job.report || !job.report.day) {
-        throw new Error('Summary job finished without a report — hard-refresh the page and try again.')
-      }
-      setReport(job.report)
-      setProgress('')
-    } catch (err: unknown) {
-      if (!cancelled()) {
-        setError(err instanceof Error ? err.message : 'Failed to load report')
-        setReport(null)
-      }
-    } finally {
-      if (!cancelled()) setLoading(false)
-    }
+  const setUrlDate = useCallback(
+    (nextDate: string, opts?: { replace?: boolean; view?: EcommerceReportView | null }) => {
+      setSearchParams(
+        (prev) =>
+          mergeEcommerceReportSearchParams(prev, {
+            date: nextDate,
+            view: opts?.view === undefined ? view : opts.view,
+          }),
+        { replace: Boolean(opts?.replace) }
+      )
+    },
+    [setSearchParams, view]
+  )
+
+  // Ensure a valid date is always present in the URL (replace — no history spam).
+  useEffect(() => {
+    if (searchParams.get('date') === date) return
+    setSearchParams(
+      (prev) => mergeEcommerceReportSearchParams(prev, { date, view }),
+      { replace: true }
+    )
+  }, [date, view, searchParams, setSearchParams])
+
+  const applyReportIfCurrent = useCallback((ymd: string, next: SummaryReport | null) => {
+    if (selectedDateRef.current !== ymd) return false
+    if (next && next.reportDate && next.reportDate !== ymd) return false
+    setReport(next)
+    return true
   }, [])
 
+  const pollExistingJob = useCallback(
+    async (ymd: string, jobId: string, token: number) => {
+      const cancelled = () => token !== loadTokenRef.current || selectedDateRef.current !== ymd
+      try {
+        let job = (await api.get(
+          `/api/reports/ecommerce/build/${encodeURIComponent(jobId)}`,
+          { timeoutMs: 20_000 }
+        )) as SummaryJob
+        const deadline = Date.now() + MAX_WAIT_MS
+        while (job.status === 'queued' || job.status === 'running') {
+          if (cancelled()) return
+          if (Date.now() > deadline) {
+            throw new Error(
+              'Report is still building on the server. Wait a minute and open this date again.'
+            )
+          }
+          setProgress(job.progress || 'Loading Zoho summary…')
+          await sleep(POLL_MS)
+          if (cancelled()) return
+          job = (await api.get(
+            `/api/reports/ecommerce/build/${encodeURIComponent(job.jobId)}`,
+            { timeoutMs: 20_000 }
+          )) as SummaryJob
+        }
+        if (cancelled()) return
+        if (job.status === 'failed') {
+          throw new Error(job.error || 'Summary build failed')
+        }
+        if (!job.report?.day || job.date !== ymd) {
+          throw new Error('Summary job finished without a matching report for this date.')
+        }
+        applyReportIfCurrent(ymd, job.report)
+        setProgress('')
+      } catch (err: unknown) {
+        if (!cancelled()) {
+          setError(err instanceof Error ? err.message : 'Failed to load report')
+          applyReportIfCurrent(ymd, null)
+        }
+      } finally {
+        if (!cancelled()) setLoading(false)
+      }
+    },
+    [applyReportIfCurrent]
+  )
+
+  /** Lightweight cache probe — never POST /build. */
+  const probeCache = useCallback(
+    async (ymd: string) => {
+      const token = ++loadTokenRef.current
+      setCacheChecking(true)
+      setError('')
+      setProgress('')
+      setReport((prev) => (prev?.reportDate === ymd ? prev : null))
+      try {
+        const cached = (await api.get(
+          `/api/reports/ecommerce/cached?date=${encodeURIComponent(ymd)}`,
+          { timeoutMs: 15_000 }
+        )) as CachedProbe
+        if (token !== loadTokenRef.current || selectedDateRef.current !== ymd) return
+        if (cached.status === 'ready' && cached.report?.day) {
+          applyReportIfCurrent(ymd, cached.report)
+        } else if (cached.status === 'building' && cached.jobId) {
+          setLoading(true)
+          setProgress(cached.progress || 'Build already in progress…')
+          void pollExistingJob(ymd, cached.jobId, token)
+        } else {
+          applyReportIfCurrent(ymd, null)
+        }
+      } catch {
+        if (token === loadTokenRef.current && selectedDateRef.current === ymd) {
+          applyReportIfCurrent(ymd, null)
+        }
+      } finally {
+        if (token === loadTokenRef.current) setCacheChecking(false)
+      }
+    },
+    [applyReportIfCurrent, pollExistingJob]
+  )
+
+  const buildReport = useCallback(
+    async (ymd: string) => {
+      const token = ++loadTokenRef.current
+      const cancelled = () => token !== loadTokenRef.current || selectedDateRef.current !== ymd
+      setLoading(true)
+      setError('')
+      setProgress('Starting…')
+      applyReportIfCurrent(ymd, null)
+      try {
+        const started = (await api.post(
+          '/api/reports/ecommerce/build',
+          { date: ymd },
+          { timeoutMs: 20_000 }
+        )) as SummaryJob
+        if (cancelled()) return
+        let job = started
+        const deadline = Date.now() + MAX_WAIT_MS
+        while (job.status === 'queued' || job.status === 'running') {
+          if (cancelled()) return
+          if (Date.now() > deadline) {
+            throw new Error(
+              'Report is still building on the server. Wait a minute and open this date again.'
+            )
+          }
+          setProgress(job.progress || 'Loading Zoho summary…')
+          await sleep(POLL_MS)
+          if (cancelled()) return
+          job = (await api.get(
+            `/api/reports/ecommerce/build/${encodeURIComponent(job.jobId)}`,
+            { timeoutMs: 20_000 }
+          )) as SummaryJob
+        }
+        if (cancelled()) return
+        if (job.status === 'failed') {
+          const errMsg = job.error || 'Summary build failed'
+          if (/429|rate limit|sync paused/i.test(errMsg)) {
+            throw new Error(
+              'Zoho is rate-limiting right now. Wait about a minute, then hit Load Report again.'
+            )
+          }
+          throw new Error(errMsg)
+        }
+        if (!job.report?.day || job.date !== ymd) {
+          throw new Error('Summary job finished without a matching report for this date.')
+        }
+        applyReportIfCurrent(ymd, job.report)
+        setProgress('')
+      } catch (err: unknown) {
+        if (!cancelled()) {
+          setError(err instanceof Error ? err.message : 'Failed to load report')
+          applyReportIfCurrent(ymd, null)
+        }
+      } finally {
+        if (!cancelled()) setLoading(false)
+      }
+    },
+    [applyReportIfCurrent]
+  )
+
+  // On date (URL) change: cancel prior work, probe cache only — never auto-build.
   useEffect(() => {
-    void load(date)
+    void probeCache(date)
     return () => {
-      loadTokenRef.current = null
+      loadTokenRef.current += 1
     }
-  }, [date, load])
+  }, [date, probeCache])
+
+  // Optional section deep-link
+  useEffect(() => {
+    if (!view || !report) return
+    const el = document.getElementById(`er-section-${view}`)
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [view, report])
 
   const exportPdf = async () => {
-    if (!printRoot || !report) return
+    if (!printRoot || !report || report.reportDate !== date) return
     const canvas = await html2canvas(printRoot, { backgroundColor: '#0f1419', scale: 2 })
     const img = canvas.toDataURL('image/png')
     const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
@@ -167,148 +292,179 @@ export function EcommerceReportPage() {
     pdf.save(`ecommerce-report-${report.reportDate}.pdf`)
   }
 
+  const displayReport = report?.reportDate === date ? report : null
+  const today = todayUaeYmd()
+
   return (
     <div className="er-page">
       <header className="er-header">
         <div>
           <h1>Ecommerce Report</h1>
           <p className="er-subtitle">
-            {report?.dayName || '—'} · {date.split('-').reverse().join('.')} · Total Days:{' '}
-            {report?.totalDays ?? '—'}
+            {displayReport?.dayName || '—'} · {date.split('-').reverse().join('.')} · Total Days:{' '}
+            {displayReport?.totalDays ?? '—'}
           </p>
         </div>
         <div className="er-controls">
-          <button type="button" onClick={() => setDate((d) => addDaysYmd(d, -1))} disabled={loading}>
+          <button type="button" onClick={() => setUrlDate(addDaysYmd(date, -1))}>
             Previous Day
           </button>
           <input
             type="date"
             value={date}
-            onChange={(e) => setDate(e.target.value)}
-            disabled={loading}
+            max={today}
+            onChange={(e) => {
+              const v = e.target.value
+              if (v) setUrlDate(v)
+            }}
           />
           <button
             type="button"
-            onClick={() => setDate((d) => addDaysYmd(d, 1))}
-            disabled={loading || date >= todayUaeYmd()}
+            onClick={() => setUrlDate(addDaysYmd(date, 1))}
+            disabled={date >= today}
           >
             Next Day
           </button>
-          <button type="button" onClick={() => setDate(todayUaeYmd())} disabled={loading}>
+          <button type="button" onClick={() => setUrlDate(today)}>
             Today
           </button>
-          <button type="button" onClick={() => void load(date)} disabled={loading}>
-            {loading ? 'Building…' : 'Reload'}
+          <button
+            type="button"
+            className="er-btn-primary"
+            onClick={() => void buildReport(date)}
+            disabled={loading}
+          >
+            {loading ? 'Building…' : displayReport ? 'Rebuild Report' : 'Load Report'}
           </button>
-          <button type="button" onClick={() => window.print()}>
+          <button type="button" onClick={() => window.print()} disabled={!displayReport}>
             Print
           </button>
-          <button type="button" onClick={() => void exportPdf()} disabled={!report}>
+          <button type="button" onClick={() => void exportPdf()} disabled={!displayReport}>
             Export PDF
           </button>
         </div>
       </header>
 
-      {loading && (
+      {(loading || cacheChecking) && (
         <div className="er-banner">
-          Loading…{progress ? ` ${progress}` : ''}
+          {loading
+            ? `Loading…${progress ? ` ${progress}` : ''}`
+            : 'Checking for a saved report…'}
         </div>
       )}
       {error && <div className="er-banner er-banner--err">{error}</div>}
-      {(report?.warnings || []).map((w) => (
+      {(displayReport?.warnings || []).map((w) => (
         <div key={w} className="er-banner er-banner--warn">
           {w}
         </div>
       ))}
 
-      {report && (
+      {!loading && !cacheChecking && !displayReport && (
+        <div className="er-empty" role="status">
+          <p>No report loaded for this date ({date.split('-').reverse().join('.')})</p>
+          <p className="er-empty__hint">
+            Opening or refreshing this page does not call Zoho. Click Load Report when you want to
+            build.
+          </p>
+          <button type="button" className="er-btn-primary" onClick={() => void buildReport(date)}>
+            Load Report
+          </button>
+        </div>
+      )}
+
+      {displayReport && (
         <div ref={setPrintRoot} className="er-grid">
-          <section className="er-card">
+          <section id="er-section-day" className="er-card">
             <h2>Day</h2>
             <MetricRows
               rows={[
-                { label: 'Cash Sales', value: report.day.cashSales },
-                { label: 'Credit Sales', value: report.day.creditSales },
-                { label: 'Sale Return', value: report.day.saleReturn, deduct: true },
-                { label: 'Total Sales', value: report.day.totalSales },
+                { label: 'Cash Sales', value: displayReport.day.cashSales },
+                { label: 'Credit Sales', value: displayReport.day.creditSales },
+                { label: 'Sale Return', value: displayReport.day.saleReturn, deduct: true },
+                { label: 'Total Sales', value: displayReport.day.totalSales },
               ]}
             />
           </section>
-          <section className="er-card">
+          <section id="er-section-month" className="er-card">
             <h2>Month</h2>
             <MetricRows
               rows={[
-                { label: 'Opening Sales', value: report.month.openingSales },
-                { label: 'Today Sales', value: report.month.todaySales },
-                { label: 'Today Sale Return', value: report.month.todaySaleReturn, deduct: true },
-                { label: 'Total Sales', value: report.month.totalSales },
-                { label: 'Avg Sale / Day', value: report.month.averageSalePerDay },
+                { label: 'Opening Sales', value: displayReport.month.openingSales },
+                { label: 'Today Sales', value: displayReport.month.todaySales },
+                { label: 'Today Sale Return', value: displayReport.month.todaySaleReturn, deduct: true },
+                { label: 'Total Sales', value: displayReport.month.totalSales },
+                { label: 'Avg Sale / Day', value: displayReport.month.averageSalePerDay },
               ]}
             />
-            <p className="er-hint">Denominator: {report.month.daysWithSalesDenominator} calendar days in month</p>
+            <p className="er-hint">
+              Denominator: {displayReport.month.daysWithSalesDenominator} calendar days in month
+            </p>
           </section>
-          <section className="er-card">
+          <section id="er-section-year" className="er-card">
             <h2>Year</h2>
             <MetricRows
               rows={[
-                { label: 'Opening Sales', value: report.year.openingSales },
-                { label: 'Today Sales', value: report.year.todaySales },
-                { label: 'Today Sale Return', value: report.year.todaySaleReturn, deduct: true },
-                { label: 'Total Sales', value: report.year.totalSales },
-                { label: 'Avg Sale / Day', value: report.year.averageSalePerDay },
-                { label: 'Avg Sale / Month', value: report.year.averageSalePerMonth },
+                { label: 'Opening Sales', value: displayReport.year.openingSales },
+                { label: 'Today Sales', value: displayReport.year.todaySales },
+                { label: 'Today Sale Return', value: displayReport.year.todaySaleReturn, deduct: true },
+                { label: 'Total Sales', value: displayReport.year.totalSales },
+                { label: 'Avg Sale / Day', value: displayReport.year.averageSalePerDay },
+                { label: 'Avg Sale / Month', value: displayReport.year.averageSalePerMonth },
               ]}
             />
           </section>
-          <section className="er-card er-card--wide">
+          <section id="er-section-expenses" className="er-card er-card--wide">
             <h2>Expenses</h2>
             <div className="er-split">
               <MetricRows
                 rows={[
-                  { label: 'Opening Flexible Exp', value: report.expenses.openingFlexible },
-                  { label: 'Today Flexible Exp', value: report.expenses.todayFlexible },
-                  { label: 'Total Flexible Exp', value: report.expenses.totalFlexible },
-                  { label: 'Avg Flexible / Day', value: report.expenses.averageFlexiblePerDay },
-                  { label: 'Avg Flexible / Month', value: report.expenses.averageFlexiblePerMonth },
+                  { label: 'Opening Flexible Exp', value: displayReport.expenses.openingFlexible },
+                  { label: 'Today Flexible Exp', value: displayReport.expenses.todayFlexible },
+                  { label: 'Total Flexible Exp', value: displayReport.expenses.totalFlexible },
+                  { label: 'Avg Flexible / Day', value: displayReport.expenses.averageFlexiblePerDay },
+                  {
+                    label: 'Avg Flexible / Month',
+                    value: displayReport.expenses.averageFlexiblePerMonth,
+                  },
                 ]}
               />
               <MetricRows
                 rows={[
-                  { label: 'Opening Fixed Exp', value: report.expenses.openingFixed },
-                  { label: 'Today Fixed Exp', value: report.expenses.todayFixed },
-                  { label: 'Total Fixed Exp', value: report.expenses.totalFixed },
-                  { label: 'Avg Fixed / Day', value: report.expenses.averageFixedPerDay },
-                  { label: 'Avg Fixed / Month', value: report.expenses.averageFixedPerMonth },
+                  { label: 'Opening Fixed Exp', value: displayReport.expenses.openingFixed },
+                  { label: 'Today Fixed Exp', value: displayReport.expenses.todayFixed },
+                  { label: 'Total Fixed Exp', value: displayReport.expenses.totalFixed },
+                  { label: 'Avg Fixed / Day', value: displayReport.expenses.averageFixedPerDay },
+                  { label: 'Avg Fixed / Month', value: displayReport.expenses.averageFixedPerMonth },
                 ]}
               />
             </div>
           </section>
-          <section className="er-card">
+          <section id="er-section-returns" className="er-card">
             <h2>Year Sale Returns</h2>
             <MetricRows
               rows={[
-                { label: 'Opening Sale Return', value: report.returns.opening },
-                { label: 'Today Sale Return', value: report.returns.today },
-                { label: 'Total Sale Return', value: report.returns.total },
-                { label: 'Avg Sale Return / Day', value: report.returns.averagePerDay },
-                { label: 'Avg Sale Return / Month', value: report.returns.averagePerMonth },
+                { label: 'Opening Sale Return', value: displayReport.returns.opening },
+                { label: 'Today Sale Return', value: displayReport.returns.today },
+                { label: 'Total Sale Return', value: displayReport.returns.total },
+                { label: 'Avg Sale Return / Day', value: displayReport.returns.averagePerDay },
+                { label: 'Avg Sale Return / Month', value: displayReport.returns.averagePerMonth },
               ]}
             />
           </section>
-          <section className="er-card er-card--ratios">
+          <section id="er-section-ratios" className="er-card er-card--ratios">
             <h2>Return / Sale Ratios</h2>
             <div className="er-ratio-grid">
               <div>
                 <span>Day</span>
-                <strong>{fmtPct(report.ratios.day)}</strong>
+                <strong>{fmtPct(displayReport.ratios.day)}</strong>
               </div>
               <div>
                 <span>Month</span>
-                <strong>{fmtPct(report.ratios.month)}</strong>
+                <strong>{fmtPct(displayReport.ratios.month)}</strong>
               </div>
               <div>
                 <span>Year</span>
-                <strong>{fmtPct(report.ratios.year)}</strong>
+                <strong>{fmtPct(displayReport.ratios.year)}</strong>
               </div>
             </div>
           </section>

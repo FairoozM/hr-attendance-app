@@ -66,6 +66,52 @@ function getActiveSummaryJob(date) {
   return serializeJob(job)
 }
 
+/**
+ * Read-only: return a still-retained completed summary for this date, or an in-flight job.
+ * Does **not** start a Zoho build.
+ */
+function getCachedSummaryForDate(date) {
+  pruneFinishedJobs()
+  const key = assertYmd(date || todayUaeYmd())
+
+  const active = getActiveSummaryJob(key)
+  if (active) {
+    return {
+      status: 'building',
+      date: key,
+      jobId: active.jobId,
+      progress: active.progress || '',
+      report: null,
+    }
+  }
+
+  let latest = null
+  for (const job of jobs.values()) {
+    if (job.date !== key || job.status !== 'completed' || !job.report) continue
+    if (!latest || String(job.completedAt || '') > String(latest.completedAt || '')) {
+      latest = job
+    }
+  }
+  if (latest) {
+    return {
+      status: 'ready',
+      date: key,
+      jobId: latest.jobId,
+      progress: '',
+      report: latest.report,
+      completedAt: latest.completedAt,
+    }
+  }
+
+  return {
+    status: 'missing',
+    date: key,
+    jobId: null,
+    progress: '',
+    report: null,
+  }
+}
+
 function startSummaryJob(opts = {}) {
   pruneFinishedJobs()
   const date = assertYmd(opts.date || todayUaeYmd())
@@ -120,4 +166,5 @@ module.exports = {
   startSummaryJob,
   getSummaryJob,
   getActiveSummaryJob,
+  getCachedSummaryForDate,
 }

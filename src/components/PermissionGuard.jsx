@@ -1,4 +1,4 @@
-import { Navigate } from 'react-router-dom'
+import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth, hasPermission } from '../contexts/AuthContext'
 
 /**
@@ -7,8 +7,9 @@ import { useAuth, hasPermission } from '../contexts/AuthContext'
  */
 export function PermissionGuard({ module, action, children }) {
   const { user } = useAuth()
+  const location = useLocation()
 
-  if (!user) return <Navigate to="/login" replace />
+  if (!user) return <Navigate to="/login" state={{ from: location }} replace />
   if (hasPermission(user, module, action)) return children
 
   return <Navigate to="/account" replace />
@@ -17,8 +18,9 @@ export function PermissionGuard({ module, action, children }) {
 /** Matches sidebar: portal employees always open Annual Leave; others need leave.view (admin/warehouse already pass). */
 export function LeaveSelfServiceGuard({ children }) {
   const { user } = useAuth()
+  const location = useLocation()
 
-  if (!user) return <Navigate to="/login" replace />
+  if (!user) return <Navigate to="/login" state={{ from: location }} replace />
   if (user.role === 'employee') return children
   if (hasPermission(user, 'leave', 'view')) return children
 

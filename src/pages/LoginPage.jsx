@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { ApiRoutingDebug } from '../components/ApiRoutingDebug'
 import { ApiServerSetup } from '../components/ApiServerSetup'
 import { getApiBaseUrlMemory, setApiBaseUrlMemory } from '../lib/api'
+import { locationToReturnPath } from './reports/ecommerceReportUrl'
 import './Page.css'
 import './LoginPage.css'
 
@@ -64,7 +65,7 @@ export function LoginPage() {
   const { user, login, sessionError } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
-  const from = location.state?.from?.pathname || '/'
+  const from = locationToReturnPath(location.state?.from)
 
   useEffect(() => {
     if (!import.meta.env.PROD) return

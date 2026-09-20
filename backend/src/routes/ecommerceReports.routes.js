@@ -7,6 +7,7 @@ const {
   startDailyEcommerceLedger,
   getDailyEcommerceLedgerJob,
   getEcommerceSummaryReport,
+  getEcommerceSummaryCached,
   startEcommerceSummaryReport,
   getEcommerceSummaryJob,
 } = require('../controllers/ecommerceReportsController')
@@ -39,6 +40,13 @@ router.get(
   '/ecommerce',
   requirePermission('weekly_reports', 'view'),
   getEcommerceSummaryReport
+)
+
+// GET /api/reports/ecommerce/cached?date= — read-only; never starts a Zoho build
+router.get(
+  '/ecommerce/cached',
+  requirePermission('weekly_reports', 'view'),
+  getEcommerceSummaryCached
 )
 
 // POST /api/reports/ecommerce/build { date? } -> 202 { jobId }

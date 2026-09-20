@@ -25,7 +25,7 @@ const {
   fetchSalesByCustomerTotal,
   fetchSalesByCustomerReturnsTotal,
   fetchInvoicesForDay,
-  fetchChartOfAccountsRaw,
+  fetchExpenseChartOfAccountsRaw,
   fetchExpenseTotalsSplit,
 } = require('../ecommerceAccounting/zohoBooksReads')
 
@@ -150,8 +150,10 @@ async function buildEcommerceSummaryReport(opts = {}) {
   const yearAvgPerDay = totalDays > 0 ? round2(yearTotal / totalDays) : null
   const yearAvgPerMonth = monthNumber > 0 ? round2(yearTotal / monthNumber) : null
 
-  // Phase 4 — CoA + Fixed/Flexible (3 P&L ranges)
-  const chartAccounts = await fetchChartOfAccountsRaw()
+  // Phase 4 — Expense CoA hierarchy + Fixed/Flexible.
+  // CoA: AccountType.Expense (full parent tree). Amounts: Zoho expensesbycategory
+  // `amount` (without tax), matching Expense Summary by Category → Amount.
+  const chartAccounts = await fetchExpenseChartOfAccountsRaw()
   const fixedIds = getDescendantAccountIds(chartAccounts, CFG.fixedExpensesParentAccountId)
   const flexIds = getDescendantAccountIds(chartAccounts, CFG.flexibleExpensesParentAccountId)
   const fixedSet = new Set(fixedIds)
@@ -175,9 +177,14 @@ async function buildEcommerceSummaryReport(opts = {}) {
       `Day Total Sales from invoices − returns (${dayTotalFromParts}) differs from salesbycustomer net (${sbcNet}). Using invoice − return for Day cards.`
     )
   }
+  if (fixedIds.length <= 1 || flexIds.length <= 1) {
+    warnings.push(
+      'Fixed/Flexible CoA parents have no child accounts in the expense chart; check Zoho hierarchy or AccountType.Expense fetch.'
+    )
+  }
   if (Math.abs(throughSplit.primaryTotal) < 0.01 && Math.abs(throughSplit.secondaryTotal) < 0.01) {
     warnings.push(
-      'Fixed/Flexible parent descendants have little/no P&L amount (Zoho hierarchy may not nest all expense accounts under those parents). Totals reflect matched descendant accounts only.'
+      'Fixed/Flexible parent descendants have little/no expense-by-category amount for this period. Totals reflect matched descendant accounts only (orphans like top-level Salaries are excluded by Zoho parent links).'
     )
   }
   warnings.push(

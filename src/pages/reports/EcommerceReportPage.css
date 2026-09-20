@@ -63,6 +63,34 @@
   border-color: #5a4a2a;
 }
 
+.er-btn-primary {
+  background: #2a4a66 !important;
+  border-color: var(--er-accent) !important;
+  font-weight: 600;
+}
+
+.er-empty {
+  margin: 1.5rem 0;
+  padding: 1.5rem;
+  border: 1px dashed var(--er-border);
+  border-radius: 10px;
+  background: var(--er-panel);
+  text-align: center;
+}
+
+.er-empty p {
+  margin: 0 0 0.75rem;
+}
+
+.er-empty__hint {
+  color: var(--er-muted);
+  font-size: 0.9rem;
+}
+
+.er-empty .er-btn-primary {
+  margin-top: 0.5rem;
+}
+
 .er-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));

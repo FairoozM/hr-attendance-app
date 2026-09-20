@@ -180,3 +180,110 @@ describe('sales day math (legacy 12.09.2026 shapes)', () => {
     assert.equal(Number((opening + todaySale).toFixed(2)), 2485859.7)
   })
 })
+
+describe('Fixed/Flexible expense CoA hierarchy (2026-09-18 defect)', () => {
+  const FIXED = '4265011000026584005'
+  const FLEX = '4265011000026584011'
+
+  /** Shape of live Zoho Expense CoA: nested marketplace under Flexible, rent under Fixed. */
+  const fullExpenseCoa = [
+    { accountId: FIXED, parentAccountId: '', accountName: 'Fixed Expense' },
+    { accountId: FLEX, parentAccountId: '', accountName: 'Flexible Expense' },
+    { accountId: 'rent', parentAccountId: FIXED, accountName: 'Rent Expense' },
+    { accountId: 'office-rent', parentAccountId: 'rent', accountName: 'Office Rent Expense' },
+    { accountId: 'it-support', parentAccountId: FIXED, accountName: 'IT Support & Data Link Expense' },
+    { accountId: 'printing', parentAccountId: FIXED, accountName: 'Printing and Stationery' },
+    { accountId: 'amazon', parentAccountId: FLEX, accountName: 'Amazon Expense' },
+    { accountId: 'amazon-comm', parentAccountId: 'amazon', accountName: 'Amazon Commission Exp' },
+    { accountId: 'noon', parentAccountId: FLEX, accountName: 'Noon Expense' },
+    { accountId: 'noon-comm', parentAccountId: 'noon', accountName: '14% Noon Commission' },
+    { accountId: 'salaries', parentAccountId: '', accountName: 'Salaries & Wages Expenses' },
+  ]
+
+  /**
+   * showbalance=true + Active/non_zero CoA only kept a few Fixed children with
+   * GL balance — the exact incomplete set that produced Fixed=1050, Flexible=0.
+   */
+  const buggyShowBalanceCoa = [
+    { accountId: FIXED, parentAccountId: '', accountName: 'Fixed Expense' },
+    { accountId: FLEX, parentAccountId: '', accountName: 'Flexible Expense' },
+    { accountId: 'credit-card', parentAccountId: FIXED, accountName: 'Credit Card Charges' },
+    { accountId: 'trade-license', parentAccountId: FIXED, accountName: 'Trade License Expense' },
+    { accountId: 'consultancy', parentAccountId: FIXED, accountName: 'Paul & Hassan Consultancy Fee' },
+    { accountId: 'vigil', parentAccountId: FIXED, accountName: 'Vigil Faulty Replacement Exp' },
+    { accountId: 'alibaba', parentAccountId: FIXED, accountName: 'Ali Baba Expense' },
+    { accountId: 'it-support', parentAccountId: FIXED, accountName: 'IT Support & Data Link Expense' },
+    { accountId: 'printing', parentAccountId: FIXED, accountName: 'Printing and Stationery' },
+    { accountId: 'zoho-exp', parentAccountId: FIXED, accountName: 'Zoho Accounting Solution Exp' },
+    { accountId: 'ksa-noon', parentAccountId: FLEX, accountName: 'KSA-Noon Expense' },
+    { accountId: 'ksa-noon-comm', parentAccountId: 'ksa-noon', accountName: 'KSA-Noon Commission Expense' },
+  ]
+
+  it('full Expense CoA walks nested Fixed/Flexible descendants', () => {
+    const fixedIds = new Set(getDescendantAccountIds(fullExpenseCoa, FIXED))
+    const flexIds = new Set(getDescendantAccountIds(fullExpenseCoa, FLEX))
+    assert.ok(fixedIds.has('office-rent'))
+    assert.ok(fixedIds.has('it-support'))
+    assert.ok(flexIds.has('amazon-comm'))
+    assert.ok(flexIds.has('noon-comm'))
+    assert.equal(fixedIds.has('salaries'), false)
+    assert.equal(flexIds.has('salaries'), false)
+  })
+
+  it('incomplete showbalance CoA misses marketplace Flexible children (Flexible→0 bug)', () => {
+    const buggyFlex = new Set(getDescendantAccountIds(buggyShowBalanceCoa, FLEX))
+    assert.equal(buggyFlex.has('amazon-comm'), false)
+    assert.equal(buggyFlex.has('noon-comm'), false)
+    assert.ok(buggyFlex.has('ksa-noon'))
+    assert.ok(buggyFlex.has('ksa-noon-comm'))
+    assert.equal(buggyFlex.size, 3) // parent + KSA-Noon + commission
+  })
+
+  it('P&L match on buggy ids yields only IT Support 500 + Printing 550 = 1050 Fixed', () => {
+    const buggyFixed = new Set(getDescendantAccountIds(buggyShowBalanceCoa, FIXED))
+    const buggyFlex = new Set(getDescendantAccountIds(buggyShowBalanceCoa, FLEX))
+    const pnlRows = [
+      { accountId: 'it-support', total: 500 },
+      { accountId: 'printing', total: 550 },
+      { accountId: 'amazon-comm', total: 161399.61 },
+      { accountId: 'noon-comm', total: 91753.1 },
+      { accountId: 'office-rent', total: 125687.44 },
+      { accountId: 'salaries', total: 541505.87 },
+    ]
+    let fixed = 0
+    let flex = 0
+    for (const row of pnlRows) {
+      if (buggyFixed.has(row.accountId)) fixed += row.total
+      if (buggyFlex.has(row.accountId)) flex += row.total
+    }
+    assert.equal(round2(fixed), 1050)
+    assert.equal(round2(flex), 0)
+
+    const fullFixed = new Set(getDescendantAccountIds(fullExpenseCoa, FIXED))
+    const fullFlex = new Set(getDescendantAccountIds(fullExpenseCoa, FLEX))
+    fixed = 0
+    flex = 0
+    for (const row of pnlRows) {
+      if (fullFixed.has(row.accountId)) fixed += row.total
+      if (fullFlex.has(row.accountId)) flex += row.total
+    }
+    assert.equal(round2(fixed), 126737.44) // 500 + 550 + 125687.44
+    assert.equal(round2(flex), 253152.71) // 161399.61 + 91753.1
+  })
+
+  it('opening + today = total; averages use day-of-year 261 and month 9', () => {
+    const openingFixed = 357156.71
+    const todayFixed = 0
+    const totalFixed = 357156.71
+    assert.equal(round2(openingFixed + todayFixed), totalFixed)
+    assert.equal(round2(totalFixed / 261), 1368.42)
+    assert.equal(round2(totalFixed / 9), 39684.08)
+
+    const openingFlex = 840630.59
+    const todayFlex = 0
+    const totalFlex = 840630.59
+    assert.equal(round2(openingFlex + todayFlex), totalFlex)
+    assert.equal(round2(totalFlex / 261), 3220.81)
+    assert.equal(round2(totalFlex / 9), 93403.4)
+  })
+})
