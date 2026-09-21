@@ -1,10 +1,10 @@
 /**
  * Management Ecommerce Summary — DAY / MONTH / YEAR / expenses / returns / ratios.
  * Sales from Zoho Books salesbycustomer; returns from salesbycustomer entity_list=creditnote
- * (matches Zoho UI with invoices filtered out). Expenses from Fixed/Flexible CoA parents.
+ * (matches Zoho UI with invoices filtered out). Expenses from Expense Summary by
+ * Category, split Fixed vs Flexible by the app expense classification.
  */
 
-const { dailyEcommerceLedgerAccounts: CFG } = require('../../config/dailyEcommerceLedgerAccounts')
 const {
   assertYmd,
   previousYmd,
@@ -15,7 +15,6 @@ const {
   dayNameFromYmd,
   todayUaeYmd,
   calculateReturnSaleRatio,
-  getDescendantAccountIds,
   clean,
   toNumber,
   round2,
@@ -24,10 +23,13 @@ const {
   fetchSalesByCustomerTotal,
   fetchSalesByCustomerReturnsTotal,
   fetchInvoicesForDay,
-  fetchChartOfAccountsRaw,
   fetchExpensesByCategory,
-  sumExpensesByCategory,
+  fetchPnlExpenseAccountIds,
 } = require('../ecommerceAccounting/zohoBooksReads')
+const {
+  buildExpenseGroupMap,
+  classifyExpenseAccount,
+} = require('../../config/ecommerceExpenseClassification')
 
 /**
  * Classify invoice as cash vs credit from Zoho fields when present.
@@ -50,6 +52,42 @@ function classifyInvoiceCashCredit(inv) {
 function calendarDaysThroughMonth(reportDate) {
   assertYmd(reportDate)
   return Math.max(1, Number(reportDate.slice(8, 10)) || 1)
+}
+
+/**
+ * Split Expense-by-Category rows into Flexible / Fixed using account ids.
+ * @param {Array<{ accountId: string, accountName: string, amountWithTax: number }>} rows
+ * @param {Map<string, 'flexible' | 'fixed'>} groupMap
+ * @param {Set<string>} expenseAccountIds
+ */
+function splitExpenseRows(rows, groupMap, expenseAccountIds) {
+  let flexible = 0
+  let fixed = 0
+  const flexibleAccounts = []
+  const fixedAccounts = []
+  const unclassifiedAccounts = []
+  for (const row of rows || []) {
+    const amount = toNumber(row.amountWithTax)
+    const group = classifyExpenseAccount(row, groupMap, expenseAccountIds)
+    const entry = { accountId: row.accountId, accountName: row.accountName, amount: round2(amount) }
+    if (group === 'flexible') {
+      flexible += amount
+      flexibleAccounts.push(entry)
+    } else if (group === 'fixed') {
+      fixed += amount
+      fixedAccounts.push(entry)
+    } else if (expenseAccountIds.has(row.accountId)) {
+      unclassifiedAccounts.push(entry)
+    }
+  }
+  const byAmountDesc = (a, b) => Math.abs(b.amount) - Math.abs(a.amount)
+  return {
+    flexible: round2(flexible),
+    fixed: round2(fixed),
+    flexibleAccounts: flexibleAccounts.sort(byAmountDesc),
+    fixedAccounts: fixedAccounts.sort(byAmountDesc),
+    unclassifiedAccounts: unclassifiedAccounts.sort(byAmountDesc),
+  }
 }
 
 /**
@@ -133,23 +171,18 @@ async function buildEcommerceSummaryReport(opts = {}) {
   const yearAvgPerMonth = monthNumber > 0 ? round2(yearTotal / monthNumber) : null
 
   // Phase 4 — Fixed/Flexible from Expense Summary by Category (amount with tax)
-  const chartAccounts = await fetchChartOfAccountsRaw()
-  const fixedIds = getDescendantAccountIds(chartAccounts, CFG.fixedExpensesParentAccountId)
-  const flexIds = getDescendantAccountIds(chartAccounts, CFG.flexibleExpensesParentAccountId)
-  const fixedSet = new Set(fixedIds)
-  const flexSet = new Set(flexIds)
-
+  const expenseAccountIds = await fetchPnlExpenseAccountIds(yearStart, reportDate)
+  const groupMap = buildExpenseGroupMap()
   const categoryThrough = await fetchExpensesByCategory(yearStart, reportDate)
   const categoryToday = await fetchExpensesByCategory(reportDate, reportDate)
-  const flexThrough = sumExpensesByCategory(categoryThrough, flexSet)
-  const fixedThrough = sumExpensesByCategory(categoryThrough, fixedSet)
-  const flexToday = sumExpensesByCategory(categoryToday, flexSet)
-  const fixedToday = sumExpensesByCategory(categoryToday, fixedSet)
 
-  const totalFlexible = round2(flexThrough.total)
-  const totalFixed = round2(fixedThrough.total)
-  const todayFlexible = round2(flexToday.total)
-  const todayFixed = round2(fixedToday.total)
+  const splitThrough = splitExpenseRows(categoryThrough, groupMap, expenseAccountIds)
+  const splitToday = splitExpenseRows(categoryToday, groupMap, expenseAccountIds)
+
+  const totalFlexible = splitThrough.flexible
+  const totalFixed = splitThrough.fixed
+  const todayFlexible = splitToday.flexible
+  const todayFixed = splitToday.fixed
   const openingFlexible = round2(totalFlexible - todayFlexible)
   const openingFixed = round2(totalFixed - todayFixed)
 
@@ -159,16 +192,20 @@ async function buildEcommerceSummaryReport(opts = {}) {
       'Zoho invoice list did not expose payment_mode for this day; Cash Sales may be 0 and all invoice totals classified as Credit Sales.'
     )
   }
-  if (flexIds.length <= 1 && fixedIds.length <= 1) {
+  if (splitThrough.unclassifiedAccounts.length) {
+    const names = splitThrough.unclassifiedAccounts
+      .slice(0, 5)
+      .map((a) => `${a.accountName} (${a.amount})`)
+      .join(', ')
     warnings.push(
-      'Fixed Expense / Flexible Expense parents have no child accounts in the Zoho chart of accounts, so Expense by Category totals for those groups are empty.'
+      `${splitThrough.unclassifiedAccounts.length} expense account(s) are neither Fixed nor Flexible and are excluded: ${names}.`
     )
   }
   warnings.push(
     'Month Avg Sale / Day divides by calendar days in the month through this date (not distinct days-with-sales), to avoid Zoho rate limits.'
   )
   warnings.push(
-    'Fixed and Flexible expenses are Amount With Tax from Zoho Expense Summary by Category, limited to each parent account and its chart-of-accounts children.'
+    'Fixed and Flexible expenses are Amount With Tax from Zoho Expense Summary by Category, grouped by the app expense classification (Zoho Fixed/Flexible parent accounts are unused).'
   )
 
   const monthGrossApprox = round2(monthTotal + monthReturns)
@@ -220,10 +257,9 @@ async function buildEcommerceSummaryReport(opts = {}) {
       averageFlexiblePerMonth: monthNumber > 0 ? round2(totalFlexible / monthNumber) : null,
       averageFixedPerDay: totalDays > 0 ? round2(totalFixed / totalDays) : null,
       averageFixedPerMonth: monthNumber > 0 ? round2(totalFixed / monthNumber) : null,
-      fixedParentAccountId: CFG.fixedExpensesParentAccountId,
-      flexibleParentAccountId: CFG.flexibleExpensesParentAccountId,
-      fixedDescendantCount: fixedIds.length,
-      flexibleDescendantCount: flexIds.length,
+      flexibleAccounts: splitThrough.flexibleAccounts,
+      fixedAccounts: splitThrough.fixedAccounts,
+      unclassifiedAccounts: splitThrough.unclassifiedAccounts,
     },
     returns: {
       opening: openingSaleReturn,
@@ -244,7 +280,7 @@ async function buildEcommerceSummaryReport(opts = {}) {
       cashCredit:
         'Cash vs Credit uses Zoho invoice payment_mode when present; otherwise invoices default to Credit Sales.',
       fixedFlexible:
-        'Fixed/Flexible totals are Zoho Expense Summary by Category amount_with_tax for the Fixed Expense and Flexible Expense accounts and their chart-of-accounts children. Categories outside those parents (for example Amazon Commission) are not included.',
+        'Fixed/Flexible totals are Zoho Expense Summary by Category amount_with_tax. Flexible covers channel selling costs (commission, advertising, shipping, storage, returns, gateway fees); Fixed covers overheads (payroll, rent, utilities, insurance, fleet, office). Balance-sheet rows in that report (inventory, prepaid rent, payables, VAT) are excluded.',
       monthAvgDenominator:
         'Month Avg Sale / Day uses calendar days through the selected date (avoids per-day Zoho report calls).',
       saleReturns:

@@ -272,6 +272,34 @@ async function fetchExpensesByCategory(fromDate, toDate) {
 }
 
 /**
+ * Account ids Zoho reports under the P&L expense trees for a period.
+ * Expense-by-Category also lists balance-sheet accounts (inventory, prepaid
+ * rent, payables, VAT); this set is what separates real expenses from them.
+ */
+async function fetchPnlExpenseAccountIds(fromDate, toDate) {
+  const sp = new URLSearchParams({ from_date: fromDate, to_date: toDate })
+  const json = await zohoBooksJsonRequest(
+    `${BOOKS_V3}/reports/profitandloss`,
+    sp,
+    'GET',
+    undefined,
+    { source: 'ecommerce_accounting_pnl_expense_ids', skipCache: true }
+  )
+  const ids = new Set()
+  function walk(nodes, underExpense) {
+    for (const n of nodes || []) {
+      const label = clean(n.name || n.total_label)
+      const inExpense = underExpense || /expense/i.test(label)
+      const id = clean(n.account_id)
+      if (inExpense && id) ids.add(id)
+      if (Array.isArray(n.account_transactions)) walk(n.account_transactions, inExpense)
+    }
+  }
+  walk(json?.profit_and_loss, false)
+  return ids
+}
+
+/**
  * Sum Expense-by-Category amount_with_tax for accounts in idSet.
  */
 function sumExpensesByCategory(rows, idSet) {
@@ -365,6 +393,7 @@ module.exports = {
   fetchExpenseTotalsByAccountIds,
   fetchExpenseTotalsSplit,
   fetchExpensesByCategory,
+  fetchPnlExpenseAccountIds,
   sumExpensesByCategory,
   fetchInvoices,
   fetchCreditNotes,
