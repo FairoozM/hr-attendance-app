@@ -11,6 +11,7 @@ import { jsPDF } from 'jspdf'
 import html2canvas from 'html2canvas'
 import { api } from '../../api/client'
 import { LedgerSection, type LedgerSectionData } from './LedgerSection'
+import { exportDailyEcommerceLedgerXlsx } from './dailyEcommerceLedgerExport'
 import './DailyEcommerceLedgerPage.css'
 
 const IANA_UAE = 'Asia/Dubai'
@@ -202,6 +203,13 @@ export function DailyEcommerceLedgerPage() {
           </button>
           <button type="button" onClick={() => void exportPdf()} disabled={!report}>
             Export PDF
+          </button>
+          <button
+            type="button"
+            onClick={() => report && exportDailyEcommerceLedgerXlsx(report)}
+            disabled={!report}
+          >
+            Export Excel
           </button>
         </div>
       </header>
