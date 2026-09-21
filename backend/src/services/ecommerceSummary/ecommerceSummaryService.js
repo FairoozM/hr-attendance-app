@@ -25,7 +25,8 @@ const {
   fetchSalesByCustomerReturnsTotal,
   fetchInvoicesForDay,
   fetchChartOfAccountsRaw,
-  fetchExpenseTotalsSplit,
+  fetchExpensesByCategory,
+  sumExpensesByCategory,
 } = require('../ecommerceAccounting/zohoBooksReads')
 
 /**
@@ -131,19 +132,26 @@ async function buildEcommerceSummaryReport(opts = {}) {
   const yearAvgPerDay = totalDays > 0 ? round2(yearTotal / totalDays) : null
   const yearAvgPerMonth = monthNumber > 0 ? round2(yearTotal / monthNumber) : null
 
-  // Phase 4 — CoA + Fixed/Flexible (3 P&L ranges)
+  // Phase 4 — Fixed/Flexible from Expense Summary by Category (amount with tax)
   const chartAccounts = await fetchChartOfAccountsRaw()
   const fixedIds = getDescendantAccountIds(chartAccounts, CFG.fixedExpensesParentAccountId)
   const flexIds = getDescendantAccountIds(chartAccounts, CFG.flexibleExpensesParentAccountId)
   const fixedSet = new Set(fixedIds)
   const flexSet = new Set(flexIds)
 
-  const throughSplit = await fetchExpenseTotalsSplit(yearStart, reportDate, flexSet, fixedSet)
-  const openingSplit =
-    before >= yearStart
-      ? await fetchExpenseTotalsSplit(yearStart, before, flexSet, fixedSet)
-      : { primaryTotal: 0, secondaryTotal: 0 }
-  const todaySplit = await fetchExpenseTotalsSplit(reportDate, reportDate, flexSet, fixedSet)
+  const categoryThrough = await fetchExpensesByCategory(yearStart, reportDate)
+  const categoryToday = await fetchExpensesByCategory(reportDate, reportDate)
+  const flexThrough = sumExpensesByCategory(categoryThrough, flexSet)
+  const fixedThrough = sumExpensesByCategory(categoryThrough, fixedSet)
+  const flexToday = sumExpensesByCategory(categoryToday, flexSet)
+  const fixedToday = sumExpensesByCategory(categoryToday, fixedSet)
+
+  const totalFlexible = round2(flexThrough.total)
+  const totalFixed = round2(fixedThrough.total)
+  const todayFlexible = round2(flexToday.total)
+  const todayFixed = round2(fixedToday.total)
+  const openingFlexible = round2(totalFlexible - todayFlexible)
+  const openingFixed = round2(totalFixed - todayFixed)
 
   const warnings = []
   if (!hasPaymentMode) {
@@ -151,21 +159,17 @@ async function buildEcommerceSummaryReport(opts = {}) {
       'Zoho invoice list did not expose payment_mode for this day; Cash Sales may be 0 and all invoice totals classified as Credit Sales.'
     )
   }
-  if (Math.abs(throughSplit.primaryTotal) < 0.01 && Math.abs(throughSplit.secondaryTotal) < 0.01) {
+  if (flexIds.length <= 1 && fixedIds.length <= 1) {
     warnings.push(
-      'Fixed/Flexible parent descendants have little/no P&L amount (Zoho hierarchy may not nest all expense accounts under those parents). Totals reflect matched descendant accounts only.'
+      'Fixed Expense / Flexible Expense parents have no child accounts in the Zoho chart of accounts, so Expense by Category totals for those groups are empty.'
     )
   }
   warnings.push(
     'Month Avg Sale / Day divides by calendar days in the month through this date (not distinct days-with-sales), to avoid Zoho rate limits.'
   )
-
-  const totalFlexible = round2(throughSplit.primaryTotal)
-  const totalFixed = round2(throughSplit.secondaryTotal)
-  const openingFlexible = round2(openingSplit.primaryTotal)
-  const openingFixed = round2(openingSplit.secondaryTotal)
-  const todayFlexible = round2(todaySplit.primaryTotal)
-  const todayFixed = round2(todaySplit.secondaryTotal)
+  warnings.push(
+    'Fixed and Flexible expenses are Amount With Tax from Zoho Expense Summary by Category, limited to each parent account and its chart-of-accounts children.'
+  )
 
   const monthGrossApprox = round2(monthTotal + monthReturns)
 
@@ -240,7 +244,7 @@ async function buildEcommerceSummaryReport(opts = {}) {
       cashCredit:
         'Cash vs Credit uses Zoho invoice payment_mode when present; otherwise invoices default to Credit Sales.',
       fixedFlexible:
-        'Fixed/Flexible totals sum P&L lines for Zoho parent + descendants only (not all Operating Expense accounts).',
+        'Fixed/Flexible totals are Zoho Expense Summary by Category amount_with_tax for the Fixed Expense and Flexible Expense accounts and their chart-of-accounts children. Categories outside those parents (for example Amazon Commission) are not included.',
       monthAvgDenominator:
         'Month Avg Sale / Day uses calendar days through the selected date (avoids per-day Zoho report calls).',
       saleReturns:

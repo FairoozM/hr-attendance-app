@@ -236,6 +236,57 @@ async function fetchOperatingExpenseTotal(fromDate, toDate) {
 }
 
 /**
+ * Zoho Books "Expense Summary by Category" (`reports/expensesbycategory`).
+ * `amount` is exclusive of tax; `amount_with_tax` matches the report's Amount With Tax column.
+ */
+async function fetchExpensesByCategory(fromDate, toDate) {
+  const rows = []
+  let page = 1
+  while (page <= 20) {
+    const sp = new URLSearchParams({
+      from_date: fromDate,
+      to_date: toDate,
+      page: String(page),
+      per_page: '200',
+    })
+    const json = await zohoBooksJsonRequest(
+      `${BOOKS_V3}/reports/expensesbycategory`,
+      sp,
+      'GET',
+      undefined,
+      { source: 'ecommerce_accounting_expenses_by_category', skipCache: true }
+    )
+    const batch = Array.isArray(json?.expense) ? json.expense : []
+    for (const row of batch) {
+      rows.push({
+        accountId: clean(row.account_id),
+        accountName: clean(row.account_name),
+        amount: round2(toNumber(row.amount)),
+        amountWithTax: round2(toNumber(row.amount_with_tax)),
+      })
+    }
+    if (!json?.page_context?.has_more_page) break
+    page += 1
+  }
+  return rows
+}
+
+/**
+ * Sum Expense-by-Category amount_with_tax for accounts in idSet.
+ */
+function sumExpensesByCategory(rows, idSet) {
+  const set = idSet instanceof Set ? idSet : new Set(idSet || [])
+  let total = 0
+  const matched = []
+  for (const row of rows || []) {
+    if (!row.accountId || !set.has(row.accountId)) continue
+    total += toNumber(row.amountWithTax)
+    matched.push(row)
+  }
+  return { total: round2(total), matched }
+}
+
+/**
  * Sum P&L amounts for accounts whose id is in accountIdSet under expense trees.
  */
 async function fetchExpenseTotalsByAccountIds(fromDate, toDate, accountIdSet) {
@@ -313,6 +364,8 @@ module.exports = {
   fetchOperatingExpenseTotal,
   fetchExpenseTotalsByAccountIds,
   fetchExpenseTotalsSplit,
+  fetchExpensesByCategory,
+  sumExpensesByCategory,
   fetchInvoices,
   fetchCreditNotes,
 }
