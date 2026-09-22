@@ -28,6 +28,11 @@ const DEFAULT_USER_AGENT = 'LifeSmile-HRBI-SPAPI-Sandbox-Test/1.0';
 const DEFAULT_AMAZON_SP_API_HTTP_TIMEOUT_MS = 60_000;
 const MIN_AMAZON_SP_API_HTTP_TIMEOUT_MS = 5_000;
 const MAX_AMAZON_SP_API_HTTP_TIMEOUT_MS = 120_000;
+/** Refresh a few minutes before typical LWA expiry (~3600s). Never log token values. */
+const LWA_ACCESS_TOKEN_CACHE_TTL_MS = 50 * 60 * 1000;
+
+/** @type {Map<string, { token: string, expiresAt: number }>} */
+const lwaAccessTokenCache = new Map();
 
 const SANDBOX_DEFAULT_MARKETPLACE_ID = 'ATVPDKIKX0DER';
 const AMAZON_LISTINGS_REPORT_TYPE = 'GET_MERCHANT_LISTINGS_DATA';
@@ -150,12 +155,19 @@ function buildSpApiUrl(endpointRaw, apiPath) {
 
 /**
  * Exchange refresh token for an LWA access token (same request shape as test-amazon-lwa-token.js).
+ * Caches the access token in-process briefly so bulk read jobs do not refresh on every call.
  * @param {string} [marketplaceKey='uae'] - which seller app / region in production
  * @returns {Promise<string>}
  */
 async function getAmazonAccessToken(marketplaceKey = 'uae') {
   const mk = normalizeMarketplaceKey(marketplaceKey);
   const cfg = getAmazonConfig(mk);
+  const cacheKey = `${cfg.mode}:${mk}:${cfg.lwaClientId}`;
+  const cached = lwaAccessTokenCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now() && typeof cached.token === 'string' && cached.token) {
+    return cached.token;
+  }
+
   const miss = missingLwaFieldsForConfig(cfg);
   if (miss.length > 0) {
     const err = new Error(`Missing Amazon LWA configuration (${cfg.mode}, ${cfg.marketplaceKey})`);
@@ -183,6 +195,16 @@ async function getAmazonAccessToken(marketplaceKey = 'uae') {
     err.lwaBody = data;
     throw err;
   }
+
+  const expiresInSec = Number(data.expires_in);
+  const ttlMs =
+    Number.isFinite(expiresInSec) && expiresInSec > 120
+      ? Math.min(LWA_ACCESS_TOKEN_CACHE_TTL_MS, (expiresInSec - 60) * 1000)
+      : LWA_ACCESS_TOKEN_CACHE_TTL_MS;
+  lwaAccessTokenCache.set(cacheKey, {
+    token: data.access_token,
+    expiresAt: Date.now() + ttlMs,
+  });
 
   return data.access_token;
 }

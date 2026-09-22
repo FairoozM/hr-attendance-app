@@ -1,0 +1,1213 @@
+{
+  "marketplace": "Amazon UAE",
+  "marketplaceId": "A2VIGQ35RCS4UG",
+  "locale": "en_AE",
+  "endpoint": "https://sellingpartnerapi-eu.amazon.com/",
+  "extractedAt": "2026-09-11T14:05:59.401Z",
+  "keywordsUsed": false,
+  "totalUaeProductTypes": 1822,
+  "uniqueProductTypeCodes": 1822,
+  "duplicateProductTypeCodes": 0,
+  "kitchenProductTypeCount": 148,
+  "exactClassifications": 148,
+  "inferredClassifications": 0,
+  "successfulDefinitions": 1822,
+  "failedDefinitions": 0,
+  "fetchedDefinitionsThisRun": 0,
+  "resumedFromCache": 1822,
+  "kitchenMissingFromAllCount": 0,
+  "workbookPath": "/Users/abdolrahimmirzadeh/Desktop/hr-attendance-app/backend/data/amazon-uae-kitchen-catalogue/amazon_uae_kitchen_product_types.xlsx",
+  "allProductTypesJsonPath": "/Users/abdolrahimmirzadeh/Desktop/hr-attendance-app/backend/data/amazon-uae-kitchen-catalogue/amazon_uae_all_product_types.json",
+  "definitionsDir": "/Users/abdolrahimmirzadeh/Desktop/hr-attendance-app/backend/data/amazon-uae-kitchen-catalogue/amazon_uae_product_type_definitions",
+  "summaryPath": "/Users/abdolrahimmirzadeh/Desktop/hr-attendance-app/backend/data/amazon-uae-kitchen-catalogue/amazon_uae_kitchen_extraction_summary.json",
+  "failedRequests": [],
+  "kitchenProductTypes": [
+    {
+      "productType": "AIR_FRYER",
+      "displayName": "Air Fryer",
+      "kitchen_section": "Relevant small kitchen appliances",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes_small_appliances",
+      "classification_reason": "Official recommended browse-node label(s) under Appliances > Small Appliances: Appliances > Small Appliances > Fryers > Air Fryers"
+    },
+    {
+      "productType": "ANTI_FATIGUE_FLOOR_MAT",
+      "displayName": "Anti-Fatigue Floor Mat",
+      "kitchen_section": "Kitchen linen",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Kitchen Linen > Comfort Mats"
+    },
+    {
+      "productType": "APRON",
+      "displayName": "Apron Smock",
+      "kitchen_section": "Kitchen linen",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Kitchen Linen > Aprons"
+    },
+    {
+      "productType": "BAKEWARE",
+      "displayName": "BAKEWARE",
+      "kitchen_section": "Bakeware",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Bakeware; Kitchen > Bakeware > Bakeware Molds & Tins; Kitchen > Bakeware > Sheets & Grates"
+    },
+    {
+      "productType": "BAKEWARE_SET",
+      "displayName": "Bakeware Set",
+      "kitchen_section": "Bakeware",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Bakeware > Bakeware Molds & Tins > Bake & Serve Sets; Kitchen > Bakeware > Bakeware Molds & Tins > Baking Sets"
+    },
+    {
+      "productType": "BAKING_CUP",
+      "displayName": "Baking Cup",
+      "kitchen_section": "Baking tools and moulds",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Bakeware > Baking Tools & Accessories > Baking Cups; Kitchen > Bakeware > Baking Tools & Accessories > Disposable Baking Cups; Kitchen > Bakeware > Baking Tools & Accessories > Reusable Baking Cups"
+    },
+    {
+      "productType": "BAKING_MAT",
+      "displayName": "Baking Mat",
+      "kitchen_section": "Baking tools and moulds",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Bakeware > Baking Tools & Accessories > Baking Mats"
+    },
+    {
+      "productType": "BAKING_PAN",
+      "displayName": "Baking Pan",
+      "kitchen_section": "Bakeware",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Bakeware > Bakeware Molds & Tins > Bread & Loaf Pans; Kitchen > Bakeware > Bakeware Molds & Tins > Bread & Loaf Pans > French Bread & Baguette Pans; Kitchen > Bakeware > Bakeware Molds & Tins > Bread & Loaf Pans > Loaf Pans"
+    },
+    {
+      "productType": "BAKING_PAPER",
+      "displayName": "Baking Paper",
+      "kitchen_section": "Bakeware",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Bakeware > Baking Tools & Accessories > Parchments"
+    },
+    {
+      "productType": "BAKING_STONE",
+      "displayName": "Baking Stone",
+      "kitchen_section": "Bakeware",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Bakeware > Sheets & Grates > Pizza Stones"
+    },
+    {
+      "productType": "BAR_TOOL_SET",
+      "displayName": "Bar Tool Set",
+      "kitchen_section": "Barware",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Tools & Gadgets > Tool & Gadget Sets > Barware Sets"
+    },
+    {
+      "productType": "BASKET",
+      "displayName": "Basket",
+      "kitchen_section": "Bakeware",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Bakeware > Baking Tools & Accessories > Bread Proofing Baskets; Kitchen > Coffee, Tea & Espresso > Coffee Machine Accessories > Coffee Capsule Holders > Capsule Baskets; Kitchen > Containers & Storage > Food Storage > Hanging Baskets"
+    },
+    {
+      "productType": "BEVERAGE_INSULATOR",
+      "displayName": "Beverage Insulator",
+      "kitchen_section": "Kitchen utensils and gadgets",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Containers & Storage > Food Storage > Food Carriers > Thermocoolers; Kitchen > Containers & Storage > Thermos Flasks > Insulated Beverage Containers > Insulators; Kitchen > Tools & Gadgets > Barware > Wine Bottle Coolers"
+    },
+    {
+      "productType": "BLADED_FOOD_PEELER",
+      "displayName": "Bladed Food Peeler",
+      "kitchen_section": "Kitchen utensils and gadgets",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Tools & Gadgets > Peeling, Grating & Slicing Tools > Peelers"
+    },
+    {
+      "productType": "BLOWTORCH",
+      "displayName": "Blowtorch",
+      "kitchen_section": "Bakeware",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Bakeware > Baking Tools & Accessories > Decorating Tools > Kitchen Blowtorches"
+    },
+    {
+      "productType": "BOOK_DOCUMENT_STAND",
+      "displayName": "Book & Document Stand",
+      "kitchen_section": "Kitchen organization",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Containers & Storage > Racks & Holders > Cookbook Holders"
+    },
+    {
+      "productType": "BOTTLE",
+      "displayName": "Bottle",
+      "kitchen_section": "Kitchen utensils and gadgets",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Tableware > Dishware & Serving Pieces > Condiment Squeeze Bottles; Kitchen > Tableware > Dishware & Serving Pieces > Oil & Vinegar Pots; Kitchen > Tableware > Glassware & Drinkware > Growlers"
+    },
+    {
+      "productType": "BOTTLE_OPENER",
+      "displayName": "Bottle Opener",
+      "kitchen_section": "Kitchen utensils and gadgets",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Appliances > Small Appliances > Specialty Appliances > Electric Bottle Openers; Kitchen > Tools & Gadgets > Barware > Bottle Openers; Kitchen > Tools & Gadgets > Barware > Corkscrews"
+    },
+    {
+      "productType": "BOTTLE_RACK",
+      "displayName": "Bottle Rack",
+      "kitchen_section": "Kitchen organization",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Containers & Storage > Racks & Holders > Wine Racks & Cabinets > Wine Racks; Kitchen > Containers & Storage > Racks & Holders > Wine Racks & Cabinets > Wine Racks > Floor Wine Racks; Kitchen > Containers & Storage > Racks & Holders > Wine Racks & Cabinets > Wine Racks > Tabletop Wine Racks"
+    },
+    {
+      "productType": "BOTTLE_STOPPER",
+      "displayName": "Bottle Stopper",
+      "kitchen_section": "Kitchen utensils and gadgets",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Tools & Gadgets > Barware > Wine Stoppers & Pourers > Wine Stoppers"
+    },
+    {
+      "productType": "BREAD_MAKING_MACHINE",
+      "displayName": "Bread-Making Machine",
+      "kitchen_section": "Relevant small kitchen appliances",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes_small_appliances",
+      "classification_reason": "Official recommended browse-node label(s) under Appliances > Small Appliances: Appliances > Small Appliances > Bread Makers"
+    },
+    {
+      "productType": "BUTTER_DISH",
+      "displayName": "Butter Dish",
+      "kitchen_section": "Serveware",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Tableware > Dishware & Serving Pieces > Serving Dishes > Butter Dishes"
+    },
+    {
+      "productType": "CAN_OPENER",
+      "displayName": "Can Opener",
+      "kitchen_section": "Kitchen utensils and gadgets",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Appliances > Small Appliances > Specialty Appliances > Electric Can Openers; Kitchen > Tools & Gadgets > Can Openers; Kitchen > Tools & Gadgets > Manual Can Openers"
+    },
+    {
+      "productType": "CASSEROLES",
+      "displayName": "Casserole",
+      "kitchen_section": "Pots and pans",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Bakeware > Bakeware Molds & Tins > Ramekins & Soufflé Dishes; Kitchen > Bakeware > Bakeware Molds & Tins > Ramekins & Soufflé Dishes > Ramekins; Kitchen > Bakeware > Bakeware Molds & Tins > Ramekins & Soufflé Dishes > Soufflé Dishes"
+    },
+    {
+      "productType": "CHOPSTICK",
+      "displayName": "Chopstick",
+      "kitchen_section": "Flatware and cutlery",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Tableware > Children's Tableware > Children's Cutlery > Chopsticks; Kitchen > Tableware > Cutlery & Flatware > Chopsticks; Kitchen > Tableware > Disposable Tableware > Chopsticks"
+    },
+    {
+      "productType": "CLOTH_NAPKIN",
+      "displayName": "Cloth Napkin",
+      "kitchen_section": "Kitchen linen",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Kitchen Linen > Cloth Napkins"
+    },
+    {
+      "productType": "COCKTAIL_SHAKER",
+      "displayName": "cocktail shaker",
+      "kitchen_section": "Barware",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Tools & Gadgets > Barware > Cocktail Shakers"
+    },
+    {
+      "productType": "COFFEE_FILTER",
+      "displayName": "Coffee Filter",
+      "kitchen_section": "Tea and coffee accessories",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Coffee, Tea & Espresso > Coffee Machine Parts > Coffee Filters; Kitchen > Coffee, Tea & Espresso > Coffee Machine Parts > Coffee Filters > Disposable Coffee Filters; Kitchen > Coffee, Tea & Espresso > Coffee Machine Parts > Coffee Filters > Permanent Filters"
+    },
+    {
+      "productType": "COFFEE_MAKER",
+      "displayName": "Coffee Maker",
+      "kitchen_section": "Relevant small kitchen appliances",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Appliances > Small Appliances > Coffee Machines; Appliances > Small Appliances > Coffee Machines > Bean-to-Cup Coffee Machines; Appliances > Small Appliances > Coffee Machines > Built-in Coffee Machines"
+    },
+    {
+      "productType": "COMPOST_BIN",
+      "displayName": "Compost Bin",
+      "kitchen_section": "Kitchen (browse-node matched)",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Containers & Storage > Waste & Recycling > Compost Bins"
+    },
+    {
+      "productType": "CONTAINER_LID",
+      "displayName": "Container Lid",
+      "kitchen_section": "Frying, sauté and grill pans",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Containers & Storage > Preserving > Lids; Kitchen > Containers & Storage > Waste & Recycling > Trash Can Lids; Kitchen > Cookware > Lids"
+    },
+    {
+      "productType": "COOKIE_CUTTER",
+      "displayName": "Cookie Cutter",
+      "kitchen_section": "Baking tools and moulds",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Bakeware > Baking Tools & Accessories > Cookie Cutters"
+    },
+    {
+      "productType": "COOKING_CONTAINER",
+      "displayName": "Cooking Container",
+      "kitchen_section": "Pots and pans",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Cookware > Cookware Accessories > Egg Poachers; Kitchen > Cookware > Pots & Pans > Risotto Pans; Kitchen > Cookware > Steamers"
+    },
+    {
+      "productType": "COOKING_POT",
+      "displayName": "Cooking Pot",
+      "kitchen_section": "Pots and pans",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Cookware > Pots & Pans > Asparagus & Vegetable Pots; Kitchen > Cookware > Pots & Pans > Braiser Pans; Kitchen > Cookware > Pots & Pans > Cauldrons"
+    },
+    {
+      "productType": "COOKWARE",
+      "displayName": "COOKWARE",
+      "kitchen_section": "Cookware",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Cookware; Kitchen > Cookware > Bakers & Casseroles; Kitchen > Cookware > Butter Warmers"
+    },
+    {
+      "productType": "COOKWARE_SET",
+      "displayName": "Cookware Set",
+      "kitchen_section": "Cookware sets",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Cookware > Pots & Pans > Sets; Kitchen > Cookware > Pots & Pans > Sets > Pan Sets; Kitchen > Cookware > Pots & Pans > Sets > Pot & Pan Sets"
+    },
+    {
+      "productType": "CORE_PIT_REMOVER",
+      "displayName": "Core Pit Remover",
+      "kitchen_section": "Kitchen utensils and gadgets",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Tools & Gadgets > Fruit Peelers & Slicers > Corers; Kitchen > Tools & Gadgets > Fruit Peelers & Slicers > Stoners"
+    },
+    {
+      "productType": "COUNTERTOP_BURNER",
+      "displayName": "Portable Hob",
+      "kitchen_section": "Relevant small kitchen appliances",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes_small_appliances",
+      "classification_reason": "Official recommended browse-node label(s) under Appliances > Small Appliances: Appliances > Small Appliances > Cooktops; Appliances > Small Appliances > Specialty Appliances > Hot Plates"
+    },
+    {
+      "productType": "COUNTERTOP_FOOD_STEAMER",
+      "displayName": "Food Steamer",
+      "kitchen_section": "Relevant small kitchen appliances",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes_small_appliances",
+      "classification_reason": "Official recommended browse-node label(s) under Appliances > Small Appliances: Appliances > Small Appliances > Egg Cookers; Appliances > Small Appliances > Electric Steamers"
+    },
+    {
+      "productType": "COUNTERTOP_GRIDDLE_APPLIANCE",
+      "displayName": "Griddle Appliance",
+      "kitchen_section": "Frying, sauté and grill pans",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes_small_appliances",
+      "classification_reason": "Official recommended browse-node label(s) under Appliances > Small Appliances: Appliances > Small Appliances > Indoor Grills & Griddles; Appliances > Small Appliances > Indoor Grills & Griddles > Electric Griddles; Appliances > Small Appliances > Indoor Grills & Griddles > Electric Stone Grills"
+    },
+    {
+      "productType": "COUNTERTOP_OVEN",
+      "displayName": "Portable Oven",
+      "kitchen_section": "Relevant small kitchen appliances",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes_small_appliances",
+      "classification_reason": "Official recommended browse-node label(s) under Appliances > Small Appliances: Appliances > Small Appliances > Specialty Appliances > Convection Ovens; Appliances > Small Appliances > Specialty Appliances > Electric Roasters; Appliances > Small Appliances > Specialty Appliances > Pizza Makers"
+    },
+    {
+      "productType": "CUTLERY",
+      "displayName": "CUTLERY",
+      "kitchen_section": "Flatware and cutlery",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Tableware > Cutlery & Flatware; Kitchen > Tableware > Cutlery & Flatware > Chopstick & Cutlery Rests; Kitchen > Tableware > Cutlery & Flatware > Chopstick & Cutlery Rests > Chopstick Rests & Holders"
+    },
+    {
+      "productType": "CUTTING_BOARD",
+      "displayName": "Cutting Board",
+      "kitchen_section": "Knives and cutting accessories",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Tools & Gadgets > Cutting Boards, Mats & Sets > Bread Boards; Kitchen > Tools & Gadgets > Cutting Boards, Mats & Sets > Chopping Board Sets; Kitchen > Tools & Gadgets > Cutting Boards, Mats & Sets > Chopping Boards"
+    },
+    {
+      "productType": "DEEP_FRYER",
+      "displayName": "Deep Fryer",
+      "kitchen_section": "Relevant small kitchen appliances",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes_small_appliances",
+      "classification_reason": "Official recommended browse-node label(s) under Appliances > Small Appliances: Appliances > Small Appliances > Fryers > Deep Fryers"
+    },
+    {
+      "productType": "DINNERWARE",
+      "displayName": "DINNERWARE",
+      "kitchen_section": "Dinnerware",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Coffee, Tea & Espresso > Tea Pots & Coffee Servers > Coffee Sets; Kitchen > Coffee, Tea & Espresso > Tea Pots & Coffee Servers > Tea Sets; Kitchen > Coffee, Tea & Espresso > Tea Pots & Coffee Servers > Tea Sets > Black Tea Sets"
+    },
+    {
+      "productType": "DISHWARE_BOWL",
+      "displayName": "Bowl",
+      "kitchen_section": "Dinnerware",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Bakeware > Baking Tools & Accessories > Mixing Bowls; Kitchen > Coffee, Tea & Espresso > Tea Accessories > Japanese Tea Ceremony Utensils > Matcha Bowls; Kitchen > Tableware > Children's Tableware > Bowls"
+    },
+    {
+      "productType": "DISHWARE_PLACE_SETTING",
+      "displayName": "Dishware Place Setting",
+      "kitchen_section": "Dinnerware",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Tableware > Children's Tableware > Children's Sets; Kitchen > Tableware > Dishware & Serving Pieces > Dinnerware > Dinnerware Sets > Combination Sets; Kitchen > Tableware > Dishware & Serving Pieces > Dinnerware > Dinnerware Sets > Dinner Sets"
+    },
+    {
+      "productType": "DISHWARE_PLATE",
+      "displayName": "Plate Dishware",
+      "kitchen_section": "Dinnerware",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Tableware > Children's Tableware > Plates; Kitchen > Tableware > Dishware & Serving Pieces > Dinnerware > Bowls > Soup Plates; Kitchen > Tableware > Dishware & Serving Pieces > Dinnerware > Cups, Mugs & Saucers > Saucers"
+    },
+    {
+      "productType": "DISH_DRYING_MAT",
+      "displayName": "Dish Drying Mat",
+      "kitchen_section": "Kitchen linen",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Kitchen Linen > Dish Drying Mats"
+    },
+    {
+      "productType": "DISPOSABLE_NAPKIN",
+      "displayName": "Disposable Napkin",
+      "kitchen_section": "Kitchen linen",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Tools & Gadgets > Barware > Cocktail Napkins"
+    },
+    {
+      "productType": "DRINKING_CUP",
+      "displayName": "Drinking Cup",
+      "kitchen_section": "Drinkware",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Containers & Storage > Thermos Flasks > Insulated Beverage Containers > Cups & Mugs; Kitchen > Containers & Storage > Thermos Flasks > Insulated Beverage Containers > Tumblers; Kitchen > Tableware > Children's Tableware > Cups & Mugs"
+    },
+    {
+      "productType": "DRINKING_STRAW",
+      "displayName": "Drinking Straw",
+      "kitchen_section": "Kitchen utensils and gadgets",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Tableware > Disposable Tableware > Drinkware > Straws; Kitchen > Tools & Gadgets > Barware > Straws; Kitchen > Tools & Gadgets > Barware > Straws > Reusable Straws"
+    },
+    {
+      "productType": "DRINK_COASTER",
+      "displayName": "Drink Coaster",
+      "kitchen_section": "Kitchen utensils and gadgets",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Coffee, Tea & Espresso > Tea Accessories > Tea Bag Coasters; Kitchen > Tools & Gadgets > Barware > Coasters"
+    },
+    {
+      "productType": "DUTCH_OVENS",
+      "displayName": "Dutch Oven",
+      "kitchen_section": "Pots and pans",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Cookware > Pots & Pans > Dutch Ovens"
+    },
+    {
+      "productType": "ELECTRIC_FOOD_MILL_GRINDER",
+      "displayName": "Electric Food Mill & Grinder",
+      "kitchen_section": "Tea and coffee accessories",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Appliances > Small Appliances > Specialty Appliances > Grain Mills; Appliances > Small Appliances > Specialty Appliances > Meat Grinders; Kitchen > Coffee, Tea & Espresso > Coffee Grinders > Electric Grinders"
+    },
+    {
+      "productType": "ELECTRIC_WATER_BOILER",
+      "displayName": "Electric Water Boiler",
+      "kitchen_section": "Kettles",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes_small_appliances",
+      "classification_reason": "Official recommended browse-node label(s) under Appliances > Small Appliances: Appliances > Small Appliances > Kettles & Hot Water Dispensers > Electric Kettles; Appliances > Small Appliances > Kettles & Hot Water Dispensers > Hot Water Dispensers"
+    },
+    {
+      "productType": "FLATWARE",
+      "displayName": "Flatware Set",
+      "kitchen_section": "Flatware and cutlery",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Tableware > Children's Tableware > Children's Cutlery > Cutlery Sets; Kitchen > Tableware > Cutlery & Flatware > Cutlery Sets > Mixed Cutlery Sets; Kitchen > Tableware > Disposable Tableware > Cutlery Sets"
+    },
+    {
+      "productType": "FOOD_BLENDER",
+      "displayName": "Food Blender",
+      "kitchen_section": "Relevant small kitchen appliances",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes_small_appliances",
+      "classification_reason": "Official recommended browse-node label(s) under Appliances > Small Appliances: Appliances > Small Appliances > Blenders, Mixers & Food Processors > Blenders; Appliances > Small Appliances > Blenders, Mixers & Food Processors > Blenders > Countertop Blenders; Appliances > Small Appliances > Blenders, Mixers & Food Processors > Blenders > Hand Blenders"
+    },
+    {
+      "productType": "FOOD_DEHYDRATOR",
+      "displayName": "Food Dehydrator",
+      "kitchen_section": "Relevant small kitchen appliances",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes_small_appliances",
+      "classification_reason": "Official recommended browse-node label(s) under Appliances > Small Appliances: Appliances > Small Appliances > Specialty Appliances > Food Dehydrators"
+    },
+    {
+      "productType": "FOOD_GRATER",
+      "displayName": "Food Grater",
+      "kitchen_section": "Kitchen utensils and gadgets",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Appliances > Small Appliances > Electric Graters; Appliances > Small Appliances > Specialty Appliances > Electric Cheese Graters; Kitchen > Tools & Gadgets > Cheese Tools > Graters"
+    },
+    {
+      "productType": "FOOD_MASHER",
+      "displayName": "Food Masher",
+      "kitchen_section": "Kitchen utensils and gadgets",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Tools & Gadgets > Mashers; Kitchen > Tools & Gadgets > Ricers"
+    },
+    {
+      "productType": "FOOD_MILL_GRINDER",
+      "displayName": "Food Mill & Grinder",
+      "kitchen_section": "Tea and coffee accessories",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Appliances > Small Appliances > Mills & Grinders > Wet Grinders; Kitchen > Coffee, Tea & Espresso > Green Tea Grinders"
+    },
+    {
+      "productType": "FOOD_MIXER",
+      "displayName": "Food Mixer",
+      "kitchen_section": "Relevant small kitchen appliances",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes_small_appliances",
+      "classification_reason": "Official recommended browse-node label(s) under Appliances > Small Appliances: Appliances > Small Appliances > Blenders, Mixers & Food Processors > Mixers; Appliances > Small Appliances > Blenders, Mixers & Food Processors > Mixers > Hand Mixers; Appliances > Small Appliances > Blenders, Mixers & Food Processors > Mixers > Stand Mixers"
+    },
+    {
+      "productType": "FOOD_OR_BEVERAGE_WARMER",
+      "displayName": "Food Beverage Warmer",
+      "kitchen_section": "Tea and coffee accessories",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Coffee, Tea & Espresso > Beverage Warmers; Kitchen > Coffee, Tea & Espresso > Tea Accessories > Teapot Warmers"
+    },
+    {
+      "productType": "FOOD_PREPARATION_MOLD",
+      "displayName": "Food Preparation Mould",
+      "kitchen_section": "Food preparation",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Bakeware > Bakeware Molds & Tins > Fondant & Gum Paste Molds; Kitchen > Bakeware > Bakeware Molds & Tins > Pastry & Baking Molds > Jelly Molds; Kitchen > Bakeware > Baking Tools & Accessories > Candy Making Supplies > Candy Molds"
+    },
+    {
+      "productType": "FOOD_PROCESSOR",
+      "displayName": "Food Processor",
+      "kitchen_section": "Relevant small kitchen appliances",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes_small_appliances",
+      "classification_reason": "Official recommended browse-node label(s) under Appliances > Small Appliances: Appliances > Small Appliances > Blenders, Mixers & Food Processors > Food Processors; Appliances > Small Appliances > Blenders, Mixers & Food Processors > Food Processors > Full Size Food Processors; Appliances > Small Appliances > Blenders, Mixers & Food Processors > Food Processors > Mini Food Processors & Choppers"
+    },
+    {
+      "productType": "FOOD_SCOOP",
+      "displayName": "Food Scoop",
+      "kitchen_section": "Kitchen utensils and gadgets",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Coffee, Tea & Espresso > Coffee Machine Accessories > Coffee Scoops; Kitchen > Coffee, Tea & Espresso > Tea Accessories > Tea Scoops; Kitchen > Tools & Gadgets > Fruit Peelers & Slicers > Melon Ballers"
+    },
+    {
+      "productType": "FOOD_SHAKER",
+      "displayName": "Food Shaker",
+      "kitchen_section": "Kitchen utensils and gadgets",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Containers & Storage > Dressing & Spice Dispensers > Cooking Dredges; Kitchen > Containers & Storage > Dressing & Spice Dispensers > Salt & Pepper Shakers; Kitchen > Containers & Storage > Dressing & Spice Dispensers > Salt & Pepper Shakers > Pepper Shakers"
+    },
+    {
+      "productType": "FOOD_SLICER",
+      "displayName": "Food Slicer",
+      "kitchen_section": "Kitchen utensils and gadgets",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Appliances > Small Appliances > Electric Slicers; Appliances > Small Appliances > Specialty Appliances > Bagel Slicers; Kitchen > Tools & Gadgets > Cheese Tools > Cheese Slicers"
+    },
+    {
+      "productType": "FOOD_SPATULA",
+      "displayName": "Food Spatula",
+      "kitchen_section": "Kitchen utensils and gadgets",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Bakeware > Baking Tools & Accessories > Decorating Tools > Icing & Decorating Spatulas; Kitchen > Tools & Gadgets > Spoons, Spatulas & Turners > Cooking Turners; Kitchen > Tools & Gadgets > Spoons, Spatulas & Turners > Spatulas"
+    },
+    {
+      "productType": "FOOD_STORAGE_BAG",
+      "displayName": "Food Storage Bag",
+      "kitchen_section": "Food storage",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Containers & Storage > Food Storage > Food & Sandwich Bags"
+    },
+    {
+      "productType": "FOOD_STORAGE_CONTAINER",
+      "displayName": "Food Storage Container",
+      "kitchen_section": "Food storage",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Bakeware > Baking Tools & Accessories > Decorating Tools > Wrapping & Packaging > Cake Boxes; Kitchen > Bakeware > Baking Tools & Accessories > Decorating Tools > Wrapping & Packaging > Cake Carriers; Kitchen > Bakeware > Baking Tools & Accessories > Decorating Tools > Wrapping & Packaging > Cupcake Containers"
+    },
+    {
+      "productType": "FOOD_STRAINER",
+      "displayName": "Food Strainer",
+      "kitchen_section": "Kitchen utensils and gadgets",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Cookware > Cookware Accessories > Pasta Inserts; Kitchen > Cookware > Cookware Accessories > Tempura Fryer Nets; Kitchen > Tools & Gadgets > Barware > Bar Strainers"
+    },
+    {
+      "productType": "FORK",
+      "displayName": "Fork",
+      "kitchen_section": "Kitchen utensils and gadgets",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Cookware > Fondue > Fondue Forks; Kitchen > Tableware > Children's Tableware > Children's Cutlery > Forks; Kitchen > Tableware > Cutlery & Flatware > Forks"
+    },
+    {
+      "productType": "FUNNEL",
+      "displayName": "Funnel",
+      "kitchen_section": "Kitchen utensils and gadgets",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Tools & Gadgets > Funnels"
+    },
+    {
+      "productType": "FURNITURE_CART",
+      "displayName": "Furniture Trolley",
+      "kitchen_section": "Kitchen organization",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Containers & Storage > Racks & Holders > Storage Trolleys > Mobile Storage Islands; Kitchen > Containers & Storage > Racks & Holders > Storage Trolleys > Storage Carts"
+    },
+    {
+      "productType": "FURNITURE_LINER",
+      "displayName": "Furniture Liner",
+      "kitchen_section": "Kitchen utensils and gadgets",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Tools & Gadgets > Kitchen Décor & Accessories > Shelf Liners"
+    },
+    {
+      "productType": "GARLIC_PRESS",
+      "displayName": "Garlic Press",
+      "kitchen_section": "Kitchen utensils and gadgets",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Tools & Gadgets > Garlic Tools > Garlic Presses"
+    },
+    {
+      "productType": "GRAVITY_BEVERAGE_DISPENSER",
+      "displayName": "Gravity Beverage Dispenser",
+      "kitchen_section": "Serveware",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Tableware > Dishware & Serving Pieces > Serving Dishes > Beverage Serveware > Iced Beverage Dispensers"
+    },
+    {
+      "productType": "HIP_FLASK",
+      "displayName": "Hip Flask",
+      "kitchen_section": "Kitchen utensils and gadgets",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Tools & Gadgets > Barware > Flasks"
+    },
+    {
+      "productType": "HOME_PARTS",
+      "displayName": "HOME_PARTS",
+      "kitchen_section": "Relevant small kitchen appliances",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes_small_appliances",
+      "classification_reason": "Official recommended browse-node label(s) under Appliances > Small Appliances: Appliances > Small Appliances > Small Appliance Parts & Accessories; Appliances > Small Appliances > Small Appliance Parts & Accessories > Bread Machine Accessories; Appliances > Small Appliances > Small Appliance Parts & Accessories > Bread Machine Replacement Parts"
+    },
+    {
+      "productType": "ICE_CREAM_MAKER",
+      "displayName": "Ice Cream Maker",
+      "kitchen_section": "Relevant small kitchen appliances",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes_small_appliances",
+      "classification_reason": "Official recommended browse-node label(s) under Appliances > Small Appliances: Appliances > Small Appliances > Specialty Appliances > Ice Cream Machines"
+    },
+    {
+      "productType": "ICE_CUBE_TRAY",
+      "displayName": "Ice Cube Tray",
+      "kitchen_section": "Kitchen utensils and gadgets",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Tools & Gadgets > Barware > Ice Cube Molds & Trays"
+    },
+    {
+      "productType": "ITEM_CONTAINER",
+      "displayName": "Item Container",
+      "kitchen_section": "Kitchen utensils and gadgets",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Containers & Storage > Racks & Holders > Cutlery Racks; Kitchen > Containers & Storage > Racks & Holders > Fruit Racks; Kitchen > Containers & Storage > Racks & Holders > Under Shelf Storage"
+    },
+    {
+      "productType": "JUICER",
+      "displayName": "Juicer",
+      "kitchen_section": "Relevant small kitchen appliances",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Appliances > Small Appliances > Juicers; Appliances > Small Appliances > Juicers > Centrifugal Juicers; Appliances > Small Appliances > Juicers > Electric Citrus Juicers"
+    },
+    {
+      "productType": "KITCHEN",
+      "displayName": "KITCHEN",
+      "kitchen_section": "Kettles",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Appliances > Small Appliances > Kettles & Hot Water Dispensers > Hot Tea Machines; Appliances > Small Appliances > Kettles & Hot Water Dispensers > Iced Tea Machines; Kitchen > Coffee, Tea & Espresso"
+    },
+    {
+      "productType": "KITCHEN_KNIFE",
+      "displayName": "Kitchen Knife",
+      "kitchen_section": "Knives and cutting accessories",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Tableware > Cutlery & Flatware > Knives > Cheese Knives; Kitchen > Tableware > Cutlery & Flatware > Knives > Fish Knives; Kitchen > Tableware > Cutlery & Flatware > Knives > Steak Knives"
+    },
+    {
+      "productType": "KITCHEN_TOOLS",
+      "displayName": "KITCHEN_TOOLS",
+      "kitchen_section": "Kitchen utensils and gadgets",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Bakeware > Bakeware Molds & Tins > Pastry & Baking Molds; Kitchen > Bakeware > Baking Tools & Accessories; Kitchen > Bakeware > Baking Tools & Accessories > Baking & Pastry Utensils"
+    },
+    {
+      "productType": "KNIFE",
+      "displayName": "Knife",
+      "kitchen_section": "Knives and cutting accessories",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Appliances > Small Appliances > Electric Knives; Kitchen > Tableware > Cutlery & Flatware > Cutlery Sets > Steak Cutlery Sets; Kitchen > Tableware > Cutlery & Flatware > Knives"
+    },
+    {
+      "productType": "KNIFE_BLOCK",
+      "displayName": "Knife Block",
+      "kitchen_section": "Knives and cutting accessories",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Containers & Storage > Racks & Holders > Empty Knife Blocks"
+    },
+    {
+      "productType": "KNIFE_BLOCK_SET",
+      "displayName": "Knife Block Set",
+      "kitchen_section": "Knives and cutting accessories",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Tools & Gadgets > Kitchen Knives > Block Sets"
+    },
+    {
+      "productType": "KNIFE_SHARPENER",
+      "displayName": "Knife Sharpener",
+      "kitchen_section": "Kitchen utensils and gadgets",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Appliances > Small Appliances > Specialty Appliances > Electric Knife Sharpeners; Kitchen > Tools & Gadgets > Knife Sharpeners; Kitchen > Tools & Gadgets > Knife Sharpeners > Manual Knife Sharpeners"
+    },
+    {
+      "productType": "MANUAL_FOOD_MILL_GRINDER",
+      "displayName": "Manual Food Mill & Grinder",
+      "kitchen_section": "Kitchen utensils and gadgets",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Coffee, Tea & Espresso > Coffee Grinders > Manual Grinders; Kitchen > Tools & Gadgets > Manual Meat Grinders; Kitchen > Tools & Gadgets > Manual Shaved Ice Machines"
+    },
+    {
+      "productType": "MEAL_HOLDER",
+      "displayName": "Meal Holder",
+      "kitchen_section": "Food storage",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Containers & Storage > Food Storage > Food Carriers > Bento Boxes; Kitchen > Containers & Storage > Food Storage > Food Carriers > Cooler Bags; Kitchen > Containers & Storage > Food Storage > Food Carriers > Lunch Bags"
+    },
+    {
+      "productType": "MEASURING_CUP",
+      "displayName": "Measuring Cup",
+      "kitchen_section": "Kitchen utensils and gadgets",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Tools & Gadgets > Measuring Cups; Kitchen > Tools & Gadgets > Measuring Spoon Sets"
+    },
+    {
+      "productType": "MECHANICAL_LIGHTER",
+      "displayName": "Mechanical Lighter",
+      "kitchen_section": "Kitchen utensils and gadgets",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Tools & Gadgets > Gas Lighters"
+    },
+    {
+      "productType": "MICROWAVE_OVEN",
+      "displayName": "Microwave Oven",
+      "kitchen_section": "Relevant small kitchen appliances",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes_small_appliances",
+      "classification_reason": "Official recommended browse-node label(s) under Appliances > Small Appliances: Appliances > Small Appliances > Microwave Ovens; Appliances > Small Appliances > Microwave Ovens > Combination Convection & Microwave; Appliances > Small Appliances > Microwave Ovens > Compact Microwaves"
+    },
+    {
+      "productType": "MILK_FROTHER",
+      "displayName": "Milk Frother",
+      "kitchen_section": "Tea and coffee accessories",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Coffee, Tea & Espresso > Milk Frothers; Kitchen > Coffee, Tea & Espresso > Milk Frothers > Automatic Milk Frothers; Kitchen > Coffee, Tea & Espresso > Milk Frothers > Handheld Milk Frothers"
+    },
+    {
+      "productType": "MORTAR_AND_PESTLE_SET",
+      "displayName": "Mortar & Pestle Set",
+      "kitchen_section": "Kitchen utensils and gadgets",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Tools & Gadgets > Mortar & Pestle Sets"
+    },
+    {
+      "productType": "NAPKIN_HOLDER",
+      "displayName": "Napkin Holder",
+      "kitchen_section": "Kitchen linen",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Containers & Storage > Racks & Holders > Napkin Holders"
+    },
+    {
+      "productType": "NAPKIN_RING",
+      "displayName": "Napkin Ring",
+      "kitchen_section": "Kitchen linen",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Tableware > Napkin Rings"
+    },
+    {
+      "productType": "PAPER_TOWEL_HOLDER",
+      "displayName": "Paper Towel Holder",
+      "kitchen_section": "Kitchen organization",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Containers & Storage > Racks & Holders > Paper Towel Holders"
+    },
+    {
+      "productType": "PASTA_MAKER",
+      "displayName": "Pasta Maker",
+      "kitchen_section": "Kitchen utensils and gadgets",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Appliances > Small Appliances > Specialty Appliances > Pasta Machines; Kitchen > Tools & Gadgets > Pasta Tools > Manual Pasta Machines"
+    },
+    {
+      "productType": "PASTRY_BASTING_BRUSH",
+      "displayName": "Pastry Basting Brush",
+      "kitchen_section": "Baking tools and moulds",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Bakeware > Baking Tools & Accessories > Baking & Pastry Utensils > Pastry Brushes"
+    },
+    {
+      "productType": "PIPING_TIP",
+      "displayName": "Piping Tip",
+      "kitchen_section": "Bakeware",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Bakeware > Baking Tools & Accessories > Decorating Tools > Piping Nozzles"
+    },
+    {
+      "productType": "PITCHER",
+      "displayName": "Pitcher",
+      "kitchen_section": "Serveware",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Coffee, Tea & Espresso > Coffee Machine Parts > Coffeemaker Carafes; Kitchen > Coffee, Tea & Espresso > Coffee Machine Parts > Milk Frothing Pitchers; Kitchen > Coffee, Tea & Espresso > Iced Tea Pitchers"
+    },
+    {
+      "productType": "PLACEMAT",
+      "displayName": "Placemat",
+      "kitchen_section": "Kitchen linen",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Kitchen Linen > Place Mats"
+    },
+    {
+      "productType": "POPCORN_POPPER",
+      "displayName": "Popcorn Popper",
+      "kitchen_section": "Relevant small kitchen appliances",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes_small_appliances",
+      "classification_reason": "Official recommended browse-node label(s) under Appliances > Small Appliances: Appliances > Small Appliances > Specialty Appliances > Popcorn Poppers"
+    },
+    {
+      "productType": "POTABLE_WATER_FILTER",
+      "displayName": "Potable Water Filter",
+      "kitchen_section": "Tea and coffee accessories",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Coffee, Tea & Espresso > Coffee Machine Parts > Water Filters; Kitchen > Water Coolers, Filters & Cartridges > Water Filter Cartridges"
+    },
+    {
+      "productType": "POT_HOLDER",
+      "displayName": "Pot Holder",
+      "kitchen_section": "Kitchen linen",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Kitchen Linen > Potholders & Oven Mittens; Kitchen > Kitchen Linen > Potholders & Oven Mittens > Oven Mitts; Kitchen > Kitchen Linen > Potholders & Oven Mittens > Potholders"
+    },
+    {
+      "productType": "PRESSURE_COOKER",
+      "displayName": "Pressure Cooker",
+      "kitchen_section": "Pressure cookers",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Appliances > Small Appliances > Specialty Appliances > Electric Multi-Cookers; Appliances > Small Appliances > Specialty Appliances > Electric Pressure Cookers; Kitchen > Cookware > Pots & Pans > Pressure Cookers"
+    },
+    {
+      "productType": "RICE_COOKERS",
+      "displayName": "Rice Cooker",
+      "kitchen_section": "Relevant small kitchen appliances",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes_small_appliances",
+      "classification_reason": "Official recommended browse-node label(s) under Appliances > Small Appliances: Appliances > Small Appliances > Specialty Appliances > Rice Cookers"
+    },
+    {
+      "productType": "ROASTING_PAN",
+      "displayName": "Roasting Tin",
+      "kitchen_section": "Pots and pans",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Bakeware > Bakeware Molds & Tins > Disposable Bakeware Pans > Roasting & Steam Table Pans; Kitchen > Cookware > Pots & Pans > Roasting Pans"
+    },
+    {
+      "productType": "ROLLING_PIN",
+      "displayName": "Rolling Pin",
+      "kitchen_section": "Baking tools and moulds",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Bakeware > Baking Tools & Accessories > Rolling Pins"
+    },
+    {
+      "productType": "ROTATING_TRAY",
+      "displayName": "Rotating Tray",
+      "kitchen_section": "Kitchen organization",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Containers & Storage > Racks & Holders > Cabinet & Drawer Organizers > Lazy Susans"
+    },
+    {
+      "productType": "SAUTE_FRY_PAN",
+      "displayName": "Sauté & Frying Pan",
+      "kitchen_section": "Frying, sauté and grill pans",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Cookware > Pots & Pans > Crepe Pans; Kitchen > Cookware > Pots & Pans > Double Sided Grill Pans; Kitchen > Cookware > Pots & Pans > Fajita Pans"
+    },
+    {
+      "productType": "SEASONING_MILL",
+      "displayName": "Seasoning Mill",
+      "kitchen_section": "Relevant small kitchen appliances",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Appliances > Small Appliances > Mills & Grinders > Electric Spice Grinders; Appliances > Small Appliances > Mills & Grinders > Herb & Spice Mills; Kitchen > Containers & Storage > Dressing & Spice Dispensers > Pepper Mills"
+    },
+    {
+      "productType": "SERVEWARE",
+      "displayName": "SERVEWARE",
+      "kitchen_section": "Serveware",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Coffee, Tea & Espresso > Tea Accessories > Cream & Sugar Sets; Kitchen > Coffee, Tea & Espresso > Tea Accessories > Tea-for-one Sets; Kitchen > Coffee, Tea & Espresso > Tea Pots & Coffee Servers"
+    },
+    {
+      "productType": "SHEET_PAN",
+      "displayName": "Sheet Pan",
+      "kitchen_section": "Bakeware",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Bakeware > Bakeware Molds & Tins > Disposable Bakeware Pans > Sheet Pans; Kitchen > Bakeware > Bakeware Molds & Tins > Jelly-Roll Pans; Kitchen > Bakeware > Sheets & Grates > Baking & Cookie Sheets"
+    },
+    {
+      "productType": "SKEWER",
+      "displayName": "Skewer",
+      "kitchen_section": "Kitchen utensils and gadgets",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Tools & Gadgets > Skewers"
+    },
+    {
+      "productType": "SLOW_COOKER",
+      "displayName": "Slow Cooker",
+      "kitchen_section": "Relevant small kitchen appliances",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes_small_appliances",
+      "classification_reason": "Official recommended browse-node label(s) under Appliances > Small Appliances: Appliances > Small Appliances > Slow Cookers"
+    },
+    {
+      "productType": "SMALL_HOME_APPLIANCES",
+      "displayName": "SMALL_HOME_APPLIANCES",
+      "kitchen_section": "Kettles",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes_small_appliances",
+      "classification_reason": "Official recommended browse-node label(s) under Appliances > Small Appliances: Appliances > Small Appliances; Appliances > Small Appliances > Blenders, Mixers & Food Processors; Appliances > Small Appliances > Bread Makers & Baking Appliances"
+    },
+    {
+      "productType": "SODA_MAKER",
+      "displayName": "Soda Maker",
+      "kitchen_section": "Relevant small kitchen appliances",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes_small_appliances",
+      "classification_reason": "Official recommended browse-node label(s) under Appliances > Small Appliances: Appliances > Small Appliances > Specialty Appliances > Soda Makers"
+    },
+    {
+      "productType": "SOUS_VIDE_MACHINE",
+      "displayName": "Sous Vide Machine",
+      "kitchen_section": "Relevant small kitchen appliances",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes_small_appliances",
+      "classification_reason": "Official recommended browse-node label(s) under Appliances > Small Appliances: Appliances > Small Appliances > Specialty Appliances > Sous Vide Water Baths"
+    },
+    {
+      "productType": "SPOON",
+      "displayName": "Spoon",
+      "kitchen_section": "Kitchen utensils and gadgets",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Tableware > Children's Tableware > Children's Cutlery > Spoons; Kitchen > Tableware > Cutlery & Flatware > Ladles; Kitchen > Tableware > Cutlery & Flatware > Ladles > Cream Ladles"
+    },
+    {
+      "productType": "SPOON_REST",
+      "displayName": "Spoon Rest",
+      "kitchen_section": "Flatware and cutlery",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Tableware > Cutlery & Flatware > Chopstick & Cutlery Rests > Spoon Rests"
+    },
+    {
+      "productType": "SPRAY_BOTTLE",
+      "displayName": "Spray Bottle",
+      "kitchen_section": "Kitchen utensils and gadgets",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Tools & Gadgets > Oil Preparation & Dispensers > Oil Sprayers"
+    },
+    {
+      "productType": "STORAGE_DRAWER",
+      "displayName": "Storage Drawer",
+      "kitchen_section": "Tea and coffee accessories",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Coffee, Tea & Espresso > Coffee Machine Accessories > Coffee Capsule Holders > Capsule Drawers"
+    },
+    {
+      "productType": "STORAGE_RACK",
+      "displayName": "Storage Rack",
+      "kitchen_section": "Kitchen organization",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Containers & Storage > Preserving > Racks; Kitchen > Containers & Storage > Racks & Holders > Cabinet & Drawer Organizers > Pot Lid Holders; Kitchen > Containers & Storage > Racks & Holders > Cutting Board Racks"
+    },
+    {
+      "productType": "STOVETOP_KETTLE",
+      "displayName": "Stovetop Kettle",
+      "kitchen_section": "Kettles",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Coffee, Tea & Espresso > Kettles & Tea Machines > Coffee Drip Kettles; Kitchen > Coffee, Tea & Espresso > Kettles & Tea Machines > Stovetop Teakettles"
+    },
+    {
+      "productType": "TABLECLOTH",
+      "displayName": "Tablecloth",
+      "kitchen_section": "Kitchen linen",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Kitchen Linen > Tablecloth"
+    },
+    {
+      "productType": "TABLE_RUNNER",
+      "displayName": "Table Runner",
+      "kitchen_section": "Kitchen linen",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Kitchen Linen > Table Runners"
+    },
+    {
+      "productType": "TEAPOT",
+      "displayName": "Teapot",
+      "kitchen_section": "Tea and coffee accessories",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Coffee, Tea & Espresso > Tea Pots & Coffee Servers > Teapots; Kitchen > Coffee, Tea & Espresso > Tea Pots & Coffee Servers > Teapots > Black Teapots; Kitchen > Coffee, Tea & Espresso > Tea Pots & Coffee Servers > Teapots > Dobin Teapots"
+    },
+    {
+      "productType": "TEA_INFUSER",
+      "displayName": "Tea Infuser",
+      "kitchen_section": "Tea and coffee accessories",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Coffee, Tea & Espresso > Tea Accessories > Tea Strainers & Filters; Kitchen > Coffee, Tea & Espresso > Tea Accessories > Tea Strainers & Filters > Long-Handled Tea Strainers; Kitchen > Coffee, Tea & Espresso > Tea Accessories > Tea Strainers & Filters > Tea Ball Strainers"
+    },
+    {
+      "productType": "THERMOMETER",
+      "displayName": "Thermometer",
+      "kitchen_section": "Kitchen utensils and gadgets",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Tools & Gadgets > Barware > Wine Thermometers; Kitchen > Tools & Gadgets > Kitchen Thermometers; Kitchen > Tools & Gadgets > Kitchen Thermometers > Candy Thermometers"
+    },
+    {
+      "productType": "THERMOS",
+      "displayName": "Thermos",
+      "kitchen_section": "Vacuum flasks and thermoses",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Containers & Storage > Thermos Flasks > Insulated Beverage Containers > Drink Flasks"
+    },
+    {
+      "productType": "TIMER",
+      "displayName": "Timer",
+      "kitchen_section": "Kitchen utensils and gadgets",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Coffee, Tea & Espresso > Tea Accessories > Tea Timers; Kitchen > Tools & Gadgets > Kitchen Timers"
+    },
+    {
+      "productType": "TOASTER",
+      "displayName": "Toaster",
+      "kitchen_section": "Relevant small kitchen appliances",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes_small_appliances",
+      "classification_reason": "Official recommended browse-node label(s) under Appliances > Small Appliances: Appliances > Small Appliances > Toasters"
+    },
+    {
+      "productType": "TONG_UTENSIL",
+      "displayName": "Tong Utensil",
+      "kitchen_section": "Baking tools and moulds",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Coffee, Tea & Espresso > Tea Accessories > Sugar Tongs; Kitchen > Tableware > Cutlery & Flatware > Serving Tongs; Kitchen > Tableware > Cutlery & Flatware > Serving Tongs > Buffet Tongs"
+    },
+    {
+      "productType": "TRASH_CAN",
+      "displayName": "Rubbish Bin",
+      "kitchen_section": "Kitchen (browse-node matched)",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Containers & Storage > Waste & Recycling > In-Home Recycling Bins; Kitchen > Containers & Storage > Waste & Recycling > Kitchen Trash Cans; Kitchen > Containers & Storage > Waste & Recycling > Outdoor Trash Cans"
+    },
+    {
+      "productType": "TRASH_COMPACTOR",
+      "displayName": "Waste Compactor",
+      "kitchen_section": "Kitchen utensils and gadgets",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Tools & Gadgets > Specialty Tools & Gadgets > Can Crushers"
+    },
+    {
+      "productType": "TRAY",
+      "displayName": "Tray",
+      "kitchen_section": "Kitchen utensils and gadgets",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Containers & Storage > Racks & Holders > Cabinet & Drawer Organizers > Tip-Out Trays; Kitchen > Tableware > Dishware & Serving Pieces > Serving Dishes > Serving Trays, Dishes & Platters > Breakfast Trays; Kitchen > Tableware > Dishware & Serving Pieces > Serving Dishes > Serving Trays, Dishes & Platters > Serving Trays"
+    },
+    {
+      "productType": "TRIVET",
+      "displayName": "Trivet",
+      "kitchen_section": "Tea and coffee accessories",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Coffee, Tea & Espresso > Tea Accessories > Teapot Trivets; Kitchen > Cookware > Cookware Accessories > Trivets"
+    },
+    {
+      "productType": "VACUUM_SEALER_MACHINE",
+      "displayName": "Vacuum Sealer Machine",
+      "kitchen_section": "Relevant small kitchen appliances",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes_small_appliances",
+      "classification_reason": "Official recommended browse-node label(s) under Appliances > Small Appliances: Appliances > Small Appliances > Vacuum Sealers"
+    },
+    {
+      "productType": "WATER_PURIFICATION_UNIT",
+      "displayName": "Water Purifier",
+      "kitchen_section": "Relevant small kitchen appliances",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Appliances > Small Appliances > Water Purifiers; Kitchen > Water Coolers, Filters & Cartridges > Filter Jugs; Kitchen > Water Coolers, Filters & Cartridges > Filter Taps"
+    },
+    {
+      "productType": "WEIGH_SCALE",
+      "displayName": "Weigh Scale",
+      "kitchen_section": "Relevant small kitchen appliances",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes_small_appliances",
+      "classification_reason": "Official recommended browse-node label(s) under Appliances > Small Appliances: Appliances > Small Appliances > Kitchen Scales; Appliances > Small Appliances > Kitchen Scales > Digital Scales; Appliances > Small Appliances > Kitchen Scales > Mechanical Scales"
+    },
+    {
+      "productType": "WHEEL_CUTTER",
+      "displayName": "Wheel Cutter",
+      "kitchen_section": "Kitchen utensils and gadgets",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Tools & Gadgets > Pizza Cutters"
+    },
+    {
+      "productType": "WHISK_UTENSIL",
+      "displayName": "Whisk Utensil",
+      "kitchen_section": "Kitchen utensils and gadgets",
+      "confidence": "exact",
+      "classification_source": "schema_recommended_browse_nodes",
+      "classification_reason": "Official recommended browse-node label(s) under Kitchen: Kitchen > Coffee, Tea & Espresso > Tea Accessories > Japanese Tea Ceremony Utensils > Matcha Whisks; Kitchen > Tools & Gadgets > Whisks"
+    }
+  ],
+  "limitations": "Mid-path Kitchen segments (e.g. Automotive/RV), Kitchen > Vacuums/floor-care nodes, name-only false positives (KETTLEBELL, THERMOSTAT, SANITARY_NAPKIN), and product types whose Kitchen browse-node share is under 15% without a kitchen name cue were excluded. Types without Kitchen/small-appliance browse-node labels were classified only by product-type code/display-name inference and are not official Amazon hierarchy mappings.",
+  "officialMappingAvailable": "No. Product Type Definitions API does not return an official Kitchen category-tree membership for each product type. Browse-node enum labels inside schemas (paths starting with Kitchen > or Appliances > Small Appliances) are the strongest Amazon-provided signal used here.",
+  "reclassifiedFromCache": true
+}

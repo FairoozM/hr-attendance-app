@@ -22,3 +22,6 @@ backend/secrets/*
 
 .cursor/mcp.env
 .migration-local/
+
+# Amazon UAE kitchen catalogue extraction cache (large schema JSON)
+backend/data/amazon-uae-kitchen-catalogue/amazon_uae_product_type_definitions/

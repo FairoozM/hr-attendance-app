@@ -11,6 +11,7 @@ const {
   CATALOG_SEARCH_MIN_INTERVAL_MS,
   FBA_INVENTORY_MIN_INTERVAL_MS,
   REPORTS_MIN_INTERVAL_MS,
+  PRODUCT_TYPE_DEFINITIONS_MIN_INTERVAL_MS,
   MANUAL_SYNC_COOLDOWN_MINUTES,
 } = require('../config/amazonSpApiGuardrails')
 
@@ -20,6 +21,7 @@ const GET_ORDER_ITEMS_MIN_MS = GET_ORDER_ITEMS_MIN_INTERVAL_MS
 const GET_CATALOG_MIN_MS = CATALOG_SEARCH_MIN_INTERVAL_MS
 const GET_FBA_INVENTORY_MIN_MS = FBA_INVENTORY_MIN_INTERVAL_MS
 const REPORTS_MIN_MS = REPORTS_MIN_INTERVAL_MS
+const PRODUCT_TYPE_DEFINITIONS_MIN_MS = PRODUCT_TYPE_DEFINITIONS_MIN_INTERVAL_MS
 
 const DEFAULT_SYNC_COOLDOWN_MIN = MANUAL_SYNC_COOLDOWN_MINUTES
 
@@ -57,6 +59,10 @@ function minSpacingMs(operation) {
     operation === 'getListingsReport' ||
     operation === 'getListingsReportDocument'
   ) return REPORTS_MIN_MS
+  if (
+    operation === 'searchDefinitionsProductTypes' ||
+    operation === 'getDefinitionsProductType'
+  ) return PRODUCT_TYPE_DEFINITIONS_MIN_MS
   return 1500
 }
 

@@ -35,6 +35,7 @@
     "test:amazon-ads-lwa-ksa": "node scripts/test-amazon-ads-lwa-token.js ksa",
     "test:amazon-ads-profiles-uae": "node scripts/test-amazon-ads-profiles.js uae",
     "test:amazon-ads-profiles-ksa": "node scripts/test-amazon-ads-profiles.js ksa",
+    "extract:amazon-uae-kitchen": "node scripts/extract-amazon-uae-kitchen-product-types.js",
     "audit:amazon-spapi-safety": "node scripts/audit-amazon-spapi-safety.js",
     "test:amazon-error-request-id": "node scripts/test-amazon-error-request-id.js",
     "debug:amazon-single-order-image": "node scripts/debug-amazon-single-order-image.js",
