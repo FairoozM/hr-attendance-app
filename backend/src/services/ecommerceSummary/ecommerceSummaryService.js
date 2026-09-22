@@ -57,7 +57,11 @@ function calendarDaysThroughMonth(reportDate) {
 
 /**
  * Split Expense-by-Category rows into Flexible / Fixed using account ids.
- * @param {Array<{ accountId: string, accountName: string, amountWithTax: number }>} rows
+ *
+ * Uses the tax-exclusive `amount`: recoverable input VAT is not an expense, so
+ * these totals tie to the report's Amount column, not Amount With Tax.
+ *
+ * @param {Array<{ accountId: string, accountName: string, amount: number }>} rows
  * @param {Map<string, 'flexible' | 'fixed'>} groupMap
  * @param {Set<string>} expenseAccountIds
  */
@@ -68,7 +72,7 @@ function splitExpenseRows(rows, groupMap, expenseAccountIds) {
   const fixedAccounts = []
   const unclassifiedAccounts = []
   for (const row of rows || []) {
-    const amount = toNumber(row.amountWithTax)
+    const amount = toNumber(row.amount)
     const group = classifyExpenseAccount(row, groupMap, expenseAccountIds)
     const entry = { accountId: row.accountId, accountName: row.accountName, amount: round2(amount) }
     if (group === 'flexible') {
@@ -172,7 +176,7 @@ async function buildEcommerceSummaryReport(opts = {}) {
   const yearAvgPerDay = totalDays > 0 ? round2(yearTotal / totalDays) : null
   const yearAvgPerMonth = monthNumber > 0 ? round2(yearTotal / monthNumber) : null
 
-  // Phase 4 — Fixed/Flexible from Expense Summary by Category (amount with tax)
+  // Phase 4 — Fixed/Flexible from Expense Summary by Category (tax-exclusive amount)
   const expenseAccountIds = await fetchPnlExpenseAccountIds(yearStart, reportDate)
   const groupMap = buildExpenseGroupMap()
   const categoryThrough = await fetchExpensesByCategory(yearStart, reportDate)
@@ -207,7 +211,7 @@ async function buildEcommerceSummaryReport(opts = {}) {
     'Month Avg Sale / Day divides by calendar days in the month through this date (not distinct days-with-sales), to avoid Zoho rate limits.'
   )
   warnings.push(
-    'Fixed and Flexible expenses are Amount With Tax from Zoho Expense Summary by Category, grouped by the app expense classification (Zoho Fixed/Flexible parent accounts are unused).'
+    'Fixed and Flexible expenses are the tax-exclusive Amount from Zoho Expense Summary by Category, grouped by the app expense classification (Zoho Fixed/Flexible parent accounts are unused).'
   )
 
   const monthGrossApprox = round2(monthTotal + monthReturns)
@@ -282,7 +286,7 @@ async function buildEcommerceSummaryReport(opts = {}) {
       cashCredit:
         'Cash vs Credit uses Zoho invoice payment_mode when present; otherwise invoices default to Credit Sales.',
       fixedFlexible:
-        'Fixed/Flexible totals are Zoho Expense Summary by Category amount_with_tax. Flexible covers channel selling costs (commission, advertising, shipping, storage, returns, gateway fees); Fixed covers overheads (payroll, rent, utilities, insurance, fleet, office). Balance-sheet rows in that report (inventory, prepaid rent, payables, VAT) are excluded.',
+        'Fixed/Flexible totals are Zoho Expense Summary by Category amount (tax-exclusive; input VAT is recoverable, not an expense). Flexible covers channel selling costs (commission, advertising, shipping, storage, returns, gateway fees); Fixed covers overheads (payroll, rent, utilities, insurance, fleet, office). Balance-sheet rows in that report (inventory, prepaid rent, payables, VAT) are excluded.',
       monthAvgDenominator:
         'Month Avg Sale / Day uses calendar days through the selected date (avoids per-day Zoho report calls).',
       saleReturns:
@@ -295,4 +299,5 @@ module.exports = {
   buildEcommerceSummaryReport,
   classifyInvoiceCashCredit,
   calendarDaysThroughMonth,
+  splitExpenseRows,
 }

@@ -11,7 +11,10 @@ const {
   getDescendantAccountIds,
   isDebitNormalAccount,
 } = require('../src/services/ecommerceAccounting/accountNature')
-const { classifyInvoiceCashCredit } = require('../src/services/ecommerceSummary/ecommerceSummaryService')
+const {
+  classifyInvoiceCashCredit,
+  splitExpenseRows,
+} = require('../src/services/ecommerceSummary/ecommerceSummaryService')
 const { emptySection } = require('../src/services/ecommerceLedger/dailyEcommerceLedgerService')
 
 describe('ecommerceAccounting helpers', () => {
@@ -90,6 +93,22 @@ describe('cash vs credit classification', () => {
 
   it('defaults marketplace invoices without mode to credit', () => {
     assert.equal(classifyInvoiceCashCredit({ status: 'sent', total: 100 }), 'credit')
+  })
+})
+
+describe('fixed / flexible expense totals', () => {
+  it('sums the tax-exclusive amount, not Amount With Tax', () => {
+    const rows = [
+      { accountId: 'flex', accountName: 'Website Advertising Exp', amount: 100, amountWithTax: 105 },
+      { accountId: 'fix', accountName: 'Warehouse Rent Expense', amount: 200, amountWithTax: 210 },
+    ]
+    const groupMap = new Map([
+      ['flex', 'flexible'],
+      ['fix', 'fixed'],
+    ])
+    const split = splitExpenseRows(rows, groupMap, new Set(['flex', 'fix']))
+    assert.equal(split.flexible, 100)
+    assert.equal(split.fixed, 200)
   })
 })
 

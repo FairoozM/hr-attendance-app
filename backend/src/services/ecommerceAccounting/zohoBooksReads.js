@@ -376,7 +376,8 @@ async function fetchPnlExpenseAccountIds(fromDate, toDate) {
 }
 
 /**
- * Sum Expense-by-Category amount_with_tax for accounts in idSet.
+ * Sum Expense-by-Category tax-exclusive `amount` for accounts in idSet.
+ * Input VAT is recoverable, so expense totals never use amount_with_tax.
  */
 function sumExpensesByCategory(rows, idSet) {
   const set = idSet instanceof Set ? idSet : new Set(idSet || [])
@@ -384,7 +385,7 @@ function sumExpensesByCategory(rows, idSet) {
   const matched = []
   for (const row of rows || []) {
     if (!row.accountId || !set.has(row.accountId)) continue
-    total += toNumber(row.amountWithTax)
+    total += toNumber(row.amount)
     matched.push(row)
   }
   return { total: round2(total), matched }
