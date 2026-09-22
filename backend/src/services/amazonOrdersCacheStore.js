@@ -684,7 +684,9 @@ async function replaceOrderReportLines(marketplaceKey, window, lines, reportId =
 async function selectOrderReportLines(marketplaceKey, start, end) {
   const r = await query(
     `SELECT amazon_order_id, order_item_id, seller_sku, asin, quantity, currency,
-            line_amount, item_status, last_synced_at
+            line_amount, item_status, last_synced_at,
+            item_price, item_tax, item_promotion_discount,
+            shipping_price, shipping_tax, gift_wrap_price, gift_wrap_tax, ship_promotion_discount
      FROM amazon_order_report_lines
      WHERE marketplace_key = $1
        AND purchase_date >= $2::timestamptz

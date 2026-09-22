@@ -145,9 +145,97 @@ test('missing OrderTotal is derived from Amazon item price, tax, shipping and pr
         },
       },
     ])
-    assert.deepEqual(derived, { amount: 114, currency: 'AED' })
+    // 100 + 5 − 10 of product money, 20 + 1 − 2 of delivery money, and the two still add to the
+    // grand total the Orders API would have reported as OrderTotal.
+    assert.deepEqual(derived, { amount: 114, product: 95, delivery: 19, currency: 'AED' })
     assert.equal(mod.deriveOrderAmountFromItems([{ raw_safe_json: { QuantityOrdered: 1 } }]), null)
     assert.equal(mod.deriveOrderAmountFromItems([]), null)
+  } finally {
+    restore()
+  }
+})
+
+test('Amazon Amount is split into Seller Central Ordered Product Sales plus delivery charged', async () => {
+  const { mod, restore } = loadProviderWith({
+    orders: [
+      {
+        amazon_order_id: '407-8637550-9733964',
+        purchase_date: new Date('2026-09-08T08:00:00Z'),
+        order_status: 'Pending',
+        currency_code: 'AED',
+        order_amount: '1000.0000',
+        last_synced_at: new Date(),
+      },
+      {
+        amazon_order_id: '404-0311594-8501900',
+        purchase_date: new Date('2026-09-08T09:00:00Z'),
+        order_status: 'Pending',
+        currency_code: 'AED',
+        order_amount: '654.0000',
+        last_synced_at: new Date(),
+      },
+    ],
+    items: [
+      { amazon_order_id: '407-8637550-9733964', seller_sku: 'A', quantity_ordered: 1, item_amount: '1000.0000', item_currency_code: 'AED', raw_safe_json: {} },
+      { amazon_order_id: '404-0311594-8501900', seller_sku: 'B', quantity_ordered: 1, item_amount: '654.0000', item_currency_code: 'AED', raw_safe_json: {} },
+    ],
+    reportLines: [
+      { amazon_order_id: '407-8637550-9733964', seller_sku: 'A', quantity: 1, currency: 'AED', line_amount: '1000.0000', item_price: '1000.0000', shipping_price: '0.0000' },
+      // The one order that was charged delivery — the whole reason the day reads 7 above Seller Central.
+      { amazon_order_id: '404-0311594-8501900', seller_sku: 'B', quantity: 1, currency: 'AED', line_amount: '654.0000', item_price: '647.0000', shipping_price: '7.0000' },
+    ],
+  })
+  try {
+    const ch = await mod.loadAmazonChannel('uae', dubaiDayBounds('2026-09-08'), FX, NO_ADS)
+    assert.equal(ch.summary.salesAmountAED, 1654, 'Amazon Amount stays the buyer grand total')
+    assert.equal(ch.summary.productSalesAED, 1647, 'matches Seller Central Ordered Product Sales')
+    assert.equal(ch.summary.deliveryChargedAED, 7)
+    assert.equal(
+      ch.summary.productSalesAED + ch.summary.deliveryChargedAED,
+      ch.summary.salesAmountAED,
+      'the split must always add back to the reported amount',
+    )
+    assert.deepEqual(
+      ch.orders.map((o) => [o.orderNumber, o.productSalesAED, o.deliveryChargedAED]),
+      [
+        ['407-8637550-9733964', 1000, 0],
+        ['404-0311594-8501900', 647, 7],
+      ],
+    )
+    assert.equal(ch.reconciliation.ordersWithoutAmountBreakdown, 0)
+  } finally {
+    restore()
+  }
+})
+
+test('an order Amazon gave no components for leaves the whole split Pending, never short', async () => {
+  const { mod, restore } = loadProviderWith({
+    orders: [
+      {
+        amazon_order_id: '407-8637550-9733964',
+        purchase_date: new Date('2026-09-08T08:00:00Z'),
+        order_status: 'Shipped',
+        currency_code: 'AED',
+        order_amount: '1000.0000',
+        last_synced_at: new Date(),
+      },
+    ],
+    // OrderTotal exists, but no order-report line and no item money to break it down with.
+    items: [
+      { amazon_order_id: '407-8637550-9733964', seller_sku: 'A', quantity_ordered: 1, item_amount: null, item_currency_code: 'AED', raw_safe_json: {} },
+    ],
+    reportLines: [],
+  })
+  try {
+    const ch = await mod.loadAmazonChannel('uae', dubaiDayBounds('2026-09-08'), FX, NO_ADS)
+    assert.equal(ch.summary.salesAmountAED, 1000, 'the amount itself is still known')
+    assert.equal(ch.summary.productSalesAED, null)
+    assert.equal(ch.summary.deliveryChargedAED, null)
+    assert.equal(ch.reconciliation.ordersWithoutAmountBreakdown, 1)
+    assert.ok(
+      ch.warnings.some((w) => /Product Sales and Delivery Charged are Pending/.test(w)),
+      'the day has to say why the split is missing',
+    )
   } finally {
     restore()
   }

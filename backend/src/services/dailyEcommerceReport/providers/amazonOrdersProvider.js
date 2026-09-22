@@ -12,6 +12,12 @@
  * from the moment the order is placed. On 2026-09-09 UAE that was the difference between AED 1,306
  * (Orders API only) and the true AED 2,411.
  *
+ * `OrderTotal` is the buyer's grand total, so Amazon Amount sits *above* the "Ordered Product Sales"
+ * figure Seller Central Business Reports shows, by whatever delivery and gift wrap the buyer paid.
+ * The same money is therefore also reported split in two — `productSalesAED` matches Ordered Product
+ * Sales, `deliveryChargedAED` is the rest — so a day can be reconciled against Seller Central
+ * without anyone re-deriving it by hand and concluding the report is wrong.
+ *
  * Order numbers are the real Amazon order IDs (123-1234567-1234567) and the
  * marketplace split uses `marketplace_key` / `marketplace_id` from SP-API.
  *
@@ -29,15 +35,38 @@ const { buildChannelShell, channelMeta } = require('../channels')
 const EXCLUDED_STATUSES = new Set(['canceled', 'cancelled'])
 const FEE_CATEGORIES = ['Commission', 'FBA / Fulfillment Fee']
 
-/** Amazon-reported line components that add to what the customer pays. */
-const ITEM_CHARGE_KEYS = ['ItemPrice', 'ItemTax', 'ShippingPrice', 'ShippingTax']
-/** Amazon-reported line components that reduce it. */
-const ITEM_CREDIT_KEYS = [
-  'PromotionDiscount',
-  'PromotionDiscountTax',
-  'ShippingDiscount',
-  'ShippingDiscountTax',
-]
+/**
+ * Amazon-reported line components, grouped the way Seller Central splits a day.
+ *
+ * `product` is what Business Reports calls Ordered Product Sales. `delivery` is the delivery and
+ * gift-wrap money the buyer pays on top of it, which that figure excludes. `OrderTotal` is the two
+ * together, so keeping them apart is what lets one report be checked against either number.
+ */
+const ITEM_MONEY_GROUPS = {
+  product: {
+    charges: ['ItemPrice', 'ItemTax'],
+    credits: ['PromotionDiscount', 'PromotionDiscountTax'],
+  },
+  delivery: {
+    charges: ['ShippingPrice', 'ShippingTax'],
+    credits: ['ShippingDiscount', 'ShippingDiscountTax'],
+  },
+}
+
+/** The same split over the flat-file order report's columns. */
+const REPORT_MONEY_GROUPS = {
+  product: {
+    charges: ['item_price', 'item_tax'],
+    credits: ['item_promotion_discount'],
+  },
+  delivery: {
+    charges: ['shipping_price', 'shipping_tax', 'gift_wrap_price', 'gift_wrap_tax'],
+    credits: ['ship_promotion_discount'],
+  },
+}
+
+/** Amazon's two figures agree to the fils, so anything past this is a real disagreement. */
+const MONEY_TOLERANCE = 0.011
 
 function moneyAmount(node) {
   if (!node || typeof node !== 'object') return null
@@ -48,38 +77,49 @@ function moneyAmount(node) {
 }
 
 /**
- * Rebuild one order's customer-paid value from its Amazon line items.
+ * Rebuild one order's customer-paid value from its Amazon line items, split into product money and
+ * delivery money.
  *
  * `ItemPrice.Amount` is already the extended line total (unit price × quantity), so it is never
  * multiplied by quantity again. Returns null when Amazon reported no money on any line, which is
  * what happens while an order is Pending — that is unknown, not zero.
  *
  * @param {object[]} itemRows
- * @returns {{ amount: number, currency: string|null }|null}
+ * @returns {{ amount: number, product: number, delivery: number, currency: string|null }|null}
  */
 function deriveOrderAmountFromItems(itemRows) {
-  let total = 0
+  let product = 0
+  let delivery = 0
   let currency = null
   let sawMoney = false
   for (const row of itemRows) {
     const raw = row.raw_safe_json && typeof row.raw_safe_json === 'object' ? row.raw_safe_json : {}
-    for (const key of ITEM_CHARGE_KEYS) {
-      const value = moneyAmount(raw[key])
-      if (value == null) continue
-      sawMoney = true
-      total += value
-      if (!currency && raw[key].CurrencyCode) currency = String(raw[key].CurrencyCode)
-    }
-    for (const key of ITEM_CREDIT_KEYS) {
-      const value = moneyAmount(raw[key])
-      if (value == null) continue
-      sawMoney = true
-      total -= value
+    for (const [group, keys] of Object.entries(ITEM_MONEY_GROUPS)) {
+      for (const key of keys.charges) {
+        const value = moneyAmount(raw[key])
+        if (value == null) continue
+        sawMoney = true
+        if (group === 'product') product += value
+        else delivery += value
+        if (!currency && raw[key].CurrencyCode) currency = String(raw[key].CurrencyCode)
+      }
+      for (const key of keys.credits) {
+        const value = moneyAmount(raw[key])
+        if (value == null) continue
+        sawMoney = true
+        if (group === 'product') product -= value
+        else delivery -= value
+      }
     }
     if (!currency && row.item_currency_code) currency = String(row.item_currency_code)
   }
   if (!sawMoney) return null
-  return { amount: round2(total), currency }
+  return {
+    amount: round2(product + delivery),
+    product: round2(product),
+    delivery: round2(delivery),
+    currency,
+  }
 }
 
 function metaForMarketplace(marketplaceKey) {
@@ -140,13 +180,17 @@ async function findCoveringOrdersSync(marketplaceKey, bounds) {
  * same-day Amazon Amount honest. Returns null when the lookup itself fails, so the caller can warn
  * instead of quietly reporting a smaller day.
  *
+ * Each order also carries the product / delivery split of its own lines. `hasBreakdown` is false
+ * when Amazon populated `line_amount` but left every component column empty, so a report that only
+ * knows the total can never be presented as if it knew the split.
+ *
  * @param {'uae'|'ksa'} marketplaceKey
  * @param {{ start: Date, end: Date }} bounds
- * @returns {Promise<{ byOrder: Map<string, { amount: number, currency: string|null, lines: object[], lastSyncedAt: Date|null }>, error: string|null }>}
+ * @returns {Promise<{ byOrder: Map<string, { amount: number, product: number, delivery: number, hasBreakdown: boolean, currency: string|null, lines: object[], lastSyncedAt: Date|null }>, error: string|null }>}
  */
 async function loadOrderReportAmounts(marketplaceKey, bounds) {
   const cacheStore = require('../../amazonOrdersCacheStore')
-  /** @type {Map<string, { amount: number, currency: string|null, lines: object[], lastSyncedAt: Date|null }>} */
+  /** @type {Map<string, { amount: number, product: number, delivery: number, hasBreakdown: boolean, currency: string|null, lines: object[], lastSyncedAt: Date|null }>} */
   const byOrder = new Map()
   let rows
   try {
@@ -162,10 +206,30 @@ async function loadOrderReportAmounts(marketplaceKey, bounds) {
     const orderId = String(row.amazon_order_id || '').trim()
     if (!orderId) continue
     if (!byOrder.has(orderId)) {
-      byOrder.set(orderId, { amount: 0, currency: null, lines: [], lastSyncedAt: null })
+      byOrder.set(orderId, {
+        amount: 0,
+        product: 0,
+        delivery: 0,
+        hasBreakdown: false,
+        currency: null,
+        lines: [],
+        lastSyncedAt: null,
+      })
     }
     const bucket = byOrder.get(orderId)
     bucket.amount += toFiniteNumber(row.line_amount, 0)
+    for (const [group, columns] of Object.entries(REPORT_MONEY_GROUPS)) {
+      for (const column of columns.charges) {
+        if (row[column] == null) continue
+        bucket.hasBreakdown = true
+        bucket[group] += toFiniteNumber(row[column], 0)
+      }
+      for (const column of columns.credits) {
+        if (row[column] == null) continue
+        bucket.hasBreakdown = true
+        bucket[group] -= toFiniteNumber(row[column], 0)
+      }
+    }
     if (!bucket.currency && row.currency) bucket.currency = String(row.currency).toUpperCase()
     bucket.lines.push(row)
     const syncedAt = row.last_synced_at ? new Date(row.last_synced_at) : null
@@ -173,7 +237,11 @@ async function loadOrderReportAmounts(marketplaceKey, bounds) {
       bucket.lastSyncedAt = syncedAt
     }
   }
-  for (const bucket of byOrder.values()) bucket.amount = round2(bucket.amount)
+  for (const bucket of byOrder.values()) {
+    bucket.amount = round2(bucket.amount)
+    bucket.product = round2(bucket.product)
+    bucket.delivery = round2(bucket.delivery)
+  }
   return { byOrder, error: null }
 }
 
@@ -359,6 +427,9 @@ async function loadAmazonChannel(marketplaceKey, bounds, fx, ads) {
   let missingAmount = 0
   let derivedAmounts = 0
   let reportAmounts = 0
+  let productSalesTotalAED = 0
+  let deliveryChargedTotalAED = 0
+  let ordersWithoutBreakdown = 0
   const reportMismatches = []
 
   for (const row of included) {
@@ -403,13 +474,16 @@ async function loadAmazonChannel(marketplaceKey, bounds, fx, ads) {
     let amountSource = 'amazon_order_total'
     let originalAmount = row.order_amount == null ? null : toFiniteNumber(row.order_amount, 0)
     let currency = String(row.currency_code || '').trim().toUpperCase()
+    // Amazon's own components for this order, whichever source carries them. Used both to price a
+    // Pending order and to split any order into product money and delivery money.
+    const itemComponents = deriveOrderAmountFromItems(itemRows)
+    const components = reportOrder && reportOrder.hasBreakdown
+      ? { amount: reportOrder.amount, product: reportOrder.product, delivery: reportOrder.delivery }
+      : itemComponents
     if (originalAmount == null) {
       const derived = reportOrder
         ? { amount: reportOrder.amount, currency: reportOrder.currency, source: 'amazon_order_report' }
-        : (() => {
-            const fromItems = deriveOrderAmountFromItems(itemRows)
-            return fromItems ? { ...fromItems, source: 'amazon_order_items' } : null
-          })()
+        : itemComponents && { ...itemComponents, source: 'amazon_order_items' }
       if (derived) {
         originalAmount = derived.amount
         currency = String(derived.currency || meta.currency).trim().toUpperCase()
@@ -420,7 +494,7 @@ async function loadAmazonChannel(marketplaceKey, bounds, fx, ads) {
         amountSource = 'pending_at_amazon'
         missingAmount += 1
       }
-    } else if (reportOrder && Math.abs(reportOrder.amount - originalAmount) > 0.011) {
+    } else if (reportOrder && Math.abs(reportOrder.amount - originalAmount) > MONEY_TOLERANCE) {
       // Both Amazon sources spoke and disagree by more than currency rounding. Keep `OrderTotal` —
       // it is the order-level figure Amazon settles on — but never hide the discrepancy.
       reportMismatches.push(
@@ -429,6 +503,20 @@ async function loadAmazonChannel(marketplaceKey, bounds, fx, ads) {
     }
     if (!currency) currency = meta.currency
     const amountAED = originalAmount == null ? null : toAed(originalAmount, currency, fx)
+
+    // The split is only reported when Amazon's components add up to the amount being reported. A
+    // component set that disagrees with `OrderTotal` describes a different order value, and half a
+    // breakdown beside a full total reads as a delivery charge that was never made.
+    const splitReconciles =
+      components != null &&
+      originalAmount != null &&
+      Math.abs(components.amount - originalAmount) <= MONEY_TOLERANCE
+    const productSalesAED = splitReconciles ? toAed(components.product, currency, fx) : null
+    // Taken as the residual rather than converted on its own, so the two parts always add back to
+    // the order's amount instead of drifting a fils apart on a SAR conversion.
+    const deliveryChargedAED =
+      productSalesAED == null ? null : round2(amountAED - productSalesAED)
+    if (amountAED != null && !splitReconciles) ordersWithoutBreakdown += 1
 
     const fees = feesByOrder.get(orderId)
     if (fees) {
@@ -439,6 +527,10 @@ async function loadAmazonChannel(marketplaceKey, bounds, fx, ads) {
 
     quantity += lineQty
     if (amountAED != null) salesAmountAED += amountAED
+    if (productSalesAED != null) {
+      productSalesTotalAED += productSalesAED
+      deliveryChargedTotalAED += deliveryChargedAED
+    }
 
     orders.push({
       orderId,
@@ -450,6 +542,8 @@ async function loadAmazonChannel(marketplaceKey, bounds, fx, ads) {
       originalAmount: originalAmount == null ? null : round2(originalAmount),
       originalCurrency: currency,
       amountAED: amountAED == null ? null : round2(amountAED),
+      productSalesAED,
+      deliveryChargedAED,
       amountSource,
       commissionAED: fees ? round2(fees.commission) : null,
       shippingAED: fees ? round2(fees.fulfillment) : null,
@@ -499,6 +593,19 @@ async function loadAmazonChannel(marketplaceKey, bounds, fx, ads) {
   const commissionAED = feesAvailable ? round2(commissionKnown) : null
   const shippingAED = feesAvailable ? round2(fulfillmentKnown) : null
   salesAmountAED = round2(salesAmountAED)
+
+  // The split is all-or-nothing: shown only when every order carrying an amount also carries
+  // Amazon's components, so Product Sales + Delivery Charged always equals Amazon Amount. A partial
+  // sum would be a smaller day pretending to be the whole one — the trap this report already
+  // avoids for Amazon Amount itself.
+  const breakdownKnown = ordersWithoutBreakdown === 0
+  const productSalesAED = breakdownKnown ? round2(productSalesTotalAED) : null
+  const deliveryChargedAED = breakdownKnown ? round2(deliveryChargedTotalAED) : null
+  if (ordersWithoutBreakdown > 0) {
+    warnings.push(
+      `${meta.label}: ${ordersWithoutBreakdown} order(s) have an amount but no Amazon item/delivery component data, so Product Sales and Delivery Charged are Pending for the whole day rather than shown short`,
+    )
+  }
   // Amazon gave a money figure for no order at all, yet orders exist: reporting 0 would claim the
   // day was worth nothing, so the amount stays unknown until Amazon authorises them.
   const salesUnknown = included.length > 0 && missingAmount === included.length
@@ -551,6 +658,11 @@ async function loadAmazonChannel(marketplaceKey, bounds, fx, ads) {
         ),
       ),
       orderTotalReportMismatches: reportMismatches.length,
+      // Amazon Amount is the buyer's grand total, so it sits above Seller Central's Ordered Product
+      // Sales by exactly the delivery and gift-wrap money below.
+      productSalesAED,
+      deliveryChargedAED,
+      ordersWithoutAmountBreakdown: ordersWithoutBreakdown,
     },
     orders,
     adsStatus: ads.adsStatus,
@@ -559,6 +671,10 @@ async function loadAmazonChannel(marketplaceKey, bounds, fx, ads) {
     summary: {
       quantity,
       salesAmountAED: salesUnknown ? null : salesAmountAED,
+      // Amazon Amount split the way Seller Central splits it: `productSalesAED` is Ordered Product
+      // Sales, `deliveryChargedAED` is the delivery and gift-wrap money that figure leaves out.
+      productSalesAED: salesUnknown ? null : productSalesAED,
+      deliveryChargedAED: salesUnknown ? null : deliveryChargedAED,
       adSpendAED: ads.adSpendAED,
       clicks: ads.clicks,
       commissionAED,

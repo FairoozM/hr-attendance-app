@@ -95,6 +95,14 @@ function summarySpecs(channel) {
     [`${prefix} Shipping`, pendingOrNumber(s.shippingAED), 'money'],
     [`${prefix} Cost %`, pendingOrNumber(s.costPercentage), 'pct'],
     [`${prefix} Amount`, pendingOrNumber(s.salesAmountAED), 'money'],
+    // Amazon Amount is the buyer's grand total; Seller Central's Ordered Product Sales leaves
+    // delivery out. Both parts are exported so the sheet reconciles against either figure.
+    ...(channel.family === 'amazon'
+      ? [
+          ['Amazon Product Sales', pendingOrNumber(s.productSalesAED), 'money'],
+          ['Amazon Delivery Charged', pendingOrNumber(s.deliveryChargedAED), 'money'],
+        ]
+      : []),
     [`${prefix} Balance`, pendingOrNumber(s.balanceAED), 'money'],
   ]
 }
