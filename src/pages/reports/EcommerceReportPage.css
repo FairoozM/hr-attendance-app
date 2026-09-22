@@ -73,10 +73,12 @@
   border-color: #5a4a2a;
 }
 
+/* One column at A4 width: every card is the same width on screen, in print and in the PDF. */
 .er-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  display: flex;
+  flex-direction: column;
   gap: 0.75rem;
+  max-width: 186mm;
 }
 
 .er-card {
@@ -84,10 +86,6 @@
   border: 1px solid var(--er-border);
   border-radius: 10px;
   padding: 1rem;
-}
-
-.er-card--wide {
-  grid-column: 1 / -1;
 }
 
 .er-card h2 {
@@ -123,12 +121,6 @@
   color: #e07a7a;
 }
 
-.er-split {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 1rem;
-}
-
 .er-hint {
   margin: 0.6rem 0 0;
   color: var(--er-muted);
@@ -161,12 +153,32 @@
   color: var(--er-accent);
 }
 
+@page {
+  size: A4 portrait;
+  margin: 12mm;
+}
+
 @media print {
   .er-controls {
     display: none !important;
   }
+  /* Ink-friendly: the dark panels are screen-only. */
   .er-page {
+    --er-panel: #fff;
+    --er-border: #c2ccd6;
+    --er-text: #111;
+    --er-muted: #4a5561;
     background: #fff;
     color: #111;
+    padding: 0;
+  }
+  .er-grid {
+    max-width: none;
+  }
+  .er-card {
+    break-inside: avoid;
+  }
+  .er-ratio-grid div {
+    background: #fff;
   }
 }

@@ -178,9 +178,20 @@ export function EcommerceReportPage() {
     const canvas = await html2canvas(printRoot, { backgroundColor: '#0f1419', scale: 2 })
     const img = canvas.toDataURL('image/png')
     const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-    const w = pdf.internal.pageSize.getWidth()
-    const h = (canvas.height * w) / canvas.width
-    pdf.addImage(img, 'PNG', 0, 0, w, h)
+    const pageWidth = pdf.internal.pageSize.getWidth()
+    const pageHeight = pdf.internal.pageSize.getHeight()
+    const imgHeight = (canvas.height * pageWidth) / canvas.width
+    // One tall column spills past a single sheet, so walk it page by page.
+    let heightLeft = imgHeight
+    let position = 0
+    pdf.addImage(img, 'PNG', 0, position, pageWidth, imgHeight)
+    heightLeft -= pageHeight
+    while (heightLeft > 0) {
+      position = heightLeft - imgHeight
+      pdf.addPage()
+      pdf.addImage(img, 'PNG', 0, position, pageWidth, imgHeight)
+      heightLeft -= pageHeight
+    }
     pdf.save(`daily-accounting-summary-${report.reportDate}.pdf`)
   }
 
@@ -293,28 +304,23 @@ export function EcommerceReportPage() {
               ]}
             />
           </section>
-          <section className="er-card er-card--wide">
+          <section className="er-card">
             <h2>Expenses</h2>
-            <div className="er-split">
-              <MetricRows
-                rows={[
-                  { label: 'Opening Flexible Exp', value: report.expenses.openingFlexible },
-                  { label: 'Today Flexible Exp', value: report.expenses.todayFlexible },
-                  { label: 'Total Flexible Exp', value: report.expenses.totalFlexible },
-                  { label: 'Avg Flexible / Day', value: report.expenses.averageFlexiblePerDay },
-                  { label: 'Avg Flexible / Month', value: report.expenses.averageFlexiblePerMonth },
-                ]}
-              />
-              <MetricRows
-                rows={[
-                  { label: 'Opening Fixed Exp', value: report.expenses.openingFixed },
-                  { label: 'Today Fixed Exp', value: report.expenses.todayFixed },
-                  { label: 'Total Fixed Exp', value: report.expenses.totalFixed },
-                  { label: 'Avg Fixed / Day', value: report.expenses.averageFixedPerDay },
-                  { label: 'Avg Fixed / Month', value: report.expenses.averageFixedPerMonth },
-                ]}
-              />
-            </div>
+            {/* Flexible and Fixed alternate so each pair can be compared on one line. */}
+            <MetricRows
+              rows={[
+                { label: 'Opening Flexible Exp', value: report.expenses.openingFlexible },
+                { label: 'Opening Fixed Exp', value: report.expenses.openingFixed },
+                { label: 'Today Flexible Exp', value: report.expenses.todayFlexible },
+                { label: 'Today Fixed Exp', value: report.expenses.todayFixed },
+                { label: 'Total Flexible Exp', value: report.expenses.totalFlexible },
+                { label: 'Total Fixed Exp', value: report.expenses.totalFixed },
+                { label: 'Avg Flexible / Day', value: report.expenses.averageFlexiblePerDay },
+                { label: 'Avg Fixed / Day', value: report.expenses.averageFixedPerDay },
+                { label: 'Avg Flexible / Month', value: report.expenses.averageFlexiblePerMonth },
+                { label: 'Avg Fixed / Month', value: report.expenses.averageFixedPerMonth },
+              ]}
+            />
           </section>
           <section className="er-card">
             <h2>Year Sale Returns</h2>
@@ -328,7 +334,7 @@ export function EcommerceReportPage() {
               ]}
             />
           </section>
-          <section className="er-card er-card--ratios">
+          <section className="er-card">
             <h2>Return / Sale Ratios</h2>
             <div className="er-ratio-grid">
               <div>
