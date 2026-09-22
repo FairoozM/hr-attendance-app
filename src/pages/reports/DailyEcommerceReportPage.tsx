@@ -77,6 +77,10 @@ interface ChannelReport {
   summary: {
     quantity: number | null
     salesAmountAED: number | null
+    /** Amazon only: the part of Amazon Amount that Seller Central calls Ordered Product Sales. */
+    productSalesAED?: number | null
+    /** Amazon only: delivery and gift wrap the buyer paid, which Ordered Product Sales excludes. */
+    deliveryChargedAED?: number | null
     adSpendAED: number | null
     clicks: number | null
     commissionAED: number | null
@@ -241,7 +245,31 @@ function summaryRows(ch: ChannelReport): SummaryRow[] {
     { label: `${p} Commission`, node: costCell(s.commissionAED) },
     { label: `${p} Shipping`, node: costCell(s.shippingAED) },
     { label: `${p} Cost %`, node: pctCell(s.costPercentage) },
-    { label: `${p} Amount`, node: amountCell(s.salesAmountAED) },
+    {
+      label: `${p} Amount`,
+      node: amountCell(s.salesAmountAED),
+      title:
+        ch.family === 'amazon'
+          ? "The buyer's grand total, so it sits above Seller Central's Ordered Product Sales by the delivery charged below."
+          : undefined,
+    },
+    // Amazon Amount reads higher than the figure Seller Central puts on the same day, because that
+    // one leaves delivery out. Showing both parts is what makes the two numbers reconcilable.
+    ...(ch.family === 'amazon'
+      ? [
+          {
+            label: 'Amazon Product Sales',
+            node: amountCell(s.productSalesAED ?? null),
+            title: "Matches Ordered Product Sales in Seller Central Business Reports.",
+          },
+          {
+            label: 'Amazon Delivery Charged',
+            node: amountCell(s.deliveryChargedAED ?? null),
+            title:
+              'Delivery and gift wrap the buyer paid. Amazon Amount minus this equals Amazon Product Sales.',
+          },
+        ]
+      : []),
     { label: `${p} Balance`, node: amountCell(s.balanceAED), neg: (s.balanceAED || 0) < 0 },
   ]
 }
