@@ -28,8 +28,8 @@ function stubReads(stubs) {
         fetchCreditNotesForDay: stubs.fetchCreditNotesForDay,
         fetchAccountDetail: stubs.fetchAccountDetail,
         fetchBankTransactionsSince: stubs.fetchBankTransactionsSince,
-        fetchExpensesForDay: stubs.fetchExpensesForDay,
-        fetchOperatingExpenseTotal: stubs.fetchOperatingExpenseTotal,
+        fetchExpensesByCategory: stubs.fetchExpensesByCategory || (async () => []),
+        fetchPnlExpenseAccountIds: stubs.fetchPnlExpenseAccountIds || (async () => new Set()),
       }
     }
     return original(request, parent, isMain)
@@ -73,11 +73,6 @@ describe('dailyEcommerceLedgerService (mocked Zoho)', () => {
         closing_balance: 1024.89,
       }),
       fetchBankTransactionsSince: async () => [],
-      fetchExpensesForDay: async () => [],
-      fetchOperatingExpenseTotal: async (from, to) => {
-        if (from === to) return { operatingExpense: 0 }
-        return { operatingExpense: 1000 }
-      },
     })
 
     const { buildDailyEcommerceLedger } = freshRequire(SERVICE)
@@ -132,8 +127,6 @@ describe('dailyEcommerceLedgerService (mocked Zoho)', () => {
         closing_balance: 0,
       }),
       fetchBankTransactionsSince: async () => [],
-      fetchExpensesForDay: async () => [],
-      fetchOperatingExpenseTotal: async () => ({ operatingExpense: 0 }),
     })
 
     const { buildDailyEcommerceLedger } = freshRequire(SERVICE)
@@ -164,8 +157,6 @@ describe('dailyEcommerceLedgerService (mocked Zoho)', () => {
         closing_balance: 100,
       }),
       fetchBankTransactionsSince: async () => [],
-      fetchExpensesForDay: async () => [],
-      fetchOperatingExpenseTotal: async () => ({ operatingExpense: 0 }),
     })
 
     const { buildDailyEcommerceLedger } = freshRequire(SERVICE)
@@ -177,7 +168,13 @@ describe('dailyEcommerceLedgerService (mocked Zoho)', () => {
     assert.equal(report.sections.cashInHand.closing, 100)
   })
 
-  it('expense day rows and P&L closing identity', async () => {
+  it('expenses come from Expense Summary by Category, Fixed and Flexible combined', async () => {
+    // Same source and totals as Daily Accounting Summary, without the split:
+    // closing is the year-to-date total, today is the day, opening is the rest.
+    const COMMISSION = '4265011000000708205' // Amazon Commission Exp (flexible)
+    const SALARIES = '4265011000009042886' // Employees Salaries Expenses (fixed)
+    const UNCLASSIFIED = '4265011000099999999'
+
     restore = stubReads({
       fetchSalesByCustomerTotal: async () => ({ salesWithTax: 0 }),
       fetchInvoicesForDay: async () => ({ rows: [], truncated: false }),
@@ -188,34 +185,62 @@ describe('dailyEcommerceLedgerService (mocked Zoho)', () => {
         closing_balance: 0,
       }),
       fetchBankTransactionsSince: async () => [],
-      fetchExpensesForDay: async () => [
-        {
-          expense_id: 'e1',
-          date: '2026-09-12',
-          total: 4800,
-          description: 'Abobacker',
-          account_name: 'Salaries',
-        },
-        {
-          expense_id: 'e2',
-          date: '2026-09-12',
-          total: 5868.5,
-          description: 'Afsal',
-          account_name: 'Salaries',
-        },
-      ],
-      fetchOperatingExpenseTotal: async (from, to) => {
-        if (from === '2026-09-12' && to === '2026-09-12') return { operatingExpense: 10668.5 }
-        return { operatingExpense: 1787528.6 }
+      fetchPnlExpenseAccountIds: async () => new Set([COMMISSION, SALARIES, UNCLASSIFIED]),
+      fetchExpensesByCategory: async (from, to) => {
+        if (from === '2026-09-12' && to === '2026-09-12') {
+          return [
+            { accountId: COMMISSION, accountName: 'Amazon Commission Exp', amount: 4800 },
+            { accountId: SALARIES, accountName: 'Employees Salaries Expenses', amount: 5868.5 },
+          ]
+        }
+        return [
+          { accountId: COMMISSION, accountName: 'Amazon Commission Exp', amount: 900000 },
+          { accountId: SALARIES, accountName: 'Employees Salaries Expenses', amount: 898197.1 },
+          { accountId: UNCLASSIFIED, accountName: 'Miscellaneous', amount: 500 },
+        ]
       },
     })
 
     const { buildDailyEcommerceLedger } = freshRequire(SERVICE)
     const report = await buildDailyEcommerceLedger({ date: '2026-09-12' })
-    assert.equal(report.sections.expenses.opening, 1787528.6)
-    assert.equal(report.sections.expenses.netMovement, 10668.5)
-    assert.equal(report.sections.expenses.closing, 1798197.1)
-    assert.equal(report.sections.expenses.rows.length, 2)
+    const expenses = report.sections.expenses
+    assert.equal(expenses.opening, 1787528.6)
+    assert.equal(expenses.netMovement, 10668.5)
+    assert.equal(expenses.closing, 1798197.1)
+    assert.equal(expenses.rows.length, 2)
+    assert.equal(expenses.rows[0].reference, SALARIES)
+    assert.equal(expenses.rows[0].description, 'Employees Salaries Expenses')
+    assert.equal(expenses.rows[0].debit, 5868.5)
+    assert.equal(expenses.rows[1].balance, 1798197.1)
+    assert.ok(expenses.warnings.some((w) => w.includes('Miscellaneous (500)')))
+  })
+
+  it('credits the expense day row when a category nets negative', async () => {
+    const COMMISSION = '4265011000000708205'
+    restore = stubReads({
+      fetchSalesByCustomerTotal: async () => ({ salesWithTax: 0 }),
+      fetchInvoicesForDay: async () => ({ rows: [], truncated: false }),
+      fetchCreditNotesForDay: async () => ({ rows: [], truncated: false }),
+      fetchAccountDetail: async () => ({
+        account_name: 'Cash',
+        account_type: 'cash',
+        closing_balance: 0,
+      }),
+      fetchBankTransactionsSince: async () => [],
+      fetchPnlExpenseAccountIds: async () => new Set([COMMISSION]),
+      fetchExpensesByCategory: async (from, to) => {
+        const amount = from === to ? -250 : 1000
+        return [{ accountId: COMMISSION, accountName: 'Amazon Commission Exp', amount }]
+      },
+    })
+
+    const { buildDailyEcommerceLedger } = freshRequire(SERVICE)
+    const report = await buildDailyEcommerceLedger({ date: '2026-09-12' })
+    const expenses = report.sections.expenses
+    assert.equal(expenses.opening, 1250)
+    assert.equal(expenses.rows[0].credit, 250)
+    assert.equal(expenses.rows[0].debit, 0)
+    assert.equal(expenses.closing, 1000)
   })
 
   it('bank section reconstructs opening from later transactions', async () => {
@@ -299,8 +324,6 @@ describe('dailyEcommerceLedgerService (mocked Zoho)', () => {
       fetchCreditNotesForDay: async () => ({ rows: [], truncated: false }),
       fetchAccountDetail: async () => ({ account_name: 'X', account_type: 'cash', closing_balance: 0 }),
       fetchBankTransactionsSince: async () => [],
-      fetchExpensesForDay: async () => [],
-      fetchOperatingExpenseTotal: async () => ({ operatingExpense: 0 }),
     })
     const { buildDailyEcommerceLedger } = freshRequire(SERVICE)
     const report = await buildDailyEcommerceLedger({ date: '2026-09-12' })
@@ -314,8 +337,6 @@ describe('dailyEcommerceLedgerService (mocked Zoho)', () => {
       fetchCreditNotesForDay: async () => ({ rows: [], truncated: false }),
       fetchAccountDetail: async () => ({ account_name: 'X', account_type: 'cash', closing_balance: 0 }),
       fetchBankTransactionsSince: async () => [],
-      fetchExpensesForDay: async () => [],
-      fetchOperatingExpenseTotal: async () => ({ operatingExpense: 0 }),
     })
     const { buildDailyEcommerceLedger } = freshRequire(SERVICE)
     await assert.rejects(() => buildDailyEcommerceLedger({ date: '12/09/2026' }), /YYYY-MM-DD/)

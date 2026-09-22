@@ -20,9 +20,13 @@ const {
   fetchCreditNotesForDay,
   fetchAccountDetail,
   fetchBankTransactionsSince,
-  fetchExpensesForDay,
-  fetchOperatingExpenseTotal,
+  fetchExpensesByCategory,
+  fetchPnlExpenseAccountIds,
 } = require('../ecommerceAccounting/zohoBooksReads')
+const {
+  buildExpenseGroupMap,
+  classifyExpenseAccount,
+} = require('../../config/ecommerceExpenseClassification')
 const {
   BASE_CURRENCY_CODE,
   baseAmount,
@@ -265,50 +269,86 @@ async function buildSalesSection(reportDate) {
   }
 }
 
+/**
+ * Total Expense-by-Category rows the way Daily Accounting Summary does —
+ * tax-exclusive Amount, accounts classified Fixed or Flexible — but with both
+ * groups added together, because this report carries one Expenses balance.
+ *
+ * Balance-sheet rows Zoho lists in that report (inventory, prepaid rent,
+ * payables, VAT) never reach either total.
+ */
+function totalExpensesByCategory(rows, groupMap, expenseAccountIds) {
+  let total = 0
+  const included = []
+  const excluded = []
+  for (const row of rows || []) {
+    const amount = toNumber(row.amount)
+    const entry = {
+      accountId: clean(row.accountId),
+      accountName: clean(row.accountName),
+      amount: round2(amount),
+    }
+    const group = classifyExpenseAccount(row, groupMap, expenseAccountIds)
+    if (group === 'flexible' || group === 'fixed') {
+      total += amount
+      included.push(entry)
+    } else if (expenseAccountIds.has(entry.accountId)) {
+      excluded.push(entry)
+    }
+  }
+  const byAmountDesc = (a, b) => Math.abs(b.amount) - Math.abs(a.amount)
+  return {
+    total: round2(total),
+    included: included.sort(byAmountDesc),
+    excluded: excluded.sort(byAmountDesc),
+  }
+}
+
+/**
+ * Expenses read from Zoho "Expense Summary by Category" — the same source as
+ * Daily Accounting Summary, so the two reports show one expense figure. Closing
+ * is the year-to-date total, today is the selected day, opening is the rest; the
+ * day is listed category by category, with no Fixed/Flexible split.
+ */
 async function buildExpenseSection(reportDate) {
   const yearStart = yearStartYmd(reportDate)
-  const before = previousYmd(reportDate)
-  const [openingPnL, dayPnL, expenses] = await Promise.all([
-    before < yearStart
-      ? Promise.resolve({ operatingExpense: 0 })
-      : fetchOperatingExpenseTotal(yearStart, before),
-    fetchOperatingExpenseTotal(reportDate, reportDate),
-    fetchExpensesForDay(reportDate),
+  const [expenseAccountIds, categoryThrough, categoryToday] = await Promise.all([
+    fetchPnlExpenseAccountIds(yearStart, reportDate),
+    fetchExpensesByCategory(yearStart, reportDate),
+    fetchExpensesByCategory(reportDate, reportDate),
   ])
 
-  const opening = round2(openingPnL.operatingExpense || 0)
-  const dayExpenseTotal = round2(dayPnL.operatingExpense || 0)
+  const groupMap = buildExpenseGroupMap()
+  const through = totalExpensesByCategory(categoryThrough, groupMap, expenseAccountIds)
+  const today = totalExpensesByCategory(categoryToday, groupMap, expenseAccountIds)
 
-  const dayRowsRaw = (expenses || []).map((e) => {
-    const amt = e.total != null ? baseAmount(e) : baseAmount(e, 'amount')
-    const foreign = foreignCurrencyInfo(e, e.total != null ? 'total' : 'amount')
-    return {
-      reference: clean(e.expense_id),
-      description: clean(e.description || e.reference_number || e.account_name || ''),
-      debit: amt,
-      credit: 0,
-      sale: null,
-      delta: amt,
-      ...(foreign ? { ...foreign, baseCurrencyCode: BASE_CURRENCY_CODE } : {}),
-      accountName: clean(e.account_name),
-      paidThrough: clean(e.paid_through_account_name),
-      paidThroughAccountId: clean(e.paid_through_account_id),
-      sourceTransactionId: clean(e.expense_id),
-      date: clean(e.date),
-    }
-  })
+  const closing = through.total
+  const dayExpenseTotal = today.total
+  const opening = round2(closing - dayExpenseTotal)
+
+  const dayRowsRaw = today.included.map((row) => ({
+    reference: row.accountId,
+    description: row.accountName,
+    debit: row.amount > 0 ? row.amount : 0,
+    credit: row.amount < 0 ? round2(-row.amount) : 0,
+    sale: null,
+    delta: row.amount,
+    accountName: row.accountName,
+  }))
 
   const rows = attachRunningBalances(opening, dayRowsRaw)
-  const closing = round2(opening + dayExpenseTotal)
   const warnings = []
-  const rowSum = round2(dayRowsRaw.reduce((s, r) => s + r.delta, 0))
-  if (Math.abs(rowSum - dayExpenseTotal) > 0.02) {
+  if (through.excluded.length) {
+    const names = through.excluded
+      .slice(0, 5)
+      .map((a) => `${a.accountName} (${a.amount})`)
+      .join(', ')
     warnings.push(
-      `Day expense rows sum (${rowSum}) differs from P&L Operating Expense day total (${dayExpenseTotal}). Closing uses P&L.`
+      `${through.excluded.length} expense account(s) are neither Fixed nor Flexible and are excluded: ${names}.`
     )
   }
   warnings.push(
-    'Opening/closing expense use Zoho Books P&L Total Operating Expense (not Fixed/Flexible parents alone). Paper ledgers may exclude some P&L lines.'
+    'Expenses use Zoho Expense Summary by Category (tax-exclusive Amount), the same source as Daily Accounting Summary, with Fixed and Flexible added together.'
   )
 
   return {
@@ -322,9 +362,10 @@ async function buildExpenseSection(reportDate) {
     configMissing: false,
     warnings,
     accountId: '',
-    accountName: 'Operating Expense (P&L)',
+    accountName: 'Expense Summary by Category',
     accountCode: '',
-    source: 'zoho_books_profitandloss_operating_expense',
+    source: 'zoho_books_expenses_by_category',
+    excludedAccounts: through.excluded,
   }
 }
 
@@ -435,6 +476,7 @@ module.exports = {
   buildDailyEcommerceLedger,
   buildSalesSection,
   buildExpenseSection,
+  totalExpensesByCategory,
   buildBankStyleSection,
   emptySection,
 }
