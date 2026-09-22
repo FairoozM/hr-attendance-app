@@ -16,6 +16,7 @@ const {
   splitExpenseRows,
 } = require('../src/services/ecommerceSummary/ecommerceSummaryService')
 const { emptySection } = require('../src/services/ecommerceLedger/dailyEcommerceLedgerService')
+const { classifyExpenseAccount } = require('../src/config/ecommerceExpenseClassification')
 
 describe('ecommerceAccounting helpers', () => {
   it('dayOfYearFromYmd matches legacy 15.09.2026 = 258', () => {
@@ -97,6 +98,12 @@ describe('cash vs credit classification', () => {
 })
 
 describe('fixed / flexible expense totals', () => {
+  it('counts exchange gain or loss as flexible so the split ties to the Zoho total', () => {
+    const row = { accountId: 'fx', accountName: 'LS Business Exchange Gain or Loss' }
+    const group = classifyExpenseAccount(row, new Map(), new Set(['fx']))
+    assert.equal(group, 'flexible')
+  })
+
   it('sums the tax-exclusive amount, not Amount With Tax', () => {
     const rows = [
       { accountId: 'flex', accountName: 'Website Advertising Exp', amount: 100, amountWithTax: 105 },

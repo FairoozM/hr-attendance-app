@@ -116,6 +116,9 @@ const FLEXIBLE_NAME_PATTERNS = [
   /courier/i,
   /(stripe|tabby|tamara|payout fee|transaction fee)/i,
   /(amazon|noon|carrefour|website|web store)/i,
+  // FX differences come from SAR orders and settlements, so they move with volume.
+  // A net gain posts negative and reduces the Flexible total.
+  /exchange\s*(gain|loss)/i,
 ]
 
 const FIXED_NAME_PATTERNS = [
