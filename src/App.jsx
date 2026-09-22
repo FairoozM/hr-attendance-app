@@ -1104,12 +1104,16 @@ function AppContent() {
             }
           />
           <Route
-            path="daily-ecommerce-ledger"
+            path="daily-accounting-details"
             element={
               <PermissionGuard module="weekly_reports" action="view">
                 <DailyEcommerceLedgerPage />
               </PermissionGuard>
             }
+          />
+          <Route
+            path="daily-ecommerce-ledger"
+            element={<Navigate to="/reports/daily-accounting-details" replace />}
           />
           <Route
             path="ecommerce-report"

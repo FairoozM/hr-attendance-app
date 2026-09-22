@@ -1,15 +1,20 @@
 /**
- * Daily Ecommerce Ledger — Zoho Books opening / day movements / closing.
- * Route: /#/reports/daily-ecommerce-ledger
+ * Daily Accounting Details — Zoho Books opening / day movements / closing.
+ * Route: /#/reports/daily-accounting-details?date=YYYY-MM-DD
+ *
+ * Nothing loads until a date is requested: the loaded date lives in the URL, so
+ * a refresh or shared link rebuilds exactly that day and a bare visit stays idle.
  *
  * Build can take >25s (many Zoho bank pages), so the page starts a background
  * job and polls — same pattern as Daily Ecommerce Report refresh.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { jsPDF } from 'jspdf'
 import html2canvas from 'html2canvas'
 import { api } from '../../api/client'
+import { mergeSearchParams } from '../../lib/urlSearchParams'
 import { LedgerSection, type LedgerSectionData } from './LedgerSection'
 import { exportDailyEcommerceLedgerXlsx } from './dailyEcommerceLedgerExport'
 import './DailyEcommerceLedgerPage.css'
@@ -50,6 +55,17 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+const YMD_RE = /^\d{4}-\d{2}-\d{2}$/
+
+/** Only a well-formed, non-future UAE date is worth sending to Zoho. */
+export function isLoadableYmd(value: string | null | undefined, today = todayUaeYmd()) {
+  if (!value || !YMD_RE.test(value)) return false
+  const [y, m, d] = value.split('-').map(Number)
+  const dt = new Date(Date.UTC(y, m - 1, d, 12))
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== d) return false
+  return value <= today
+}
+
 type LedgerReport = {
   reportDate: string
   dayName: string
@@ -75,7 +91,10 @@ type LedgerJob = {
 }
 
 export function DailyEcommerceLedgerPage() {
-  const [date, setDate] = useState(todayUaeYmd)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const urlDate = searchParams.get('date') || ''
+  const [date, setDate] = useState(() => (isLoadableYmd(urlDate) ? urlDate : todayUaeYmd()))
+  const [loadedDate, setLoadedDate] = useState(() => (isLoadableYmd(urlDate) ? urlDate : ''))
   const [report, setReport] = useState<LedgerReport | null>(null)
   const [loading, setLoading] = useState(false)
   const [progress, setProgress] = useState('')
@@ -101,7 +120,7 @@ export function DailyEcommerceLedgerPage() {
         if (cancelled()) return
         if (Date.now() > deadline) {
           throw new Error(
-            'Ledger is still building on the server. Wait a minute and open this date again.'
+            'Accounting details are still building on the server. Wait a minute and load this date again.'
           )
         }
         setProgress(job.progress || 'Loading Zoho ledgers…')
@@ -114,16 +133,16 @@ export function DailyEcommerceLedgerPage() {
       }
       if (cancelled()) return
       if (job.status === 'failed') {
-        throw new Error(job.error || 'Ledger build failed')
+        throw new Error(job.error || 'Accounting details build failed')
       }
       if (!job.report) {
-        throw new Error('Ledger job finished without a report')
+        throw new Error('Build finished without a report')
       }
       setReport(job.report)
       setProgress('')
     } catch (err: unknown) {
       if (!cancelled()) {
-        const message = err instanceof Error ? err.message : 'Failed to load ledger'
+        const message = err instanceof Error ? err.message : 'Failed to load accounting details'
         setError(message)
         setReport(null)
       }
@@ -132,12 +151,38 @@ export function DailyEcommerceLedgerPage() {
     }
   }, [])
 
+  /** Requesting a date puts it in the URL so refresh and sharing rebuild the same day. */
+  const requestDate = useCallback(
+    (ymd: string) => {
+      if (!isLoadableYmd(ymd)) return
+      setDate(ymd)
+      setLoadedDate(ymd)
+      setSearchParams(
+        (prev) =>
+          mergeSearchParams(prev, (params) => {
+            params.set('date', ymd)
+          }),
+        { replace: true }
+      )
+      void load(ymd)
+    },
+    [load, setSearchParams]
+  )
+
+  // Deep link only: a bare visit stays idle until the user asks for a date.
+  const bootedRef = useRef(false)
   useEffect(() => {
-    void load(date)
-    return () => {
+    if (bootedRef.current) return
+    bootedRef.current = true
+    if (isLoadableYmd(urlDate)) void load(urlDate)
+  }, [urlDate, load])
+
+  useEffect(
+    () => () => {
       loadTokenRef.current = null
-    }
-  }, [date, load])
+    },
+    []
+  )
 
   const exportPdf = async () => {
     if (!printRef.current || !report) return
@@ -161,7 +206,7 @@ export function DailyEcommerceLedgerPage() {
       pdf.addImage(img, 'PNG', 0, position, pageWidth, imgHeight)
       heightLeft -= pageHeight
     }
-    pdf.save(`daily-ecommerce-ledger-${report.reportDate}.pdf`)
+    pdf.save(`daily-accounting-details-${report.reportDate}.pdf`)
   }
 
   const sections = report?.sections
@@ -170,35 +215,47 @@ export function DailyEcommerceLedgerPage() {
     <div className="del-page">
       <header className="del-header">
         <div>
-          <h1>Daily Ecommerce Ledger</h1>
+          <h1>Daily Accounting Details</h1>
           <p className="del-subtitle">
-            {formatDisplayDate(date)} · {report?.dayName || '—'}
+            {loadedDate
+              ? `${formatDisplayDate(loadedDate)} · ${report?.dayName || '—'}`
+              : 'Pick a date, then press Load Report'}
           </p>
         </div>
         <div className="del-controls">
-          <button type="button" onClick={() => setDate((d) => addDaysYmd(d, -1))} disabled={loading}>
+          <button
+            type="button"
+            onClick={() => requestDate(addDaysYmd(loadedDate || date, -1))}
+            disabled={loading}
+          >
             Previous Day
           </button>
           <input
             type="date"
             value={date}
+            max={todayUaeYmd()}
             onChange={(e) => setDate(e.target.value)}
             disabled={loading}
           />
           <button
             type="button"
-            onClick={() => setDate((d) => addDaysYmd(d, 1))}
-            disabled={loading || date >= todayUaeYmd()}
+            onClick={() => requestDate(addDaysYmd(loadedDate || date, 1))}
+            disabled={loading || (loadedDate || date) >= todayUaeYmd()}
           >
             Next Day
           </button>
-          <button type="button" onClick={() => setDate(todayUaeYmd())} disabled={loading}>
+          <button type="button" onClick={() => requestDate(todayUaeYmd())} disabled={loading}>
             Today
           </button>
-          <button type="button" onClick={() => void load(date)} disabled={loading}>
-            {loading ? 'Building…' : 'Reload'}
+          <button
+            type="button"
+            className="del-controls__primary"
+            onClick={() => requestDate(date)}
+            disabled={loading || !isLoadableYmd(date)}
+          >
+            {loading ? 'Building…' : loadedDate === date && report ? 'Reload' : 'Load Report'}
           </button>
-          <button type="button" onClick={() => window.print()}>
+          <button type="button" onClick={() => window.print()} disabled={!report}>
             Print
           </button>
           <button type="button" onClick={() => void exportPdf()} disabled={!report}>
@@ -216,16 +273,23 @@ export function DailyEcommerceLedgerPage() {
 
       {loading && (
         <div className="del-skeleton">
-          Loading ledger from Zoho…{progress ? ` ${progress}` : ''}
+          Building {formatDisplayDate(loadedDate || date)} from Zoho…
+          {progress ? ` ${progress}` : ''}
         </div>
       )}
       {error && <div className="del-error">{error}</div>}
-      {!loading && !error && !report && <div className="del-empty">No ledger data.</div>}
+      {!loading && !error && !report && (
+        <div className="del-empty">
+          {loadedDate
+            ? 'No accounting details for this date.'
+            : 'Choose a date and press Load Report. Nothing is fetched from Zoho until then.'}
+        </div>
+      )}
 
       {report && sections && (
         <div className="del-print-root" ref={printRef}>
           <div className="del-print-meta">
-            <strong>Daily Ecommerce Ledger</strong>
+            <strong>Daily Accounting Details</strong>
             <span>
               {formatDisplayDate(report.reportDate)} ({report.dayName})
             </span>

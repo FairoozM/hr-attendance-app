@@ -46,7 +46,7 @@ function makeReport(): LedgerExportReport {
 
 describe('ledgerExportFilename', () => {
   it('stamps the report date', () => {
-    expect(ledgerExportFilename('2026-09-16')).toBe('daily-ecommerce-ledger-2026-09-16.xlsx')
+    expect(ledgerExportFilename('2026-09-16')).toBe('daily-accounting-details-2026-09-16.xlsx')
   })
 })
 

@@ -1,5 +1,5 @@
 /**
- * Excel export for the Daily Ecommerce Ledger.
+ * Excel export for Daily Accounting Details.
  * Summary sheet with every section's opening / movement / closing, then one
  * sheet per section holding its rows between Opening and Closing lines.
  */
@@ -25,7 +25,7 @@ export type LedgerExportReport = {
 const MAX_SHEET_NAME = 31
 
 export function ledgerExportFilename(reportDate: string) {
-  return `daily-ecommerce-ledger-${reportDate}.xlsx`
+  return `daily-accounting-details-${reportDate}.xlsx`
 }
 
 /** Excel forbids : \ / ? * [ ] in sheet names and caps them at 31 chars. */
@@ -108,7 +108,7 @@ export function exportDailyEcommerceLedgerXlsx(report: LedgerExportReport) {
   const used = new Set<string>()
 
   const meta = [
-    ['Daily Ecommerce Ledger'],
+    ['Daily Accounting Details'],
     ['Date', report.reportDate],
     ['Day', report.dayName || ''],
     ['Generated', report.generatedAt ? new Date(report.generatedAt).toLocaleString() : ''],

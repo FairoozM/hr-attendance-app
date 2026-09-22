@@ -45,6 +45,16 @@
   font-size: 0.85rem;
 }
 
+.er-controls__primary {
+  border-color: var(--er-accent);
+  color: #eaf3fb;
+}
+
+.er-controls__primary:disabled {
+  border-color: var(--er-border);
+  color: var(--er-muted);
+}
+
 .er-banner {
   padding: 0.75rem 1rem;
   border-radius: 8px;

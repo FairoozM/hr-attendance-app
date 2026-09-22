@@ -57,6 +57,11 @@
   opacity: 0.45;
 }
 
+.del-controls__primary {
+  border-color: var(--del-accent) !important;
+  font-weight: 600;
+}
+
 .del-skeleton,
 .del-error,
 .del-empty {

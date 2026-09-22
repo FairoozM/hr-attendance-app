@@ -1,9 +1,12 @@
 /**
- * Ecommerce Report (management summary) — DAY / MONTH / YEAR / expenses / returns / ratios.
+ * Daily Accounting Summary — DAY / MONTH / YEAR / expenses / returns / ratios.
  * Route: /#/reports/ecommerce-report
  *
- * Build often exceeds the 25s client / ~30s CloudFront window (month day-by-day Zoho
- * sales), so the page starts a background job and polls — same pattern as the ledger.
+ * Nothing loads on its own: each build hammers Zoho for a whole month day-by-day, so the
+ * user picks a date and presses Load Report.
+ *
+ * Build often exceeds the 25s client / ~30s CloudFront window, so the page starts a
+ * background job and polls — same pattern as the ledger.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -35,6 +38,17 @@ function addDaysYmd(dateYmd: string, delta: number) {
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+const YMD_RE = /^\d{4}-\d{2}-\d{2}$/
+
+/** Only a well-formed, non-future UAE date is worth sending to Zoho. */
+function isLoadableYmd(value: string, today = todayUaeYmd()) {
+  if (!YMD_RE.test(value)) return false
+  const [y, m, d] = value.split('-').map(Number)
+  const dt = new Date(Date.UTC(y, m - 1, d, 12))
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== d) return false
+  return value <= today
 }
 
 function fmt(n: number | null | undefined) {
@@ -85,6 +99,7 @@ function MetricRows({ rows }: { rows: { label: string; value: number | null | un
 
 export function EcommerceReportPage() {
   const [date, setDate] = useState(todayUaeYmd)
+  const [loadedDate, setLoadedDate] = useState('')
   const [report, setReport] = useState<SummaryReport | null>(null)
   const [loading, setLoading] = useState(false)
   const [progress, setProgress] = useState('')
@@ -97,6 +112,7 @@ export function EcommerceReportPage() {
     setError('')
     setProgress('Starting…')
     setReport(null)
+    setLoadedDate('')
     const token = Symbol('summary-load')
     loadTokenRef.current = token
     const cancelled = () => loadTokenRef.current !== token
@@ -129,7 +145,7 @@ export function EcommerceReportPage() {
         const errMsg = job.error || 'Summary build failed'
         if (/429|rate limit|sync paused/i.test(errMsg)) {
           throw new Error(
-            'Zoho is rate-limiting right now. Wait about a minute, then hit Reload — the build retries automatically.'
+            'Zoho is rate-limiting right now. Wait about a minute, then press Load Report — the build retries automatically.'
           )
         }
         throw new Error(errMsg)
@@ -138,6 +154,7 @@ export function EcommerceReportPage() {
         throw new Error('Summary job finished without a report — hard-refresh the page and try again.')
       }
       setReport(job.report)
+      setLoadedDate(ymd)
       setProgress('')
     } catch (err: unknown) {
       if (!cancelled()) {
@@ -149,12 +166,12 @@ export function EcommerceReportPage() {
     }
   }, [])
 
-  useEffect(() => {
-    void load(date)
-    return () => {
+  useEffect(
+    () => () => {
       loadTokenRef.current = null
-    }
-  }, [date, load])
+    },
+    []
+  )
 
   const exportPdf = async () => {
     if (!printRoot || !report) return
@@ -164,17 +181,19 @@ export function EcommerceReportPage() {
     const w = pdf.internal.pageSize.getWidth()
     const h = (canvas.height * w) / canvas.width
     pdf.addImage(img, 'PNG', 0, 0, w, h)
-    pdf.save(`ecommerce-report-${report.reportDate}.pdf`)
+    pdf.save(`daily-accounting-summary-${report.reportDate}.pdf`)
   }
+
+  const canLoad = isLoadableYmd(date)
 
   return (
     <div className="er-page">
       <header className="er-header">
         <div>
-          <h1>Ecommerce Report</h1>
+          <h1>Daily Accounting Summary</h1>
           <p className="er-subtitle">
-            {report?.dayName || '—'} · {date.split('-').reverse().join('.')} · Total Days:{' '}
-            {report?.totalDays ?? '—'}
+            {report?.dayName || '—'} · {(loadedDate || date).split('-').reverse().join('.')} · Total
+            Days: {report?.totalDays ?? '—'}
           </p>
         </div>
         <div className="er-controls">
@@ -197,8 +216,13 @@ export function EcommerceReportPage() {
           <button type="button" onClick={() => setDate(todayUaeYmd())} disabled={loading}>
             Today
           </button>
-          <button type="button" onClick={() => void load(date)} disabled={loading}>
-            {loading ? 'Building…' : 'Reload'}
+          <button
+            type="button"
+            className="er-controls__primary"
+            onClick={() => void load(date)}
+            disabled={loading || !canLoad}
+          >
+            {loading ? 'Building…' : 'Load Report'}
           </button>
           <button type="button" onClick={() => window.print()}>
             Print
@@ -215,6 +239,15 @@ export function EcommerceReportPage() {
         </div>
       )}
       {error && <div className="er-banner er-banner--err">{error}</div>}
+      {!loading && !error && !report && (
+        <div className="er-banner">Pick a date and press Load Report to build the summary.</div>
+      )}
+      {!loading && report && loadedDate && loadedDate !== date && (
+        <div className="er-banner er-banner--warn">
+          Showing {loadedDate.split('-').reverse().join('.')}. Press Load Report to build{' '}
+          {date.split('-').reverse().join('.')}.
+        </div>
+      )}
       {(report?.warnings || []).map((w) => (
         <div key={w} className="er-banner er-banner--warn">
           {w}
