@@ -142,8 +142,6 @@ async function buildEcommerceSummaryReport(opts = {}) {
   cashSales = round2(cashSales)
   creditSales = round2(creditSales)
 
-  const hasPaymentMode = invoiceDetails.some((r) => r.paymentMode)
-
   // Phase 3 — returns via salesbycustomer entity_list=creditnote (Zoho UI: invoices filtered out)
   const dayReturns = await fetchSalesByCustomerReturnsTotal(reportDate, reportDate)
   const openingReturns =
@@ -193,11 +191,6 @@ async function buildEcommerceSummaryReport(opts = {}) {
   const openingFixed = round2(totalFixed - todayFixed)
 
   const warnings = []
-  if (!hasPaymentMode) {
-    warnings.push(
-      'Zoho invoice list did not expose payment_mode for this day; Cash Sales may be 0 and all invoice totals classified as Credit Sales.'
-    )
-  }
   if (splitThrough.unclassifiedAccounts.length) {
     const names = splitThrough.unclassifiedAccounts
       .slice(0, 5)
