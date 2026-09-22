@@ -3,8 +3,13 @@
  */
 
 const { zohoBooksJsonRequest } = require('../zohoApiClient')
-const { fetchInvoices, fetchCreditNotes } = require('../../integrations/zoho/zohoBooksClient')
+const {
+  fetchInvoices,
+  fetchCreditNotes,
+  fetchInvoicesByIds,
+} = require('../../integrations/zoho/zohoBooksClient')
 const { clean, toNumber, round2 } = require('./accountNature')
+const { isBaseCurrencyRow } = require('./baseCurrency')
 
 const BOOKS_V3 = '/books/v3'
 
@@ -118,13 +123,84 @@ async function fetchSalesByCustomerReturnsTotal(fromDate, toDate) {
 async function fetchInvoicesForDay(dateYmd) {
   const { rows, truncated } = await fetchInvoices(dateYmd, dateYmd)
   const dayRows = (rows || []).filter((r) => clean(r.date) === dateYmd)
-  return { rows: dayRows, truncated, fetched: (rows || []).length }
+  return {
+    rows: await hydrateInvoiceBaseTotals(dayRows),
+    truncated,
+    fetched: (rows || []).length,
+  }
 }
 
 async function fetchCreditNotesForDay(dateYmd) {
   const { rows, truncated } = await fetchCreditNotes(dateYmd, dateYmd)
   const dayRows = (rows || []).filter((r) => clean(r.date || r.creditnote_date) === dateYmd)
-  return { rows: dayRows, truncated, fetched: (rows || []).length }
+  return {
+    rows: await hydrateCreditNoteBaseTotals(dayRows),
+    truncated,
+    fetched: (rows || []).length,
+  }
+}
+
+/**
+ * Zoho list endpoints omit the bcy_* fields, so a SAR invoice arrives as SAR
+ * only. Open the few foreign-currency documents to read the AED total Zoho
+ * actually posted; on failure `baseAmount` still converts via exchange_rate.
+ */
+async function hydrateInvoiceBaseTotals(rows) {
+  const foreign = (rows || []).filter((r) => !isBaseCurrencyRow(r) && clean(r.invoice_id))
+  if (!foreign.length) return rows || []
+  let details
+  try {
+    details = await fetchInvoicesByIds(
+      foreign.map((r) => clean(r.invoice_id)),
+      { concurrency: 4 }
+    )
+  } catch {
+    return rows
+  }
+  return rows.map((row) => {
+    const detail = details.get(clean(row.invoice_id))
+    if (!detail || detail.bcy_total == null) return row
+    return {
+      ...row,
+      bcy_total: detail.bcy_total,
+      bcy_sub_total: detail.bcy_sub_total,
+      exchange_rate: detail.exchange_rate ?? row.exchange_rate,
+    }
+  })
+}
+
+async function hydrateCreditNoteBaseTotals(rows) {
+  const foreign = (rows || []).filter(
+    (r) => !isBaseCurrencyRow(r) && clean(r.creditnote_id || r.credit_note_id)
+  )
+  if (!foreign.length) return rows || []
+  const details = new Map()
+  for (const row of foreign) {
+    const id = clean(row.creditnote_id || row.credit_note_id)
+    try {
+      const json = await zohoBooksJsonRequest(
+        `${BOOKS_V3}/creditnotes/${encodeURIComponent(id)}`,
+        new URLSearchParams(),
+        'GET',
+        undefined,
+        { source: 'ecommerce_accounting_credit_note_detail', skipCache: true }
+      )
+      const detail = json?.creditnote || json?.credit_note
+      if (detail?.bcy_total != null) details.set(id, detail)
+    } catch {
+      // Leave it to exchange_rate conversion.
+    }
+  }
+  if (!details.size) return rows
+  return rows.map((row) => {
+    const detail = details.get(clean(row.creditnote_id || row.credit_note_id))
+    if (!detail) return row
+    return {
+      ...row,
+      bcy_total: detail.bcy_total,
+      exchange_rate: detail.exchange_rate ?? row.exchange_rate,
+    }
+  })
 }
 
 /**

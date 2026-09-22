@@ -25,6 +25,15 @@ function makeReport(): LedgerExportReport {
         columns: ['reference', 'description', 'sale', 'balance'],
         rows: [
           { reference: 'INV-043963', description: 'Amazon', sale: 79, balance: 2507010.56 },
+          {
+            reference: 'INV-043972',
+            description: 'KSA-Amazon',
+            sale: 478.73,
+            balance: 2507489.29,
+            currencyCode: 'SAR',
+            originalAmount: 489,
+            exchangeRate: 0.979,
+          },
           { reference: 'CN-0012', description: 'Return', sale: -10, balance: 2507000.56, isSalesReturn: true },
         ],
       },
@@ -85,12 +94,12 @@ describe('buildSummaryRows', () => {
       Section: 'Sales',
       'Account Code': '1645',
       'Account Name': 'Sales',
-      Opening: 2506931.56,
-      Movement: 5685.66,
-      Closing: 2512617.22,
+      'Opening (AED)': 2506931.56,
+      'Movement (AED)': 5685.66,
+      'Closing (AED)': 2512617.22,
     })
-    expect(rows[1].Movement).toBe(50)
-    expect(rows[rows.length - 1].Movement).toBe(-30)
+    expect(rows[1]['Movement (AED)']).toBe(50)
+    expect(rows[rows.length - 1]['Movement (AED)']).toBe(-30)
   })
 })
 
@@ -98,21 +107,47 @@ describe('buildSectionSheetRows', () => {
   it('wraps rows with Opening and Closing lines under the Sale column', () => {
     const report = makeReport()
     const rows = buildSectionSheetRows(report.sections.sales)
-    expect(rows[0]).toEqual(['Reference', 'Description', 'Sale', 'Balance'])
+    expect(rows[0].slice(0, 4)).toEqual([
+      'Reference',
+      'Description',
+      'Sale (AED)',
+      'Balance (AED)',
+    ])
     expect(rows[1]).toEqual(['Opening', '', '', 2506931.56])
-    expect(rows[2]).toEqual(['INV-043963', 'Amazon', 79, 2507010.56])
+    expect(rows[2].slice(0, 4)).toEqual(['INV-043963', 'Amazon', 79, 2507010.56])
     expect(rows[rows.length - 1]).toEqual(['Closing', '', '', 2512617.22])
   })
 
-  it('uses DR / CR columns when the section has no Sale column', () => {
-    const section = {
+  it('exports the AED amount for a SAR invoice, keeping SAR for reference only', () => {
+    const rows = buildSectionSheetRows(makeReport().sections.sales)
+    expect(rows[0]).toEqual([
+      'Reference',
+      'Description',
+      'Sale (AED)',
+      'Balance (AED)',
+      'Doc Currency',
+      'Doc Amount',
+    ])
+    // The Sale column must never carry the 489 SAR face value.
+    expect(rows[3]).toEqual(['INV-043972', 'KSA-Amazon', 478.73, 2507489.29, 'SAR', 489])
+    // AED documents leave the reference columns empty rather than claiming AED amounts.
+    expect(rows[2]).toEqual(['INV-043963', 'Amazon', 79, 2507010.56, '', ''])
+  })
+
+  it('omits the currency columns when every row is already AED', () => {
+    const rows = buildSectionSheetRows({
       title: 'Cash In Hand',
       opening: 100,
       closing: 150,
       rows: [{ reference: 'JV-1', description: 'Deposit', debit: 50, credit: null, balance: 150 }],
-    }
-    const rows = buildSectionSheetRows(section)
-    expect(rows[0]).toEqual(['Reference', 'Description', 'DR', 'CR', 'Balance'])
+    })
+    expect(rows[0]).toEqual([
+      'Reference',
+      'Description',
+      'DR (AED)',
+      'CR (AED)',
+      'Balance (AED)',
+    ])
     expect(rows[1]).toEqual(['Opening', '', '', '', 100])
     expect(rows[2]).toEqual(['JV-1', 'Deposit', 50, 0, 150])
   })

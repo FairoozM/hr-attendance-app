@@ -23,6 +23,11 @@ const {
   fetchExpensesForDay,
   fetchOperatingExpenseTotal,
 } = require('../ecommerceAccounting/zohoBooksReads')
+const {
+  BASE_CURRENCY_CODE,
+  baseAmount,
+  foreignCurrencyInfo,
+} = require('../ecommerceAccounting/baseCurrency')
 
 function emptySection(title, extras = {}) {
   return {
@@ -161,7 +166,9 @@ async function buildSalesSection(reportDate) {
     .slice()
     .sort((a, b) => clean(a.invoice_number).localeCompare(clean(b.invoice_number)))
     .map((inv) => {
-      const sale = round2(toNumber(inv.total))
+      // AED, never the invoice currency — balances and Zoho reports are base currency.
+      const sale = baseAmount(inv)
+      const foreign = foreignCurrencyInfo(inv)
       return {
         reference: clean(inv.invoice_number),
         description: clean(inv.customer_name || inv.reference_number || ''),
@@ -173,11 +180,12 @@ async function buildSalesSection(reportDate) {
         paymentMode: clean(inv.payment_mode || inv.paymentMode || ''),
         status: clean(inv.status),
         date: clean(inv.date),
+        ...(foreign ? { ...foreign, baseCurrencyCode: BASE_CURRENCY_CODE } : {}),
       }
     })
 
   const returnTotal = round2(
-    (creditNotes.rows || []).reduce((s, cn) => s + toNumber(cn.total), 0)
+    (creditNotes.rows || []).reduce((s, cn) => s + baseAmount(cn), 0)
   )
   const grossInvoiceTotal = round2(invoiceRows.reduce((s, r) => s + toNumber(r.sale), 0))
 
@@ -219,6 +227,12 @@ async function buildSalesSection(reportDate) {
   if (invoices.truncated) {
     warnings.push('Invoice list may be truncated by Zoho page cap; day invoices filtered client-side.')
   }
+  const convertedCodes = [...new Set(invoiceRows.map((r) => r.currencyCode).filter(Boolean))]
+  if (convertedCodes.length) {
+    warnings.push(
+      `${convertedCodes.join(', ')} invoices are shown in ${BASE_CURRENCY_CODE} using each invoice's Zoho base-currency total.`
+    )
+  }
   const reconGross = round2(grossInvoiceTotal - returnTotal)
   if (Math.abs(reconGross - todaySaleNet) > 0.02) {
     warnings.push(
@@ -244,7 +258,7 @@ async function buildSalesSection(reportDate) {
     accountCode: CFG.salesAccountCode,
     creditNotes: (creditNotes.rows || []).map((cn) => ({
       reference: clean(cn.creditnote_number || cn.credit_note_number),
-      total: round2(toNumber(cn.total)),
+      total: baseAmount(cn),
       customerName: clean(cn.customer_name),
       creditNoteId: clean(cn.creditnote_id),
     })),
@@ -266,7 +280,8 @@ async function buildExpenseSection(reportDate) {
   const dayExpenseTotal = round2(dayPnL.operatingExpense || 0)
 
   const dayRowsRaw = (expenses || []).map((e) => {
-    const amt = round2(toNumber(e.total ?? e.amount))
+    const amt = e.total != null ? baseAmount(e) : baseAmount(e, 'amount')
+    const foreign = foreignCurrencyInfo(e, e.total != null ? 'total' : 'amount')
     return {
       reference: clean(e.expense_id),
       description: clean(e.description || e.reference_number || e.account_name || ''),
@@ -274,6 +289,7 @@ async function buildExpenseSection(reportDate) {
       credit: 0,
       sale: null,
       delta: amt,
+      ...(foreign ? { ...foreign, baseCurrencyCode: BASE_CURRENCY_CODE } : {}),
       accountName: clean(e.account_name),
       paidThrough: clean(e.paid_through_account_name),
       paidThroughAccountId: clean(e.paid_through_account_id),

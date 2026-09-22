@@ -10,6 +10,10 @@ export type LedgerRow = {
   runningBalance?: number | null
   isSalesReturn?: boolean
   isSummary?: boolean
+  /** Set only when the Zoho document is not in the AED base currency. */
+  currencyCode?: string
+  originalAmount?: number | null
+  exchangeRate?: number | null
 }
 
 export type LedgerSectionData = {

@@ -24,6 +24,9 @@ export type LedgerExportReport = {
 
 const MAX_SHEET_NAME = 31
 
+/** Zoho's base currency; every ledger balance is posted in it. */
+const BASE_CURRENCY = 'AED'
+
 export function ledgerExportFilename(reportDate: string) {
   return `daily-accounting-details-${reportDate}.xlsx`
 }
@@ -64,36 +67,50 @@ export function buildSummaryRows(report: LedgerExportReport) {
     Section: section.title,
     'Account Code': section.accountCode || '',
     'Account Name': section.accountName || '',
-    Opening: section.opening ?? 0,
-    Movement: movementOf(section),
-    Closing: section.closing ?? 0,
+    [`Opening (${BASE_CURRENCY})`]: section.opening ?? 0,
+    [`Movement (${BASE_CURRENCY})`]: movementOf(section),
+    [`Closing (${BASE_CURRENCY})`]: section.closing ?? 0,
   }))
 }
 
-/** Rows as a sheet matrix so Opening / Closing lines keep the on-screen layout. */
+/**
+ * Rows as a sheet matrix so Opening / Closing lines keep the on-screen layout.
+ *
+ * Every amount is AED: Zoho's base currency, and what the opening and closing
+ * balances are built from. Foreign-currency documents (KSA invoices are SAR)
+ * keep their original figure in trailing columns for reference only.
+ */
 export function buildSectionSheetRows(section: LedgerSectionData) {
   const cols = section.columns || ['reference', 'description', 'debit', 'credit', 'balance']
   const useSale = cols.includes('sale')
-  const header = ['Reference', 'Description']
-  if (useSale) header.push('Sale')
-  if (cols.includes('debit')) header.push('DR')
-  if (cols.includes('credit')) header.push('CR')
-  header.push('Balance')
+  const rows = section.rows || []
+  const showCurrency = rows.some((row) => row.currencyCode)
 
-  const blanks = header.length - 3
-  const line = (label: string, balance: number) => [
-    label,
-    '',
-    ...Array.from({ length: blanks }, () => ''),
-    balance ?? 0,
-  ]
+  const core = ['Reference', 'Description']
+  if (useSale) core.push(`Sale (${BASE_CURRENCY})`)
+  if (cols.includes('debit')) core.push(`DR (${BASE_CURRENCY})`)
+  if (cols.includes('credit')) core.push(`CR (${BASE_CURRENCY})`)
+  core.push(`Balance (${BASE_CURRENCY})`)
 
-  const body = (section.rows || []).map((row: LedgerRow) => {
+  const header = showCurrency ? [...core, 'Doc Currency', 'Doc Amount'] : core
+  const balanceIndex = core.length - 1
+  const line = (label: string, balance: number) => {
+    const cells: (string | number)[] = new Array(core.length).fill('')
+    cells[0] = label
+    cells[balanceIndex] = balance ?? 0
+    return cells
+  }
+
+  const body = rows.map((row: LedgerRow) => {
     const cells: (string | number)[] = [row.reference || '', row.description || '']
     if (useSale) cells.push(row.sale ?? 0)
     if (cols.includes('debit')) cells.push(row.debit ?? 0)
     if (cols.includes('credit')) cells.push(row.credit ?? 0)
     cells.push(row.balance ?? row.runningBalance ?? 0)
+    if (showCurrency) {
+      cells.push(row.currencyCode || '')
+      cells.push(row.currencyCode ? (row.originalAmount ?? '') : '')
+    }
     return cells
   })
 
@@ -121,7 +138,16 @@ export function exportDailyEcommerceLedgerXlsx(report: LedgerExportReport) {
 
   for (const section of sections) {
     const sheet = XLSX.utils.aoa_to_sheet(buildSectionSheetRows(section))
-    sheet['!cols'] = [{ wch: 18 }, { wch: 40 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 16 }]
+    sheet['!cols'] = [
+      { wch: 18 },
+      { wch: 40 },
+      { wch: 14 },
+      { wch: 14 },
+      { wch: 14 },
+      { wch: 16 },
+      { wch: 13 },
+      { wch: 14 },
+    ]
     XLSX.utils.book_append_sheet(workbook, sheet, toSheetName(section.title, used))
   }
 

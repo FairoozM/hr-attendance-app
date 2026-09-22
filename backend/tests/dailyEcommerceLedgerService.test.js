@@ -92,6 +92,66 @@ describe('dailyEcommerceLedgerService (mocked Zoho)', () => {
     assert.ok(report.sections.sales.rows.some((r) => r.isSalesReturn))
   })
 
+  it('reports KSA invoices in AED, not their SAR face value', async () => {
+    // Zoho posts AED (base currency) for a SAR invoice: 489 SAR @ 0.979 = 478.73.
+    restore = stubReads({
+      fetchSalesByCustomerTotal: async (from, to) => {
+        if (from === to) return { salesWithTax: 578.73 }
+        return { salesWithTax: 1000 }
+      },
+      fetchInvoicesForDay: async () => ({
+        rows: [
+          { invoice_number: 'INV-AED', date: '2026-09-16', total: 100, customer_name: 'Website' },
+          {
+            invoice_number: 'INV-043972',
+            date: '2026-09-16',
+            total: 489,
+            bcy_total: 478.73,
+            currency_code: 'SAR',
+            exchange_rate: 0.979,
+            customer_name: 'KSA-Amazon',
+          },
+        ],
+        truncated: false,
+      }),
+      fetchCreditNotesForDay: async () => ({
+        rows: [
+          {
+            creditnote_number: 'CN-SAR',
+            date: '2026-09-16',
+            total: 100,
+            currency_code: 'SAR',
+            exchange_rate: 0.979,
+          },
+        ],
+        truncated: false,
+      }),
+      fetchAccountDetail: async () => ({
+        account_name: 'Cash In Hand',
+        account_type: 'cash',
+        closing_balance: 0,
+      }),
+      fetchBankTransactionsSince: async () => [],
+      fetchExpensesForDay: async () => [],
+      fetchOperatingExpenseTotal: async () => ({ operatingExpense: 0 }),
+    })
+
+    const { buildDailyEcommerceLedger } = freshRequire(SERVICE)
+    const report = await buildDailyEcommerceLedger({ date: '2026-09-16' })
+    const sales = report.sections.sales
+
+    const ksa = sales.rows.find((r) => r.reference === 'INV-043972')
+    assert.equal(ksa.sale, 478.73)
+    assert.equal(ksa.currencyCode, 'SAR')
+    assert.equal(ksa.originalAmount, 489)
+    assert.equal(sales.rows.find((r) => r.reference === 'INV-AED').currencyCode, undefined)
+
+    // Gross and the return fall out in AED, so the day reconciles with salesbycustomer.
+    assert.equal(sales.grossInvoiceTotal, 578.73)
+    assert.equal(sales.saleReturn, 97.9)
+    assert.ok(sales.warnings.some((w) => w.includes('SAR invoices are shown in AED')))
+  })
+
   it('handles zero-sale / no-activity day', async () => {
     restore = stubReads({
       fetchSalesByCustomerTotal: async () => ({ salesWithTax: 0 }),

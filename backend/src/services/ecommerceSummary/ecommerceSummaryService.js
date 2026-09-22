@@ -30,6 +30,7 @@ const {
   buildExpenseGroupMap,
   classifyExpenseAccount,
 } = require('../../config/ecommerceExpenseClassification')
+const { baseAmount } = require('../ecommerceAccounting/baseCurrency')
 
 /**
  * Classify invoice as cash vs credit from Zoho fields when present.
@@ -120,7 +121,8 @@ async function buildEcommerceSummaryReport(opts = {}) {
   let creditSales = 0
   const invoiceDetails = []
   for (const inv of dayInvoices.rows || []) {
-    const total = round2(toNumber(inv.total))
+    // AED: salesbycustomer and every balance below are Zoho base currency.
+    const total = baseAmount(inv)
     const kind = classifyInvoiceCashCredit(inv)
     if (kind === 'cash') cashSales += total
     else creditSales += total
