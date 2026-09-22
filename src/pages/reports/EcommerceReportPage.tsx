@@ -13,6 +13,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { jsPDF } from 'jspdf'
 import html2canvas from 'html2canvas'
 import { api } from '../../api/client'
+import { snapshotDocumentCss, applyCssSnapshot } from '../../lib/exportCssSnapshot'
 import './EcommerceReportPage.css'
 
 const IANA_UAE = 'Asia/Dubai'
@@ -175,7 +176,12 @@ export function EcommerceReportPage() {
 
   const exportPdf = async () => {
     if (!printRoot || !report) return
-    const canvas = await html2canvas(printRoot, { backgroundColor: '#0f1419', scale: 2 })
+    const cssSnapshot = snapshotDocumentCss()
+    const canvas = await html2canvas(printRoot, {
+      backgroundColor: '#0f1419',
+      scale: 2,
+      onclone: (clone) => applyCssSnapshot(clone, cssSnapshot),
+    })
     const img = canvas.toDataURL('image/png')
     const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
     const pageWidth = pdf.internal.pageSize.getWidth()

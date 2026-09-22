@@ -6,6 +6,7 @@ import { jsPDF } from "jspdf";
 import { useUserPreferences } from "../../contexts/UserPreferencesContext";
 import { useInfluencers } from "../../contexts/InfluencersContext";
 import { resolveInfluencerProfileImageUrl } from "../../lib/influencerProfileImageUrl";
+import { snapshotDocumentCss, applyCssSnapshot } from "../../lib/exportCssSnapshot";
 import type { Influencer } from "../../lib/influencers";
 import { PREF_SALES_VS_EXPENSES } from "../../constants/userPreferenceKeys";
 import "./SalesVsExpensesReportPage.css";
@@ -830,6 +831,7 @@ const SalesVsExpensesReportPage: React.FC = () => {
       await document.fonts.ready;
     }
     await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+    const cssSnapshot = snapshotDocumentCss();
     try {
       return await html2canvas(target, {
         scale: 2,
@@ -838,6 +840,7 @@ const SalesVsExpensesReportPage: React.FC = () => {
         logging: false,
         windowWidth: target.scrollWidth,
         windowHeight: target.scrollHeight,
+        onclone: (clone) => applyCssSnapshot(clone, cssSnapshot),
       });
     } finally {
       flushSync(() => setIsCapturing(false));

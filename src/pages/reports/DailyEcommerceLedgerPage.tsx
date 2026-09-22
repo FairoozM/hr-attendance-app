@@ -15,6 +15,7 @@ import { jsPDF } from 'jspdf'
 import html2canvas from 'html2canvas'
 import { api } from '../../api/client'
 import { mergeSearchParams } from '../../lib/urlSearchParams'
+import { snapshotDocumentCss, applyCssSnapshot } from '../../lib/exportCssSnapshot'
 import { LedgerSection, type LedgerSectionData } from './LedgerSection'
 import { exportDailyEcommerceLedgerXlsx } from './dailyEcommerceLedgerExport'
 import './DailyEcommerceLedgerPage.css'
@@ -186,10 +187,12 @@ export function DailyEcommerceLedgerPage() {
 
   const exportPdf = async () => {
     if (!printRef.current || !report) return
+    const cssSnapshot = snapshotDocumentCss()
     const canvas = await html2canvas(printRef.current, {
       backgroundColor: '#0f1419',
       scale: 2,
       useCORS: true,
+      onclone: (clone) => applyCssSnapshot(clone, cssSnapshot),
     })
     const img = canvas.toDataURL('image/png')
     const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
