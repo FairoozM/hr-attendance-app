@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import { createPortal, flushSync } from 'react-dom'
-import html2canvas from 'html2canvas'
-import { jsPDF } from 'jspdf'
 import {
   BadgeDollarSign,
   Camera,
@@ -20,8 +18,6 @@ import {
   TrendingUp,
 } from 'lucide-react'
 import { formatNumber } from '../../utils/influencerPerformanceUtils'
-import { fmtISO } from '../../utils/dateFormat'
-import { applyCssSnapshot, snapshotDocumentCss } from '../../lib/exportCssSnapshot'
 import type {
   InfluencerContractRanking,
   InfluencerContractRow,
@@ -38,10 +34,18 @@ import {
   WINNER_TITLE,
 } from './influencerPerformanceTableShared'
 import {
+  contractDatesCellText,
   PERFORMANCE_RANKING_DATE_PRESETS,
   sumPerformanceRankingTotals,
   type InfluencerPerformanceRankingDatePreset,
 } from '../../pages/influencers/influencerPerformanceRankingUtils'
+import { InfluencerRankingPdfDocument } from './InfluencerRankingPdfDocument'
+import {
+  captureRankingDocumentCanvas,
+  RANKING_PDF_DOC_WIDTH,
+  rankingPdfFilename,
+  saveCanvasAsPdf,
+} from './rankingPdfExport'
 
 const AMOUNT_COLUMN_KEYS = new Set<InfluencerMetricBestField>(['cost', 'salesAed', 'netProfitAed'])
 
@@ -103,32 +107,14 @@ interface ContractDatesCellProps {
 
 const CLOSED_ROW_MENU: RowMenuState = { openId: null, menuStyle: null }
 
-/** html2canvas render scale; the PDF page is sized back down by the same factor. */
-const PDF_CAPTURE_SCALE = 2
-
-function localDateStamp(date = new Date()) {
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
-}
-
-function rankingPdfFilename(
-  datePreset: InfluencerPerformanceRankingDatePreset,
-  customFrom: string,
-  customTo: string,
-) {
-  const period = datePreset === 'custom'
-    ? [customFrom || 'start', customTo || 'end'].join('_to_')
-    : datePreset
-  return `influencer-performance-ranking-${period}-${localDateStamp()}.pdf`
-}
-
-/** Wait for webfonts and two paint frames so capture-only styles have settled. */
-async function waitForCaptureLayout() {
-  if ('fonts' in document) {
-    await document.fonts.ready
-  }
-  await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
-}
+/** Off-screen host for the PDF document while it is being rasterized. */
+const PDF_DOC_HOST_STYLE = {
+  position: 'absolute',
+  top: 0,
+  left: '-20000px',
+  width: `${RANKING_PDF_DOC_WIDTH}px`,
+  pointerEvents: 'none',
+} as const
 
 /** Pointer targets can be Text nodes (no .closest); normalize to an Element. */
 function pointerTargetElement(event: { target: EventTarget | null }): Element | null {
@@ -285,36 +271,8 @@ function InfluencerIdentity({ influencer, onClick }: InfluencerIdentityProps) {
   )
 }
 
-const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-
-function compactContractDateRange(start: string | undefined, end: string | undefined) {
-  const startIso = fmtISO(start)
-  const endIso = fmtISO(end)
-  if (!startIso && !endIso) return '—'
-  if (!endIso || startIso === endIso) {
-    const [year, month, day] = (startIso || endIso).split('-')
-    return `${day} ${SHORT_MONTHS[Number(month) - 1]} ${year}`
-  }
-  if (!startIso) {
-    const [year, month, day] = endIso.split('-')
-    return `${day} ${SHORT_MONTHS[Number(month) - 1]} ${year}`
-  }
-  const [startYear, startMonth, startDay] = startIso.split('-')
-  const [endYear, endMonth, endDay] = endIso.split('-')
-  if (startYear === endYear && startMonth === endMonth) {
-    return `${startDay} - ${endDay} ${SHORT_MONTHS[Number(endMonth) - 1]} ${endYear}`
-  }
-  if (startYear === endYear) {
-    return `${startDay} ${SHORT_MONTHS[Number(startMonth) - 1]} - ${endDay} ${SHORT_MONTHS[Number(endMonth) - 1]} ${endYear}`
-  }
-  return `${startDay} ${SHORT_MONTHS[Number(startMonth) - 1]} ${startYear} - ${endDay} ${SHORT_MONTHS[Number(endMonth) - 1]} ${endYear}`
-}
-
 function ContractDatesCell({ record }: ContractDatesCellProps) {
-  const start = record.startDate || record.contractStartDate || record.date || '—'
-  const latest = record.latestDate || record.latest?.date || start
-  const dateText = compactContractDateRange(start, latest)
-  const dayText = `${record.recordedDays || 0} of ${record.monitoringDays || 5} check-ins`
+  const { dateText, dayText } = contractDatesCellText(record)
   return (
     <td className="ip-table__col--dates">
       <div className="ip-table__contract-dates">
@@ -365,42 +323,22 @@ export function InfluencerPerformanceTable({
   showRankingSummary = false,
 }: InfluencerPerformanceTableProps) {
   const [rowMenu, setRowMenu] = useState<RowMenuState>(CLOSED_ROW_MENU)
-  const [isCapturing, setIsCapturing] = useState(false)
   const [isExportingPdf, setIsExportingPdf] = useState(false)
-  const exportRegionRef = useRef<HTMLDivElement | null>(null)
+  const pdfDocRef = useRef<HTMLDivElement | null>(null)
 
   const exportRankingPdf = useCallback(async () => {
-    const target = exportRegionRef.current
-    if (!target || isExportingPdf) return
-    setIsExportingPdf(true)
+    if (isExportingPdf) return
     setRowMenu(CLOSED_ROW_MENU)
-    // Apply capture-only styles synchronously so html2canvas sees the hidden actions column.
-    flushSync(() => setIsCapturing(true))
+    // Mount the off-screen PDF document synchronously so its ref is available below.
+    flushSync(() => setIsExportingPdf(true))
     try {
-      await waitForCaptureLayout()
-      const cssSnapshot = snapshotDocumentCss()
-      const canvas = await html2canvas(target, {
-        scale: PDF_CAPTURE_SCALE,
-        useCORS: true,
-        backgroundColor: '#f8f9fc',
-        logging: false,
-        windowWidth: target.scrollWidth,
-        windowHeight: target.scrollHeight,
-        onclone: (clone) => applyCssSnapshot(clone, cssSnapshot),
-      })
-      const pageWidth = canvas.width / PDF_CAPTURE_SCALE
-      const pageHeight = canvas.height / PDF_CAPTURE_SCALE
-      const pdf = new jsPDF({
-        orientation: pageWidth > pageHeight ? 'landscape' : 'portrait',
-        unit: 'px',
-        format: [pageWidth, pageHeight],
-      })
-      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, pageWidth, pageHeight)
-      pdf.save(rankingPdfFilename(datePreset, rankingCustomFrom, rankingCustomTo))
+      const target = pdfDocRef.current
+      if (!target) throw new Error('PDF document did not mount')
+      const canvas = await captureRankingDocumentCanvas(target)
+      saveCanvasAsPdf(canvas, rankingPdfFilename(datePreset, rankingCustomFrom, rankingCustomTo))
     } catch (error) {
       console.error('Failed to export performance ranking PDF', error)
     } finally {
-      flushSync(() => setIsCapturing(false))
       setIsExportingPdf(false)
     }
   }, [datePreset, isExportingPdf, rankingCustomFrom, rankingCustomTo])
@@ -599,10 +537,6 @@ export function InfluencerPerformanceTable({
         </div>
       </div>
 
-      <div
-        ref={exportRegionRef}
-        className={`ip-ranking-export-region ${isCapturing ? 'ip-ranking-export-region--capturing' : ''}`}
-      >
       {showRankingSummary && rankingTotals ? (
         <div className="ip-ranking-totals" aria-label="Ranking totals for visible rows">
           <div className="ip-ranking-totals__item" data-metric="views">
@@ -770,8 +704,19 @@ export function InfluencerPerformanceTable({
           ) : null}
         </table>
       </div>
-      </div>
       {rowMenuPortal}
+      {isExportingPdf && typeof document !== 'undefined' ? createPortal(
+        <div style={PDF_DOC_HOST_STYLE} aria-hidden>
+          <InfluencerRankingPdfDocument
+            ref={pdfDocRef}
+            records={records}
+            influencersById={influencersById}
+            rankingsByContractId={rankingsByContractId}
+            showNetProfitColumn={showNetProfitColumn}
+          />
+        </div>,
+        document.body,
+      ) : null}
     </section>
   )
 }

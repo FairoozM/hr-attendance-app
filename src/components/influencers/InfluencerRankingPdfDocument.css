@@ -1,0 +1,311 @@
+/*
+ * Print-only layout for the ranking PDF export. Rules that matter for html2canvas:
+ *  - `line-height: normal` everywhere (custom line-heights shift text baselines).
+ *  - No CSS ellipsis / overflow clipping on text (html2canvas does not ellipsize).
+ *  - Vertical centering via table cells and inline-block, not flex on text nodes.
+ *  - Fixed pixel widths so the table can never exceed the captured region.
+ */
+
+.rpd-root,
+.rpd-root * {
+  box-sizing: border-box;
+  line-height: normal;
+}
+
+.rpd-root {
+  padding: 20px;
+  background: #f8f9fc;
+  color: #20283a;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'DM Sans', sans-serif;
+  font-size: 12px;
+}
+
+/* ── Totals badges ── */
+.rpd-totals {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 10px 0;
+  margin: 0 -10px 16px;
+}
+
+.rpd-totals__cell {
+  padding: 0;
+  vertical-align: top;
+}
+
+.rpd-badge {
+  position: relative;
+  height: 60px;
+  border: 1px solid #eaebf1;
+  border-radius: 13px;
+  background: #fff;
+}
+
+/* html2canvas only positions inline SVGs reliably when the <svg> sits at (0,0) of a
+ * parent box that matches its size, so the glyph wrapper carries the inset, not the svg. */
+.rpd-badge__icon {
+  position: absolute;
+  top: 14px;
+  left: 12px;
+  display: block;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  color: #6c5ce7;
+  background: #f0edff;
+}
+
+.rpd-badge__glyph {
+  display: block;
+  width: 16px;
+  height: 16px;
+  margin: 7px;
+}
+
+.rpd-badge__glyph svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+
+.rpd-badge[data-metric='views'] .rpd-badge__icon { color: #3b82f6; background: #eaf4ff; }
+.rpd-badge[data-metric='likes'] .rpd-badge__icon { color: #ec4899; background: #fff0f7; }
+.rpd-badge[data-metric='comments'] .rpd-badge__icon { color: #7c5ce7; background: #f1edff; }
+.rpd-badge[data-metric='shares'] .rpd-badge__icon { color: #f97316; background: #fff3e8; }
+.rpd-badge[data-metric='sales'] .rpd-badge__icon,
+.rpd-badge[data-metric='profit'] .rpd-badge__icon { color: #22a65a; background: #ecfbf1; }
+
+.rpd-badge__copy {
+  padding: 13px 10px 0 52px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.rpd-badge__label {
+  color: #858b9a;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.rpd-badge__value {
+  margin-top: 4px;
+  color: #1c2538;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+/* ── Ranking table ── */
+.rpd-table-wrap {
+  border: 1px solid #e7e9f0;
+  border-radius: 14px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.rpd-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.rpd-col-rank { width: 64px; }
+.rpd-col-dates { width: 200px; }
+.rpd-col-influencer { width: 290px; }
+.rpd-col-cost { width: 108px; }
+.rpd-col-metric { width: 92px; }
+.rpd-col-metric-md { width: 104px; }
+.rpd-col-sales { width: 150px; }
+.rpd-col-net { width: 168px; }
+
+.rpd-th {
+  height: 44px;
+  padding: 0 8px;
+  border-bottom: 1px solid #e4e1f3;
+  background: #f1efff;
+  color: #61697a;
+  font-size: 11px;
+  font-weight: 800;
+  text-align: center;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.rpd-th--left { text-align: left; }
+.rpd-th--right { text-align: right; }
+
+.rpd-th__icon {
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  margin-right: 5px;
+  color: #7567eb;
+  vertical-align: -2px;
+}
+
+.rpd-th__icon svg { display: block; }
+
+.rpd-th__label {
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.rpd-td {
+  height: 56px;
+  padding: 8px;
+  border-bottom: 1px solid #eceef3;
+  background: #fff;
+  color: #20283a;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.rpd-td--left { text-align: left; }
+.rpd-td--right { text-align: right; }
+
+.rpd-table tbody tr:last-child .rpd-td { border-bottom-color: transparent; }
+
+/* Rank */
+.rpd-rank-muted {
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.rpd-rank-pill {
+  display: inline-block;
+  padding: 5px 9px 5px 7px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 999px;
+  color: #0f172a;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.rpd-rank-pill--gold {
+  border-color: rgba(180, 83, 9, 0.2);
+  background: linear-gradient(135deg, rgba(253, 224, 71, 0.95), rgba(251, 191, 36, 0.88));
+}
+
+.rpd-rank-pill--silver {
+  background: linear-gradient(135deg, rgba(226, 232, 240, 0.95), rgba(203, 213, 225, 0.9));
+}
+
+.rpd-rank-pill--bronze {
+  background: linear-gradient(135deg, rgba(254, 215, 170, 0.95), rgba(251, 146, 60, 0.35));
+}
+
+.rpd-rank-pill__icon {
+  display: inline-block;
+  margin-right: 3px;
+  vertical-align: -2px;
+}
+
+.rpd-rank-pill__text {
+  display: inline-block;
+  vertical-align: middle;
+}
+
+/* Dates */
+.rpd-dates__range {
+  color: #172033;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.rpd-dates__days {
+  margin-top: 4px;
+  color: #747b8d;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* Influencer identity */
+.rpd-avatar {
+  position: relative;
+  display: inline-block;
+  width: 38px;
+  height: 38px;
+  margin-right: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(0, 136, 187, 0.18);
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(251, 207, 232, 0.85), rgba(191, 219, 254, 0.92));
+  vertical-align: middle;
+  text-align: center;
+}
+
+.rpd-avatar__initials {
+  display: block;
+  padding-top: 12px;
+  color: rgba(15, 23, 42, 0.72);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+}
+
+.rpd-avatar__img {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.rpd-identity {
+  display: inline-block;
+  vertical-align: middle;
+  text-align: left;
+}
+
+.rpd-identity__name {
+  color: #172033;
+  font-size: 12.5px;
+  font-weight: 800;
+}
+
+.rpd-identity__handle {
+  margin-top: 3px;
+  color: #747b8d;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* Winner highlight pills */
+.rpd-winner-pill {
+  display: inline-block;
+  padding: 5px 10px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 999px;
+  color: #0f172a;
+  font-weight: 800;
+}
+
+.rpd-winner-pill--views { background: rgba(191, 219, 254, 0.88); }
+.rpd-winner-pill--likes { background: rgba(167, 243, 208, 0.88); }
+.rpd-winner-pill--comments { background: rgba(254, 215, 170, 0.9); }
+.rpd-winner-pill--shares { background: rgba(251, 207, 232, 0.9); }
+.rpd-winner-pill--sales { background: rgba(153, 246, 228, 0.82); }
+.rpd-winner-pill--cost { background: rgba(253, 230, 138, 0.88); }
+
+/* Total row */
+.rpd-total-row .rpd-td {
+  height: 48px;
+  border-top: 2px solid #ddd9f2;
+  border-bottom: 0;
+  background: #f7f6fc;
+  font-weight: 800;
+}
+
+.rpd-td--total-label {
+  color: #172033;
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
+}

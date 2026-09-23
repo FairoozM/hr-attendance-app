@@ -4714,41 +4714,6 @@
   cursor: progress;
   opacity: 0.7;
 }
-
-/* ── PDF capture: badges → TOTAL row only ── */
-.ip-ranking-export-region {
-  min-width: 0;
-}
-
-.ip-ranking-export-region--capturing {
-  background: #f8f9fc;
-}
-
-/* Drop the row-actions column so the capture has no trailing empty column. */
-.ip-ranking-export-region--capturing .ip-table col.ip-table__col-actions,
-.ip-ranking-export-region--capturing .ip-table th.ip-table__col--actions,
-.ip-ranking-export-region--capturing .ip-table td.ip-table__col--actions,
-.ip-ranking-export-region--capturing .ip-table__sort-indicator {
-  display: none !important;
-}
-
-/* Render the full table width instead of the scrollable viewport. */
-.ip-ranking-export-region--capturing .ip-table-wrap {
-  overflow: visible !important;
-}
-
-/* Blur/shadow effects rasterize inconsistently in html2canvas; keep the capture flat. */
-.ip-ranking-export-region--capturing .ip-ranking-totals__item,
-.ip-ranking-export-region--capturing .ip-table-wrap {
-  box-shadow: none !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
-}
-
-.ip-ranking-export-region--capturing .ip-table th {
-  cursor: default;
-}
-
 .ip-ranking-totals {
   display: grid;
   grid-template-columns:

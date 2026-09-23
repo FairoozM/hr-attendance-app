@@ -84,6 +84,42 @@ export function filterRankingRowsByDatePreset(
   return rows.filter((row) => contractMatchesDateFilter(row, range.from, range.to))
 }
 
+const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+/** "04 Apr 2026", "15 - 19 May 2026", "30 Apr - 04 May 2026", or a full range across years. */
+export function compactContractDateRange(start: string | undefined, end: string | undefined): string {
+  const startIso = fmtISO(start)
+  const endIso = fmtISO(end)
+  if (!startIso && !endIso) return '—'
+  if (!endIso || startIso === endIso) {
+    const [year, month, day] = (startIso || endIso).split('-')
+    return `${day} ${SHORT_MONTHS[Number(month) - 1]} ${year}`
+  }
+  if (!startIso) {
+    const [year, month, day] = endIso.split('-')
+    return `${day} ${SHORT_MONTHS[Number(month) - 1]} ${year}`
+  }
+  const [startYear, startMonth, startDay] = startIso.split('-')
+  const [endYear, endMonth, endDay] = endIso.split('-')
+  if (startYear === endYear && startMonth === endMonth) {
+    return `${startDay} - ${endDay} ${SHORT_MONTHS[Number(endMonth) - 1]} ${endYear}`
+  }
+  if (startYear === endYear) {
+    return `${startDay} ${SHORT_MONTHS[Number(startMonth) - 1]} - ${endDay} ${SHORT_MONTHS[Number(endMonth) - 1]} ${endYear}`
+  }
+  return `${startDay} ${SHORT_MONTHS[Number(startMonth) - 1]} ${startYear} - ${endDay} ${SHORT_MONTHS[Number(endMonth) - 1]} ${endYear}`
+}
+
+/** Contract window + check-in progress text used by the ranking table and its PDF export. */
+export function contractDatesCellText(record: InfluencerContractRow): { dateText: string; dayText: string } {
+  const start = record.startDate || record.contractStartDate || record.date || '—'
+  const latest = record.latestDate || record.latest?.date || start
+  return {
+    dateText: compactContractDateRange(start, latest),
+    dayText: `${record.recordedDays || 0} of ${record.monitoringDays || 5} check-ins`,
+  }
+}
+
 export function sumPerformanceRankingTotals(rows: InfluencerContractRow[]): PerformanceRankingTotals {
   return rows.reduce<PerformanceRankingTotals>((acc, row) => ({
     cost: acc.cost + toNumber(row.cost),
