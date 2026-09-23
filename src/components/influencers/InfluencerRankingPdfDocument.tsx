@@ -35,8 +35,8 @@ import './InfluencerRankingPdfDocument.css'
 
 /**
  * Print-only rendering of the ranking totals + table, laid out so html2canvas
- * rasterizes it faithfully: fixed width, `line-height: normal`, inline-block pills,
- * table cells for vertical centering, and JS truncation instead of CSS ellipsis.
+ * rasterizes it faithfully: fixed width, `line-height: normal`, SVG pills (browser-laid
+ * text), table cells for vertical centering, and JS truncation instead of CSS ellipsis.
  * Rendered off-screen for the duration of a PDF export; never shown in the UI.
  */
 
@@ -81,17 +81,138 @@ function formatMetric(field: InfluencerMetricBestField, value: unknown) {
     : formatNumber(value)
 }
 
-/**
- * Capsule highlight. html2canvas draws text inside inline-block boxes too low, but
- * positions text inside table cells correctly, so the pill is an inline table whose
- * single cell vertically centres its content.
- */
-function Pill({ className, children }: { className: string; children: ReactNode }) {
+/* ── Capsule pills ──
+ * html2canvas places HTML text with its own (unreliable) baseline maths, which left
+ * pill text sitting at the bottom of the capsule. Inline <svg> elements, however, are
+ * serialised and drawn as images, so the browser lays the text out. Each pill is
+ * therefore a self-contained SVG with inline presentation attributes (external CSS
+ * does not apply to a serialised SVG image). */
+
+const PILL_HEIGHT = 26
+const PILL_TEXT_COLOR = '#0f172a'
+const PILL_FONT_FAMILY =
+  "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif"
+const PILL_ICON_SIZE = 13
+const PILL_ICON_GAP = 4
+
+type PillFill = string | { from: string; to: string }
+
+interface PillPaint {
+  fill: PillFill
+  stroke: string
+}
+
+let measureContext: CanvasRenderingContext2D | null | undefined
+
+function measurePillText(text: string, fontSize: number, fontWeight: number): number {
+  if (measureContext === undefined) {
+    measureContext =
+      typeof document === 'undefined' ? null : document.createElement('canvas').getContext('2d')
+  }
+  if (!measureContext) return Math.ceil(text.length * fontSize * 0.66)
+  measureContext.font = `${fontWeight} ${fontSize}px ${PILL_FONT_FAMILY}`
+  return Math.ceil(measureContext.measureText(text).width)
+}
+
+function SvgPill({
+  text,
+  fontSize,
+  fontWeight,
+  paint,
+  gradientId,
+  paddingX,
+  icon: Icon,
+}: {
+  text: string
+  fontSize: number
+  fontWeight: number
+  paint: PillPaint
+  gradientId: string
+  paddingX: number
+  icon?: typeof Crown
+}) {
+  const textWidth = measurePillText(text, fontSize, fontWeight)
+  const iconSpan = Icon ? PILL_ICON_SIZE + PILL_ICON_GAP : 0
+  const width = Math.ceil(textWidth + iconSpan + paddingX * 2)
+  const gradient = typeof paint.fill === 'string' ? null : paint.fill
+  const fill = gradient ? `url(#${gradientId})` : (paint.fill as string)
+
   return (
-    <span className={`rpd-pill ${className}`}>
-      <span className="rpd-pill__cell">{children}</span>
+    <span className="rpd-pill" style={{ width, height: PILL_HEIGHT }}>
+      <svg
+        className="rpd-pill__svg"
+        width={width}
+        height={PILL_HEIGHT}
+        viewBox={`0 0 ${width} ${PILL_HEIGHT}`}
+        color={PILL_TEXT_COLOR}
+        aria-hidden
+      >
+        {gradient ? (
+          <defs>
+            <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stopColor={gradient.from} />
+              <stop offset="1" stopColor={gradient.to} />
+            </linearGradient>
+          </defs>
+        ) : null}
+        <rect
+          x="0.5"
+          y="0.5"
+          width={width - 1}
+          height={PILL_HEIGHT - 1}
+          rx={(PILL_HEIGHT - 1) / 2}
+          fill={fill}
+          stroke={paint.stroke}
+          strokeWidth="1"
+        />
+        {Icon ? (
+          <Icon
+            x={paddingX}
+            y={(PILL_HEIGHT - PILL_ICON_SIZE) / 2}
+            width={PILL_ICON_SIZE}
+            height={PILL_ICON_SIZE}
+            strokeWidth={2.3}
+          />
+        ) : null}
+        <text
+          x={paddingX + iconSpan + textWidth / 2}
+          y={PILL_HEIGHT / 2}
+          textAnchor="middle"
+          dominantBaseline="central"
+          fontFamily={PILL_FONT_FAMILY}
+          fontSize={fontSize}
+          fontWeight={fontWeight}
+          fill={PILL_TEXT_COLOR}
+        >
+          {text}
+        </text>
+      </svg>
     </span>
   )
+}
+
+const RANK_PAINT: Record<'gold' | 'silver' | 'bronze', PillPaint> = {
+  gold: {
+    fill: { from: 'rgba(253, 224, 71, 0.95)', to: 'rgba(251, 191, 36, 0.88)' },
+    stroke: 'rgba(180, 83, 9, 0.2)',
+  },
+  silver: {
+    fill: { from: 'rgba(226, 232, 240, 0.95)', to: 'rgba(203, 213, 225, 0.9)' },
+    stroke: 'rgba(15, 23, 42, 0.08)',
+  },
+  bronze: {
+    fill: { from: 'rgba(254, 215, 170, 0.95)', to: 'rgba(251, 146, 60, 0.35)' },
+    stroke: 'rgba(15, 23, 42, 0.08)',
+  },
+}
+
+const WINNER_FILL: Record<string, string> = {
+  views: 'rgba(191, 219, 254, 0.88)',
+  likes: 'rgba(167, 243, 208, 0.88)',
+  comments: 'rgba(254, 215, 170, 0.9)',
+  shares: 'rgba(251, 207, 232, 0.9)',
+  sales: 'rgba(153, 246, 228, 0.82)',
+  cost: 'rgba(253, 230, 138, 0.88)',
 }
 
 function RankPill({ rankInfo }: { rankInfo?: InfluencerContractRanking }) {
@@ -99,12 +220,16 @@ function RankPill({ rankInfo }: { rankInfo?: InfluencerContractRanking }) {
   const { rank } = rankInfo
   if (rank > 3) return <span className="rpd-rank-muted">#{rank}</span>
   const tone = rank === 1 ? 'gold' : rank === 2 ? 'silver' : 'bronze'
-  const Icon = rank === 1 ? Crown : Medal
   return (
-    <Pill className={`rpd-rank-pill rpd-rank-pill--${tone}`}>
-      <span className="rpd-rank-pill__icon"><Icon size={13} strokeWidth={2.3} aria-hidden /></span>
-      <span className="rpd-rank-pill__text">#{rank}</span>
-    </Pill>
+    <SvgPill
+      text={`#${rank}`}
+      fontSize={12}
+      fontWeight={900}
+      paint={RANK_PAINT[tone]}
+      gradientId={`rpd-rank-gradient-${tone}`}
+      paddingX={8}
+      icon={rank === 1 ? Crown : Medal}
+    />
   )
 }
 
@@ -120,7 +245,16 @@ function MetricValue({
   const text = formatMetric(field, record[field])
   const mod = winnerPillMod(field, record, bests)
   if (!mod) return <>{text}</>
-  return <Pill className={`rpd-winner-pill rpd-winner-pill--${mod}`}>{text}</Pill>
+  return (
+    <SvgPill
+      text={text}
+      fontSize={12}
+      fontWeight={800}
+      paint={{ fill: WINNER_FILL[mod] ?? WINNER_FILL.views, stroke: 'rgba(15, 23, 42, 0.08)' }}
+      gradientId={`rpd-winner-gradient-${mod}`}
+      paddingX={10}
+    />
+  )
 }
 
 function TotalsBadge({
