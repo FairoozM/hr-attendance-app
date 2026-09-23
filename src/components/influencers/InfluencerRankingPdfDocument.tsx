@@ -81,6 +81,19 @@ function formatMetric(field: InfluencerMetricBestField, value: unknown) {
     : formatNumber(value)
 }
 
+/**
+ * Capsule highlight. html2canvas draws text inside inline-block boxes too low, but
+ * positions text inside table cells correctly, so the pill is an inline table whose
+ * single cell vertically centres its content.
+ */
+function Pill({ className, children }: { className: string; children: ReactNode }) {
+  return (
+    <span className={`rpd-pill ${className}`}>
+      <span className="rpd-pill__cell">{children}</span>
+    </span>
+  )
+}
+
 function RankPill({ rankInfo }: { rankInfo?: InfluencerContractRanking }) {
   if (!rankInfo) return <span className="rpd-rank-muted">—</span>
   const { rank } = rankInfo
@@ -88,10 +101,10 @@ function RankPill({ rankInfo }: { rankInfo?: InfluencerContractRanking }) {
   const tone = rank === 1 ? 'gold' : rank === 2 ? 'silver' : 'bronze'
   const Icon = rank === 1 ? Crown : Medal
   return (
-    <span className={`rpd-rank-pill rpd-rank-pill--${tone}`}>
-      <Icon size={13} strokeWidth={2.3} aria-hidden className="rpd-rank-pill__icon" />
+    <Pill className={`rpd-rank-pill rpd-rank-pill--${tone}`}>
+      <span className="rpd-rank-pill__icon"><Icon size={13} strokeWidth={2.3} aria-hidden /></span>
       <span className="rpd-rank-pill__text">#{rank}</span>
-    </span>
+    </Pill>
   )
 }
 
@@ -107,7 +120,7 @@ function MetricValue({
   const text = formatMetric(field, record[field])
   const mod = winnerPillMod(field, record, bests)
   if (!mod) return <>{text}</>
-  return <span className={`rpd-winner-pill rpd-winner-pill--${mod}`}>{text}</span>
+  return <Pill className={`rpd-winner-pill rpd-winner-pill--${mod}`}>{text}</Pill>
 }
 
 function TotalsBadge({
