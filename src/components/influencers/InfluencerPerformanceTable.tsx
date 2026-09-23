@@ -1,11 +1,14 @@
-import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from 'react'
-import { createPortal } from 'react-dom'
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react'
+import { createPortal, flushSync } from 'react-dom'
+import html2canvas from 'html2canvas'
+import { jsPDF } from 'jspdf'
 import {
   BadgeDollarSign,
   Camera,
   CalendarDays,
   Crown,
   Eye,
+  FileDown,
   Heart,
   Medal,
   MessageSquare,
@@ -18,6 +21,7 @@ import {
 } from 'lucide-react'
 import { formatNumber } from '../../utils/influencerPerformanceUtils'
 import { fmtISO } from '../../utils/dateFormat'
+import { applyCssSnapshot, snapshotDocumentCss } from '../../lib/exportCssSnapshot'
 import type {
   InfluencerContractRanking,
   InfluencerContractRow,
@@ -98,6 +102,33 @@ interface ContractDatesCellProps {
 }
 
 const CLOSED_ROW_MENU: RowMenuState = { openId: null, menuStyle: null }
+
+/** html2canvas render scale; the PDF page is sized back down by the same factor. */
+const PDF_CAPTURE_SCALE = 2
+
+function localDateStamp(date = new Date()) {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
+
+function rankingPdfFilename(
+  datePreset: InfluencerPerformanceRankingDatePreset,
+  customFrom: string,
+  customTo: string,
+) {
+  const period = datePreset === 'custom'
+    ? [customFrom || 'start', customTo || 'end'].join('_to_')
+    : datePreset
+  return `influencer-performance-ranking-${period}-${localDateStamp()}.pdf`
+}
+
+/** Wait for webfonts and two paint frames so capture-only styles have settled. */
+async function waitForCaptureLayout() {
+  if ('fonts' in document) {
+    await document.fonts.ready
+  }
+  await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+}
 
 /** Pointer targets can be Text nodes (no .closest); normalize to an Element. */
 function pointerTargetElement(event: { target: EventTarget | null }): Element | null {
@@ -334,6 +365,45 @@ export function InfluencerPerformanceTable({
   showRankingSummary = false,
 }: InfluencerPerformanceTableProps) {
   const [rowMenu, setRowMenu] = useState<RowMenuState>(CLOSED_ROW_MENU)
+  const [isCapturing, setIsCapturing] = useState(false)
+  const [isExportingPdf, setIsExportingPdf] = useState(false)
+  const exportRegionRef = useRef<HTMLDivElement | null>(null)
+
+  const exportRankingPdf = useCallback(async () => {
+    const target = exportRegionRef.current
+    if (!target || isExportingPdf) return
+    setIsExportingPdf(true)
+    setRowMenu(CLOSED_ROW_MENU)
+    // Apply capture-only styles synchronously so html2canvas sees the hidden actions column.
+    flushSync(() => setIsCapturing(true))
+    try {
+      await waitForCaptureLayout()
+      const cssSnapshot = snapshotDocumentCss()
+      const canvas = await html2canvas(target, {
+        scale: PDF_CAPTURE_SCALE,
+        useCORS: true,
+        backgroundColor: '#f8f9fc',
+        logging: false,
+        windowWidth: target.scrollWidth,
+        windowHeight: target.scrollHeight,
+        onclone: (clone) => applyCssSnapshot(clone, cssSnapshot),
+      })
+      const pageWidth = canvas.width / PDF_CAPTURE_SCALE
+      const pageHeight = canvas.height / PDF_CAPTURE_SCALE
+      const pdf = new jsPDF({
+        orientation: pageWidth > pageHeight ? 'landscape' : 'portrait',
+        unit: 'px',
+        format: [pageWidth, pageHeight],
+      })
+      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, pageWidth, pageHeight)
+      pdf.save(rankingPdfFilename(datePreset, rankingCustomFrom, rankingCustomTo))
+    } catch (error) {
+      console.error('Failed to export performance ranking PDF', error)
+    } finally {
+      flushSync(() => setIsCapturing(false))
+      setIsExportingPdf(false)
+    }
+  }, [datePreset, isExportingPdf, rankingCustomFrom, rankingCustomTo])
 
   useEffect(() => {
     if (!rowMenu.openId) return undefined
@@ -510,10 +580,29 @@ export function InfluencerPerformanceTable({
               </div>
             ) : null}
           </div>
+          {showRankingSummary && records.length > 0 ? (
+            <div className="ip-table-card__heading-action">
+              <button
+                type="button"
+                className="ip-ranking-export-btn"
+                onClick={() => { void exportRankingPdf() }}
+                disabled={isExportingPdf}
+                aria-busy={isExportingPdf}
+                title="Export totals and ranking table as PDF"
+              >
+                <FileDown size={14} strokeWidth={2.2} aria-hidden />
+                {isExportingPdf ? 'Exporting…' : 'Export PDF'}
+              </button>
+            </div>
+          ) : null}
           {headerAction ? <div className="ip-table-card__heading-action">{headerAction}</div> : null}
         </div>
       </div>
 
+      <div
+        ref={exportRegionRef}
+        className={`ip-ranking-export-region ${isCapturing ? 'ip-ranking-export-region--capturing' : ''}`}
+      >
       {showRankingSummary && rankingTotals ? (
         <div className="ip-ranking-totals" aria-label="Ranking totals for visible rows">
           <div className="ip-ranking-totals__item" data-metric="views">
@@ -680,6 +769,7 @@ export function InfluencerPerformanceTable({
             </tfoot>
           ) : null}
         </table>
+      </div>
       </div>
       {rowMenuPortal}
     </section>
