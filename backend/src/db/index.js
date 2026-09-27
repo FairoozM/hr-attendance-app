@@ -1219,6 +1219,11 @@ async function testConnection() {
     console.error('[db] ensureSubscriptionsTables skipped/failed (non-fatal):', e.message || e)
   }
   try {
+    await ensureStripeTables()
+  } catch (e) {
+    console.error('[db] ensureStripeTables skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
     const { ensureZohoAccountWatchlistTable } = require('../services/zohoAccountWatchlistStore')
     await ensureZohoAccountWatchlistTable()
   } catch (e) {
@@ -1919,6 +1924,25 @@ async function ensureTeamPlannerTables() {
   }
 }
 
+async function ensureStripeTables() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS stripe_events (
+      event_id TEXT PRIMARY KEY,
+      event_type VARCHAR(120) NOT NULL,
+      livemode BOOLEAN NOT NULL DEFAULT false,
+      api_version TEXT,
+      received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      payload_summary JSONB NOT NULL DEFAULT '{}'::jsonb
+    )
+  `)
+  await query(`
+    CREATE INDEX IF NOT EXISTS idx_stripe_events_received_at
+    ON stripe_events (received_at DESC)
+  `)
+  const { ensureStripeClearingTables } = require('../services/stripeClearing/stripeClearingStore')
+  await ensureStripeClearingTables(query)
+}
+
 module.exports = {
   query,
   pool,
@@ -1940,6 +1964,7 @@ module.exports = {
   ensureDocumentExpiryTable,
   ensureNotificationSyncStateTable,
   ensureSubscriptionsTables,
+  ensureStripeTables,
   ensureItemReportGroupsTable,
   ensureItemReportGroupsImportLogTable,
   ensureAiBudgetAndUsageTables,

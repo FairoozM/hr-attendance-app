@@ -461,9 +461,10 @@ async function createZohoCustomerPayment(payment, opts = {}) {
     'POST',
     buildZohoJsonStringBody(payload),
     {
-      source: 'amazon_payment_clearing_post',
+      source: opts.source || 'amazon_payment_clearing_post',
       skipCache: true,
       critical: true,
+      retryTransport: opts.retryTransport,
     }
   )
   const body = json?.payment || json?.customerpayment || json || {}

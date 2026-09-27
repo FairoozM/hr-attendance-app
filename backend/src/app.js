@@ -40,6 +40,7 @@ const amazonReturnReconciliationRoutes = require('./routes/amazonReturnReconcili
 const nutritionCoachRoutes = require('./routes/nutritionCoach')
 const amazonKsaRtoLabelingPublicRoutes = require('./routes/amazonKsaRtoLabelingPublic.routes')
 const isoQmsRoutes = require('./routes/isoQms')
+const stripeRoutes = require('./routes/stripe')
 
 const app = express()
 
@@ -106,6 +107,7 @@ app.use('/api/sim-cards', authMiddleware.attachAuth, simCardsRoutes)
 app.use('/api/vat-info', authMiddleware.attachAuth, vatInfoRoutes)
 app.use('/api/document-expiry', authMiddleware.attachAuth, documentExpiryRoutes)
 app.use('/api/subscriptions', authMiddleware.attachAuth, subscriptionsRoutes)
+app.use('/api/stripe', authMiddleware.attachAuth, stripeRoutes)
 app.use('/api/projects',       authMiddleware.attachAuth, projectsRoutes)
 app.use('/api/team',           authMiddleware.attachAuth, teamRoutes)
 app.use('/api/weekly-reports', authMiddleware.attachAuth, weeklyReportsRoutes)

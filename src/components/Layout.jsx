@@ -487,6 +487,7 @@ export function Layout() {
     if (location.pathname.startsWith('/prices/saved-composite-items')) return 'Saved Composite Items'
     if (location.pathname.startsWith('/management/document-expiry')) return 'Document Expiry Tracker'
     if (location.pathname.startsWith('/management/subscriptions')) return 'Subscription Management'
+    if (location.pathname.startsWith('/management/stripe')) return 'Stripe'
     if (location.pathname.startsWith('/reports/daily-accounting-details')) return 'Daily Accounting Details'
     if (location.pathname.startsWith('/reports/ecommerce-report')) return 'Daily Accounting Summary'
     if (location.pathname.startsWith('/reports/daily-ecommerce')) return 'Daily Ecommerce Report'
@@ -636,6 +637,7 @@ export function Layout() {
   const managementItems = [
     can('document_expiry', 'view') && { label: 'Document Expiry Tracker', to: '/management/document-expiry' },
     can('subscriptions', 'view') && { label: 'Subscription Management', to: '/management/subscriptions' },
+    isAdmin && { label: 'Stripe', to: '/management/stripe' },
     can('company_payments', 'view') && { label: 'Payments', to: '/management/payments' },
     isAdmin && { label: 'Purchase Planning', to: '/management/purchase-planning' },
     isAdmin && { label: 'Inventory Health', to: '/management/inventory-health' },
@@ -830,7 +832,9 @@ export function Layout() {
             ? 'document licence trade license vat compliance expiry'
           : i.to === '/management/subscriptions'
             ? 'subscription management chatgpt cursor aws zoho adobe envato vercel invoice payment renewal'
-            : '',
+            : i.to === '/management/stripe'
+              ? 'stripe connection webhook status test live payments'
+              : '',
     })),
     ...ISO_QMS_ALL_ITEMS.map((i) => ({
       ...i,

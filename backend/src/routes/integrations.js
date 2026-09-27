@@ -11,6 +11,7 @@
 
 const express    = require('express')
 const controller = require('../controllers/githubWebhookController')
+const stripeWebhook = require('../controllers/stripeWebhookController')
 
 const router = express.Router()
 
@@ -36,6 +37,23 @@ router.get('/github/webhook', (_req, res) => {
   res.status(405).json({
     error: 'Method Not Allowed',
     message: 'GitHub webhook endpoint only accepts POST requests.',
+  })
+})
+
+/**
+ * POST /api/integrations/stripe/webhook
+ * Raw body is required for Stripe-Signature verification.
+ */
+router.post(
+  '/stripe/webhook',
+  express.raw({ type: 'application/json', limit: '1mb' }),
+  stripeWebhook.handleWebhook
+)
+
+router.get('/stripe/webhook', (_req, res) => {
+  res.status(405).json({
+    error: 'Method Not Allowed',
+    message: 'Stripe webhook endpoint only accepts POST requests.',
   })
 })
 

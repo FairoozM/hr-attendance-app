@@ -659,6 +659,9 @@ async function zohoBooksJsonRequest(path, searchParams, method, body, meta = {})
         continue
       }
       if (err && err.code === 'ZOHO_HTTP_429') throw err
+      // A timed-out or 5xx write may still have been applied by Zoho; callers that
+      // cannot tolerate a duplicate opt out and reconcile instead.
+      if (meta.retryTransport === false) break
       if (transportAttempt >= maxTransportRetries) break
       const ok =
         isRetriableTransportError(err) ||

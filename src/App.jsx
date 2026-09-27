@@ -54,6 +54,7 @@ import { SimCardsPage } from './pages/SimCardsPage'
 import { VatInfoPage } from './pages/VatInfoPage'
 import { DocumentExpiryPage } from './pages/management/DocumentExpiryPage'
 import { SubscriptionsPage } from './pages/management/subscriptions/SubscriptionsPage'
+import { StripeConnectionPage } from './pages/management/stripe/StripeConnectionPage'
 import {
   IsoDashboardPage,
   IsoAuditorRoomPage,
@@ -265,6 +266,14 @@ function AppContent() {
             <PermissionGuard module="subscriptions" action="view">
               <SubscriptionsPage />
             </PermissionGuard>
+          }
+        />
+        <Route
+          path="management/stripe"
+          element={
+            <AdminOnly>
+              <StripeConnectionPage />
+            </AdminOnly>
           }
         />
         <Route path="iso-qms" element={<Navigate to="/iso-qms/dashboard" replace />} />
