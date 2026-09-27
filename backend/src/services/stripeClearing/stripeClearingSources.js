@@ -84,6 +84,93 @@ async function retrieveStripePaymentIntent(paymentIntentId) {
   }
 }
 
+function requireStripeClient() {
+  const client = stripeConfig.getStripeClient()
+  if (!client) {
+    const err = new Error('Stripe secret key is not configured on this server.')
+    err.code = 'STRIPE_NOT_CONFIGURED'
+    err.status = 503
+    throw err
+  }
+  return client
+}
+
+function unixToIso(seconds) {
+  return seconds ? new Date(seconds * 1000).toISOString() : null
+}
+
+function mapPayout(po) {
+  return {
+    payoutId: po.id,
+    status: po.status,
+    amountMinor: po.amount,
+    currency: clean(po.currency).toUpperCase(),
+    arrivalDate: unixToIso(po.arrival_date),
+    createdAt: unixToIso(po.created),
+    automatic: po.automatic === true,
+    livemode: po.livemode === true,
+  }
+}
+
+/** Amounts stay in minor units so payout totals add up exactly. */
+function mapBalanceTransaction(bt) {
+  const source = bt.source && typeof bt.source === 'object' ? bt.source : null
+  const sourceObject = source ? source.object : null
+  let chargeId = null
+  let paymentIntentId = null
+  if (sourceObject === 'charge') {
+    chargeId = source.id
+    paymentIntentId = clean(source.payment_intent) || null
+  } else if (source && (sourceObject === 'refund' || sourceObject === 'dispute')) {
+    chargeId = clean(source.charge) || null
+    paymentIntentId = clean(source.payment_intent) || null
+  }
+  return {
+    balanceTransactionId: bt.id,
+    type: bt.type,
+    reportingCategory: bt.reporting_category || null,
+    status: bt.status,
+    currency: clean(bt.currency).toUpperCase(),
+    exchangeRate: bt.exchange_rate == null ? null : bt.exchange_rate,
+    amountMinor: bt.amount,
+    feeMinor: bt.fee,
+    netMinor: bt.net,
+    description: bt.description || null,
+    sourceId: source ? source.id : clean(bt.source) || null,
+    sourceObject,
+    chargeId,
+    paymentIntentId,
+    chargeRefundedMinor: sourceObject === 'charge' ? Number(source.amount_refunded) || 0 : 0,
+    chargeDisputed: sourceObject === 'charge' ? source.disputed === true : false,
+    createdAt: unixToIso(bt.created),
+  }
+}
+
+async function listStripePayouts({ limit }) {
+  const client = requireStripeClient()
+  const page = await client.payouts.list({ limit })
+  return page.data.map(mapPayout)
+}
+
+async function retrieveStripePayout(payoutId) {
+  const client = requireStripeClient()
+  try {
+    return mapPayout(await client.payouts.retrieve(payoutId))
+  } catch (err) {
+    if (err && err.statusCode === 404) return null
+    throw err
+  }
+}
+
+async function listPayoutBalanceTransactions(payoutId) {
+  const client = requireStripeClient()
+  const out = []
+  for await (const bt of client.balanceTransactions.list({ payout: payoutId, limit: 100, expand: ['data.source'] })) {
+    out.push(mapBalanceTransaction(bt))
+  }
+  return out
+}
+
 // ── Website orders (read-only DB) ───────────────────────────────────────────
 
 const ORDER_COLUMNS = `
@@ -264,6 +351,11 @@ module.exports = {
   stripeAvailable,
   listStripePaymentIntents,
   retrieveStripePaymentIntent,
+  mapPayout,
+  mapBalanceTransaction,
+  listStripePayouts,
+  retrieveStripePayout,
+  listPayoutBalanceTransactions,
   loadWebsiteOrdersByIntents,
   loadWebsiteStripeOrders,
   findZohoInvoicesByReference,

@@ -88,6 +88,24 @@ async function clearingPost(req, res) {
   }
 }
 
+async function payoutList(req, res) {
+  try {
+    const { listPayoutSummaries } = require('../services/stripeClearing/stripePayoutPreviewService')
+    return res.json(await listPayoutSummaries({ limit: req.query.limit }))
+  } catch (err) {
+    return clearingError(res, err, 'payout list')
+  }
+}
+
+async function payoutPreview(req, res) {
+  try {
+    const { previewPayout } = require('../services/stripeClearing/stripePayoutPreviewService')
+    return res.json(await previewPayout(req.params.payoutId))
+  } catch (err) {
+    return clearingError(res, err, 'payout preview')
+  }
+}
+
 module.exports = {
   status,
   testConnection,
@@ -95,4 +113,6 @@ module.exports = {
   clearingRecord,
   clearingPreview,
   clearingPost,
+  payoutList,
+  payoutPreview,
 }

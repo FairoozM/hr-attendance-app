@@ -15,6 +15,11 @@ const DEFAULT_SHOP_ZOHO_CUSTOMER_ID = '4265011000038735005' // Zoho Books custom
 // Gross Stripe customer payments land here; payouts and fees clear it later.
 const DEPOSIT_ACCOUNT_NAME = 'Stripe Undeposited Funds'
 const DEPOSIT_ACCOUNT_CODE = '1019'
+// Stripe processing fees clear the invoice here; a later journal moves them to the "Stripe Fees" expense.
+const FEE_ACCOUNT_NAME = 'Stripe Processing Chg Un-Cleared'
+const FEE_ACCOUNT_CODE = '1013'
+const WEBSITE_CUSTOMER_NAME = 'Website'
+const SHOP_CUSTOMER_NAME = 'Burjman Shop - Web & App'
 
 function envString(name, fallback) {
   const raw = process.env[name]
@@ -41,6 +46,10 @@ function getStripeClearingConfig() {
     depositAccountCode: DEPOSIT_ACCOUNT_CODE,
     // Optional pin; it must still resolve to the named account in the chart of accounts.
     depositAccountId: envString('STRIPE_CLEARING_DEPOSIT_ACCOUNT_ID', ''),
+    feeAccountName: FEE_ACCOUNT_NAME,
+    feeAccountCode: FEE_ACCOUNT_CODE,
+    websiteCustomerName: WEBSITE_CUSTOMER_NAME,
+    shopCustomerName: SHOP_CUSTOMER_NAME,
   }
 }
 
@@ -49,5 +58,7 @@ module.exports = {
   DEFAULT_SHOP_ZOHO_CUSTOMER_ID,
   DEPOSIT_ACCOUNT_NAME,
   DEPOSIT_ACCOUNT_CODE,
+  FEE_ACCOUNT_NAME,
+  FEE_ACCOUNT_CODE,
   getStripeClearingConfig,
 }
