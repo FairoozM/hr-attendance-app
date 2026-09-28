@@ -80,12 +80,21 @@ test.before(async () => {
      VALUES ('po_LEGACY0000001', 'C', 'FEE', 'customer_payment', 3, 'AED', '4265011000000699653',
        'Stripe processing fee po_LEGACY0000001', 'VERIFIED', 'ZP-LEGACY-FEE', 1, NOW(), NOW())`,
   )
+  // Before 052 an unresolved uncertain POST was left FAILED ("may be retried"); a rejection was FAILED too.
+  await pool.query(
+    `INSERT INTO stripe_payout_clearing_components (payout_id, zoho_customer_id, component, zoho_record_type, amount, currency,
+       deposit_account_id, reference, status, attempt_count, last_error, updated_at)
+     VALUES ('po_LEGACY0000002', 'C', 'NET', 'customer_payment', 50, 'AED', '4265011000000984169', 'Stripe funds received po_LEGACY0000002',
+       'FAILED', 1, 'Zoho customer payment POST result is unknown (timeout). No matching Zoho customer payment was found; it was not re-posted and may be retried.', '2026-09-20T09:00:00Z'),
+            ('po_LEGACY0000003', 'C', 'NET', 'customer_payment', 60, 'AED', '4265011000000984169', 'Stripe funds received po_LEGACY0000003',
+       'FAILED', 1, 'Zoho did not accept the customer payment: Invoice amount exceeds balance', '2026-09-20T09:00:00Z')`,
+  )
   for (let i = 0; i < 2; i++) {
     await clearingStore.ensureStripeClearingTables(q)
     await payoutStore.ensureStripePayoutClearingTables(q)
   }
   // The reference migration files must also apply cleanly on top, repeatedly.
-  for (const file of ['048_stripe_payout_clearing.sql', '049_stripe_advance_refund_detected.sql', '049_stripe_advance_refund_detected.sql', '050_stripe_payout_fee_journal.sql', '050_stripe_payout_fee_journal.sql']) {
+  for (const file of ['048_stripe_payout_clearing.sql', '049_stripe_advance_refund_detected.sql', '049_stripe_advance_refund_detected.sql', '050_stripe_payout_fee_journal.sql', '050_stripe_payout_fee_journal.sql', '051_stripe_payout_refund_components.sql', '051_stripe_payout_refund_components.sql', '052_stripe_payout_posting_uncertain.sql', '052_stripe_payout_posting_uncertain.sql']) {
     await pool.query(fs.readFileSync(path.join(__dirname, '../migrations', file), 'utf8'))
   }
 })
@@ -413,4 +422,55 @@ test('posting lifecycle: failed attempt, retry, created, verified; advance case 
   }
   const again = await payoutStore.acquirePayoutLock(pool, PO)
   await again.release()
+})
+
+test('052 upgrade: an old unresolved uncertain FAILED row becomes POSTING_UNCERTAIN; a rejection stays retryable; checks replaced once', { skip }, async () => {
+  const rows = (await pool.query("SELECT payout_id, status, uncertain_since, first_uncertain_at FROM stripe_payout_clearing_components WHERE payout_id IN ('po_LEGACY0000002', 'po_LEGACY0000003') ORDER BY payout_id")).rows
+  assert.deepEqual(rows.map((r) => r.status), ['POSTING_UNCERTAIN', 'FAILED'])
+  assert.equal(rows[0].uncertain_since.toISOString(), '2026-09-20T09:00:00.000Z')
+  assert.equal(rows[0].first_uncertain_at.toISOString(), '2026-09-20T09:00:00.000Z')
+  assert.equal(rows[1].uncertain_since, null)
+  for (const table of ['stripe_payout_clearing_components', 'stripe_payout_refund_components']) {
+    const checks = (await pool.query(
+      "SELECT conname, pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conrelid = $1::regclass AND contype = 'c' AND pg_get_constraintdef(oid) LIKE '%NEEDS_REVIEW%'",
+      [table],
+    )).rows
+    assert.deepEqual(checks.map((c) => c.conname), [`ck_${table}_status`], `${table}: one status check`)
+    assert.match(checks[0].def, /POSTING_UNCERTAIN/)
+  }
+  const cols = (await pool.query("SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = 'stripe_payout_clearing_events' AND column_name IN ('event_type', 'evidence') ORDER BY 1", [SCHEMA])).rows
+  assert.deepEqual(cols.map((c) => c.column_name), ['event_type', 'evidence'])
+})
+
+test('uncertain lifecycle in the store: uncertain needs uncertain_since, recheck counts, retry authorization needs who + why, events carry type + evidence', { skip }, async () => {
+  const PO = 'po_UNCERTAIN00001'
+  const db = { query: q }
+  const { component } = await payoutStore.upsertPlannedComponent(db, {
+    payoutId: PO, zohoCustomerId: null, component: 'PAYOUT_FEE_JOURNAL', zohoRecordType: 'journal', amount: 3, currency: 'AED',
+    debitAccountId: '4265011000000699653', creditAccountId: '4265011000000648121', reference: `Stripe processing fees ${PO}`, allocations: [], advanceCaseIds: [],
+  }, 'user:1')
+  const posting = await payoutStore.transitionComponent(db, component.id, ['PLANNED'], 'POSTING', { incrementAttempt: true, requestSnapshot: { reference: `Stripe processing fees ${PO}`, amount: 3 }, event: 'POSTING_STARTED' }, 'posting', 'user:1')
+  assert.deepEqual(posting.requestSnapshot, { reference: `Stripe processing fees ${PO}`, amount: 3 })
+  await assert.rejects(q("UPDATE stripe_payout_clearing_components SET status = 'POSTING_UNCERTAIN' WHERE id = $1", [component.id]), (err) => err.code === '23514')
+  const uncertain = await payoutStore.transitionComponent(db, component.id, ['POSTING'], 'POSTING_UNCERTAIN', { uncertainAt: '2026-09-28T14:00:00Z', lastError: 'timeout', event: 'RECOVERY_STILL_MISSING', evidence: { state: 'MISSING', records: [] } }, 'uncertain', 'user:1')
+  assert.deepEqual([uncertain.status, uncertain.uncertainSince, uncertain.firstUncertainAt, uncertain.recoveryCheckCount], ['POSTING_UNCERTAIN', '2026-09-28T14:00:00.000Z', '2026-09-28T14:00:00.000Z', 0])
+  // The upsert never replans an uncertain row.
+  const replan = await payoutStore.upsertPlannedComponent(db, { payoutId: PO, zohoCustomerId: null, component: 'PAYOUT_FEE_JOURNAL', zohoRecordType: 'journal', amount: 9, currency: 'AED', debitAccountId: 'X', creditAccountId: 'Y', reference: 'other', allocations: [], advanceCaseIds: [] }, 'user:1')
+  assert.deepEqual([replan.changed, replan.component.amount, replan.component.status], [false, 3, 'POSTING_UNCERTAIN'])
+  await assert.rejects(payoutStore.transitionComponent(db, component.id, ['PLANNED', 'FAILED'], 'POSTING', { incrementAttempt: true }, 'retry', 'user:1'), (err) => err.code === 'COMPONENT_STATE_CONFLICT')
+  const checked = await payoutStore.transitionComponent(db, component.id, ['POSTING_UNCERTAIN'], 'POSTING_UNCERTAIN', { recoveryCheckAt: '2026-09-28T14:05:00Z', event: 'RECOVERY_STILL_MISSING' }, 'recheck', 'user:9')
+  assert.deepEqual([checked.recoveryCheckCount, checked.lastRecoveryCheckAt, checked.uncertainSince], [1, '2026-09-28T14:05:00.000Z', '2026-09-28T14:00:00.000Z'])
+  await assert.rejects(q('UPDATE stripe_payout_clearing_components SET retry_authorized_at = NOW() WHERE id = $1', [component.id]), (err) => err.code === '23514')
+  await assert.rejects(
+    payoutStore.transitionComponent(db, component.id, ['POSTING_UNCERTAIN'], 'FAILED', { retryAuthorization: { at: '2026-09-28T14:20:00Z', by: 'user:9', reason: 'Checked Zoho: none.' } }, 'no evidence', 'user:9'),
+    (err) => err.code === '23514',
+    'a retry authorization without the admin evidence is refused by the database',
+  )
+  const proof = { adminVerification: { checkedAt: '2026-09-28T14:18:00.000Z', zohoLocation: 'Manual Journals', searchedFor: `Stripe processing fees ${PO}`, recordsFound: 0 }, serverLookup: { complete: true, state: 'MISSING' } }
+  const allowed = await payoutStore.transitionComponent(db, component.id, ['POSTING_UNCERTAIN'], 'FAILED', { retryAuthorization: { at: '2026-09-28T14:20:00Z', by: 'user:9', reason: 'Checked Zoho: none.', evidence: proof }, event: 'RETRY_ALLOWED', evidence: { acknowledged: true } }, 'allowed', 'user:9')
+  assert.deepEqual([allowed.status, allowed.retryAuthorizedBy, allowed.retryAuthorizedAt, allowed.retryAuthorizationReason], ['FAILED', 'user:9', '2026-09-28T14:20:00.000Z', 'Checked Zoho: none.'])
+  assert.deepEqual(allowed.retryAuthorizationEvidence, proof)
+  const events = await payoutStore.listEvents(db, payoutStore.ENTITY.COMPONENT, [component.id])
+  assert.deepEqual(events.map((e) => e.eventType), [null, 'POSTING_STARTED', 'RECOVERY_STILL_MISSING', 'RECOVERY_STILL_MISSING', 'RETRY_ALLOWED'])
+  assert.deepEqual(events[2].evidence, { state: 'MISSING', records: [] })
 })

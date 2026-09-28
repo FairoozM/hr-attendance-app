@@ -351,6 +351,41 @@ async function fetchZohoInvoiceById(invoiceId) {
   }
 }
 
+const LIST_PAGE_SIZE = 200
+const LIST_MAX_PAGES = 5
+
+function lookupError(code, message) {
+  const err = new Error(message)
+  err.code = code
+  err.status = 502
+  return err
+}
+
+/**
+ * Every row of one Zoho list, or an error: a response without the expected array is malformed
+ * and more pages than the cap is incomplete. A partial list would read as "not in Zoho", which
+ * recovery must never conclude from. Responses without `page_context` are single-page lists.
+ * `opts.perPage` / `opts.maxPages` exist for tests and read-only probes.
+ */
+async function zohoListAll(path, params, key, opts = {}) {
+  const perPage = String(opts.perPage || LIST_PAGE_SIZE)
+  const maxPages = opts.maxPages || LIST_MAX_PAGES
+  const out = []
+  for (let page = 1; page <= maxPages; page++) {
+    const json = await zohoBooksJsonRequest(
+      `${BOOKS_V3}${path}`,
+      new URLSearchParams({ ...params, per_page: perPage, page: String(page) }),
+      'GET',
+      undefined,
+      { source: opts.source || 'stripe_payout_preview', skipCache: true, critical: opts.critical === true },
+    )
+    if (!json || !Array.isArray(json[key])) throw lookupError('ZOHO_LOOKUP_MALFORMED', `Zoho ${path} answered without a "${key}" list; lookup is not reliable.`)
+    out.push(...json[key])
+    if (!(json.page_context && json.page_context.has_more_page)) return out
+  }
+  throw lookupError('ZOHO_LOOKUP_INCOMPLETE', `Zoho ${path} has more than ${maxPages} page(s) of results; lookup is incomplete.`)
+}
+
 /**
  * Exact `reference_number` lookup on customer payments. Invoice detail does not list
  * payments in this org and `invoice_id` is ignored by the list, so the PaymentIntent
@@ -359,14 +394,8 @@ async function fetchZohoInvoiceById(invoiceId) {
 async function findZohoPaymentsByReference(reference, opts = {}) {
   const ref = clean(reference)
   if (!ref) return []
-  const json = await zohoBooksJsonRequest(
-    `${BOOKS_V3}/customerpayments`,
-    new URLSearchParams({ reference_number: ref, per_page: '25' }),
-    'GET',
-    undefined,
-    { source: opts.source || 'stripe_clearing_dry_run', skipCache: true, critical: opts.critical === true },
-  )
-  const payments = (Array.isArray(json && json.customerpayments) ? json.customerpayments : []).map((p) => ({
+  const rows = await zohoListAll('/customerpayments', { reference_number: ref }, 'customerpayments', { ...opts, source: opts.source || 'stripe_clearing_dry_run' })
+  const payments = rows.map((p) => ({
     paymentId: clean(p.payment_id),
     paymentMode: clean(p.payment_mode),
     referenceNumber: clean(p.reference_number),
@@ -378,10 +407,7 @@ async function findZohoPaymentsByReference(reference, opts = {}) {
     invoiceNumbers: clean(p.invoice_numbers),
   }))
   if (payments.some((p) => p.referenceNumber !== ref)) {
-    const err = new Error(`Zoho ignored the payment reference filter for ${ref}; lookup is not exact.`)
-    err.code = 'ZOHO_REFERENCE_FILTER_IGNORED'
-    err.status = 502
-    throw err
+    throw lookupError('ZOHO_REFERENCE_FILTER_IGNORED', `Zoho ignored the payment reference filter for ${ref}; lookup is not exact.`)
   }
   return payments
 }
@@ -394,14 +420,8 @@ async function findZohoPaymentsByReference(reference, opts = {}) {
 async function findZohoJournalsByReference(reference, opts = {}) {
   const ref = clean(reference)
   if (!ref) return []
-  const json = await zohoBooksJsonRequest(
-    `${BOOKS_V3}/journals`,
-    new URLSearchParams({ reference_number_contains: ref, per_page: '50', sort_column: 'journal_date' }),
-    'GET',
-    undefined,
-    { source: opts.source || 'stripe_payout_preview', skipCache: true, critical: opts.critical === true },
-  )
-  const journals = (Array.isArray(json && json.journals) ? json.journals : []).map((j) => ({
+  const rows = await zohoListAll('/journals', { reference_number_contains: ref, sort_column: 'journal_date' }, 'journals', opts)
+  const journals = rows.map((j) => ({
     journalId: clean(j.journal_id),
     entryNumber: clean(j.entry_number),
     referenceNumber: clean(j.reference_number),
@@ -410,10 +430,7 @@ async function findZohoJournalsByReference(reference, opts = {}) {
     status: clean(j.status),
   }))
   if (journals.some((j) => !j.referenceNumber.includes(ref))) {
-    const err = new Error(`Zoho ignored the journal reference filter for ${ref}; lookup is not exact.`)
-    err.code = 'ZOHO_REFERENCE_FILTER_IGNORED'
-    err.status = 502
-    throw err
+    throw lookupError('ZOHO_REFERENCE_FILTER_IGNORED', `Zoho ignored the journal reference filter for ${ref}; lookup is not exact.`)
   }
   return journals.filter((j) => j.referenceNumber === ref)
 }
@@ -427,15 +444,18 @@ const JOURNAL_RANGE_MAX_PAGES = 10
  */
 async function listZohoJournalsInRange(dateStart, dateEnd, opts = {}) {
   const out = []
-  for (let page = 1; page <= JOURNAL_RANGE_MAX_PAGES; page++) {
+  const maxPages = opts.maxPages || JOURNAL_RANGE_MAX_PAGES
+  const perPage = opts.perPage || 200
+  for (let page = 1; page <= maxPages; page++) {
     const json = await zohoBooksJsonRequest(
       `${BOOKS_V3}/journals`,
-      new URLSearchParams({ date_start: dateStart, date_end: dateEnd, per_page: '200', page: String(page), sort_column: 'journal_date', sort_order: 'A' }),
+      new URLSearchParams({ date_start: dateStart, date_end: dateEnd, per_page: String(perPage), page: String(page), sort_column: 'journal_date', sort_order: 'A' }),
       'GET',
       undefined,
       { source: opts.source || 'stripe_payout_preview', skipCache: true, critical: opts.critical === true },
     )
-    const rows = (Array.isArray(json && json.journals) ? json.journals : []).map((j) => ({
+    if (!json || !Array.isArray(json.journals)) throw lookupError('ZOHO_LOOKUP_MALFORMED', `Zoho journals ${dateStart}..${dateEnd} answered without a "journals" list; lookup is not reliable.`)
+    const rows = json.journals.map((j) => ({
       journalId: clean(j.journal_id),
       entryNumber: clean(j.entry_number),
       referenceNumber: clean(j.reference_number),
@@ -453,7 +473,7 @@ async function listZohoJournalsInRange(dateStart, dateEnd, opts = {}) {
     out.push(...rows)
     if (!(json && json.page_context && json.page_context.has_more_page)) return out
   }
-  const err = new Error(`More than ${JOURNAL_RANGE_MAX_PAGES * 200} Zoho journals are dated ${dateStart}..${dateEnd}; lookup is incomplete.`)
+  const err = new Error(`More than ${maxPages * perPage} Zoho journals are dated ${dateStart}..${dateEnd}; lookup is incomplete.`)
   err.code = 'ZOHO_JOURNAL_RANGE_TOO_LARGE'
   err.status = 502
   throw err
@@ -493,6 +513,162 @@ async function getZohoJournal(journalId, opts = {}) {
   }
 }
 
+function zohoGet(path, params, opts) {
+  return zohoBooksJsonRequest(
+    `${BOOKS_V3}${path}`,
+    new URLSearchParams(params),
+    'GET',
+    undefined,
+    { source: opts.source || 'stripe_payout_preview', skipCache: true, critical: opts.critical === true },
+  )
+}
+
+async function orNullOn404(load) {
+  try {
+    return await load()
+  } catch (err) {
+    if (Number(err && err.httpStatus) === 404) return null
+    throw err
+  }
+}
+
+function mapZohoLine(l) {
+  return {
+    lineItemId: clean(l.line_item_id),
+    itemId: clean(l.item_id),
+    invoiceItemId: clean(l.invoice_item_id),
+    name: clean(l.name),
+    sku: clean(l.sku),
+    quantity: num(l.quantity),
+    rate: num(l.rate),
+    itemTotal: num(l.item_total),
+  }
+}
+
+function mapZohoCreditNote(n) {
+  return {
+    creditNoteId: clean(n.creditnote_id),
+    creditNoteNumber: clean(n.creditnote_number),
+    referenceNumber: clean(n.reference_number),
+    customerId: clean(n.customer_id),
+    status: clean(n.status),
+    date: clean(n.date),
+    total: num(n.total),
+    balance: num(n.balance),
+    currencyCode: clean(n.currency_code).toUpperCase(),
+  }
+}
+
+/**
+ * Credit notes numbered after a website order ("20717", "20717-2", never "207171") for one
+ * customer. `creditnote_number_startswith` is exact in this org; a returned row that does
+ * not start with the order number or belongs to another customer means the filter was ignored.
+ */
+async function findZohoCreditNotesForOrder(orderNumber, customerId, opts = {}) {
+  const order = clean(orderNumber)
+  const customer = clean(customerId)
+  if (!order || !customer) return []
+  const notes = (await zohoListAll('/creditnotes', { creditnote_number_startswith: order, customer_id: customer }, 'creditnotes', opts)).map(mapZohoCreditNote)
+  if (notes.some((n) => !n.creditNoteNumber.startsWith(order) || n.customerId !== customer)) {
+    const err = new Error(`Zoho ignored the credit note filter for order ${order}; lookup is not exact.`)
+    err.code = 'ZOHO_REFERENCE_FILTER_IGNORED'
+    err.status = 502
+    throw err
+  }
+  return notes.filter((n) => n.creditNoteNumber === order || /^\D/.test(n.creditNoteNumber.slice(order.length)))
+}
+
+/** Credit note with its invoice link and lines, or null when Zoho no longer has it. */
+async function getZohoCreditNote(creditNoteId, opts = {}) {
+  const id = clean(creditNoteId)
+  if (!id) return null
+  return orNullOn404(async () => {
+    const json = await zohoGet(`/creditnotes/${encodeURIComponent(id)}`, {}, opts)
+    const n = json && json.creditnote
+    if (!n) return null
+    return {
+      ...mapZohoCreditNote(n),
+      invoiceId: clean(n.invoice_id),
+      invoiceNumber: clean(n.invoice_number),
+      salesReturnNumber: clean(n.salesreturn_number),
+      totalRefunded: num(n.total_refunded_amount),
+      totalCreditsUsed: num(n.total_credits_used),
+      lineItems: (Array.isArray(n.line_items) ? n.line_items : []).map(mapZohoLine),
+    }
+  })
+}
+
+/** Refunds already recorded against one credit note (list shape; no account). */
+async function listZohoCreditNoteRefunds(creditNoteId, opts = {}) {
+  const id = clean(creditNoteId)
+  if (!id) return []
+  const rows = await zohoListAll(`/creditnotes/${encodeURIComponent(id)}/refunds`, {}, 'creditnote_refunds', opts)
+  return rows.map((r) => ({
+    creditNoteRefundId: clean(r.creditnote_refund_id),
+    creditNoteId: clean(r.creditnote_id) || id,
+    date: clean(r.date),
+    referenceNumber: clean(r.reference_number),
+    amount: num(r.amount_bcy != null ? r.amount_bcy : r.amount),
+    refundMode: clean(r.refund_mode),
+  }))
+}
+
+/** One credit note refund with the account it was paid from, or null when missing. */
+async function getZohoCreditNoteRefund(creditNoteId, creditNoteRefundId, opts = {}) {
+  const id = clean(creditNoteId)
+  const rid = clean(creditNoteRefundId)
+  if (!id || !rid) return null
+  return orNullOn404(async () => {
+    const json = await zohoGet(`/creditnotes/${encodeURIComponent(id)}/refunds/${encodeURIComponent(rid)}`, {}, opts)
+    const r = json && json.creditnote_refund
+    if (!r) return null
+    return {
+      creditNoteRefundId: clean(r.creditnote_refund_id),
+      creditNoteId: clean(r.creditnote_id),
+      date: clean(r.date),
+      referenceNumber: clean(r.reference_number),
+      amount: num(r.amount),
+      refundMode: clean(r.refund_mode),
+      fromAccountId: clean(r.from_account_id),
+      fromAccountName: clean(r.from_account_name),
+      customerId: clean(r.customer_id),
+    }
+  })
+}
+
+/**
+ * Payments applied to one invoice, read from the invoice itself (not the payment search index).
+ * Zoho returns the whole list without `page_context`. A missing invoice or a malformed answer is
+ * an error, never "no payments": recovery cannot prove a payment absent from an unreadable invoice.
+ */
+async function listZohoInvoicePayments(invoiceId, opts = {}) {
+  const id = clean(invoiceId)
+  if (!id) throw lookupError('ZOHO_LOOKUP_INCOMPLETE', 'An allocated invoice has no Zoho invoice ID; its payments cannot be read.')
+  const json = await orNullOn404(() => zohoGet(`/invoices/${encodeURIComponent(id)}/payments`, {}, opts))
+  if (json === null) throw lookupError('ZOHO_INVOICE_NOT_FOUND', `Zoho invoice ${id} was not found; its payments cannot be read.`)
+  if (!json || !Array.isArray(json.payments)) throw lookupError('ZOHO_LOOKUP_MALFORMED', `Zoho invoice ${id} payments answered without a "payments" list; lookup is not reliable.`)
+  if (json.page_context && json.page_context.has_more_page) throw lookupError('ZOHO_LOOKUP_INCOMPLETE', `Zoho invoice ${id} has more payments than one page; lookup is incomplete.`)
+  return json.payments.map((p) => ({
+    paymentId: clean(p.payment_id),
+    invoiceId: clean(p.invoice_id) || id,
+    referenceNumber: clean(p.reference_number),
+    amount: num(p.amount),
+    date: clean(p.date),
+  }))
+}
+
+/** Invoice with its lines, or null when Zoho no longer has it. */
+async function getZohoInvoiceDetail(invoiceId, opts = {}) {
+  const id = clean(invoiceId)
+  if (!id) return null
+  return orNullOn404(async () => {
+    const json = await zohoGet(`/invoices/${encodeURIComponent(id)}`, {}, opts)
+    const inv = json && json.invoice
+    if (!inv) return null
+    return { ...mapZohoInvoice(inv), lineItems: (Array.isArray(inv.line_items) ? inv.line_items : []).map(mapZohoLine) }
+  })
+}
+
 module.exports = {
   mapPaymentIntent,
   mapWebsiteOrder,
@@ -513,6 +689,12 @@ module.exports = {
   listZohoJournalsInRange,
   getZohoJournal,
   fetchZohoInvoiceById,
+  findZohoCreditNotesForOrder,
+  getZohoCreditNote,
+  listZohoCreditNoteRefunds,
+  getZohoCreditNoteRefund,
+  getZohoInvoiceDetail,
+  listZohoInvoicePayments,
   ORDERS_BY_INTENT_SQL,
   STRIPE_ORDERS_IN_RANGE_SQL,
 }

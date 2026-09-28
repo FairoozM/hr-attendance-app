@@ -62,10 +62,13 @@ function expectedZohoCustomerId(order, config) {
  * @param {Array<{ referenceNumber: string, amount: number, invoiceNumbers: string }>} [input.zohoIntentPayments] Zoho customer payments whose reference_number equals the PaymentIntent ID
  * @param {boolean} [input.locallyCleared] a local clearing record already exists for this PaymentIntent
  * @param {string|null} [input.localClearingStatus] status of the local stripe_payment_clearings row, if any
+ * @param {boolean} [input.refundsClearedSeparately] every Stripe refund on the charge is accounted for as its own
+ *   normal refund (credit note refund) in the payout that carries it, so the sale itself clears at full value
  * @param {{ websiteZohoCustomerId: string, shopZohoCustomerId: string, websiteCurrency: string, amountTolerance: number }} input.config
  */
 function classifyStripePayment(input) {
   const { stripe, websiteOrders = [], zohoInvoices, zohoIntentPayments = [], locallyCleared = false, localClearingStatus = null, config } = input
+  const separate = input.refundsClearedSeparately === true
   const tolerance = config.amountTolerance
   const intentId = stripe ? stripe.paymentIntentId : clean(websiteOrders[0] && websiteOrders[0].stripePaymentIntentId)
 
@@ -86,10 +89,10 @@ function classifyStripePayment(input) {
     if (stripe.disputed) {
       return result(MATCH_STATUS.NEEDS_REVIEW, 'Stripe charge is disputed.')
     }
-    if (stripe.amountRefunded > 0 && stripe.amountRefunded >= stripe.amountReceived - tolerance) {
+    if (!separate && stripe.amountRefunded > 0 && stripe.amountRefunded >= stripe.amountReceived - tolerance) {
       return result(MATCH_STATUS.REFUNDED, 'Stripe payment was fully refunded.')
     }
-    if (stripe.amountRefunded > 0) {
+    if (!separate && stripe.amountRefunded > 0) {
       return result(MATCH_STATUS.PARTIALLY_REFUNDED, `Stripe refunded ${round2(stripe.amountRefunded)} of ${round2(stripe.amountReceived)}.`)
     }
     if (clean(stripe.currency).toUpperCase() !== config.websiteCurrency) {
@@ -117,19 +120,21 @@ function classifyStripePayment(input) {
   if (order.sameNumberCount > 0) {
     return result(MATCH_STATUS.NEEDS_REVIEW, `Order number ${order.orderNumber} is used by another website order.`)
   }
-  if (order.paymentStatus === 'refunded' || WEBSITE_REFUNDED.has(order.orderStatus)) {
+  if (!separate && (order.paymentStatus === 'refunded' || WEBSITE_REFUNDED.has(order.orderStatus))) {
     return result(MATCH_STATUS.REFUNDED, `Website order is ${order.orderStatus} / payment ${order.paymentStatus}.`)
   }
-  if (order.refundAmount > 0 || WEBSITE_PARTIAL_REFUND.has(order.orderStatus)) {
+  if (!separate && (order.refundAmount > 0 || WEBSITE_PARTIAL_REFUND.has(order.orderStatus))) {
     const reason = order.refundAmount > 0
       ? `Website order has a refund of ${round2(order.refundAmount)}.`
       : `Website order status is ${order.orderStatus}.`
     return result(MATCH_STATUS.PARTIALLY_REFUNDED, reason)
   }
-  if (WEBSITE_CANCELLED.has(order.orderStatus) || WEBSITE_REVIEW.has(order.orderStatus)) {
+  // A cancelled order only clears when Stripe refunded all of it; the refund is booked on its own.
+  const refundedInFull = Boolean(stripe && stripe.amountRefunded > 0 && stripe.amountRefunded >= stripe.amountReceived - tolerance)
+  if ((WEBSITE_CANCELLED.has(order.orderStatus) && !(separate && refundedInFull)) || WEBSITE_REVIEW.has(order.orderStatus)) {
     return result(MATCH_STATUS.NEEDS_REVIEW, `Website order status is ${order.orderStatus}.`)
   }
-  if (order.paymentStatus !== 'completed') {
+  if (order.paymentStatus !== 'completed' && !(separate && order.paymentStatus === 'refunded')) {
     return result(MATCH_STATUS.NEEDS_REVIEW, `Website payment status is ${order.paymentStatus}.`)
   }
 

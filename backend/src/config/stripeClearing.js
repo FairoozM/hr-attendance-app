@@ -32,6 +32,7 @@ const FEE_EXPENSE_ACCOUNT_TYPE = 'expense'
 // Legacy manual fee journals were dated from shortly before the payout to weeks after it.
 const LEGACY_FEE_JOURNAL_DAYS_BEFORE = 7
 const LEGACY_FEE_JOURNAL_DAYS_AFTER = 60
+const UNCERTAIN_SETTLE_MINUTES = 15
 const WEBSITE_CUSTOMER_NAME = 'Website'
 const SHOP_CUSTOMER_NAME = 'Burjman Shop - Web & App'
 
@@ -71,6 +72,9 @@ function getStripeClearingConfig() {
     feeExpenseAccountCode: FEE_EXPENSE_ACCOUNT_CODE,
     feeExpenseAccountId: FEE_EXPENSE_ACCOUNT_ID,
     feeExpenseAccountType: FEE_EXPENSE_ACCOUNT_TYPE,
+    // After an uncertain Zoho write, "confirm not created" stays unavailable this long so a
+    // lagging Zoho search can catch up. Extra protection only: it never makes anything retryable.
+    uncertainSettleMinutes: UNCERTAIN_SETTLE_MINUTES,
     legacyFeeJournalDaysBefore: LEGACY_FEE_JOURNAL_DAYS_BEFORE,
     legacyFeeJournalDaysAfter: LEGACY_FEE_JOURNAL_DAYS_AFTER,
     websiteCustomerName: WEBSITE_CUSTOMER_NAME,

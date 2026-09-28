@@ -2,10 +2,14 @@ import { useState, type ReactNode } from 'react'
 import { Modal } from '../../../components/Modal'
 import {
   confirmStripeCustomerAdvance,
+  confirmStripeUncertainNotCreated,
   getStripePayoutPreview,
   getStripePayouts,
   postStripePayoutFeeJournal,
   postStripePayoutGroup,
+  postStripePayoutRefund,
+  recheckStripeUncertainComponent,
+  type StripeNormalRefund,
   type StripePayoutComponent,
   type StripePayoutFeeJournal,
   type StripePayoutFeeJournalPostResult,
@@ -13,7 +17,10 @@ import {
   type StripePayoutLine,
   type StripePayoutPostResult,
   type StripePayoutPreview,
+  type StripePayoutRefundPostResult,
   type StripePayoutSummary,
+  type StripeUncertainComponent,
+  type StripeUncertainResolution,
 } from '../../../api/stripe'
 import {
   accountLabel,
@@ -23,14 +30,18 @@ import {
   componentLabel,
   feeJournalLabel,
   feeJournalTone,
+  feeAdjustmentLabel,
   formatDay,
   formatWhen,
   groupTone,
+  normalRefundTone,
   payoutTone,
   postingSteps,
   recoveryLabel,
+  refundKindLabel,
   refundPayoutLabel,
   statusLabel,
+  UNCERTAIN_WARNING,
   type Tone,
 } from './stripePayoutFormat'
 
@@ -60,6 +71,113 @@ interface FeePostState {
   posting: boolean
   error: string
   result: StripePayoutFeeJournalPostResult | null
+}
+
+interface RefundPostState {
+  refund: StripeNormalRefund
+  acknowledged: boolean
+  posting: boolean
+  error: string
+  result: StripePayoutRefundPostResult | null
+}
+
+interface NotCreatedState {
+  item: StripeUncertainComponent
+  reason: string
+  /** datetime-local value of the admin's own Zoho check. */
+  checkedAt: string
+  zohoLocation: string
+  searchedFor: string
+  noneFound: boolean
+  acknowledged: boolean
+  saving: boolean
+  error: string
+  result: StripeUncertainResolution | null
+}
+
+interface RecheckState {
+  componentId: string
+  checking: boolean
+  message: string
+  error: boolean
+}
+
+const RECHECK_MESSAGE: Record<StripeUncertainResolution['outcome'], string> = {
+  VERIFIED: 'Found in Zoho and it matches exactly; recorded as verified. Nothing was posted.',
+  NEEDS_REVIEW: 'Zoho holds a record that does not match; marked for review. Nothing was posted.',
+  POSTING_UNCERTAIN: 'Still not found in Zoho. Nothing was posted; it stays blocked.',
+  FAILED: 'Retry allowed.',
+}
+
+function uncertainOwner(item: StripeUncertainComponent): string {
+  if (item.refundId) return `refund ${item.refundId}`
+  if (item.component === 'PAYOUT_FEE_JOURNAL') return 'payout fee journal'
+  return item.customerId ? `customer ${item.customerId}` : ''
+}
+
+/** Zoho writes whose result is unknown. Recheck is read-only; retry needs the admin confirmation. */
+function UncertainWrites({
+  items,
+  recheck,
+  onRecheck,
+  onConfirm,
+}: {
+  items: StripeUncertainComponent[]
+  recheck: RecheckState | null
+  onRecheck: (item: StripeUncertainComponent) => void
+  onConfirm: (item: StripeUncertainComponent) => void
+}) {
+  return (
+    <section className="stripe-payout__group" aria-label="Uncertain Zoho writes">
+      <header className="stripe-payout__group-head">
+        <h3>Uncertain Zoho writes ({items.length})</h3>
+        <Badge tone="bad">{statusLabel('POSTING_UNCERTAIN')}</Badge>
+      </header>
+      <p className="stripe-page__banner stripe-page__banner--error" role="alert">
+        {UNCERTAIN_WARNING}. Zoho may already hold these records, so they are never re-sent automatically and cannot be posted
+        again from this page until they are resolved. The payout is not cleared while any of them is open.
+      </p>
+      {items.map((item) => {
+        const busy = recheck?.componentId === item.componentId && recheck.checking
+        return (
+          <div key={`${item.scope}:${item.componentId}`} className="stripe-payout__advance">
+            <p>
+              <strong>
+                {componentLabel(item.component)} · {aed(item.amount)}
+              </strong>{' '}
+              · {uncertainOwner(item)} · <span className="stripe-clearing__mono">{item.reference}</span>
+            </p>
+            <p className="stripe-page__note">
+              {item.status === 'POSTING' ? 'The posting attempt was interrupted before Zoho answered.' : UNCERTAIN_WARNING}. Attempts{' '}
+              {item.attemptCount} · uncertain since {formatWhen(item.uncertainSince)} · Zoho rechecked {item.recoveryCheckCount} time(s)
+              {item.lastRecoveryCheckAt ? `, last ${formatWhen(item.lastRecoveryCheckAt)}` : ''}
+            </p>
+            {item.lastError && <p className="stripe-page__note">{item.lastError}</p>}
+            {recheck?.componentId === item.componentId && recheck.message && (
+              <p className={recheck.error ? 'stripe-page__banner stripe-page__banner--error' : 'stripe-page__note'} role="status">
+                {recheck.message}
+              </p>
+            )}
+            <div className="stripe-clearing__actions">
+              <button type="button" className="btn btn--ghost" disabled={busy} onClick={() => onRecheck(item)}>
+                {busy ? 'Checking Zoho…' : 'Recheck Zoho'}
+              </button>
+              <button
+                type="button"
+                className="btn btn--ghost"
+                disabled={!item.canConfirm || busy}
+                title={item.confirmBlockedReason || undefined}
+                onClick={() => onConfirm(item)}
+              >
+                Confirm Not Created…
+              </button>
+              {item.confirmBlockedReason && <span className="stripe-page__note">{item.confirmBlockedReason}</span>}
+            </div>
+          </div>
+        )
+      })}
+    </section>
+  )
 }
 
 function Badge({ tone, children }: { tone: Tone; children: string }) {
@@ -197,7 +315,7 @@ function AdvanceCard({
 }
 
 function PostAction({ group, postingEnabled, onPost }: { group: StripePayoutGroup; postingEnabled: boolean; onPost: (group: StripePayoutGroup) => void }) {
-  if (!group.postable) return null
+  if (!group.postable || group.status === 'POSTING_UNCERTAIN') return null
   return (
     <div className="stripe-clearing__actions">
       <button
@@ -230,7 +348,7 @@ function FeeJournalCard({
         <h3>Payout Fee Journal</h3>
         <Badge tone={feeJournalTone(fj.status)}>{feeJournalLabel(fj.status)}</Badge>
       </header>
-      {fj.postable && (
+      {fj.postable && fj.status !== 'POSTING_UNCERTAIN' && (
         <div className="stripe-clearing__actions">
           <button
             type="button"
@@ -271,9 +389,18 @@ function FeeJournalCard({
             {f.customerName} FEE {amount(f.amount)} · {statusLabel(f.zohoState)}
           </Check>
         ))}
+        {(fj.refundFeeAdjustments ?? []).map((a) => (
+          <Check key={a.refundId} ok={a.zohoState === 'VERIFIED'}>
+            Refund {a.refundId} fee adjustment {amount(a.fee)} · {statusLabel(a.zohoState)}
+          </Check>
+        ))}
         <Check ok={fj.verifiedFeeTotal === fj.stripeFeeTotal}>
-          Verified FEE payments {amount(fj.verifiedFeeTotal)} = Stripe fees {amount(fj.stripeFeeTotal)}
+          Verified FEE payments{(fj.refundFeeAdjustments ?? []).length > 0 ? ' and refund fee adjustments' : ''} {amount(fj.verifiedFeeTotal)} = Stripe
+          fees {amount(fj.stripeFeeTotal)}
         </Check>
+        {fj.direction === 'FEE_REVERSAL' && (
+          <Check ok>Net fee is negative: fee expense reversal of {amount(fj.amount)} (Dr 1013 / Cr 2270)</Check>
+        )}
       </ul>
       <table className="stripe-page__table">
         <tbody>
@@ -298,6 +425,149 @@ function FeeJournalCard({
       )}
       {fj.local?.lastError && <p className="stripe-page__note">Last attempt: {fj.local.lastError}</p>}
     </section>
+  )
+}
+
+function NormalRefundCard({
+  refund: x,
+  postingEnabled,
+  onPost,
+}: {
+  refund: StripeNormalRefund
+  postingEnabled: boolean
+  onPost: (refund: StripeNormalRefund) => void
+}) {
+  const cnRefund = x.components.find((c) => c.component === 'REFUND_CREDIT_NOTE_REFUND')
+  const feeAdjustment = x.components.find((c) => c.component === 'REFUND_FEE_ADJUSTMENT')
+  return (
+    <div className="stripe-payout__advance" aria-label={`Refund ${x.refundId || x.balanceTransactionId}`}>
+      <div className="stripe-payout__advance-head">
+        <strong>
+          {refundKindLabel(x)} · {aed(x.gross)}
+        </strong>
+        <Badge tone={normalRefundTone(x.status)}>{statusLabel(x.status)}</Badge>
+      </div>
+      <dl className="stripe-payout__totals">
+        <div>
+          <dt>Refund</dt>
+          <dd className="stripe-clearing__mono">{x.refundId || '—'}</dd>
+        </div>
+        <div>
+          <dt>Balance transaction</dt>
+          <dd className="stripe-clearing__mono">{x.balanceTransactionId}</dd>
+        </div>
+        <div>
+          <dt>Charge / PaymentIntent</dt>
+          <dd className="stripe-clearing__mono">
+            {x.chargeId || '—'} / {x.paymentIntentId || '—'}
+          </dd>
+        </div>
+        <div>
+          <dt>Order</dt>
+          <dd>{x.website ? `${x.website.orderNumber}${x.website.shopOrder ? ' (Burjman)' : ''}` : '—'}</dd>
+        </div>
+        <div>
+          <dt>Invoice</dt>
+          <dd>{x.invoice ? `${x.invoice.invoiceNumber} · ${aed(x.invoice.total)} · balance ${amount(x.invoice.balance)}` : '—'}</dd>
+        </div>
+        <div>
+          <dt>Customer</dt>
+          <dd>{x.customerName || '—'}</dd>
+        </div>
+        <div>
+          <dt>Refunded so far</dt>
+          <dd>
+            {x.cumulativeRefunded != null && x.invoice ? `${amount(x.cumulativeRefunded)} of ${amount(x.invoice.total)}` : '—'}
+            {x.remainingRefundable != null ? ` · ${amount(x.remainingRefundable)} left` : ''}
+          </dd>
+        </div>
+        <div>
+          <dt>Gross / fee adjustment / net</dt>
+          <dd>
+            {amount(x.gross)} / {feeAdjustmentLabel(x)} / {amount(x.net)}
+          </dd>
+        </div>
+        <div>
+          <dt>Clearing impact</dt>
+          <dd>
+            1019 {amount(x.clearingImpact.stripeUndepositedFunds)}
+            {x.clearingImpact.processingChargesUncleared !== 0 ? ` · 1013 ${amount(x.clearingImpact.processingChargesUncleared)}` : ''}
+          </dd>
+        </div>
+      </dl>
+      <ul className="stripe-payout__reasons">
+        {x.reasons.map((reason) => (
+          <li key={reason}>{reason}</li>
+        ))}
+      </ul>
+      {x.creditNote ? (
+        <p className="stripe-page__note">
+          Credit note {x.creditNote.creditNoteNumber} · {aed(x.creditNote.total)} · balance {amount(x.creditNote.balance)} · {x.creditNote.status}
+          {x.creditNote.salesReturnNumber ? ` · sales return ${x.creditNote.salesReturnNumber}` : ''}
+        </p>
+      ) : (
+        <p className="stripe-page__note">
+          {x.creditNoteCandidates.length === 0
+            ? 'No Zoho credit note found for this order.'
+            : `Credit notes found: ${x.creditNoteCandidates.map((n) => `${n.creditNoteNumber} (${amount(n.total)})`).join(', ')}`}
+        </p>
+      )}
+      {x.returnedItems.length > 0 ? (
+        <table className="stripe-page__table">
+          <thead>
+            <tr>
+              <th>Returned item</th>
+              <th className="stripe-payout__num">Qty</th>
+              <th className="stripe-payout__num">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {x.returnedItems.map((i) => (
+              <tr key={`${i.invoiceLineItemId}-${i.sku}`}>
+                <td>
+                  {i.name || i.sku || '—'}
+                  {i.sku && i.name ? <span className="stripe-page__note"> · {i.sku}</span> : null}
+                </td>
+                <td className="stripe-payout__num">{i.quantity}</td>
+                <td className="stripe-payout__num">{amount(i.total)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        x.itemsReason && <p className="stripe-page__note">Returned items: {x.itemsReason}</p>
+      )}
+      {x.legacyRefund && (
+        <p className="stripe-page__note">
+          Manual Zoho refund {x.legacyRefund.referenceNumber || x.legacyRefund.creditNoteRefundId} · {x.legacyRefund.date} · {aed(x.legacyRefund.amount)}
+        </p>
+      )}
+      {[cnRefund, feeAdjustment].map(
+        (c) =>
+          c && (
+            <p key={c.component} className="stripe-page__note">
+              {componentLabel(c.component)} {aed(c.amount)} · <span className="stripe-clearing__mono">{c.reference}</span> · Zoho{' '}
+              {statusLabel(c.zoho.state)}
+              {c.zoho.recordId ? ` (${c.zoho.recordId})` : ''} · {recoveryLabel(c.recovery.action)}
+              {c.local?.lastError ? ` · last attempt: ${c.local.lastError}` : ''}
+            </p>
+          ),
+      )}
+      {x.postable && x.postingFingerprint && x.status !== 'POSTING_UNCERTAIN' && (
+        <div className="stripe-clearing__actions">
+          <button
+            type="button"
+            className="btn btn--primary"
+            disabled={!postingEnabled}
+            title={postingEnabled ? undefined : 'Posting disabled on the server (STRIPE_CLEARING_POSTING_ENABLED).'}
+            onClick={() => onPost(x)}
+          >
+            Post refund to Zoho
+          </button>
+          {!postingEnabled && <span className="stripe-page__note">Posting disabled</span>}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -455,6 +725,9 @@ export function StripePayoutPreviewPanel() {
   const [confirm, setConfirm] = useState<ConfirmState | null>(null)
   const [post, setPost] = useState<PostState | null>(null)
   const [feePost, setFeePost] = useState<FeePostState | null>(null)
+  const [refundPost, setRefundPost] = useState<RefundPostState | null>(null)
+  const [recheck, setRecheck] = useState<RecheckState | null>(null)
+  const [notCreated, setNotCreated] = useState<NotCreatedState | null>(null)
 
   async function loadPayouts() {
     setListing(true)
@@ -530,7 +803,65 @@ export function StripePayoutPreviewPanel() {
     await loadPreview(preview.payout.payoutId)
   }
 
+  function openRefundPost(refund: StripeNormalRefund) {
+    setRefundPost({ refund, acknowledged: false, posting: false, error: '', result: null })
+  }
+
+  async function submitRefundPost() {
+    if (!refundPost || !preview || !refundPost.refund.refundId || !refundPost.refund.postingFingerprint) return
+    setRefundPost({ ...refundPost, posting: true, error: '' })
+    try {
+      const result = await postStripePayoutRefund(preview.payout.payoutId, refundPost.refund.refundId, refundPost.refund.postingFingerprint)
+      setRefundPost((prev) => (prev ? { ...prev, posting: false, result } : prev))
+    } catch (err) {
+      setRefundPost((prev) => (prev ? { ...prev, posting: false, error: err instanceof Error ? err.message : 'Posting failed.' } : prev))
+    }
+    await loadPreview(preview.payout.payoutId)
+  }
+
+  async function recheckUncertain(item: StripeUncertainComponent) {
+    if (!preview) return
+    setRecheck({ componentId: item.componentId, checking: true, message: '', error: false })
+    try {
+      const result = await recheckStripeUncertainComponent(preview.payout.payoutId, item.scope, item.componentId)
+      setRecheck({ componentId: item.componentId, checking: false, message: RECHECK_MESSAGE[result.outcome], error: false })
+    } catch (err) {
+      setRecheck({ componentId: item.componentId, checking: false, message: err instanceof Error ? err.message : 'Recheck failed.', error: true })
+    }
+    await loadPreview(preview.payout.payoutId)
+  }
+
+  function openNotCreated(item: StripeUncertainComponent) {
+    setNotCreated({ item, reason: '', checkedAt: '', zohoLocation: '', searchedFor: '', noneFound: false, acknowledged: false, saving: false, error: '', result: null })
+  }
+
+  async function submitNotCreated() {
+    if (!notCreated || !preview) return
+    setNotCreated({ ...notCreated, saving: true, error: '' })
+    try {
+      const result = await confirmStripeUncertainNotCreated(preview.payout.payoutId, notCreated.item.scope, notCreated.item.componentId, notCreated.reason.trim(), {
+        checkedAt: new Date(notCreated.checkedAt).toISOString(),
+        zohoLocation: notCreated.zohoLocation.trim(),
+        searchedFor: notCreated.searchedFor.trim(),
+        recordsFound: 0,
+      })
+      setNotCreated((prev) => (prev ? { ...prev, saving: false, result } : prev))
+    } catch (err) {
+      setNotCreated((prev) => (prev ? { ...prev, saving: false, error: err instanceof Error ? err.message : 'Confirmation failed.' } : prev))
+    }
+    await loadPreview(preview.payout.payoutId)
+  }
+
   const r = preview?.reconciliation
+  const normalRefunds = preview?.normalRefunds ?? []
+  const uncertain = preview?.uncertainComponents ?? []
+  const notCreatedReasonOk = (notCreated?.reason.trim().length ?? 0) >= 10
+  const notCreatedEvidenceOk =
+    notCreated !== null &&
+    notCreated.noneFound &&
+    !Number.isNaN(Date.parse(notCreated.checkedAt)) &&
+    notCreated.zohoLocation.trim().length >= 5 &&
+    notCreated.searchedFor.includes(notCreated.item.reference)
   const reasonOk = (confirm?.reason.trim().length ?? 0) >= 10
   const postingEnabled = preview?.postingEnabled === true
   const postAdvanceLines = post ? advanceLines(post.group) : []
@@ -541,7 +872,9 @@ export function StripePayoutPreviewPanel() {
       <p className="stripe-page__note">
         Each Stripe payout is cleared per customer: NET to [1019] Stripe Undeposited Funds, FEE to [1013] Stripe Processing Chg
         Un-Cleared, and admin-confirmed overpayments to [1123] Customer Advance Funds. Once every customer group is verified, one
-        payout fee journal moves the total fees from [1013] to [2270] Stripe Fees. Nothing is sent to Zoho until an admin posts,
+        payout fee journal clears the signed fee balance of [1013]: Dr [2270] Stripe Fees / Cr [1013] when Stripe's fees net
+        positive, Dr [1013] / Cr [2270] when refunds returned more fees than were charged, none when they net to zero. Nothing is
+        sent to Zoho until an admin posts,
         and only while posting is enabled on the server.
       </p>
       <div className="stripe-clearing__filters">
@@ -630,7 +963,8 @@ export function StripePayoutPreviewPanel() {
           <ul className="stripe-payout__checks">
             <Check ok={r.payoutMatches}>
               NET {amount(r.netTo1019)} + customer advances {amount(r.customerAdvances)}
-              {r.advanceRefundsOutOf1019 ? ` − advance refunds ${amount(r.advanceRefundsOutOf1019)}` : ''} = payout {amount(r.payoutAmount)}
+              {r.advanceRefundsOutOf1019 ? ` − advance refunds ${amount(r.advanceRefundsOutOf1019)}` : ''}
+              {r.normalRefundsNetOutOf1019 ? ` − invoice refunds ${amount(r.normalRefundsNetOutOf1019)}` : ''} = payout {amount(r.payoutAmount)}
             </Check>
             <Check ok={r.grossMatches}>
               1019 total {amount(r.total1019)} + fees {amount(r.fees)} = gross {amount(r.stripeGross)}
@@ -662,6 +996,10 @@ export function StripePayoutPreviewPanel() {
             </p>
           )}
 
+          {uncertain.length > 0 && (
+            <UncertainWrites items={uncertain} recheck={recheck} onRecheck={(item) => void recheckUncertain(item)} onConfirm={openNotCreated} />
+          )}
+
           {preview.groups.map((g) => (
             <GroupCard key={g.groupKey} group={g} postingEnabled={postingEnabled} onConfirm={openConfirm} onPost={openPost} />
           ))}
@@ -683,24 +1021,58 @@ export function StripePayoutPreviewPanel() {
             </section>
           )}
 
-          {preview.advanceRefunds.length > 0 && (
-            <section className="stripe-payout__group">
-              <h3>Refunds of customer advances</h3>
-              <ul className="stripe-payout__reasons">
-                {preview.advanceRefunds.map((x) => (
-                  <li key={x.balanceTransactionId}>
-                    {statusLabel(x.status)} · {aed(x.amount)} · {x.reason}
-                    {x.originalAdvanceJournal && (
-                      <div className="stripe-page__note">
-                        Original advance journal ({x.originalAdvanceJournal.reference}): {statusLabel(x.originalAdvanceJournal.state)}
-                      </div>
-                    )}
-                    {x.matched && !x.posting.allowed && (
-                      <div className="stripe-page__note">Refund journal cannot be posted yet: {x.posting.blockers.join(' ')}</div>
-                    )}
-                  </li>
-                ))}
-              </ul>
+          {(normalRefunds.length > 0 || preview.advanceRefunds.length > 0) && (
+            <section className="stripe-payout__group" aria-label="Refunds">
+              <header className="stripe-payout__group-head">
+                <h3>Refunds</h3>
+              </header>
+              {(preview.refundBlockers ?? []).length > 0 && (
+                <p className="stripe-page__note">
+                  Refunds needing review keep this payout from being fully cleared; the sales in it can still be posted.
+                </p>
+              )}
+
+              <h4>Normal invoice refunds ({normalRefunds.length})</h4>
+              {normalRefunds.length === 0 ? (
+                <p className="stripe-page__note">None in this payout.</p>
+              ) : (
+                <>
+                  <p className="stripe-page__note">
+                    Each refund pays out the existing Zoho credit note for the order from [1019] Stripe Undeposited Funds. Credit notes
+                    are never created here; any Stripe fee change is booked between [1019] and [1013].
+                  </p>
+                  {normalRefunds.map((x) => (
+                    <NormalRefundCard key={x.balanceTransactionId} refund={x} postingEnabled={postingEnabled} onPost={openRefundPost} />
+                  ))}
+                </>
+              )}
+
+              <h4>Customer advance refunds ({preview.advanceRefunds.length})</h4>
+              {preview.advanceRefunds.length === 0 ? (
+                <p className="stripe-page__note">None in this payout.</p>
+              ) : (
+                <ul className="stripe-payout__reasons">
+                  {preview.advanceRefunds.map((x) => (
+                    <li key={x.balanceTransactionId}>
+                      {statusLabel(x.status)} · {aed(x.amount)} · <span className="stripe-clearing__mono">{x.refundId || x.balanceTransactionId}</span> ·{' '}
+                      {x.reason}
+                      {x.originalAdvanceJournal && (
+                        <div className="stripe-page__note">
+                          Original advance journal ({x.originalAdvanceJournal.reference}): {statusLabel(x.originalAdvanceJournal.state)}
+                        </div>
+                      )}
+                      {x.refundJournal && (
+                        <div className="stripe-page__note">
+                          Refund journal Dr [1123] / Cr [1019] ({x.refundJournal.reference}): {statusLabel(x.refundJournal.state)}
+                        </div>
+                      )}
+                      {x.matched && !x.posting.allowed && (
+                        <div className="stripe-page__note">Refund journal cannot be posted yet: {x.posting.blockers.join(' ')}</div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </section>
           )}
 
@@ -1008,8 +1380,9 @@ export function StripePayoutPreviewPanel() {
                     disabled={feePost.posting}
                     onChange={(e) => setFeePost({ ...feePost, acknowledged: e.target.checked })}
                   />
-                  I reviewed this journal. It moves {aed(feePost.feeJournal.amount)} of Stripe fees for this payout from Stripe
-                  Processing Chg Un-Cleared to Stripe Fees, and is created in Zoho once, then verified.
+                  {feePost.feeJournal.direction === 'FEE_REVERSAL'
+                    ? `I reviewed this journal. Stripe returned ${aed(feePost.feeJournal.amount)} more fees than it charged in this payout; it moves that amount from Stripe Fees back to Stripe Processing Chg Un-Cleared (fee expense reversal), and is created in Zoho once, then verified.`
+                    : `I reviewed this journal. It moves ${aed(feePost.feeJournal.amount)} of Stripe fees for this payout from Stripe Processing Chg Un-Cleared to Stripe Fees, and is created in Zoho once, then verified.`}
                 </label>
                 {feePost.error && (
                   <p className="stripe-page__banner stripe-page__banner--error" role="alert">
@@ -1027,6 +1400,211 @@ export function StripePayoutPreviewPanel() {
                     disabled={!feePost.acknowledged || feePost.posting || !postingEnabled}
                   >
                     {feePost.posting ? 'Posting…' : 'Post Fee Journal to Zoho'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </Modal>
+
+      <Modal title="Post Refund to Zoho" open={Boolean(refundPost)} onClose={() => !refundPost?.posting && setRefundPost(null)}>
+        {refundPost && preview && (
+          <div className="stripe-clearing__confirm">
+            <p>
+              {refundKindLabel(refundPost.refund)} <strong>{aed(refundPost.refund.gross)}</strong> ·{' '}
+              <span className="stripe-clearing__mono">{refundPost.refund.refundId}</span> · {refundPost.refund.customerName} · order{' '}
+              {refundPost.refund.website?.orderNumber} · invoice {refundPost.refund.invoice?.invoiceNumber}
+            </p>
+            <ol className="stripe-payout__post-steps">
+              {refundPost.refund.components.map((c) => (
+                <li key={c.component}>
+                  <strong>
+                    {componentLabel(c.component)} · {aed(c.amount)}
+                  </strong>
+                  {c.zoho.state === 'VERIFIED' && <span className="stripe-page__note"> · already in Zoho ({c.zoho.recordId}); kept, not recreated</span>}
+                  <div className="stripe-page__note">
+                    {c.component === 'REFUND_CREDIT_NOTE_REFUND'
+                      ? `Credit note ${c.creditNoteNumber} refunded from [1019] Stripe Undeposited Funds`
+                      : c.direction === 'FEE_RETURNED'
+                        ? 'Dr [1019] Stripe Undeposited Funds / Cr [1013] Stripe Processing Chg Un-Cleared'
+                        : 'Dr [1013] Stripe Processing Chg Un-Cleared / Cr [1019] Stripe Undeposited Funds'}
+                  </div>
+                  <div className="stripe-clearing__mono">{c.reference}</div>
+                </li>
+              ))}
+            </ol>
+
+            {refundPost.result ? (
+              <div role="status">
+                <p>
+                  <strong>Result: {statusLabel(refundPost.result.outcome)}</strong> · Zoho requests sent: {refundPost.result.zohoRequests}
+                </p>
+                <ul className="stripe-payout__reasons">
+                  {refundPost.result.components.map((c) => (
+                    <li key={c.component}>
+                      {componentLabel(c.component)} · {aed(c.amount)} · {c.status ? statusLabel(c.status) : '—'}
+                      {c.zohoRecordId ? ` · Zoho ${c.zohoRecordId}` : ''}
+                      {c.reason || c.lastError ? ` · ${c.reason || c.lastError}` : ''}
+                    </li>
+                  ))}
+                  {(refundPost.result.notAttempted || []).map((k) => (
+                    <li key={k}>{componentLabel(k)} · not attempted</li>
+                  ))}
+                </ul>
+                <div className="stripe-clearing__actions">
+                  <button type="button" className="btn btn--primary" onClick={() => setRefundPost(null)}>
+                    Close
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <label className="stripe-clearing__check">
+                  <input
+                    type="checkbox"
+                    checked={refundPost.acknowledged}
+                    disabled={refundPost.posting}
+                    onChange={(e) => setRefundPost({ ...refundPost, acknowledged: e.target.checked })}
+                  />
+                  I reviewed this refund. The existing credit note is refunded from Stripe Undeposited Funds once, then verified; no
+                  credit note or invoice is created or changed.
+                </label>
+                {refundPost.error && (
+                  <p className="stripe-page__banner stripe-page__banner--error" role="alert">
+                    {refundPost.error}
+                  </p>
+                )}
+                <div className="stripe-clearing__actions">
+                  <button type="button" className="btn btn--ghost" onClick={() => setRefundPost(null)} disabled={refundPost.posting}>
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--primary"
+                    onClick={() => void submitRefundPost()}
+                    disabled={!refundPost.acknowledged || refundPost.posting || !postingEnabled}
+                  >
+                    {refundPost.posting ? 'Posting…' : 'Post Refund to Zoho'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </Modal>
+
+      <Modal title="Confirm Not Created in Zoho" open={Boolean(notCreated)} onClose={() => !notCreated?.saving && setNotCreated(null)}>
+        {notCreated && (
+          <div className="stripe-clearing__confirm">
+            <p>
+              <strong>
+                {componentLabel(notCreated.item.component)} · {aed(notCreated.item.amount)}
+              </strong>{' '}
+              · <span className="stripe-clearing__mono">{notCreated.item.reference}</span>
+            </p>
+            <p className="stripe-page__banner stripe-page__banner--error">
+              {UNCERTAIN_WARNING}. Zoho did not give a clear answer to this POST, so it may have created the record even though no
+              search has found it yet. If it exists and is posted again, Zoho will hold it twice.
+            </p>
+            <p className="stripe-page__note">
+              Search Zoho yourself for this reference, amount and date after the settle window, then record that check below. This
+              step sends nothing to Zoho: it checks Zoho once more and, only if that complete search still finds nothing, allows one
+              retry. You then start the retry separately with the normal Post button.
+            </p>
+            {notCreated.result ? (
+              <div role="status">
+                <p>
+                  <strong>
+                    {notCreated.result.component.retryAllowed
+                      ? 'Retry allowed. Nothing was posted; use the Post button to retry once.'
+                      : RECHECK_MESSAGE[notCreated.result.outcome]}
+                  </strong>
+                </p>
+                <div className="stripe-clearing__actions">
+                  <button type="button" className="btn btn--primary" onClick={() => setNotCreated(null)}>
+                    Close
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <fieldset className="stripe-payout__reason" aria-label="Your own Zoho check">
+                  <legend>Your own Zoho check</legend>
+                  <label className="stripe-payout__reason">
+                    When you checked
+                    <input
+                      type="datetime-local"
+                      value={notCreated.checkedAt}
+                      disabled={notCreated.saving}
+                      onChange={(e) => setNotCreated({ ...notCreated, checkedAt: e.target.value })}
+                    />
+                  </label>
+                  <label className="stripe-payout__reason">
+                    Where in Zoho you searched
+                    <input
+                      type="text"
+                      value={notCreated.zohoLocation}
+                      disabled={notCreated.saving}
+                      placeholder="e.g. Manual Journals; Payments Received; the invoice's payment history"
+                      onChange={(e) => setNotCreated({ ...notCreated, zohoLocation: e.target.value })}
+                    />
+                  </label>
+                  <label className="stripe-payout__reason">
+                    What you searched for (must include the reference)
+                    <input
+                      type="text"
+                      value={notCreated.searchedFor}
+                      disabled={notCreated.saving}
+                      placeholder={notCreated.item.reference}
+                      onChange={(e) => setNotCreated({ ...notCreated, searchedFor: e.target.value })}
+                    />
+                  </label>
+                  <label className="stripe-clearing__check">
+                    <input
+                      type="checkbox"
+                      checked={notCreated.noneFound}
+                      disabled={notCreated.saving}
+                      onChange={(e) => setNotCreated({ ...notCreated, noneFound: e.target.checked })}
+                    />
+                    My search found no matching record.
+                  </label>
+                </fieldset>
+                <label className="stripe-payout__reason">
+                  Reason (what you checked in Zoho)
+                  <textarea
+                    rows={3}
+                    value={notCreated.reason}
+                    disabled={notCreated.saving}
+                    placeholder="e.g. Searched Zoho journals and payments for this reference on the payout date: none."
+                    onChange={(e) => setNotCreated({ ...notCreated, reason: e.target.value })}
+                  />
+                </label>
+                <label className="stripe-clearing__check">
+                  <input
+                    type="checkbox"
+                    checked={notCreated.acknowledged}
+                    disabled={notCreated.saving}
+                    onChange={(e) => setNotCreated({ ...notCreated, acknowledged: e.target.checked })}
+                  />
+                  I searched Zoho and confirm this record does not exist there.
+                </label>
+                {notCreated.error && (
+                  <p className="stripe-page__banner stripe-page__banner--error" role="alert">
+                    {notCreated.error}
+                  </p>
+                )}
+                <div className="stripe-clearing__actions">
+                  <button type="button" className="btn btn--ghost" onClick={() => setNotCreated(null)} disabled={notCreated.saving}>
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--primary"
+                    onClick={() => void submitNotCreated()}
+                    disabled={!notCreated.acknowledged || !notCreatedReasonOk || !notCreatedEvidenceOk || notCreated.saving}
+                  >
+                    {notCreated.saving ? 'Checking Zoho…' : 'Confirm Not Created and Allow Retry'}
                   </button>
                 </div>
               </>

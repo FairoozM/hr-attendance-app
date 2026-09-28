@@ -1,5 +1,7 @@
 import type {
   StripeFeeJournalStatus,
+  StripeNormalRefund,
+  StripeNormalRefundStatus,
   StripePayoutComponent,
   StripePayoutGroup,
   StripePayoutGroupStatus,
@@ -28,6 +30,7 @@ const GROUP_TONE: Record<StripePayoutGroupStatus, Tone> = {
   POSTED: 'muted',
   ALREADY_POSTED: 'muted',
   NEEDS_REVIEW: 'bad',
+  POSTING_UNCERTAIN: 'bad',
 }
 
 const PAYOUT_TONE: Record<StripePayoutStatus, Tone> = {
@@ -36,6 +39,7 @@ const PAYOUT_TONE: Record<StripePayoutStatus, Tone> = {
   FEE_JOURNAL_PENDING: 'warn',
   FULLY_CLEARED: 'muted',
   NEEDS_REVIEW: 'bad',
+  POSTING_UNCERTAIN: 'bad',
 }
 
 const FEE_JOURNAL_TONE: Record<StripeFeeJournalStatus, Tone> = {
@@ -45,6 +49,7 @@ const FEE_JOURNAL_TONE: Record<StripeFeeJournalStatus, Tone> = {
   LEGACY_VERIFIED: 'muted',
   NOT_REQUIRED: 'muted',
   NEEDS_REVIEW: 'bad',
+  POSTING_UNCERTAIN: 'bad',
 }
 
 export function feeJournalTone(status: StripeFeeJournalStatus): Tone {
@@ -64,7 +69,10 @@ export function payoutTone(status: StripePayoutStatus): Tone {
   return PAYOUT_TONE[status] ?? 'muted'
 }
 
+export const UNCERTAIN_WARNING = 'Zoho response uncertain — do not repost'
+
 export function statusLabel(status: string): string {
+  if (status === 'POSTING_UNCERTAIN') return 'ZOHO RESPONSE UNCERTAIN'
   return status.replace(/_/g, ' ')
 }
 
@@ -74,10 +82,43 @@ const COMPONENT_LABEL: Record<StripePayoutComponent['component'], string> = {
   CUSTOMER_ADVANCE: 'Customer advance journal',
   CUSTOMER_ADVANCE_REFUND: 'Customer advance refund journal',
   PAYOUT_FEE_JOURNAL: 'Payout Stripe fee journal',
+  REFUND_CREDIT_NOTE_REFUND: 'Credit note refund',
+  REFUND_FEE_ADJUSTMENT: 'Refund fee adjustment journal',
 }
 
 export function componentLabel(kind: StripePayoutComponent['component']): string {
   return COMPONENT_LABEL[kind] ?? kind
+}
+
+const NORMAL_REFUND_TONE: Record<StripeNormalRefundStatus, Tone> = {
+  DETECTED: 'muted',
+  MATCHED: 'warn',
+  READY: 'ok',
+  POSTED: 'warn',
+  VERIFIED: 'muted',
+  LEGACY_VERIFIED: 'muted',
+  NEEDS_REVIEW: 'bad',
+  MISMATCH: 'bad',
+  FAILED: 'bad',
+  POSTING_UNCERTAIN: 'bad',
+}
+
+export function normalRefundTone(status: StripeNormalRefundStatus): Tone {
+  return NORMAL_REFUND_TONE[status] ?? 'muted'
+}
+
+/** "Partial refund 2 of 3" / "Full refund"; null kind means the refund could not be classified. */
+export function refundKindLabel(refund: StripeNormalRefund): string {
+  if (!refund.kind) return '—'
+  const kind = refund.kind === 'FULL_REFUND' ? 'Full refund' : 'Partial refund'
+  return refund.refundCount && refund.refundCount > 1 ? `${kind} ${refund.sequence} of ${refund.refundCount}` : kind
+}
+
+/** Fee adjustment as it moves the books: Stripe returning fee reduces 1013; an extra fee adds to it. */
+export function feeAdjustmentLabel(refund: StripeNormalRefund): string {
+  if (refund.feeAdjustment === 0) return 'None'
+  const dir = refund.feeAdjustment > 0 ? 'fee returned · Dr 1019 / Cr 1013' : 'fee charged · Dr 1013 / Cr 1019'
+  return `${amount(Math.abs(refund.feeAdjustment))} ${dir}`
 }
 
 const RECOVERY_LABEL: Record<StripeRecoveryAction, string> = {
@@ -85,6 +126,7 @@ const RECOVERY_LABEL: Record<StripeRecoveryAction, string> = {
   POST_ELIGIBLE: 'Not in Zoho yet',
   RETRY_ELIGIBLE: 'Missing — retry eligible',
   NEEDS_REVIEW: 'Needs review',
+  POSTING_UNCERTAIN: 'Zoho response uncertain — do not repost',
 }
 
 export function recoveryLabel(action: StripeRecoveryAction): string {

@@ -54,6 +54,7 @@ function clearingError(res, err, label) {
     groupStatus: err.groupStatus || undefined,
     zohoRecordId: err.zohoRecordId || undefined,
     zohoPaymentId: err.zohoPaymentId || undefined,
+    refundStatus: err.refundStatus || undefined,
     clearing: err.clearing || undefined,
   })
 }
@@ -140,6 +141,44 @@ async function payoutPostFeeJournal(req, res) {
   }
 }
 
+async function payoutPostRefund(req, res) {
+  try {
+    const { postPayoutRefund } = require('../services/stripeClearing/stripePayoutPostingService')
+    const body = await postPayoutRefund(req.params.payoutId, req.params.refundId, {
+      fingerprint: req.body && req.body.fingerprint,
+      actor: clearingActor(req),
+    })
+    return res.json(body)
+  } catch (err) {
+    return clearingError(res, err, 'payout refund posting')
+  }
+}
+
+async function payoutRecheckUncertain(req, res) {
+  try {
+    const { recheckUncertainComponent } = require('../services/stripeClearing/stripePayoutPostingService')
+    const body = await recheckUncertainComponent(req.params.payoutId, req.params.scope, req.params.componentId, { actor: clearingActor(req) })
+    return res.json(body)
+  } catch (err) {
+    return clearingError(res, err, 'uncertain component recheck')
+  }
+}
+
+async function payoutConfirmUncertainNotCreated(req, res) {
+  try {
+    const { confirmUncertainNotCreated } = require('../services/stripeClearing/stripePayoutPostingService')
+    const body = await confirmUncertainNotCreated(req.params.payoutId, req.params.scope, req.params.componentId, {
+      actor: clearingActor(req),
+      reason: req.body && req.body.reason,
+      acknowledged: Boolean(req.body && req.body.acknowledged === true),
+      verification: req.body && req.body.verification,
+    })
+    return res.json(body)
+  } catch (err) {
+    return clearingError(res, err, 'uncertain component confirmation')
+  }
+}
+
 async function payoutList(req, res) {
   try {
     const { listPayoutSummaries } = require('../services/stripeClearing/stripePayoutPreviewService')
@@ -170,5 +209,8 @@ module.exports = {
   payoutPreview,
   payoutPostCustomerGroup,
   payoutPostFeeJournal,
+  payoutPostRefund,
+  payoutRecheckUncertain,
+  payoutConfirmUncertainNotCreated,
   confirmCustomerAdvance,
 }

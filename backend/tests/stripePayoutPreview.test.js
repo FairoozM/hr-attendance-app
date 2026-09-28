@@ -229,6 +229,7 @@ function zohoPaymentFor(component, customerId, paymentId, patch = {}) {
       payment_id: paymentId,
       customer_id: customerId,
       reference_number: component.reference,
+      date: component.payload.date,
       amount: component.amount,
       account_id: component.depositAccountId,
       invoices: component.allocations.map((a) => ({ invoice_id: a.invoiceId, amount_applied: a.amount })),
@@ -241,6 +242,7 @@ function advanceJournal(journalId, customerId, amount, patch = {}) {
   return {
     journalId,
     referenceNumber: patch.referenceNumber || advRef(CURRENT_ID),
+    journalDate: patch.journalDate || '2026-09-28',
     lineItems: patch.lineItems || [
       { accountId: A1019, accountName: 'Stripe Undeposited Funds', debitOrCredit: 'debit', amount, customerId: '' },
       { accountId: patch.creditAccountId || A1123, accountName: 'Customer Advance Funds', debitOrCredit: 'credit', amount, customerId },
@@ -379,6 +381,9 @@ test('a confirmed case makes the Website group READY_WITH_CUSTOMER_ADVANCE with 
     customerAdvances: 35,
     total1019: 4551.97,
     advanceRefundsOutOf1019: 0,
+    normalRefundsGross: 0,
+    normalRefundFeeAdjustments: 0,
+    normalRefundsNetOutOf1019: 0,
     fees: 147.28,
     payoutAmount: 4551.97,
     stripeGross: 4699.25,
@@ -543,6 +548,9 @@ test('the later refund does not change the original payout figures or reconcilia
     customerAdvances: 35,
     total1019: 4551.97,
     advanceRefundsOutOf1019: 0,
+    normalRefundsGross: 0,
+    normalRefundFeeAdjustments: 0,
+    normalRefundsNetOutOf1019: 0,
     fees: 147.28,
     payoutAmount: 4551.97,
     stripeGross: 4699.25,
@@ -652,6 +660,7 @@ test('duplicate NET: a matching payment is verified; reference alone is never en
     ['amount', { amount: 3313.47 }],
     ['account', { account_id: A1013 }],
     ['customer', { customer_id: SHOP }],
+    ['date', { date: '2026-09-27' }],
     ['allocation', { invoices: net.allocations.map((a, i) => ({ invoice_id: a.invoiceId, amount_applied: i === 0 ? 1068.07 : a.amount })) }],
   ]
   for (const [label, patch] of variants) {
@@ -696,6 +705,7 @@ test('duplicate journal: verified only with reference, customer tag, Dr 1019, Cr
     ['untagged', advanceJournal('ZJ-1', '', 35)],
     ['wrong credit account', advanceJournal('ZJ-1', WEB, 35, { creditAccountId: 'A1260' })],
     ['wrong amount', advanceJournal('ZJ-1', WEB, 30)],
+    ['wrong date', advanceJournal('ZJ-1', WEB, 35, { journalDate: '2026-09-27' })],
     ['extra line', advanceJournal('ZJ-1', WEB, 35, { lineItems: [
       { accountId: A1019, debitOrCredit: 'debit', amount: 35 },
       { accountId: A1123, debitOrCredit: 'credit', amount: 20, customerId: WEB },
@@ -743,7 +753,7 @@ test('partial recovery: verified NET is kept, FEE and journal are retry-eligible
   assert.ok(web.lines.every((l) => l.state === LINE_STATE.PARTIALLY_CLEARED))
 })
 
-test('partial recovery: all verified is POSTED, unknown Zoho state or a removed record needs review', async () => {
+test('partial recovery: all verified is POSTED, an interrupted POST is uncertain, a removed record needs review', async () => {
   const { net, fee } = await readyComponents()
   const everything = { cases: [confirmedCase()], payments: [zohoPaymentFor(net, WEB, 'ZP-NET'), zohoPaymentFor(fee, WEB, 'ZP-FEE')], journals: [advanceJournal('ZJ-1', WEB, 35)], balances: balancesAfter(net, fee) }
   const tracked = ['NET', 'FEE', 'CUSTOMER_ADVANCE'].map((kind, i) => ({ payoutId: CURRENT_ID, zohoCustomerId: WEB, component: kind, status: 'VERIFIED', zohoRecordId: ['ZP-NET', 'ZP-FEE', 'ZJ-1'][i], attemptCount: 1 }))
@@ -753,8 +763,10 @@ test('partial recovery: all verified is POSTED, unknown Zoho state or a removed 
   assert.equal(posted.status, PAYOUT_STATUS.PARTIALLY_CLEARED)
 
   const inFlight = await world(CURRENT, { cases: [confirmedCase()], components: [{ payoutId: CURRENT_ID, zohoCustomerId: WEB, component: 'FEE', status: 'POSTING', zohoRecordId: null, attemptCount: 1 }] }).run()
-  assert.equal(component(group(inFlight, WEB), 'FEE').recovery.action, RECOVERY_ACTION.NEEDS_REVIEW)
-  assert.equal(group(inFlight, WEB).status, GROUP_STATUS.NEEDS_REVIEW)
+  // Interrupted mid-POST and nothing in Zoho: it may still appear, so it is uncertain, not postable.
+  assert.equal(component(group(inFlight, WEB), 'FEE').recovery.action, RECOVERY_ACTION.POSTING_UNCERTAIN)
+  assert.deepEqual([group(inFlight, WEB).status, group(inFlight, WEB).postable, inFlight.status], [GROUP_STATUS.POSTING_UNCERTAIN, false, PAYOUT_STATUS.POSTING_UNCERTAIN])
+  assert.deepEqual(inFlight.uncertainComponents.map((u) => [u.component, u.status, u.canConfirm]), [['FEE', 'POSTING', false]])
 
   const removed = await world(CURRENT, { cases: [confirmedCase()], components: [{ payoutId: CURRENT_ID, zohoCustomerId: WEB, component: 'NET', status: 'VERIFIED', zohoRecordId: 'ZP-GONE', attemptCount: 1 }] }).run()
   assert.match(component(group(removed, WEB), 'NET').recovery.reason, /Zoho no longer has it/)
@@ -810,7 +822,7 @@ const A2270 = config.feeExpenseAccountId
 function historicalPayments() {
   const webNet = HISTORICAL.rows.filter((r) => r.customer === WEB)
   const alloc = (rows, fn) => rows.map((r) => ({ invoice_id: invoiceId(r.invoiceNumber), amount_applied: fn(r) / 100 }))
-  const pay = (id, customerId, ref, amount, accountId, invoices) => ({ paymentId: id, customerId, referenceNumber: ref, amount, detail: { payment_id: id, customer_id: customerId, reference_number: ref, amount, account_id: accountId, invoices } })
+  const pay = (id, customerId, ref, amount, accountId, invoices) => ({ paymentId: id, customerId, referenceNumber: ref, amount, detail: { payment_id: id, customer_id: customerId, reference_number: ref, date: '2026-09-07', amount, account_id: accountId, invoices } })
   const shopRows = HISTORICAL.rows.filter((r) => r.customer === SHOP)
   return [
     pay('4265011000042060301', WEB, netRef(HISTORICAL_ID), 9995.57, A1019, alloc(webNet, (r) => r.gross - r.fee)),

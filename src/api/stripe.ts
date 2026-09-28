@@ -88,12 +88,32 @@ export type StripePayoutGroupStatus =
   | 'PARTIALLY_POSTED'
   | 'POSTED'
   | 'ALREADY_POSTED'
+  | 'POSTING_UNCERTAIN'
 
-export type StripePayoutStatus = 'READY' | 'PARTIALLY_CLEARED' | 'FEE_JOURNAL_PENDING' | 'FULLY_CLEARED' | 'NEEDS_REVIEW'
+export type StripePayoutStatus = 'READY' | 'PARTIALLY_CLEARED' | 'FEE_JOURNAL_PENDING' | 'FULLY_CLEARED' | 'NEEDS_REVIEW' | 'POSTING_UNCERTAIN'
 
-export type StripePayoutComponentKind = 'NET' | 'FEE' | 'CUSTOMER_ADVANCE' | 'CUSTOMER_ADVANCE_REFUND' | 'PAYOUT_FEE_JOURNAL'
+export type StripePayoutComponentKind =
+  | 'NET'
+  | 'FEE'
+  | 'CUSTOMER_ADVANCE'
+  | 'CUSTOMER_ADVANCE_REFUND'
+  | 'PAYOUT_FEE_JOURNAL'
+  | 'REFUND_CREDIT_NOTE_REFUND'
+  | 'REFUND_FEE_ADJUSTMENT'
 
-export type StripeFeeJournalStatus = 'WAITING' | 'READY' | 'VERIFIED' | 'LEGACY_VERIFIED' | 'NOT_REQUIRED' | 'NEEDS_REVIEW'
+export type StripeNormalRefundStatus =
+  | 'DETECTED'
+  | 'MATCHED'
+  | 'READY'
+  | 'POSTED'
+  | 'VERIFIED'
+  | 'LEGACY_VERIFIED'
+  | 'NEEDS_REVIEW'
+  | 'MISMATCH'
+  | 'FAILED'
+  | 'POSTING_UNCERTAIN'
+
+export type StripeFeeJournalStatus = 'WAITING' | 'READY' | 'VERIFIED' | 'LEGACY_VERIFIED' | 'NOT_REQUIRED' | 'NEEDS_REVIEW' | 'POSTING_UNCERTAIN'
 
 export type StripePayoutLineState = 'OPEN' | 'PARTIALLY_CLEARED' | 'CLEARED' | 'NEEDS_REVIEW'
 
@@ -104,7 +124,7 @@ export type StripeAdvanceCaseStatus =
   | 'REFUNDED'
   | 'REJECTED'
 
-export type StripeRecoveryAction = 'SKIP_VERIFIED' | 'POST_ELIGIBLE' | 'RETRY_ELIGIBLE' | 'NEEDS_REVIEW'
+export type StripeRecoveryAction = 'SKIP_VERIFIED' | 'POST_ELIGIBLE' | 'RETRY_ELIGIBLE' | 'NEEDS_REVIEW' | 'POSTING_UNCERTAIN'
 
 export interface StripeZohoAccount {
   accountId: string
@@ -225,17 +245,53 @@ export interface StripePayoutComponent {
     differences: string[]
     reason?: string
   }
-  local: {
-    id: string
-    status: string
-    zohoRecordId: string | null
-    zohoJournalId: string | null
-    attemptCount: number
-    lastError: string | null
-    postedAt: string | null
-    verifiedAt: string | null
-  } | null
+  local: StripeComponentLocal | null
   recovery: { action: StripeRecoveryAction; reason: string }
+}
+
+/** Local posting record of one component, including uncertain-write recovery history. */
+export interface StripeComponentLocal {
+  id: string
+  status: string
+  zohoRecordId: string | null
+  zohoJournalId?: string | null
+  attemptCount: number
+  lastError: string | null
+  postedAt: string | null
+  verifiedAt: string | null
+  firstUncertainAt?: string | null
+  uncertainSince?: string | null
+  lastRecoveryCheckAt?: string | null
+  recoveryCheckCount?: number
+  retryAuthorizedAt?: string | null
+  retryAuthorizedBy?: string | null
+  retryAuthorizationReason?: string | null
+}
+
+export type StripeUncertainScope = 'component' | 'refund-component'
+
+/** A Zoho write whose result is unknown: Zoho may hold the record, so it must not be reposted. */
+export interface StripeUncertainComponent {
+  scope: StripeUncertainScope
+  componentId: string
+  component: StripePayoutComponentKind
+  zohoRecordType: string
+  customerId: string | null
+  refundId: string | null
+  creditNoteId: string | null
+  reference: string
+  amount: number
+  /** POSTING = an attempt was interrupted; POSTING_UNCERTAIN = the response was uncertain. */
+  status: 'POSTING_UNCERTAIN' | 'POSTING'
+  attemptCount: number
+  lastError: string | null
+  firstUncertainAt: string | null
+  uncertainSince: string | null
+  lastRecoveryCheckAt: string | null
+  recoveryCheckCount: number
+  confirmAvailableAt: string | null
+  canConfirm: boolean
+  confirmBlockedReason: string | null
 }
 
 export interface StripePayoutGroupTotals {
@@ -282,18 +338,26 @@ export interface StripePayoutFeeJournal {
   reasons: string[]
   postable: boolean
   tracked: boolean
+  /** Journal amount: the absolute value of the signed Stripe fee total. */
   amount: number
+  /** Signed Stripe fee total (negative when refunds returned more fees than were charged). */
+  signedAmount?: number
+  /** FEE_EXPENSE: Dr 2270 / Cr 1013; FEE_REVERSAL: Dr 1013 / Cr 2270; null: no journal (zero net fee). */
+  direction?: 'FEE_EXPENSE' | 'FEE_REVERSAL' | null
   stripeFeeTotal: number
   verifiedFeeTotal: number
   feeComponents: Array<{ customerId: string; customerName: string; amount: number; zohoState: 'MISSING' | 'VERIFIED' | 'CONFLICT'; zohoRecordId: string | null }>
+  /** Stripe fee changes carried by normal refunds (negative: fee returned). Absent from older previews. */
+  refundFeeAdjustments?: Array<{ refundId: string; fee: number; zohoState: 'MISSING' | 'VERIFIED' | 'CONFLICT'; zohoRecordId: string | null }>
   reference: string
   date: string | null
-  debitAccountId: string
-  creditAccountId: string
+  /** Null when the net fee is zero (no journal). */
+  debitAccountId: string | null
+  creditAccountId: string | null
   debitAccount: StripeZohoAccount | null
   creditAccount: StripeZohoAccount | null
   accountProblems: string[]
-  payload: Record<string, unknown>
+  payload: Record<string, unknown> | null
   zoho: StripePayoutComponent['zoho']
   legacy: {
     state: 'MATCHED' | 'NONE' | 'AMBIGUOUS' | 'ERROR'
@@ -313,6 +377,9 @@ export interface StripePayoutReconciliation {
   customerAdvances: number
   total1019: number
   advanceRefundsOutOf1019: number
+  normalRefundsGross?: number
+  normalRefundFeeAdjustments?: number
+  normalRefundsNetOutOf1019?: number
   fees: number
   payoutAmount: number
   stripeGross: number
@@ -342,8 +409,107 @@ export interface StripeAdvanceRefund {
   matched: boolean
   reason: string
   originalAdvanceJournal: { reference: string; state: 'MISSING' | 'VERIFIED' | 'CONFLICT'; recordId: string | null; reason: string | null } | null
+  /** Dr 1123 / Cr 1019 refund journal as found in Zoho (matched refunds only). */
+  refundJournal?: { reference: string; state: 'MISSING' | 'VERIFIED' | 'CONFLICT'; recordId: string | null; reason: string | null }
   posting: { allowed: boolean; blockers: string[] }
   proposedJournal: { amount: number; reference: string; payload: Record<string, unknown> } | null
+}
+
+export interface StripeCreditNoteRefundRecord {
+  creditNoteRefundId: string
+  date: string | null
+  referenceNumber: string | null
+  amount: number
+  fromAccountId: string | null
+  fromAccountName: string | null
+}
+
+export interface StripeRefundCreditNote {
+  creditNoteId: string
+  creditNoteNumber: string
+  status: string
+  date: string | null
+  total: number
+  balance: number
+  invoiceId: string | null
+  invoiceNumber: string | null
+  salesReturnNumber: string | null
+  customerId: string | null
+  refunds: StripeCreditNoteRefundRecord[]
+  matchedBy: string | null
+}
+
+export interface StripeReturnedItem {
+  name: string | null
+  sku: string | null
+  itemId: string | null
+  quantity: number
+  rate: number
+  total: number
+  invoiceLineItemId: string
+  linkedBy: 'INVOICE_LINE' | 'INVOICE_ITEM'
+}
+
+export interface StripeRefundComponent {
+  component: 'REFUND_CREDIT_NOTE_REFUND' | 'REFUND_FEE_ADJUSTMENT'
+  zohoRecordType: 'creditnote_refund' | 'journal'
+  amount: number
+  currency: string
+  reference: string
+  date: string | null
+  creditNoteId: string
+  creditNoteNumber?: string
+  direction?: 'FEE_RETURNED' | 'FEE_CHARGED'
+  depositAccountId: string | null
+  debitAccountId: string | null
+  creditAccountId: string | null
+  payload: Record<string, unknown>
+  zoho: StripePayoutComponent['zoho']
+  local: StripePayoutComponent['local']
+  recovery: { action: StripeRecoveryAction; reason: string }
+}
+
+/** A refund of a normal invoiced website sale: Zoho credit note → refund from 1019. */
+export interface StripeNormalRefund {
+  refundId: string | null
+  balanceTransactionId: string
+  chargeId: string | null
+  paymentIntentId: string | null
+  currency: string
+  stripeRefundStatus: string | null
+  gross: number
+  stripeFee: number
+  /** Positive: Stripe returned part of its fee; negative: Stripe charged an extra fee. */
+  feeAdjustment: number
+  net: number
+  reference: string
+  kind: 'PARTIAL_REFUND' | 'FULL_REFUND' | null
+  sequence: number | null
+  refundCount: number | null
+  chargeGross: number | null
+  priorRefunded: number | null
+  cumulativeRefunded: number | null
+  remainingRefundable: number | null
+  website: { orderId: string; orderNumber: string; finalAmount: number; shopOrder: boolean; orderStatus: string | null; paymentStatus: string | null } | null
+  invoice: { invoiceId: string; invoiceNumber: string; total: number; balance: number; status: string; customerId: string } | null
+  customerId: string | null
+  customerName: string | null
+  creditNote: StripeRefundCreditNote | null
+  creditNoteCandidates: StripeRefundCreditNote[]
+  returnedItems: StripeReturnedItem[]
+  itemsProven: boolean
+  itemsReason: string | null
+  legacyRefund: { creditNoteRefundId: string; referenceNumber: string | null; amount: number; date: string | null; fromAccountId: string | null } | null
+  clearingImpact: { stripeUndepositedFunds: number; processingChargesUncleared: number }
+  components: StripeRefundComponent[]
+  status: StripeNormalRefundStatus
+  reasonCode: string | null
+  reason: string
+  reasons: string[]
+  tracked: boolean
+  postable: boolean
+  /** Sent back when posting; the server refuses if the live plan no longer matches. */
+  postingFingerprint: string | null
 }
 
 export interface StripeOtherTransaction {
@@ -363,6 +529,8 @@ export interface StripePayoutPreview {
   payout: { payoutId: string; status: string; amount: number; currency: string; arrivalDate: string | null; createdAt: string | null }
   status: StripePayoutStatus
   blockers: string[]
+  /** Absent from previews produced before uncertain-write recovery existed. */
+  uncertainComponents?: StripeUncertainComponent[]
   proposedPaymentDate: string | null
   accounts: {
     net: StripeZohoAccount | null
@@ -380,6 +548,10 @@ export interface StripePayoutPreview {
   unassigned: StripePayoutLine[]
   advanceCaseEvents: StripeAdvanceCaseEvent[]
   advanceRefunds: StripeAdvanceRefund[]
+  /** Absent from previews produced before normal refunds were handled. */
+  normalRefunds?: StripeNormalRefund[]
+  /** Normal refund problems: they keep the payout from FULLY_CLEARED but never block sale posting. */
+  refundBlockers?: string[]
   otherTransactions: StripeOtherTransaction[]
   warnings: string[]
 }
@@ -419,7 +591,7 @@ export interface StripePayoutPostComponentResult {
 }
 
 export interface StripePayoutPostResult {
-  outcome: 'POSTED' | 'PARTIALLY_POSTED' | 'NEEDS_REVIEW' | 'NOT_POSTED'
+  outcome: 'POSTED' | 'PARTIALLY_POSTED' | 'NEEDS_REVIEW' | 'POSTING_UNCERTAIN' | 'NOT_POSTED'
   alreadyPosted: boolean
   payoutId: string
   customerId: string
@@ -438,7 +610,7 @@ export function postStripePayoutGroup(payoutId: string, zohoCustomerId: string, 
 }
 
 export interface StripePayoutFeeJournalPostResult {
-  outcome: 'VERIFIED' | 'NEEDS_REVIEW' | 'POSTED_UNVERIFIED' | 'NOT_POSTED'
+  outcome: 'VERIFIED' | 'NEEDS_REVIEW' | 'POSTING_UNCERTAIN' | 'POSTED_UNVERIFIED' | 'NOT_POSTED'
   alreadyPosted: boolean
   payoutId: string
   amount: number | null
@@ -452,6 +624,68 @@ export function postStripePayoutFeeJournal(payoutId: string, fingerprint: string
   return api.post(`/api/stripe/payouts/${encodeURIComponent(payoutId)}/fee-journal/post`, {
     fingerprint,
   }) as Promise<StripePayoutFeeJournalPostResult>
+}
+
+export interface StripePayoutRefundPostResult {
+  outcome: StripeNormalRefundStatus | 'NOT_POSTED'
+  alreadyPosted: boolean
+  payoutId: string
+  refundId: string
+  amount: number
+  creditNoteNumber: string | null
+  components: StripePayoutPostComponentResult[]
+  notAttempted?: StripeRefundComponent['component'][]
+  zohoRequests: number
+}
+
+/** Refunds the existing Zoho credit note from Stripe Undeposited Funds (plus any fee adjustment journal). */
+export function postStripePayoutRefund(payoutId: string, refundId: string, fingerprint: string) {
+  return api.post(`/api/stripe/payouts/${encodeURIComponent(payoutId)}/refunds/${encodeURIComponent(refundId)}/post`, {
+    fingerprint,
+  }) as Promise<StripePayoutRefundPostResult>
+}
+
+export interface StripeUncertainResolution {
+  payoutId: string
+  scope: StripeUncertainScope
+  componentId: string
+  outcome: 'VERIFIED' | 'NEEDS_REVIEW' | 'POSTING_UNCERTAIN' | 'FAILED'
+  component: StripePayoutPostComponentResult & { retryAllowed?: boolean }
+  zohoWrites: 0
+}
+
+const uncertainPath = (payoutId: string, scope: StripeUncertainScope, componentId: string) =>
+  `/api/stripe/payouts/${encodeURIComponent(payoutId)}/uncertain/${encodeURIComponent(scope)}/${encodeURIComponent(componentId)}`
+
+/** Read-only: searches Zoho again for an uncertain write. Never posts. */
+export function recheckStripeUncertainComponent(payoutId: string, scope: StripeUncertainScope, componentId: string) {
+  return api.post(`${uncertainPath(payoutId, scope, componentId)}/recheck`, {}) as Promise<StripeUncertainResolution>
+}
+
+/** The admin's own Zoho check, recorded with the retry authorization. */
+export interface StripeUncertainVerification {
+  /** ISO time of the check; must be after the settle window. */
+  checkedAt: string
+  /** Where in Zoho the admin searched. */
+  zohoLocation: string
+  /** What was searched for; must include the attempt's reference. */
+  searchedFor: string
+  recordsFound: 0
+}
+
+/** Admin confirms Zoho holds no such record; allows one later retry. Never posts. */
+export function confirmStripeUncertainNotCreated(
+  payoutId: string,
+  scope: StripeUncertainScope,
+  componentId: string,
+  reason: string,
+  verification: StripeUncertainVerification,
+) {
+  return api.post(`${uncertainPath(payoutId, scope, componentId)}/confirm-not-created`, {
+    reason,
+    acknowledged: true,
+    verification,
+  }) as Promise<StripeUncertainResolution>
 }
 
 export function getStripeStatus() {

@@ -2,13 +2,27 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type {
   StripeFeeJournalStatus,
+  StripeNormalRefund,
   StripePayoutComponent,
   StripePayoutFeeJournal,
   StripePayoutGroup,
   StripePayoutLine,
   StripePayoutPreview,
+  StripeUncertainComponent,
 } from '../../../api/stripe'
-import { aed, confirmableAdvanceLines, feeJournalLabel, feeJournalTone, groupTone, payoutTone, postingSteps, recoveryLabel } from './stripePayoutFormat'
+import {
+  aed,
+  confirmableAdvanceLines,
+  feeAdjustmentLabel,
+  feeJournalLabel,
+  feeJournalTone,
+  groupTone,
+  normalRefundTone,
+  payoutTone,
+  postingSteps,
+  recoveryLabel,
+  refundKindLabel,
+} from './stripePayoutFormat'
 
 const api = vi.hoisted(() => ({
   getStripePayouts: vi.fn(),
@@ -16,6 +30,9 @@ const api = vi.hoisted(() => ({
   confirmStripeCustomerAdvance: vi.fn(),
   postStripePayoutGroup: vi.fn(),
   postStripePayoutFeeJournal: vi.fn(),
+  postStripePayoutRefund: vi.fn(),
+  recheckStripeUncertainComponent: vi.fn(),
+  confirmStripeUncertainNotCreated: vi.fn(),
 }))
 vi.mock('../../../api/stripe', () => api)
 
@@ -522,3 +539,459 @@ describe('StripePayoutPreviewPanel', () => {
     expect(screen.getByText(/Refund journal cannot be posted yet: The original Customer Advance journal is not verified/)).toBeTruthy()
   })
 })
+
+const RPO = 'po_1U8V40RefundTest0001'
+
+function normalRefund(overrides: Partial<StripeNormalRefund> = {}): StripeNormalRefund {
+  const reference = 'Stripe refund re_3U6IwD20717a'
+  return {
+    refundId: 're_3U6IwD20717a',
+    balanceTransactionId: 'txn_refund_20717',
+    chargeId: 'ch_3U6IwD20717',
+    paymentIntentId: 'pi_3U6IwD20717',
+    currency: 'AED',
+    stripeRefundStatus: 'succeeded',
+    gross: 76.7,
+    stripeFee: 0,
+    feeAdjustment: 0,
+    net: -76.7,
+    reference,
+    kind: 'PARTIAL_REFUND',
+    sequence: 1,
+    refundCount: 1,
+    chargeGross: 382.59,
+    priorRefunded: 0,
+    cumulativeRefunded: 76.7,
+    remainingRefundable: 305.89,
+    website: { orderId: '9', orderNumber: '20717', finalAmount: 382.59, shopOrder: false, orderStatus: 'delivered', paymentStatus: 'partially_refunded' },
+    invoice: { invoiceId: 'INV1', invoiceNumber: 'INV-043700', total: 382.59, balance: 0, status: 'paid', customerId: 'WEB' },
+    customerId: 'WEB',
+    customerName: 'Website',
+    creditNote: {
+      creditNoteId: 'CN1',
+      creditNoteNumber: '20717',
+      status: 'open',
+      date: '2026-09-02',
+      total: 76.7,
+      balance: 76.7,
+      invoiceId: 'INV1',
+      invoiceNumber: 'INV-043700',
+      salesReturnNumber: 'RMA-00412',
+      customerId: 'WEB',
+      refunds: [],
+      matchedBy: 'EXACT_TOTAL',
+    },
+    creditNoteCandidates: [],
+    returnedItems: [
+      { name: 'Frying Pan 28cm', sku: 'LIFEFP28', itemId: 'IT1', quantity: 1, rate: 76.7, total: 76.7, invoiceLineItemId: 'L1', linkedBy: 'INVOICE_LINE' },
+    ],
+    itemsProven: true,
+    itemsReason: null,
+    legacyRefund: null,
+    clearingImpact: { stripeUndepositedFunds: -76.7, processingChargesUncleared: 0 },
+    components: [
+      {
+        component: 'REFUND_CREDIT_NOTE_REFUND',
+        zohoRecordType: 'creditnote_refund',
+        amount: 76.7,
+        currency: 'AED',
+        reference,
+        date: '2026-09-03',
+        creditNoteId: 'CN1',
+        creditNoteNumber: '20717',
+        depositAccountId: '1019',
+        debitAccountId: null,
+        creditAccountId: null,
+        payload: { reference_number: reference, amount: 76.7, from_account_id: '1019' },
+        zoho: { state: 'MISSING', recordId: null, records: [], differences: [] },
+        local: null,
+        recovery: { action: 'POST_ELIGIBLE', reason: 'Not in Zoho yet.' },
+      },
+    ],
+    status: 'READY',
+    reasonCode: null,
+    reason: 'Partial refund 76.70 of INV-043700 (76.70 of 382.59 refunded so far): refund credit note 20717 from Stripe Undeposited Funds.',
+    reasons: ['Partial refund 76.70 of INV-043700 (76.70 of 382.59 refunded so far): refund credit note 20717 from Stripe Undeposited Funds.'],
+    tracked: false,
+    postable: true,
+    postingFingerprint: 'fp-refund-20717',
+    ...overrides,
+  }
+}
+
+function refundPayout(postingEnabled: boolean, refunds: StripeNormalRefund[]): StripePayoutPreview {
+  const p = preview(true)
+  return {
+    ...p,
+    postingEnabled,
+    payout: { ...p.payout, payoutId: RPO },
+    groups: [],
+    normalRefunds: refunds,
+    refundBlockers: refunds.filter((x) => x.status === 'NEEDS_REVIEW').map((x) => `Refund ${x.refundId} (${x.gross}): ${x.reason}`),
+    reconciliation: { ...p.reconciliation, normalRefundsGross: 76.7, normalRefundFeeAdjustments: 0, normalRefundsNetOutOf1019: 76.7 },
+    advanceRefunds: [
+      {
+        balanceTransactionId: 'txn_adv_refund',
+        chargeId: 'ch_3UIA7CDJogiiRoKP07RCqZKw',
+        refundId: 're_3UIA7CDJogiiRoKP0noUu0UZ',
+        amount: 35,
+        caseId: '1',
+        caseStatus: 'CONFIRMED',
+        originalPayoutId: PAYOUT,
+        status: 'REFUND_MATCHED',
+        matched: true,
+        reason: 'Refund matches the confirmed customer advance.',
+        originalAdvanceJournal: { reference: `Stripe customer advance ${PAYOUT}`, state: 'VERIFIED', recordId: 'J1', reason: null },
+        refundJournal: { reference: `Stripe customer advance refund ${RPO}`, state: 'MISSING', recordId: null, reason: null },
+        posting: { allowed: false, blockers: ['Posting is disabled.'] },
+        proposedJournal: null,
+      },
+    ],
+  }
+}
+
+async function openRefundPreview(p: StripePayoutPreview) {
+  api.getStripePayouts.mockResolvedValue({
+    rows: [{ payoutId: RPO, status: 'paid', amount: 1, currency: 'AED', arrivalDate: '2026-09-28T00:00:00.000Z', createdAt: null, composition: p.composition }],
+  })
+  api.getStripePayoutPreview.mockResolvedValue(p)
+  render(<StripePayoutPreviewPanel />)
+  fireEvent.click(screen.getByRole('button', { name: 'Load recent payouts' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Preview' }))
+  return screen.findByRole('region', { name: 'Refunds' })
+}
+
+describe('StripePayoutPreviewPanel normal invoice refunds', () => {
+  afterEach(() => {
+    cleanup()
+    vi.clearAllMocks()
+  })
+
+  it('labels refund kind, fee direction and status tone', () => {
+    expect(refundKindLabel(normalRefund())).toBe('Partial refund')
+    expect(refundKindLabel(normalRefund({ kind: 'FULL_REFUND', sequence: 3, refundCount: 3 }))).toBe('Full refund 3 of 3')
+    expect(refundKindLabel(normalRefund({ kind: null }))).toBe('—')
+    expect(feeAdjustmentLabel(normalRefund())).toBe('None')
+    expect(feeAdjustmentLabel(normalRefund({ feeAdjustment: 2.1 }))).toBe('2.10 fee returned · Dr 1019 / Cr 1013')
+    expect(feeAdjustmentLabel(normalRefund({ feeAdjustment: -1.5 }))).toBe('1.50 fee charged · Dr 1013 / Cr 1019')
+    expect(normalRefundTone('READY')).toBe('ok')
+    expect(normalRefundTone('NEEDS_REVIEW')).toBe('bad')
+    expect(normalRefundTone('VERIFIED')).toBe('muted')
+  })
+
+  it('keeps normal invoice refunds and customer advance refunds in separate sections, with every refund field', async () => {
+    const section = await openRefundPreview(refundPayout(false, [normalRefund()]))
+    expect(screen.getByText('Normal invoice refunds (1)')).toBeTruthy()
+    expect(screen.getByText('Customer advance refunds (1)')).toBeTruthy()
+    const card = screen.getByLabelText('Refund re_3U6IwD20717a')
+    expect(section.contains(card)).toBe(true)
+    for (const text of ['re_3U6IwD20717a', 'txn_refund_20717', 'ch_3U6IwD20717 / pi_3U6IwD20717', '20717', 'Website', 'Frying Pan 28cm', 'READY']) {
+      expect(card.textContent).toContain(text)
+    }
+    expect(card.textContent).toContain('INV-043700 · AED 382.59 · balance 0.00')
+    expect(card.textContent).toContain('76.70 of 382.59 · 305.89 left')
+    expect(card.textContent).toContain('76.70 / None / -76.70')
+    expect(card.textContent).toContain('1019 -76.70')
+    expect(card.textContent).toContain('Credit note 20717 · AED 76.70 · balance 76.70 · open · sales return RMA-00412')
+    expect(card.textContent).toMatch(/Credit note refund AED 76.70 · Stripe refund re_3U6IwD20717a · Zoho MISSING · Not in Zoho yet/)
+    expect(screen.queryByLabelText('Refund re_3UIA7CDJogiiRoKP0noUu0UZ')).toBeNull()
+    expect(screen.getByText(/Refund journal Dr \[1123\] \/ Cr \[1019\] .*MISSING/)).toBeTruthy()
+    expect(screen.getByText(/− invoice refunds 76.70 = payout/)).toBeTruthy()
+  })
+
+  it('shows Posting disabled and a disabled button while the server flag is off', async () => {
+    await openRefundPreview(refundPayout(false, [normalRefund()]))
+    const button = screen.getByRole('button', { name: 'Post refund to Zoho' }) as HTMLButtonElement
+    expect(button.disabled).toBe(true)
+    expect(api.postStripePayoutRefund).not.toHaveBeenCalled()
+  })
+
+  it('never offers posting for a refund that needs review and explains why', async () => {
+    const review = normalRefund({
+      status: 'NEEDS_REVIEW',
+      postable: false,
+      postingFingerprint: null,
+      creditNote: null,
+      returnedItems: [],
+      itemsProven: false,
+      itemsReason: null,
+      components: [],
+      reasonCode: 'CUSTOMER_MISMATCH',
+      reason: 'Zoho invoice INV-043700 is not under the Website customer that owns website order 20717.',
+      reasons: ['Zoho invoice INV-043700 is not under the Website customer that owns website order 20717.'],
+    })
+    await openRefundPreview(refundPayout(true, [review]))
+    const card = screen.getByLabelText('Refund re_3U6IwD20717a')
+    expect(card.textContent).toContain('NEEDS REVIEW')
+    expect(card.textContent).toContain('is not under the Website customer')
+    expect(card.textContent).toContain('No Zoho credit note found for this order.')
+    expect(screen.queryByRole('button', { name: 'Post refund to Zoho' })).toBeNull()
+    expect(screen.getByText(/Refunds needing review keep this payout from being fully cleared/)).toBeTruthy()
+  })
+
+  it('confirms the credit note refund and fee adjustment, then posts with the refund fingerprint', async () => {
+    const withFee = normalRefund({
+      stripeFee: -2.1,
+      feeAdjustment: 2.1,
+      net: -74.6,
+      clearingImpact: { stripeUndepositedFunds: -74.6, processingChargesUncleared: -2.1 },
+    })
+    withFee.components.push({
+      ...withFee.components[0],
+      component: 'REFUND_FEE_ADJUSTMENT',
+      zohoRecordType: 'journal',
+      amount: 2.1,
+      reference: 'Stripe refund fee re_3U6IwD20717a',
+      direction: 'FEE_RETURNED',
+      depositAccountId: null,
+      debitAccountId: '1019',
+      creditAccountId: '1013',
+    })
+    api.postStripePayoutRefund.mockResolvedValue({
+      outcome: 'VERIFIED',
+      alreadyPosted: false,
+      payoutId: RPO,
+      refundId: 're_3U6IwD20717a',
+      amount: 76.7,
+      creditNoteNumber: '20717',
+      components: [
+        { component: 'REFUND_CREDIT_NOTE_REFUND', amount: 76.7, reference: 'Stripe refund re_3U6IwD20717a', status: 'VERIFIED', zohoRecordId: 'ZCR1', requestSent: true },
+        { component: 'REFUND_FEE_ADJUSTMENT', amount: 2.1, reference: 'Stripe refund fee re_3U6IwD20717a', status: 'VERIFIED', zohoRecordId: 'ZJ1', requestSent: true },
+      ],
+      notAttempted: [],
+      zohoRequests: 2,
+    })
+    await openRefundPreview(refundPayout(true, [withFee]))
+    const card = screen.getByLabelText('Refund re_3U6IwD20717a')
+    expect(card.textContent).toContain('2.10 fee returned · Dr 1019 / Cr 1013')
+    expect(card.textContent).toContain('1019 -74.60 · 1013 -2.10')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Post refund to Zoho' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog.textContent).toContain('Credit note 20717 refunded from [1019] Stripe Undeposited Funds')
+    expect(dialog.textContent).toContain('Dr [1019] Stripe Undeposited Funds / Cr [1013] Stripe Processing Chg Un-Cleared')
+    const post = screen.getByRole('button', { name: 'Post Refund to Zoho' }) as HTMLButtonElement
+    expect(post.disabled).toBe(true)
+    fireEvent.click(screen.getByRole('checkbox'))
+    expect(post.disabled).toBe(false)
+    fireEvent.click(post)
+    await waitFor(() => expect(api.postStripePayoutRefund).toHaveBeenCalledWith(RPO, 're_3U6IwD20717a', 'fp-refund-20717'))
+    expect(await screen.findByText(/Result: VERIFIED/)).toBeTruthy()
+    expect(screen.getByText(/Zoho requests sent: 2/)).toBeTruthy()
+  })
+})
+
+describe('StripePayoutPreviewPanel signed payout fee journal', () => {
+  afterEach(() => {
+    cleanup()
+    vi.clearAllMocks()
+  })
+
+  it('shows a negative net fee as a Dr 1013 / Cr 2270 reversal and confirms it with reversal wording', async () => {
+    const reversal: StripePayoutFeeJournal = {
+      ...feeJournal('READY', true),
+      amount: 3,
+      signedAmount: -3,
+      direction: 'FEE_REVERSAL',
+      stripeFeeTotal: -3,
+      verifiedFeeTotal: -3,
+      feeComponents: [],
+      refundFeeAdjustments: [{ refundId: 're_3U6IwD20717a', fee: -3, zohoState: 'VERIFIED', zohoRecordId: 'ZJ-ADJ' }],
+      debitAccountId: '4265011000000699653',
+      creditAccountId: '4265011000000648121',
+      debitAccount: account('1013', 'Stripe Processing Chg Un-Cleared'),
+      creditAccount: account('2270', 'Stripe Fees'),
+      reasons: ['Every FEE payment and refund fee adjustment is verified; Stripe returned 3.00 more fees than it charged.'],
+    }
+    const p = feePayout(true, reversal)
+    api.getStripePayouts.mockResolvedValue({
+      rows: [{ payoutId: PAYOUT, status: 'paid', amount: 1, currency: 'AED', arrivalDate: '2026-09-28T00:00:00.000Z', createdAt: null, composition: p.composition }],
+    })
+    api.getStripePayoutPreview.mockResolvedValue(p)
+    render(<StripePayoutPreviewPanel />)
+    fireEvent.click(screen.getByRole('button', { name: 'Load recent payouts' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Preview' }))
+
+    const card = await screen.findByRole('region', { name: 'Payout fee journal' })
+    expect(card.textContent).toContain('fee expense reversal of 3.00 (Dr 1013 / Cr 2270)')
+    expect(card.textContent).toContain('Refund re_3U6IwD20717a fee adjustment -3.00')
+    const rows = Array.from(card.querySelectorAll('tbody tr')).map((r) => r.textContent)
+    expect(rows[0]).toMatch(/^Dr.*1013.*3\.00$/)
+    expect(rows[1]).toMatch(/^Cr.*2270.*3\.00$/)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Post Stripe Fee Journal to Zoho' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog.textContent).toContain('from Stripe Fees back to Stripe Processing Chg Un-Cleared (fee expense reversal)')
+  })
+})
+
+function uncertainItem(overrides: Partial<StripeUncertainComponent> = {}): StripeUncertainComponent {
+  return {
+    scope: 'component',
+    componentId: 'comp-fee-journal',
+    component: 'PAYOUT_FEE_JOURNAL',
+    zohoRecordType: 'JOURNAL',
+    customerId: null,
+    refundId: null,
+    creditNoteId: null,
+    reference: `Stripe processing fees ${PAYOUT}`,
+    amount: 147.28,
+    status: 'POSTING_UNCERTAIN',
+    attemptCount: 1,
+    lastError: 'Zoho request timed out.',
+    firstUncertainAt: '2026-09-28T14:00:00.000Z',
+    uncertainSince: '2026-09-28T14:00:00.000Z',
+    lastRecoveryCheckAt: '2026-09-28T14:00:01.000Z',
+    recoveryCheckCount: 1,
+    confirmAvailableAt: '2026-09-28T14:15:00.000Z',
+    canConfirm: false,
+    confirmBlockedReason: 'Wait until 2026-09-28 14:15 so Zoho search can catch up before confirming.',
+    ...overrides,
+  }
+}
+
+function uncertainPayout(item: StripeUncertainComponent): StripePayoutPreview {
+  const fj = feeJournal('POSTING_UNCERTAIN', false)
+  fj.recovery = { action: 'POSTING_UNCERTAIN', reason: 'Zoho response uncertain — do not repost.' }
+  const p = feePayout(true, fj)
+  p.status = 'POSTING_UNCERTAIN'
+  p.uncertainComponents = [item]
+  return p
+}
+
+function resolution(outcome: 'VERIFIED' | 'NEEDS_REVIEW' | 'POSTING_UNCERTAIN' | 'FAILED', retryAllowed = false) {
+  return {
+    payoutId: PAYOUT,
+    scope: 'component' as const,
+    componentId: 'comp-fee-journal',
+    outcome,
+    component: { component: 'PAYOUT_FEE_JOURNAL' as const, amount: 147.28, reference: `Stripe processing fees ${PAYOUT}`, status: outcome, zohoRecordId: null, requestSent: false, retryAllowed },
+    zohoWrites: 0 as const,
+  }
+}
+
+describe('StripePayoutPreviewPanel uncertain Zoho writes', () => {
+  it('labels the uncertain state as do-not-repost, never as failed', () => {
+    expect(recoveryLabel('POSTING_UNCERTAIN')).toBe('Zoho response uncertain — do not repost')
+    expect(payoutTone('POSTING_UNCERTAIN')).toBe('bad')
+    expect(feeJournalLabel('POSTING_UNCERTAIN')).toBe('ZOHO RESPONSE UNCERTAIN')
+    expect(feeJournalLabel('POSTING_UNCERTAIN')).not.toMatch(/FAIL/)
+  })
+
+  it('shows the warning and hides every Post button while a write is uncertain', async () => {
+    const p = uncertainPayout(uncertainItem())
+    p.groups = []
+    await openPreviewNoGroups(p)
+    const section = screen.getByRole('region', { name: 'Uncertain Zoho writes' })
+    expect(section.textContent).toContain('Zoho response uncertain — do not repost')
+    expect(section.textContent).toContain(`Stripe processing fees ${PAYOUT}`)
+    expect(section.textContent).toContain('Zoho request timed out.')
+    expect(screen.queryByRole('button', { name: 'Post Stripe Fee Journal to Zoho' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /Retry/ })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Recheck Zoho' })).toBeTruthy()
+  })
+
+  it('keeps Post hidden even if a stale preview marks the uncertain fee journal postable', async () => {
+    const p = uncertainPayout(uncertainItem())
+    p.groups = []
+    if (p.feeJournal) p.feeJournal.postable = true
+    await openPreviewNoGroups(p)
+    expect(screen.queryByRole('button', { name: 'Post Stripe Fee Journal to Zoho' })).toBeNull()
+  })
+
+  it('Recheck Zoho is read-only: it calls the recheck endpoint only and reloads', async () => {
+    const p = uncertainPayout(uncertainItem())
+    p.groups = []
+    await openPreviewNoGroups(p)
+    api.recheckStripeUncertainComponent.mockResolvedValue(resolution('POSTING_UNCERTAIN'))
+    fireEvent.click(screen.getByRole('button', { name: 'Recheck Zoho' }))
+    await waitFor(() => expect(api.recheckStripeUncertainComponent).toHaveBeenCalledWith(PAYOUT, 'component', 'comp-fee-journal'))
+    expect(await screen.findByText(/Still not found in Zoho/)).toBeTruthy()
+    expect(api.confirmStripeUncertainNotCreated).not.toHaveBeenCalled()
+    expect(api.postStripePayoutFeeJournal).not.toHaveBeenCalled()
+    expect(api.postStripePayoutGroup).not.toHaveBeenCalled()
+    expect(api.postStripePayoutRefund).not.toHaveBeenCalled()
+    expect(api.getStripePayoutPreview).toHaveBeenCalledTimes(2)
+  })
+
+  it('disables Confirm Not Created until the safeguards are met and says why', async () => {
+    const p = uncertainPayout(uncertainItem())
+    p.groups = []
+    await openPreviewNoGroups(p)
+    const confirm = screen.getByRole('button', { name: 'Confirm Not Created…' }) as HTMLButtonElement
+    expect(confirm.disabled).toBe(true)
+    expect(screen.getByText(/Wait until 2026-09-28 14:15/)).toBeTruthy()
+  })
+
+  it('confirms not created only with the admin\'s own recorded Zoho check, a reason and acknowledgement, and never posts', async () => {
+    const p = uncertainPayout(uncertainItem({ canConfirm: true, confirmBlockedReason: null }))
+    p.groups = []
+    await openPreviewNoGroups(p)
+    api.confirmStripeUncertainNotCreated.mockResolvedValue(resolution('FAILED', true))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm Not Created…' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog.textContent).toContain('Zoho response uncertain — do not repost')
+    expect(dialog.textContent).toContain('Zoho will hold it twice')
+
+    const submit = screen.getByRole('button', { name: 'Confirm Not Created and Allow Retry' }) as HTMLButtonElement
+    const REF = `Stripe processing fees ${PAYOUT}`
+    expect(submit.disabled).toBe(true)
+    fireEvent.change(dialog.querySelector('textarea') as HTMLTextAreaElement, { target: { value: 'Searched Zoho journals for this reference on 2026-09-28: none.' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: /does not exist there/ }))
+    expect(submit.disabled).toBe(true)
+    fireEvent.change(screen.getByLabelText('When you checked'), { target: { value: '2026-09-28T18:30' } })
+    fireEvent.change(screen.getByLabelText('Where in Zoho you searched'), { target: { value: 'Manual Journals' } })
+    fireEvent.change(screen.getByLabelText(/What you searched for/), { target: { value: 'Stripe fees on the payout date' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: 'My search found no matching record.' }))
+    expect(submit.disabled).toBe(true)
+    fireEvent.change(screen.getByLabelText(/What you searched for/), { target: { value: `${REF} and date 2026-09-28` } })
+    expect(submit.disabled).toBe(false)
+    fireEvent.click(submit)
+    await waitFor(() =>
+      expect(api.confirmStripeUncertainNotCreated).toHaveBeenCalledWith(
+        PAYOUT,
+        'component',
+        'comp-fee-journal',
+        'Searched Zoho journals for this reference on 2026-09-28: none.',
+        {
+          checkedAt: new Date('2026-09-28T18:30').toISOString(),
+          zohoLocation: 'Manual Journals',
+          searchedFor: `${REF} and date 2026-09-28`,
+          recordsFound: 0,
+        },
+      ),
+    )
+    expect(await screen.findByText(/Retry allowed. Nothing was posted/)).toBeTruthy()
+    expect(api.postStripePayoutFeeJournal).not.toHaveBeenCalled()
+    expect(api.recheckStripeUncertainComponent).not.toHaveBeenCalled()
+  })
+
+  it('reports a record found during confirmation instead of allowing a retry', async () => {
+    const p = uncertainPayout(uncertainItem({ canConfirm: true, confirmBlockedReason: null }))
+    p.groups = []
+    await openPreviewNoGroups(p)
+    api.confirmStripeUncertainNotCreated.mockResolvedValue(resolution('VERIFIED'))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm Not Created…' }))
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.change(dialog.querySelector('textarea') as HTMLTextAreaElement, { target: { value: 'Searched Zoho, nothing found.' } })
+    fireEvent.change(screen.getByLabelText('When you checked'), { target: { value: '2026-09-28T18:30' } })
+    fireEvent.change(screen.getByLabelText('Where in Zoho you searched'), { target: { value: 'Manual Journals' } })
+    fireEvent.change(screen.getByLabelText(/What you searched for/), { target: { value: `Stripe processing fees ${PAYOUT}` } })
+    fireEvent.click(screen.getByRole('checkbox', { name: 'My search found no matching record.' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /does not exist there/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm Not Created and Allow Retry' }))
+    expect(await screen.findByText(/Found in Zoho and it matches exactly/)).toBeTruthy()
+    expect(screen.queryByText(/Retry allowed/)).toBeNull()
+  })
+})
+
+async function openPreviewNoGroups(p: StripePayoutPreview) {
+  api.getStripePayouts.mockResolvedValue({
+    rows: [{ payoutId: PAYOUT, status: 'paid', amount: 4551.97, currency: 'AED', arrivalDate: '2026-09-28T00:00:00.000Z', createdAt: null, composition: p.composition }],
+  })
+  api.getStripePayoutPreview.mockResolvedValue(p)
+  render(<StripePayoutPreviewPanel />)
+  fireEvent.click(screen.getByRole('button', { name: 'Load recent payouts' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Preview' }))
+  await screen.findByRole('region', { name: 'Uncertain Zoho writes' })
+}

@@ -43,4 +43,13 @@ async function createJournal(payload) {
   return { recordId: clean(body.journal_id) }
 }
 
-module.exports = { createCustomerPayment, createJournal }
+/** Refund of an existing credit note. @returns {Promise<{ recordId: string }>} */
+async function createCreditNoteRefund(creditNoteId, payload) {
+  const id = clean(creditNoteId)
+  if (!id) throw new Error('A Zoho credit note ID is required.')
+  const json = await send(`creditnotes/${encodeURIComponent(id)}/refunds`, payload, 'stripe_payout_post_creditnote_refund')
+  const body = (json && json.creditnote_refund) || {}
+  return { recordId: clean(body.creditnote_refund_id) }
+}
+
+module.exports = { createCustomerPayment, createJournal, createCreditNoteRefund }

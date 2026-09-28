@@ -8,7 +8,9 @@
  * - stripe_payout_clearing_components: NET / FEE / CUSTOMER_ADVANCE (and later
  *   CUSTOMER_ADVANCE_REFUND) per payout + customer, tracked independently; plus one
  *   PAYOUT_FEE_JOURNAL per payout with no customer.
- * - stripe_payout_clearing_events: audit history for both.
+ * - stripe_payout_refund_components: REFUND_CREDIT_NOTE_REFUND / REFUND_FEE_ADJUSTMENT per
+ *   normal (invoice) Stripe refund, keyed by the Stripe refund ID.
+ * - stripe_payout_clearing_events: audit history for all of them.
  *
  * Nothing here talks to Zoho or Stripe.
  */
@@ -47,12 +49,28 @@ const COMPONENT_STATUS = Object.freeze({
   VERIFIED: 'VERIFIED',
   FAILED: 'FAILED',
   NEEDS_REVIEW: 'NEEDS_REVIEW',
+  // Zoho may hold the record: never re-sent until an admin rechecks Zoho and confirms it was not created.
+  POSTING_UNCERTAIN: 'POSTING_UNCERTAIN',
 })
 
 // A component may only be (re)planned while nothing is in flight or recorded in Zoho.
 const REPLANNABLE = [COMPONENT_STATUS.PLANNED, COMPONENT_STATUS.FAILED]
 
-const ENTITY = Object.freeze({ ADVANCE_CASE: 'ADVANCE_CASE', COMPONENT: 'COMPONENT' })
+const EVENT = Object.freeze({
+  POSTING_STARTED: 'POSTING_STARTED',
+  POSTING_RETRIED: 'POSTING_RETRIED',
+  POSTING_RESPONSE_UNCERTAIN: 'POSTING_RESPONSE_UNCERTAIN',
+  RECOVERY_MATCH_FOUND: 'RECOVERY_MATCH_FOUND',
+  RECOVERY_CONFLICT: 'RECOVERY_CONFLICT',
+  RECOVERY_STILL_MISSING: 'RECOVERY_STILL_MISSING',
+  // Zoho could not be searched completely; never counts as a recheck.
+  RECOVERY_LOOKUP_FAILED: 'RECOVERY_LOOKUP_FAILED',
+  ADMIN_CONFIRMED_NOT_CREATED: 'ADMIN_CONFIRMED_NOT_CREATED',
+  RETRY_ALLOWED: 'RETRY_ALLOWED',
+  VERIFIED: 'VERIFIED',
+})
+
+const ENTITY = Object.freeze({ ADVANCE_CASE: 'ADVANCE_CASE', COMPONENT: 'COMPONENT', REFUND_COMPONENT: 'REFUND_COMPONENT' })
 
 const SCHEMA_SQL = [
   `CREATE TABLE IF NOT EXISTS stripe_customer_advance_cases (
@@ -234,6 +252,111 @@ const SCHEMA_SQL = [
    END $$`,
   `CREATE UNIQUE INDEX IF NOT EXISTS uq_stripe_payout_fee_journal
      ON stripe_payout_clearing_components (payout_id) WHERE component = 'PAYOUT_FEE_JOURNAL'`,
+  // 051: normal (invoice) Stripe refunds, one row per refund + component.
+  `CREATE TABLE IF NOT EXISTS stripe_payout_refund_components (
+     id BIGSERIAL PRIMARY KEY,
+     payout_id TEXT NOT NULL,
+     refund_id TEXT NOT NULL,
+     balance_transaction_id TEXT NOT NULL,
+     charge_id TEXT NOT NULL,
+     payment_intent_id TEXT,
+     zoho_customer_id TEXT NOT NULL,
+     invoice_id TEXT NOT NULL,
+     credit_note_id TEXT NOT NULL,
+     component VARCHAR(32) NOT NULL CHECK (component IN ('REFUND_CREDIT_NOTE_REFUND', 'REFUND_FEE_ADJUSTMENT')),
+     zoho_record_type VARCHAR(24) NOT NULL CHECK (zoho_record_type IN ('creditnote_refund', 'journal')),
+     amount NUMERIC(14, 2) NOT NULL CHECK (amount > 0),
+     currency CHAR(3) NOT NULL,
+     deposit_account_id TEXT,
+     debit_account_id TEXT,
+     credit_account_id TEXT,
+     reference TEXT NOT NULL,
+     status VARCHAR(24) NOT NULL CHECK (status IN ('PLANNED', 'POSTING', 'POSTED', 'VERIFIED', 'FAILED', 'NEEDS_REVIEW')),
+     zoho_record_id TEXT,
+     attempt_count INTEGER NOT NULL DEFAULT 0,
+     last_error TEXT,
+     posted_at TIMESTAMPTZ,
+     verified_at TIMESTAMPTZ,
+     created_by TEXT,
+     updated_by TEXT,
+     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     CONSTRAINT uq_stripe_payout_refund_component UNIQUE (refund_id, component),
+     CONSTRAINT ck_stripe_payout_refund_component_verified
+       CHECK (status <> 'VERIFIED' OR (zoho_record_id IS NOT NULL AND verified_at IS NOT NULL)),
+     CONSTRAINT ck_stripe_payout_refund_component_shape CHECK (
+       (component = 'REFUND_CREDIT_NOTE_REFUND' AND zoho_record_type = 'creditnote_refund' AND deposit_account_id IS NOT NULL)
+       OR (component = 'REFUND_FEE_ADJUSTMENT' AND zoho_record_type = 'journal'
+           AND debit_account_id IS NOT NULL AND credit_account_id IS NOT NULL))
+   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS uq_stripe_payout_refund_component_record
+     ON stripe_payout_refund_components (zoho_record_type, zoho_record_id) WHERE zoho_record_id IS NOT NULL`,
+  `CREATE INDEX IF NOT EXISTS idx_stripe_payout_refund_components_payout
+     ON stripe_payout_refund_components (payout_id)`,
+  `DO $$
+   DECLARE r RECORD;
+   BEGIN
+     FOR r IN
+       SELECT conname FROM pg_constraint
+       WHERE conrelid = 'stripe_payout_clearing_events'::regclass AND contype = 'c'
+         AND pg_get_constraintdef(oid) LIKE '%ADVANCE_CASE%'
+         AND pg_get_constraintdef(oid) NOT LIKE '%REFUND_COMPONENT%'
+     LOOP
+       EXECUTE format('ALTER TABLE stripe_payout_clearing_events DROP CONSTRAINT %I', r.conname);
+     END LOOP;
+     IF NOT EXISTS (
+       SELECT 1 FROM pg_constraint
+       WHERE conrelid = 'stripe_payout_clearing_events'::regclass AND conname = 'ck_stripe_payout_event_entity'
+     ) THEN
+       ALTER TABLE stripe_payout_clearing_events ADD CONSTRAINT ck_stripe_payout_event_entity
+         CHECK (entity_type IN ('ADVANCE_CASE', 'COMPONENT', 'REFUND_COMPONENT'));
+     END IF;
+   END $$`,
+  // 052: POSTING_UNCERTAIN (Zoho may hold the record) + recovery / retry-authorization audit.
+  ...['stripe_payout_clearing_components', 'stripe_payout_refund_components'].flatMap((table) => [
+    `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS first_uncertain_at TIMESTAMPTZ`,
+    `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS uncertain_since TIMESTAMPTZ`,
+    `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS last_recovery_check_at TIMESTAMPTZ`,
+    `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS recovery_check_count INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS retry_authorized_at TIMESTAMPTZ`,
+    `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS retry_authorized_by TEXT`,
+    `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS retry_authorization_reason TEXT`,
+    `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS retry_authorization_evidence JSONB`,
+    `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS request_snapshot JSONB`,
+    `DO $$
+     DECLARE r RECORD;
+     BEGIN
+       FOR r IN
+         SELECT conname FROM pg_constraint
+         WHERE conrelid = '${table}'::regclass AND contype = 'c'
+           AND pg_get_constraintdef(oid) LIKE '%''NEEDS_REVIEW''%'
+           AND pg_get_constraintdef(oid) NOT LIKE '%POSTING_UNCERTAIN%'
+       LOOP
+         EXECUTE format('ALTER TABLE ${table} DROP CONSTRAINT %I', r.conname);
+       END LOOP;
+       IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = '${table}'::regclass AND conname = 'ck_${table}_status') THEN
+         ALTER TABLE ${table} ADD CONSTRAINT ck_${table}_status
+           CHECK (status IN ('PLANNED', 'POSTING', 'POSTED', 'VERIFIED', 'FAILED', 'NEEDS_REVIEW', 'POSTING_UNCERTAIN'));
+       END IF;
+       -- Rows left FAILED by an unresolved uncertain POST (old "may be retried" path) are not retryable.
+       UPDATE ${table}
+          SET status = 'POSTING_UNCERTAIN', uncertain_since = COALESCE(uncertain_since, updated_at),
+              first_uncertain_at = COALESCE(first_uncertain_at, updated_at), updated_at = NOW()
+        WHERE status = 'FAILED' AND retry_authorized_at IS NULL
+          AND last_error LIKE '%was not re-posted and may be retried%';
+       IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = '${table}'::regclass AND conname = 'ck_${table}_uncertain') THEN
+         ALTER TABLE ${table} ADD CONSTRAINT ck_${table}_uncertain
+           CHECK (status <> 'POSTING_UNCERTAIN' OR (uncertain_since IS NOT NULL AND first_uncertain_at IS NOT NULL));
+       END IF;
+       IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = '${table}'::regclass AND conname = 'ck_${table}_retry_auth') THEN
+         ALTER TABLE ${table} ADD CONSTRAINT ck_${table}_retry_auth
+           CHECK (retry_authorized_at IS NULL OR (retry_authorized_by IS NOT NULL AND retry_authorization_reason IS NOT NULL
+                  AND retry_authorization_evidence IS NOT NULL));
+       END IF;
+     END $$`,
+  ]),
+  'ALTER TABLE stripe_payout_clearing_events ADD COLUMN IF NOT EXISTS event_type VARCHAR(40)',
+  'ALTER TABLE stripe_payout_clearing_events ADD COLUMN IF NOT EXISTS evidence JSONB',
 ]
 
 async function ensureStripePayoutClearingTables(query) {
@@ -322,10 +445,25 @@ function mapComponent(row) {
     lastError: row.last_error || null,
     postedAt: iso(row.posted_at),
     verifiedAt: iso(row.verified_at),
+    ...mapRecovery(row),
     createdBy: row.created_by || null,
     updatedBy: row.updated_by || null,
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
+  }
+}
+
+function mapRecovery(row) {
+  return {
+    firstUncertainAt: iso(row.first_uncertain_at),
+    uncertainSince: iso(row.uncertain_since),
+    lastRecoveryCheckAt: iso(row.last_recovery_check_at),
+    recoveryCheckCount: Number(row.recovery_check_count) || 0,
+    retryAuthorizedAt: iso(row.retry_authorized_at),
+    retryAuthorizedBy: row.retry_authorized_by || null,
+    retryAuthorizationReason: row.retry_authorization_reason || null,
+    retryAuthorizationEvidence: row.retry_authorization_evidence || null,
+    requestSnapshot: row.request_snapshot || null,
   }
 }
 
@@ -344,16 +482,19 @@ async function inTransaction(db, fn) {
 async function logEvent(db, entry) {
   await db.query(
     `INSERT INTO stripe_payout_clearing_events
-       (entity_type, entity_id, payout_id, zoho_customer_id, from_status, to_status, detail, actor)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-    [entry.entityType, entry.entityId, entry.payoutId, entry.zohoCustomerId || null, entry.fromStatus || null, entry.toStatus, entry.detail || null, entry.actor || null],
+       (entity_type, entity_id, payout_id, zoho_customer_id, from_status, to_status, detail, actor, event_type, evidence)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+    [
+      entry.entityType, entry.entityId, entry.payoutId, entry.zohoCustomerId || null, entry.fromStatus || null, entry.toStatus,
+      entry.detail || null, entry.actor || null, entry.eventType || null, entry.evidence == null ? null : JSON.stringify(entry.evidence),
+    ],
   )
 }
 
 async function listEvents(db, entityType, entityIds) {
   if (!entityIds.length) return []
   const { rows } = await db.query(
-    `SELECT entity_type, entity_id, payout_id, zoho_customer_id, from_status, to_status, detail, actor, created_at
+    `SELECT entity_type, entity_id, payout_id, zoho_customer_id, from_status, to_status, detail, actor, event_type, evidence, created_at
      FROM stripe_payout_clearing_events
      WHERE entity_type = $1 AND entity_id = ANY($2::bigint[])
      ORDER BY created_at ASC, id ASC`,
@@ -368,6 +509,8 @@ async function listEvents(db, entityType, entityIds) {
     toStatus: row.to_status,
     detail: row.detail || null,
     actor: row.actor || null,
+    eventType: row.event_type || null,
+    evidence: row.evidence || null,
     at: iso(row.created_at),
   }))
 }
@@ -562,31 +705,60 @@ async function upsertPlannedComponent(db, c, actor) {
   })
 }
 
-/** Guarded component status change; `lastError` is only replaced when a new one is given. */
-async function transitionComponent(db, id, fromStatuses, toStatus, patch = {}, detail, actor) {
+/**
+ * Guarded status change shared by both component tables. `lastError` is only replaced when a
+ * new one is given. Recovery patch fields:
+ * - uncertainAt: starts an uncertain episode (uncertain_since; first_uncertain_at is kept);
+ * - recoveryCheckAt: one more read-only Zoho recheck;
+ * - retryAuthorization { at, by, reason, evidence }: the admin confirmed, with their own Zoho
+ *   check, that the record was not created;
+ * - requestSnapshot: exactly what is about to be sent, so recovery checks Zoho against it;
+ * - event / evidence: audit event type and the Zoho evidence behind it.
+ */
+async function transitionRow(db, table, entityType, mapRow, id, fromStatuses, toStatus, patch, detail, actor) {
   return inTransaction(db, async () => {
-    const found = await db.query('SELECT * FROM stripe_payout_clearing_components WHERE id = $1 FOR UPDATE', [id])
+    const found = await db.query(`SELECT * FROM ${table} WHERE id = $1 FOR UPDATE`, [id])
     const current = found.rows[0]
     if (!current || !fromStatuses.includes(current.status)) {
-      throw storeError(409, 'COMPONENT_STATE_CONFLICT', `Component ${id} is ${current ? current.status : 'missing'}, not ${fromStatuses.join('/')}; refusing to set ${toStatus}.`)
+      const what = entityType === ENTITY.REFUND_COMPONENT ? 'Refund component' : 'Component'
+      throw storeError(409, 'COMPONENT_STATE_CONFLICT', `${what} ${id} is ${current ? current.status : 'missing'}, not ${fromStatuses.join('/')}; refusing to set ${toStatus}.`)
     }
-    const journalId = current.zoho_record_type === 'journal' ? patch.zohoRecordId || null : null
+    const auth = patch.retryAuthorization || null
+    const values = [
+      toStatus, patch.zohoRecordId || null, patch.incrementAttempt ? 1 : 0, patch.lastError || null, patch.postedAt || null,
+      patch.verifiedAt || null, actor || null, patch.uncertainAt || null, patch.recoveryCheckAt || null,
+      auth ? auth.at : null, auth ? auth.by : null, auth ? auth.reason : null, id,
+      patch.requestSnapshot == null ? null : JSON.stringify(patch.requestSnapshot),
+      auth && auth.evidence != null ? JSON.stringify(auth.evidence) : null,
+    ]
+    const journalColumn = table === 'stripe_payout_clearing_components'
+      ? `zoho_journal_id = CASE WHEN zoho_record_type = 'journal' THEN COALESCE($2, zoho_journal_id) ELSE zoho_journal_id END,`
+      : ''
     const { rows } = await db.query(
-      `UPDATE stripe_payout_clearing_components SET
+      `UPDATE ${table} SET
          status = $1,
          zoho_record_id = COALESCE($2, zoho_record_id),
-         zoho_journal_id = COALESCE($3, zoho_journal_id),
-         attempt_count = attempt_count + $4,
-         last_error = COALESCE($5, last_error),
-         posted_at = COALESCE($6, posted_at),
-         verified_at = COALESCE($7, verified_at),
-         updated_by = COALESCE($8, updated_by),
+         ${journalColumn}
+         attempt_count = attempt_count + $3,
+         last_error = COALESCE($4, last_error),
+         posted_at = COALESCE($5, posted_at),
+         verified_at = COALESCE($6, verified_at),
+         updated_by = COALESCE($7, updated_by),
+         uncertain_since = COALESCE($8, uncertain_since),
+         first_uncertain_at = COALESCE(first_uncertain_at, $8),
+         last_recovery_check_at = COALESCE($9, last_recovery_check_at),
+         recovery_check_count = recovery_check_count + CASE WHEN $9::timestamptz IS NULL THEN 0 ELSE 1 END,
+         retry_authorized_at = COALESCE($10, retry_authorized_at),
+         retry_authorized_by = COALESCE($11, retry_authorized_by),
+         retry_authorization_reason = COALESCE($12, retry_authorization_reason),
+         retry_authorization_evidence = COALESCE($15::jsonb, retry_authorization_evidence),
+         request_snapshot = COALESCE($14::jsonb, request_snapshot),
          updated_at = NOW()
-       WHERE id = $9 RETURNING *`,
-      [toStatus, patch.zohoRecordId || null, journalId, patch.incrementAttempt ? 1 : 0, patch.lastError || null, patch.postedAt || null, patch.verifiedAt || null, actor || null, id],
+       WHERE id = $13 RETURNING *`,
+      values,
     )
     await logEvent(db, {
-      entityType: ENTITY.COMPONENT,
+      entityType,
       entityId: id,
       payoutId: current.payout_id,
       zohoCustomerId: current.zoho_customer_id,
@@ -594,9 +766,15 @@ async function transitionComponent(db, id, fromStatuses, toStatus, patch = {}, d
       toStatus,
       detail: detail || patch.lastError,
       actor,
+      eventType: patch.event || null,
+      evidence: patch.evidence == null ? null : patch.evidence,
     })
-    return mapComponent(rows[0])
+    return mapRow(rows[0])
   })
+}
+
+async function transitionComponent(db, id, fromStatuses, toStatus, patch = {}, detail, actor) {
+  return transitionRow(db, 'stripe_payout_clearing_components', ENTITY.COMPONENT, mapComponent, id, fromStatuses, toStatus, patch, detail, actor)
 }
 
 /** Record the verified Zoho advance journal on the confirmed cases it clears. */
@@ -623,6 +801,125 @@ async function markAdvancePosted(db, caseIds, journalId, actor) {
     }
     return rows.map(mapCase)
   })
+}
+
+function mapRefundComponent(row) {
+  if (!row) return null
+  return {
+    id: String(row.id),
+    payoutId: row.payout_id,
+    refundId: row.refund_id,
+    balanceTransactionId: row.balance_transaction_id,
+    chargeId: row.charge_id,
+    paymentIntentId: row.payment_intent_id || null,
+    zohoCustomerId: row.zoho_customer_id,
+    invoiceId: row.invoice_id,
+    creditNoteId: row.credit_note_id,
+    component: row.component,
+    zohoRecordType: row.zoho_record_type,
+    amount: num(row.amount),
+    currency: String(row.currency || '').trim(),
+    depositAccountId: row.deposit_account_id || null,
+    debitAccountId: row.debit_account_id || null,
+    creditAccountId: row.credit_account_id || null,
+    reference: row.reference,
+    status: row.status,
+    zohoRecordId: row.zoho_record_id || null,
+    attemptCount: Number(row.attempt_count) || 0,
+    lastError: row.last_error || null,
+    postedAt: iso(row.posted_at),
+    verifiedAt: iso(row.verified_at),
+    ...mapRecovery(row),
+    createdBy: row.created_by || null,
+    updatedBy: row.updated_by || null,
+    createdAt: iso(row.created_at),
+    updatedAt: iso(row.updated_at),
+  }
+}
+
+/** Refund components for these Stripe refunds, whatever payout they were recorded under. */
+async function listRefundComponents(db, refundIds) {
+  if (!refundIds.length) return []
+  const { rows } = await db.query('SELECT * FROM stripe_payout_refund_components WHERE refund_id = ANY($1::text[]) ORDER BY id', [refundIds])
+  return rows.map(mapRefundComponent)
+}
+
+// Identity of a refund component; a stored row that disagrees is never replanned.
+const REFUND_IDENTITY = [
+  ['payout_id', 'payoutId'],
+  ['balance_transaction_id', 'balanceTransactionId'],
+  ['charge_id', 'chargeId'],
+  ['zoho_customer_id', 'zohoCustomerId'],
+  ['invoice_id', 'invoiceId'],
+  ['credit_note_id', 'creditNoteId'],
+]
+
+/**
+ * Create or refresh a planned refund component (one per Stripe refund + component). A row
+ * in flight, posted, verified or under review is returned unchanged; one recorded for another
+ * payout, charge, customer, invoice or credit note is refused.
+ */
+async function upsertPlannedRefundComponent(db, c, actor) {
+  return inTransaction(db, async () => {
+    const found = await db.query(
+      'SELECT * FROM stripe_payout_refund_components WHERE refund_id = $1 AND component = $2 FOR UPDATE',
+      [c.refundId, c.component],
+    )
+    const current = found.rows[0]
+    if (current) {
+      const differences = REFUND_IDENTITY.filter(([col, key]) => String(current[col]) !== String(c[key])).map(([, key]) => key)
+      if (differences.length > 0) {
+        throw storeError(409, 'REFUND_COMPONENT_IDENTITY_CHANGED', `Refund ${c.refundId} ${c.component} is recorded with a different ${differences.join(', ')}.`)
+      }
+      if (!REPLANNABLE.includes(current.status)) return { component: mapRefundComponent(current), changed: false }
+      const { rows } = await db.query(
+        `UPDATE stripe_payout_refund_components SET
+           zoho_record_type = $1, amount = $2, currency = $3, deposit_account_id = $4, debit_account_id = $5,
+           credit_account_id = $6, reference = $7, updated_by = $8, updated_at = NOW()
+         WHERE id = $9 RETURNING *`,
+        [c.zohoRecordType, c.amount, c.currency, c.depositAccountId || null, c.debitAccountId || null, c.creditAccountId || null, c.reference, actor || null, current.id],
+      )
+      return { component: mapRefundComponent(rows[0]), changed: true }
+    }
+    const { rows } = await db.query(
+      `INSERT INTO stripe_payout_refund_components (
+         payout_id, refund_id, balance_transaction_id, charge_id, payment_intent_id, zoho_customer_id, invoice_id,
+         credit_note_id, component, zoho_record_type, amount, currency, deposit_account_id, debit_account_id,
+         credit_account_id, reference, status, created_by, updated_by
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $18)
+       RETURNING *`,
+      [
+        c.payoutId, c.refundId, c.balanceTransactionId, c.chargeId, c.paymentIntentId || null, c.zohoCustomerId, c.invoiceId,
+        c.creditNoteId, c.component, c.zohoRecordType, c.amount, c.currency, c.depositAccountId || null, c.debitAccountId || null,
+        c.creditAccountId || null, c.reference, COMPONENT_STATUS.PLANNED, actor || null,
+      ],
+    )
+    await logEvent(db, {
+      entityType: ENTITY.REFUND_COMPONENT,
+      entityId: rows[0].id,
+      payoutId: c.payoutId,
+      zohoCustomerId: c.zohoCustomerId,
+      toStatus: COMPONENT_STATUS.PLANNED,
+      detail: `${c.component} ${c.amount} planned for refund ${c.refundId} (${c.reference}).`,
+      actor,
+    })
+    return { component: mapRefundComponent(rows[0]), changed: true }
+  })
+}
+
+/** Guarded refund component status change; same rules as transitionComponent. */
+async function transitionRefundComponent(db, id, fromStatuses, toStatus, patch = {}, detail, actor) {
+  return transitionRow(db, 'stripe_payout_refund_components', ENTITY.REFUND_COMPONENT, mapRefundComponent, id, fromStatuses, toStatus, patch, detail, actor)
+}
+
+async function getComponent(db, id) {
+  const { rows } = await db.query('SELECT * FROM stripe_payout_clearing_components WHERE id = $1', [id])
+  return mapComponent(rows[0])
+}
+
+async function getRefundComponent(db, id) {
+  const { rows } = await db.query('SELECT * FROM stripe_payout_refund_components WHERE id = $1', [id])
+  return mapRefundComponent(rows[0])
 }
 
 const PAYOUT_LOCK_NAMESPACE = 0x53545050 // "STPP"
@@ -662,8 +959,11 @@ module.exports = {
   REFUND_STATUS,
   COMPONENT_TYPE,
   COMPONENT_STATUS,
+  EVENT,
   ENTITY,
   SCHEMA_SQL,
+  getComponent,
+  getRefundComponent,
   ensureStripePayoutClearingTables,
   listCasesForPayout,
   listCasesByChargeIds,
@@ -672,8 +972,12 @@ module.exports = {
   upsertPlannedComponent,
   transitionComponent,
   markAdvancePosted,
+  listRefundComponents,
+  upsertPlannedRefundComponent,
+  transitionRefundComponent,
   acquirePayoutLock,
   listEvents,
   mapCase,
   mapComponent,
+  mapRefundComponent,
 }
