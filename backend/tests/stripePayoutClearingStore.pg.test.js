@@ -304,3 +304,44 @@ test('components: unique per payout + customer + component, guarded transitions'
     client.release()
   }
 })
+
+test('posting lifecycle: failed attempt, retry, created, verified; advance case marked posted once', { skip }, async () => {
+  const PO = 'po_POSTTEST000001'
+  const lock = await payoutStore.acquirePayoutLock(pool, PO)
+  try {
+    await assert.rejects(payoutStore.acquirePayoutLock(pool, PO), (err) => err.code === 'PAYOUT_POSTING_IN_PROGRESS')
+    const other = await payoutStore.acquirePayoutLock(pool, 'po_POSTTEST000002')
+    await other.release()
+
+    const db = lock.db
+    const net = {
+      payoutId: PO, zohoCustomerId: '4265011000038735005', component: 'NET', zohoRecordType: 'customer_payment', amount: 1203.49, currency: 'AED',
+      depositAccountId: '4265011000000984169', reference: `Stripe funds received ${PO}`,
+      allocations: [{ invoiceId: 'I1', invoiceNumber: 'INV-044103', amount: 112.9 }],
+    }
+    const { component } = await payoutStore.upsertPlannedComponent(db, net, 'user:1')
+    await payoutStore.transitionComponent(db, component.id, ['PLANNED', 'FAILED'], 'POSTING', { incrementAttempt: true }, 'attempt 1', 'user:1')
+    await payoutStore.transitionComponent(db, component.id, ['POSTING'], 'FAILED', { lastError: 'timeout; not found in Zoho' }, null, 'user:1')
+    await payoutStore.transitionComponent(db, component.id, ['PLANNED', 'FAILED'], 'POSTING', { incrementAttempt: true }, 'attempt 2', 'user:1')
+    const posted = await payoutStore.transitionComponent(db, component.id, ['POSTING'], 'POSTED', { zohoRecordId: 'ZP-NET-1', postedAt: '2026-09-28T14:00:00Z' }, 'created', 'user:1')
+    assert.equal(posted.zohoRecordId, 'ZP-NET-1')
+    const unread = await payoutStore.transitionComponent(db, component.id, ['POSTED'], 'POSTED', { lastError: 'read-back failed' }, null, 'user:1')
+    assert.equal(unread.status, 'POSTED')
+    const verified = await payoutStore.transitionComponent(db, component.id, ['POSTED'], 'VERIFIED', { verifiedAt: '2026-09-28T14:00:05Z' }, 'verified', 'user:1')
+    assert.deepEqual([verified.status, verified.attemptCount, verified.zohoRecordId, verified.lastError], ['VERIFIED', 2, 'ZP-NET-1', 'read-back failed'])
+    assert.ok(verified.postedAt && verified.verifiedAt)
+    const events = await payoutStore.listEvents({ query: q }, payoutStore.ENTITY.COMPONENT, [component.id])
+    assert.deepEqual(events.map((e) => e.toStatus), ['PLANNED', 'POSTING', 'FAILED', 'POSTING', 'POSTED', 'POSTED', 'VERIFIED'])
+
+    const confirmed = await payoutStore.confirmCase(db, candidate({ payoutId: PO, chargeId: 'ch_POSTTEST000001', advanceReference: `Stripe customer advance ${PO}` }), { actor: 'user:1', reason: 'Customer overpaid; confirmed as advance.' })
+    const marked = await payoutStore.markAdvancePosted(db, [confirmed.case.id], 'ZJ-ADV-1', 'user:1')
+    assert.deepEqual(marked.map((m) => [m.status, m.zohoJournalId]), [['ADVANCE_POSTED', 'ZJ-ADV-1']])
+    assert.deepEqual(await payoutStore.markAdvancePosted(db, [confirmed.case.id], 'ZJ-OTHER', 'user:1'), [])
+    const caseEvents = await payoutStore.listEvents({ query: q }, payoutStore.ENTITY.ADVANCE_CASE, [confirmed.case.id])
+    assert.deepEqual(caseEvents.map((e) => e.toStatus), ['CUSTOMER_ADVANCE_REVIEW_REQUIRED', 'CONFIRMED', 'ADVANCE_POSTED'])
+  } finally {
+    await lock.release()
+  }
+  const again = await payoutStore.acquirePayoutLock(pool, PO)
+  await again.release()
+})

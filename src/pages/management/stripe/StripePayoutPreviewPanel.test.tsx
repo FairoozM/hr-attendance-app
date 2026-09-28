@@ -1,12 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import type { StripePayoutGroup, StripePayoutLine, StripePayoutPreview } from '../../../api/stripe'
-import { aed, confirmableAdvanceLines, groupTone, recoveryLabel } from './stripePayoutFormat'
+import type { StripePayoutComponent, StripePayoutGroup, StripePayoutLine, StripePayoutPreview } from '../../../api/stripe'
+import { aed, confirmableAdvanceLines, groupTone, postingSteps, recoveryLabel } from './stripePayoutFormat'
 
 const api = vi.hoisted(() => ({
   getStripePayouts: vi.fn(),
   getStripePayoutPreview: vi.fn(),
   confirmStripeCustomerAdvance: vi.fn(),
+  postStripePayoutGroup: vi.fn(),
 }))
 vi.mock('../../../api/stripe', () => api)
 
@@ -46,8 +47,54 @@ function advanceLine(confirmed: boolean): StripePayoutLine {
   }
 }
 
+const account = (code: string, name: string) => ({ accountId: code, accountCode: code, accountName: name })
+
+function payment(kind: 'NET' | 'FEE', amount: number, allocations: Array<[string, string, number]>): StripePayoutComponent {
+  const reference = kind === 'NET' ? `Stripe funds received ${PAYOUT}` : `Stripe processing fee ${PAYOUT}`
+  return {
+    component: kind,
+    zohoRecordType: 'customer_payment',
+    amount,
+    reference,
+    account: kind === 'NET' ? account('1019', 'Stripe Undeposited Funds') : account('1013', 'Stripe Processing Chg Un-Cleared'),
+    allocations: allocations.map(([invoiceNumber, orderNumber, value]) => ({ invoiceId: invoiceNumber, invoiceNumber, orderNumber, paymentIntentId: null, amount: value })),
+    advanceCaseIds: [],
+    payload: { reference_number: reference },
+    zoho: { state: 'MISSING', recordId: null, records: [], differences: [] },
+    local: null,
+    recovery: { action: 'POST_ELIGIBLE', reason: 'Not in Zoho yet.' },
+  }
+}
+
+function burjmanGroup(): StripePayoutGroup {
+  const invoices: Array<[string, string, number, number]> = [
+    ['INV-044103', '21101', 112.9, 4.4],
+    ['INV-044120', '21108', 764.1, 23.85],
+    ['INV-044093', '21097', 93.09, 3.81],
+    ['INV-044038', '21060', 233.4, 8],
+  ]
+  return {
+    groupKey: `${PAYOUT}|BURJ`,
+    customerId: 'BURJ',
+    customerName: 'Burjman Shop - Web & App',
+    status: 'READY',
+    reasons: [],
+    postable: true,
+    advanceReviewRequired: false,
+    invoiceCount: 4,
+    chargeCount: 4,
+    totals: { invoiceGross: 1243.55, netTo1019: 1203.49, customerAdvance: 0, total1019: 1203.49, feeTo1013: 40.06, stripeGross: 1243.55 },
+    checks: { total1019PlusFeeEqualsGross: true, netPlusFeeEqualsInvoices: true, everyLineBalances: true },
+    components: [
+      payment('NET', 1203.49, invoices.map(([i, o, n]) => [i, o, n])),
+      payment('FEE', 40.06, invoices.map(([i, o, , f]) => [i, o, f])),
+    ],
+    postingFingerprint: 'fp-burjman',
+    lines: [],
+  }
+}
+
 function websiteGroup(confirmed: boolean): StripePayoutGroup {
-  const account = (code: string, name: string) => ({ accountId: code, accountCode: code, accountName: name })
   return {
     groupKey: `${PAYOUT}|WEB`,
     customerId: 'WEB',
@@ -61,6 +108,8 @@ function websiteGroup(confirmed: boolean): StripePayoutGroup {
     totals: { invoiceGross: 3420.7, netTo1019: 3313.48, customerAdvance: 35, total1019: 3348.48, feeTo1013: 107.22, stripeGross: 3455.7 },
     checks: { total1019PlusFeeEqualsGross: true, netPlusFeeEqualsInvoices: true, everyLineBalances: true },
     components: [
+      payment('NET', 3313.48, [['INV-044122', '21111', 1033.07]]),
+      payment('FEE', 107.22, [['INV-044122', '21111', 32.93]]),
       {
         component: 'CUSTOMER_ADVANCE',
         zohoRecordType: 'journal',
@@ -76,6 +125,7 @@ function websiteGroup(confirmed: boolean): StripePayoutGroup {
         recovery: { action: 'POST_ELIGIBLE', reason: 'Not in Zoho yet.' },
       },
     ],
+    postingFingerprint: 'fp-website',
     lines: [advanceLine(confirmed)],
   }
 }
@@ -121,6 +171,113 @@ describe('stripePayoutFormat', () => {
     const partly = websiteGroup(false)
     partly.lines = [{ ...advanceLine(false), state: 'PARTIALLY_CLEARED' }]
     expect(confirmableAdvanceLines(partly)).toHaveLength(0)
+  })
+
+  it('posts NET, then FEE, then the advance journal and keeps verified records', () => {
+    const group = websiteGroup(true)
+    group.components = [group.components[2], group.components[1], group.components[0]]
+    group.components[1] = { ...group.components[1], recovery: { action: 'SKIP_VERIFIED', reason: 'Already in Zoho.' } }
+    expect(postingSteps(group).map((s) => [s.component.component, s.willCreate])).toEqual([
+      ['NET', true],
+      ['FEE', false],
+      ['CUSTOMER_ADVANCE', true],
+    ])
+  })
+})
+
+async function openPreview(p: StripePayoutPreview) {
+  api.getStripePayouts.mockResolvedValue({
+    rows: [{ payoutId: PAYOUT, status: 'paid', amount: 4551.97, currency: 'AED', arrivalDate: '2026-09-28T00:00:00.000Z', createdAt: null, composition: p.composition }],
+  })
+  api.getStripePayoutPreview.mockResolvedValue(p)
+  render(<StripePayoutPreviewPanel />)
+  fireEvent.click(screen.getByRole('button', { name: 'Load recent payouts' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Preview' }))
+  await screen.findByText('Burjman Shop - Web & App')
+}
+
+function currentPayout(postingEnabled: boolean): StripePayoutPreview {
+  const p = preview(true)
+  p.postingEnabled = postingEnabled
+  p.postingBlockedReasons = postingEnabled
+    ? []
+    : [{ code: 'STRIPE_CLEARING_POSTING_DISABLED', message: 'Stripe clearing posting is disabled (STRIPE_CLEARING_POSTING_ENABLED=false).' }]
+  p.groups = [burjmanGroup(), websiteGroup(true)]
+  return p
+}
+
+describe('StripePayoutPreviewPanel posting', () => {
+  it('shows posting disabled while the server flag is off', async () => {
+    await openPreview(currentPayout(false))
+    const buttons = screen.getAllByRole('button', { name: 'Post Customer Group to Zoho' }) as HTMLButtonElement[]
+    expect(buttons).toHaveLength(2)
+    expect(buttons.every((b) => b.disabled)).toBe(true)
+    expect(screen.getAllByText('Posting disabled')).toHaveLength(2)
+    expect(screen.getByText(/STRIPE_CLEARING_POSTING_ENABLED=false/)).toBeTruthy()
+    expect(api.postStripePayoutGroup).not.toHaveBeenCalled()
+  })
+
+  it('never offers posting for a group that needs review', async () => {
+    const p = currentPayout(true)
+    p.groups = [burjmanGroup(), websiteGroup(false)]
+    await openPreview(p)
+    expect(screen.getAllByRole('button', { name: 'Post Customer Group to Zoho' })).toHaveLength(1)
+  })
+
+  it('confirms and posts Burjman only, with its fingerprint', async () => {
+    await openPreview(currentPayout(true))
+    api.postStripePayoutGroup.mockResolvedValue({
+      outcome: 'POSTED',
+      alreadyPosted: false,
+      payoutId: PAYOUT,
+      customerId: 'BURJ',
+      customerName: 'Burjman Shop - Web & App',
+      components: [
+        { component: 'NET', amount: 1203.49, reference: `Stripe funds received ${PAYOUT}`, status: 'VERIFIED', zohoRecordId: 'PAY-NET', requestSent: true },
+        { component: 'FEE', amount: 40.06, reference: `Stripe processing fee ${PAYOUT}`, status: 'VERIFIED', zohoRecordId: 'PAY-FEE', requestSent: true },
+      ],
+      notAttempted: [],
+      zohoRequests: 2,
+      advanceCasesPosted: [],
+    })
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Post Customer Group to Zoho' })[0])
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog.textContent).toContain('NET payment · AED 1,203.49')
+    expect(dialog.textContent).toContain('Deposit to [1019] Stripe Undeposited Funds')
+    expect(dialog.textContent).toContain('FEE payment · AED 40.06')
+    expect(dialog.textContent).toContain('Deposit to [1013] Stripe Processing Chg Un-Cleared')
+    for (const inv of ['INV-044103', 'INV-044120', 'INV-044093', 'INV-044038']) expect(dialog.textContent).toContain(inv)
+    expect(dialog.textContent).not.toContain('INV-044122')
+    expect(dialog.textContent).not.toContain('Customer Advance journal ·')
+    expect(dialog.textContent).toContain('refund journal (Dr [1123] / Cr [1019]) is NOT part of this posting')
+
+    const submit = screen.getByRole('button', { name: 'Post to Zoho' }) as HTMLButtonElement
+    expect(submit.disabled).toBe(true)
+    fireEvent.click(screen.getByRole('checkbox'))
+    expect(submit.disabled).toBe(false)
+    fireEvent.click(submit)
+
+    await waitFor(() => expect(api.postStripePayoutGroup).toHaveBeenCalledWith(PAYOUT, 'BURJ', 'fp-burjman'))
+    expect(api.postStripePayoutGroup).toHaveBeenCalledTimes(1)
+    expect(await screen.findByText(/Result: POSTED/)).toBeTruthy()
+    expect(screen.getByText(/Zoho PAY-FEE/)).toBeTruthy()
+    await waitFor(() => expect(api.getStripePayoutPreview).toHaveBeenCalledTimes(2))
+  })
+
+  it('lists all three Website records and the INV-044122 split in the confirmation', async () => {
+    await openPreview(currentPayout(true))
+    fireEvent.click(screen.getAllByRole('button', { name: 'Post Customer Group to Zoho' })[1])
+    const dialog = await screen.findByRole('dialog')
+    const text = dialog.textContent || ''
+    expect(text.indexOf('NET payment · AED 3,313.48')).toBeGreaterThan(-1)
+    expect(text.indexOf('FEE payment · AED 107.22')).toBeGreaterThan(text.indexOf('NET payment'))
+    expect(text.indexOf('Customer Advance journal · AED 35.00')).toBeGreaterThan(text.indexOf('FEE payment'))
+    expect(text).toContain('Dr [1019] Stripe Undeposited Funds 35.00 / Cr [1123] Customer Advance Funds 35.00 · tagged Website')
+    expect(text).toContain('1,033.07')
+    expect(text).toContain('32.93')
+    expect(text).toContain(`Stripe customer advance ${PAYOUT}`)
+    expect(text).toContain('NOT part of this posting')
   })
 })
 

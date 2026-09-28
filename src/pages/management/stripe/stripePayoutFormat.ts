@@ -84,6 +84,22 @@ export function advanceLines(group: StripePayoutGroup): StripePayoutLine[] {
   return group.lines.filter((l) => l.advance)
 }
 
+const POSTING_ORDER: StripePayoutComponent['component'][] = ['NET', 'FEE', 'CUSTOMER_ADVANCE']
+
+export interface PostingStep {
+  component: StripePayoutComponent
+  /** false when the exact record is already verified in Zoho and will only be recorded. */
+  willCreate: boolean
+}
+
+/** What "Post Customer Group to Zoho" does, in order. The advance refund journal is never included. */
+export function postingSteps(group: StripePayoutGroup): PostingStep[] {
+  return POSTING_ORDER.flatMap((kind) => group.components.filter((c) => c.component === kind)).map((component) => ({
+    component,
+    willCreate: component.recovery.action !== 'SKIP_VERIFIED',
+  }))
+}
+
 /** Where the refund of an advance is (or will be) cleared. */
 export function refundPayoutLabel(refundPayoutId: string | null | undefined): string {
   return refundPayoutId || 'Waiting for Stripe payout'

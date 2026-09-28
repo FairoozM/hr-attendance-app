@@ -334,6 +334,13 @@
   font-size: 0.75rem;
 }
 
+.stripe-payout__post-steps {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0.5rem 0 0.75rem;
+  padding-left: 1.25rem;
+}
+
 .stripe-payout__reason {
   display: flex;
   flex-direction: column;

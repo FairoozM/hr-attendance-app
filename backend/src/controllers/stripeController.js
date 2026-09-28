@@ -51,6 +51,8 @@ function clearingError(res, err, label) {
     code: err.code || undefined,
     matchStatus: err.matchStatus || undefined,
     reasons: err.reasons || undefined,
+    groupStatus: err.groupStatus || undefined,
+    zohoRecordId: err.zohoRecordId || undefined,
     zohoPaymentId: err.zohoPaymentId || undefined,
     clearing: err.clearing || undefined,
   })
@@ -112,6 +114,19 @@ async function clearingReversedExternally(req, res) {
   }
 }
 
+async function payoutPostCustomerGroup(req, res) {
+  try {
+    const { postPayoutCustomerGroup } = require('../services/stripeClearing/stripePayoutPostingService')
+    const body = await postPayoutCustomerGroup(req.params.payoutId, req.params.customerKey, {
+      fingerprint: req.body && req.body.fingerprint,
+      actor: clearingActor(req),
+    })
+    return res.json(body)
+  } catch (err) {
+    return clearingError(res, err, 'payout group posting')
+  }
+}
+
 async function payoutList(req, res) {
   try {
     const { listPayoutSummaries } = require('../services/stripeClearing/stripePayoutPreviewService')
@@ -140,5 +155,6 @@ module.exports = {
   clearingReversedExternally,
   payoutList,
   payoutPreview,
+  payoutPostCustomerGroup,
   confirmCustomerAdvance,
 }

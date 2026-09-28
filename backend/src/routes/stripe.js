@@ -17,6 +17,9 @@ router.get('/payouts', auth.requireAuth, auth.requireAdmin, ctrl.payoutList)
 router.get('/payouts/:payoutId/preview', auth.requireAuth, auth.requireAdmin, ctrl.payoutPreview)
 // Local status only (no Zoho): admin confirms a detected overpayment as a customer advance.
 router.post('/payouts/:payoutId/customer-advance-cases/confirm', auth.requireAuth, auth.requireAdmin, ctrl.confirmCustomerAdvance)
+// Zoho write: NET + FEE customer payments (+ confirmed advance journal) for one payout + customer.
+// Refused unless STRIPE_CLEARING_POSTING_ENABLED=true and the live preview still matches.
+router.post('/payouts/:payoutId/customers/:customerKey/post', auth.requireAuth, auth.requireAdmin, ctrl.payoutPostCustomerGroup)
 // Local status only (no Zoho): record that a gross-only clearing was deleted in Zoho.
 router.post('/clearing/:paymentIntentId/reversed-externally', auth.requireAuth, auth.requireAdmin, ctrl.clearingReversedExternally)
 router.post('/clearing/:paymentIntentId/post', auth.requireAuth, auth.requireAdmin, ctrl.clearingPostRetired)

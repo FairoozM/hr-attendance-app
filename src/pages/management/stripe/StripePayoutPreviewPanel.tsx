@@ -4,9 +4,11 @@ import {
   confirmStripeCustomerAdvance,
   getStripePayoutPreview,
   getStripePayouts,
+  postStripePayoutGroup,
   type StripePayoutComponent,
   type StripePayoutGroup,
   type StripePayoutLine,
+  type StripePayoutPostResult,
   type StripePayoutPreview,
   type StripePayoutSummary,
 } from '../../../api/stripe'
@@ -20,6 +22,7 @@ import {
   formatWhen,
   groupTone,
   payoutTone,
+  postingSteps,
   recoveryLabel,
   refundPayoutLabel,
   statusLabel,
@@ -36,6 +39,14 @@ interface ConfirmState {
   acknowledged: boolean
   saving: boolean
   error: string
+}
+
+interface PostState {
+  group: StripePayoutGroup
+  acknowledged: boolean
+  posting: boolean
+  error: string
+  result: StripePayoutPostResult | null
 }
 
 function Badge({ tone, children }: { tone: Tone; children: string }) {
@@ -133,7 +144,7 @@ function AdvanceCard({
           </dd>
         </div>
       </dl>
-      <p className="stripe-page__note">Proposed journal (not sent):</p>
+      <p className="stripe-page__note">Customer advance journal:</p>
       <table className="stripe-page__table stripe-payout__journal">
         <tbody>
           <tr>
@@ -172,7 +183,35 @@ function AdvanceCard({
   )
 }
 
-function GroupCard({ group, onConfirm }: { group: StripePayoutGroup; onConfirm: (group: StripePayoutGroup, line: StripePayoutLine) => void }) {
+function PostAction({ group, postingEnabled, onPost }: { group: StripePayoutGroup; postingEnabled: boolean; onPost: (group: StripePayoutGroup) => void }) {
+  if (!group.postable) return null
+  return (
+    <div className="stripe-clearing__actions">
+      <button
+        type="button"
+        className="btn btn--primary"
+        disabled={!postingEnabled}
+        title={postingEnabled ? undefined : 'Posting disabled on the server (STRIPE_CLEARING_POSTING_ENABLED).'}
+        onClick={() => onPost(group)}
+      >
+        Post Customer Group to Zoho
+      </button>
+      {!postingEnabled && <span className="stripe-page__note">Posting disabled</span>}
+    </div>
+  )
+}
+
+function GroupCard({
+  group,
+  postingEnabled,
+  onConfirm,
+  onPost,
+}: {
+  group: StripePayoutGroup
+  postingEnabled: boolean
+  onConfirm: (group: StripePayoutGroup, line: StripePayoutLine) => void
+  onPost: (group: StripePayoutGroup) => void
+}) {
   const t = group.totals
   return (
     <section className="stripe-payout__group">
@@ -180,6 +219,7 @@ function GroupCard({ group, onConfirm }: { group: StripePayoutGroup; onConfirm: 
         <h3>{group.customerName}</h3>
         <Badge tone={groupTone(group.status)}>{statusLabel(group.status)}</Badge>
       </header>
+      <PostAction group={group} postingEnabled={postingEnabled} onPost={onPost} />
       {group.reasons.length > 0 && (
         <ul className="stripe-payout__reasons">
           {group.reasons.map((r) => (
@@ -293,7 +333,7 @@ function GroupCard({ group, onConfirm }: { group: StripePayoutGroup; onConfirm: 
       </details>
 
       <details className="stripe-payout__details">
-        <summary>Zoho payloads (preview only, not sent)</summary>
+        <summary>Zoho payloads</summary>
         {group.components.map((c) => (
           <div key={c.component}>
             <p className="stripe-page__note">{componentLabel(c.component)}</p>
@@ -313,6 +353,7 @@ export function StripePayoutPreviewPanel() {
   const [loadingId, setLoadingId] = useState('')
   const [previewError, setPreviewError] = useState('')
   const [confirm, setConfirm] = useState<ConfirmState | null>(null)
+  const [post, setPost] = useState<PostState | null>(null)
 
   async function loadPayouts() {
     setListing(true)
@@ -356,16 +397,34 @@ export function StripePayoutPreviewPanel() {
     }
   }
 
+  function openPost(group: StripePayoutGroup) {
+    setPost({ group, acknowledged: false, posting: false, error: '', result: null })
+  }
+
+  async function submitPost() {
+    if (!post || !preview) return
+    setPost({ ...post, posting: true, error: '' })
+    try {
+      const result = await postStripePayoutGroup(preview.payout.payoutId, post.group.customerId, post.group.postingFingerprint)
+      setPost((prev) => (prev ? { ...prev, posting: false, result } : prev))
+    } catch (err) {
+      setPost((prev) => (prev ? { ...prev, posting: false, error: err instanceof Error ? err.message : 'Posting failed.' } : prev))
+    }
+    await loadPreview(preview.payout.payoutId)
+  }
+
   const r = preview?.reconciliation
   const reasonOk = (confirm?.reason.trim().length ?? 0) >= 10
+  const postingEnabled = preview?.postingEnabled === true
+  const postAdvanceLines = post ? advanceLines(post.group) : []
 
   return (
     <article className="stripe-page__card">
       <h2>Payout Clearing Preview</h2>
       <p className="stripe-page__note">
         Each Stripe payout is cleared per customer: NET to [1019] Stripe Undeposited Funds, FEE to [1013] Stripe Processing Chg
-        Un-Cleared, and admin-confirmed overpayments to [1123] Customer Advance Funds. Preview only — posting is disabled and
-        nothing is sent to Zoho.
+        Un-Cleared, and admin-confirmed overpayments to [1123] Customer Advance Funds. Nothing is sent to Zoho until an admin
+        posts a customer group, and only while posting is enabled on the server.
       </p>
       <div className="stripe-clearing__filters">
         <button type="button" className="btn btn--primary" onClick={() => void loadPayouts()} disabled={listing}>
@@ -478,9 +537,15 @@ export function StripePayoutPreviewPanel() {
               {w}
             </p>
           ))}
+          {!postingEnabled && (
+            <p className="stripe-page__banner">
+              Posting disabled.{' '}
+              {(preview.postingBlockedReasons || []).map((x) => x.message).join(' ') || 'Zoho posting is switched off on this server.'}
+            </p>
+          )}
 
           {preview.groups.map((g) => (
-            <GroupCard key={g.groupKey} group={g} onConfirm={openConfirm} />
+            <GroupCard key={g.groupKey} group={g} postingEnabled={postingEnabled} onConfirm={openConfirm} onPost={openPost} />
           ))}
 
           {preview.unassigned.length > 0 && (
@@ -629,6 +694,117 @@ export function StripePayoutPreviewPanel() {
                 {confirm.saving ? 'Saving…' : 'Confirm Customer Advance'}
               </button>
             </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal title="Post Customer Group to Zoho" open={Boolean(post)} onClose={() => !post?.posting && setPost(null)}>
+        {post && preview && (
+          <div className="stripe-clearing__confirm">
+            <p>
+              <strong>{post.group.customerName}</strong> · payout <span className="stripe-clearing__mono">{preview.payout.payoutId}</span> · Zoho date{' '}
+              {preview.proposedPaymentDate || '—'}
+            </p>
+            <ol className="stripe-payout__post-steps">
+              {postingSteps(post.group).map(({ component: c, willCreate }) => (
+                <li key={c.component}>
+                  <strong>
+                    {c.component === 'CUSTOMER_ADVANCE' ? 'Customer Advance journal' : `${c.component} payment`} · {aed(c.amount)}
+                  </strong>
+                  {!willCreate && <span className="stripe-page__note"> · already in Zoho ({c.zoho.recordId}); kept, not recreated</span>}
+                  <div className="stripe-page__note">
+                    {c.zohoRecordType === 'journal' ? (
+                      <>
+                        Dr {accountLabel(c.debitAccount)} {amount(c.amount)} / Cr {accountLabel(c.creditAccount)} {amount(c.amount)} · tagged{' '}
+                        {post.group.customerName}
+                      </>
+                    ) : (
+                      <>
+                        Deposit to {accountLabel(c.account)} · customer {post.group.customerName}
+                      </>
+                    )}
+                  </div>
+                  <div className="stripe-clearing__mono">{c.reference}</div>
+                  {c.allocations.length > 0 && (
+                    <table className="stripe-page__table">
+                      <tbody>
+                        {c.allocations.map((a) => (
+                          <tr key={a.invoiceId}>
+                            <td>{a.invoiceNumber}</td>
+                            <td>{a.orderNumber}</td>
+                            <td className="stripe-payout__num">{amount(a.amount)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </li>
+              ))}
+            </ol>
+            <p className="stripe-page__banner">
+              The Customer Advance refund journal (Dr [1123] / Cr [1019]) is NOT part of this posting. It belongs to the later Stripe
+              payout that contains the refund.
+              {postAdvanceLines
+                .filter((l) => l.advance?.refund)
+                .map((l) => ` Refund ${l.advance?.refund?.refundId} (${aed(l.advance?.refund?.amount)}): ${refundPayoutLabel(l.advance?.refund?.refundPayoutId)}.`)
+                .join('')}
+            </p>
+
+            {post.result ? (
+              <div role="status">
+                <p>
+                  <strong>Result: {statusLabel(post.result.outcome)}</strong> · Zoho requests sent: {post.result.zohoRequests}
+                </p>
+                <ul className="stripe-payout__reasons">
+                  {post.result.components.map((c) => (
+                    <li key={c.component}>
+                      {componentLabel(c.component)} · {aed(c.amount)} · {c.status ? statusLabel(c.status) : '—'}
+                      {c.zohoRecordId ? ` · Zoho ${c.zohoRecordId}` : ''}
+                      {c.reason || c.lastError ? ` · ${c.reason || c.lastError}` : ''}
+                    </li>
+                  ))}
+                  {(post.result.notAttempted || []).map((k) => (
+                    <li key={k}>{componentLabel(k)} · not attempted</li>
+                  ))}
+                </ul>
+                <div className="stripe-clearing__actions">
+                  <button type="button" className="btn btn--primary" onClick={() => setPost(null)}>
+                    Close
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <label className="stripe-clearing__check">
+                  <input
+                    type="checkbox"
+                    checked={post.acknowledged}
+                    disabled={post.posting}
+                    onChange={(e) => setPost({ ...post, acknowledged: e.target.checked })}
+                  />
+                  I reviewed every record above. They will be created in Zoho for {post.group.customerName} only, in this order, each
+                  verified before the next.
+                </label>
+                {post.error && (
+                  <p className="stripe-page__banner stripe-page__banner--error" role="alert">
+                    {post.error}
+                  </p>
+                )}
+                <div className="stripe-clearing__actions">
+                  <button type="button" className="btn btn--ghost" onClick={() => setPost(null)} disabled={post.posting}>
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--primary"
+                    onClick={() => void submitPost()}
+                    disabled={!post.acknowledged || post.posting || !postingEnabled}
+                  >
+                    {post.posting ? 'Posting…' : 'Post to Zoho'}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         )}
       </Modal>

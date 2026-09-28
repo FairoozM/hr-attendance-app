@@ -12,7 +12,10 @@
  * Amounts are kept in minor units until output.
  */
 
+const crypto = require('crypto')
 const { getStripeClearingConfig } = require('../../config/stripeClearing')
+const defaultStripeConfig = require('../../config/stripe')
+const { postingGate } = require('./stripeClearingGate')
 const defaultSources = require('./stripeClearingSources')
 const { MATCH_STATUS, classifyStripePayment, expectedZohoCustomerId, pickMatchedInvoice } = require('./stripeClearingMatcher')
 const model = require('./stripePayoutClearingModel')
@@ -48,6 +51,7 @@ function defaultRecords() {
 function defaultDeps() {
   return {
     config: getStripeClearingConfig(),
+    stripeConfig: defaultStripeConfig,
     sources: defaultSources,
     zohoPayments: require('../amazonPaymentClearingZohoPaymentService'),
     records: defaultRecords(),
@@ -513,6 +517,39 @@ async function zohoJournalState(component, customerId, ctx, payoutId) {
   return { state: ZOHO_STATE.VERIFIED, recordId: mine[0].journalId, records, differences: [] }
 }
 
+/** Fresh Zoho state of one proposed component (no preview cache); used right before posting. */
+async function componentZohoState(component, customerId, payoutId, overrides = {}) {
+  const deps = { ...defaultDeps(), ...overrides }
+  const ctx = { sources: deps.sources, zohoPayments: deps.zohoPayments, config: deps.config, cache: new Map() }
+  return component.zohoRecordType === 'journal' ? zohoJournalState(component, customerId, ctx, payoutId) : zohoPaymentState(component, customerId, ctx)
+}
+
+/**
+ * Hash of everything the admin approves when posting a group: payout, customer, date and
+ * each component's amount, reference, accounts, allocations and advance cases. Zoho and
+ * local status are excluded so a partly posted group keeps the same fingerprint.
+ */
+function postingFingerprint(payout, customerId, date, components) {
+  const plan = {
+    payoutId: payout.payoutId,
+    payoutAmountMinor: payout.amountMinor,
+    arrivalDate: payout.arrivalDate,
+    date,
+    customerId,
+    components: components.map((c) => ({
+      component: c.component,
+      amountMinor: toMinor(c.amount),
+      reference: c.reference,
+      depositAccountId: c.depositAccountId || null,
+      debitAccountId: c.debitAccountId || null,
+      creditAccountId: c.creditAccountId || null,
+      allocations: c.allocations.map((a) => [a.invoiceId, toMinor(a.amount)]),
+      advanceCaseIds: [...c.advanceCaseIds].map(String).sort(),
+    })),
+  }
+  return crypto.createHash('sha256').update(JSON.stringify(plan)).digest('hex')
+}
+
 function publicLocal(row) {
   if (!row) return null
   return {
@@ -608,6 +645,7 @@ async function buildGroup(customerId, lines, ctx) {
       everyLineBalances: allocatable.every((l) => l.netAllocMinor + l.feeAllocMinor === l.invoiceTotalMinor && l.netAllocMinor + l.advanceMinor === l.netMinor),
     },
     components: components.map(({ localStatus, ...c }) => c),
+    postingFingerprint: postingFingerprint(payout, customerId, date, proposed),
     lines: lines.map(publicLine),
   }
 }
@@ -745,7 +783,7 @@ async function listPayoutSummaries(params = {}, overrides = {}) {
  */
 async function previewPayout(payoutId, overrides = {}) {
   const deps = { ...defaultDeps(), ...overrides }
-  const { config, sources, zohoPayments, records } = deps
+  const { config, sources, zohoPayments, records, stripeConfig } = deps
   const id = assertPayoutId(payoutId)
   const payout = await sources.retrieveStripePayout(id)
   if (!payout) throw fail(404, 'STRIPE_PAYOUT_NOT_FOUND', `Stripe has no payout ${id}.`)
@@ -822,9 +860,11 @@ async function previewPayout(payoutId, overrides = {}) {
   const warnings = []
   if (otherTxns.length > 0) warnings.push(`${otherTxns.length} non-charge balance transaction(s) are in this payout; they are not part of invoice clearing.`)
 
+  const gate = postingGate(config, stripeConfig)
   return {
     preview: true,
-    postingEnabled: false,
+    postingEnabled: gate.allowed,
+    postingBlockedReasons: gate.reasons,
     payout: {
       payoutId: payout.payoutId,
       status: payout.status,
@@ -864,4 +904,5 @@ module.exports = {
   feeReference: model.feeReference,
   listPayoutSummaries,
   previewPayout,
+  componentZohoState,
 }

@@ -550,6 +550,64 @@ async function transitionComponent(db, id, fromStatuses, toStatus, patch = {}, d
   })
 }
 
+/** Record the verified Zoho advance journal on the confirmed cases it clears. */
+async function markAdvancePosted(db, caseIds, journalId, actor) {
+  if (!caseIds.length) return []
+  return inTransaction(db, async () => {
+    const { rows } = await db.query(
+      `UPDATE stripe_customer_advance_cases SET status = $1, zoho_journal_id = $2, updated_at = NOW()
+       WHERE id = ANY($3::bigint[]) AND status = $4
+       RETURNING *`,
+      [CASE_STATUS.ADVANCE_POSTED, journalId, caseIds.map(Number), CASE_STATUS.CONFIRMED],
+    )
+    for (const row of rows) {
+      await logEvent(db, {
+        entityType: ENTITY.ADVANCE_CASE,
+        entityId: row.id,
+        payoutId: row.payout_id,
+        zohoCustomerId: row.zoho_customer_id,
+        fromStatus: CASE_STATUS.CONFIRMED,
+        toStatus: CASE_STATUS.ADVANCE_POSTED,
+        detail: `Customer advance journal ${journalId} (${row.advance_reference}) verified in Zoho.`,
+        actor,
+      })
+    }
+    return rows.map(mapCase)
+  })
+}
+
+const PAYOUT_LOCK_NAMESPACE = 0x53545050 // "STPP"
+
+/**
+ * Session-level advisory lock for one payout on a dedicated connection. A second
+ * posting request for the same payout fails fast instead of waiting.
+ */
+async function acquirePayoutLock(pool, payoutId) {
+  const client = await pool.connect()
+  let locked = false
+  try {
+    const { rows } = await client.query('SELECT pg_try_advisory_lock($1::int, hashtext($2)) AS locked', [PAYOUT_LOCK_NAMESPACE, payoutId])
+    locked = rows[0] && rows[0].locked === true
+  } catch (err) {
+    client.release()
+    throw err
+  }
+  if (!locked) {
+    client.release()
+    throw storeError(409, 'PAYOUT_POSTING_IN_PROGRESS', `Another request is already posting payout ${payoutId}.`)
+  }
+  return {
+    db: client,
+    async release() {
+      try {
+        await client.query('SELECT pg_advisory_unlock($1::int, hashtext($2))', [PAYOUT_LOCK_NAMESPACE, payoutId])
+      } finally {
+        client.release()
+      }
+    },
+  }
+}
+
 module.exports = {
   CASE_STATUS,
   REFUND_STATUS,
@@ -564,6 +622,8 @@ module.exports = {
   listComponents,
   upsertPlannedComponent,
   transitionComponent,
+  markAdvancePosted,
+  acquirePayoutLock,
   listEvents,
   mapCase,
   mapComponent,

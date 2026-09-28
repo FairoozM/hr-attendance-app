@@ -258,6 +258,8 @@ export interface StripePayoutGroup {
   totals: StripePayoutGroupTotals
   checks: { total1019PlusFeeEqualsGross: boolean; netPlusFeeEqualsInvoices: boolean; everyLineBalances: boolean }
   components: StripePayoutComponent[]
+  /** Sent back when posting; the server refuses if the live plan no longer matches. */
+  postingFingerprint: string
   lines: StripePayoutLine[]
 }
 
@@ -311,7 +313,8 @@ export interface StripeOtherTransaction {
 
 export interface StripePayoutPreview {
   preview: true
-  postingEnabled: false
+  postingEnabled: boolean
+  postingBlockedReasons?: Array<{ code: string; message: string }>
   payout: { payoutId: string; status: string; amount: number; currency: string; arrivalDate: string | null; createdAt: string | null }
   status: StripePayoutStatus
   blockers: string[]
@@ -348,6 +351,37 @@ export function confirmStripeCustomerAdvance(payoutId: string, chargeId: string,
     chargeId,
     reason,
   }) as Promise<StripeAdvanceConfirmResult>
+}
+
+export interface StripePayoutPostComponentResult {
+  component: StripePayoutComponentKind
+  amount: number
+  reference: string
+  status: string | null
+  zohoRecordId: string | null
+  attemptCount?: number
+  lastError?: string | null
+  requestSent: boolean
+  reason?: string
+}
+
+export interface StripePayoutPostResult {
+  outcome: 'POSTED' | 'PARTIALLY_POSTED' | 'NEEDS_REVIEW' | 'NOT_POSTED'
+  alreadyPosted: boolean
+  payoutId: string
+  customerId: string
+  customerName: string
+  components: StripePayoutPostComponentResult[]
+  notAttempted?: StripePayoutComponentKind[]
+  zohoRequests: number
+  advanceCasesPosted: Array<{ id: string; status: string; zohoJournalId: string | null }>
+}
+
+/** Creates Zoho customer payments (and the confirmed advance journal) for one payout + customer. */
+export function postStripePayoutGroup(payoutId: string, zohoCustomerId: string, fingerprint: string) {
+  return api.post(`/api/stripe/payouts/${encodeURIComponent(payoutId)}/customers/${encodeURIComponent(zohoCustomerId)}/post`, {
+    fingerprint,
+  }) as Promise<StripePayoutPostResult>
 }
 
 export function getStripeStatus() {
