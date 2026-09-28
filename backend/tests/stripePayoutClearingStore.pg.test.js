@@ -73,12 +73,19 @@ test.before(async () => {
      VALUES ('po_LEGACY0000001', 'C', 'Website', '9', 'I9', 'INV-9', 'ch_LEGACY0000001', 'AED', 100, 97, 3, 90, 10, 87,
        'A', '1123', 'Stripe customer advance po_LEGACY0000001', 'CONFIRMED', true, 'user:1', '2026-09-20T10:00:00Z', 'legacy reason')`,
   )
+  // A verified customer component from before 050 (payout fee journal) must survive the upgrade.
+  await pool.query(
+    `INSERT INTO stripe_payout_clearing_components (payout_id, zoho_customer_id, component, zoho_record_type, amount, currency,
+       deposit_account_id, reference, status, zoho_record_id, attempt_count, posted_at, verified_at)
+     VALUES ('po_LEGACY0000001', 'C', 'FEE', 'customer_payment', 3, 'AED', '4265011000000699653',
+       'Stripe processing fee po_LEGACY0000001', 'VERIFIED', 'ZP-LEGACY-FEE', 1, NOW(), NOW())`,
+  )
   for (let i = 0; i < 2; i++) {
     await clearingStore.ensureStripeClearingTables(q)
     await payoutStore.ensureStripePayoutClearingTables(q)
   }
   // The reference migration files must also apply cleanly on top, repeatedly.
-  for (const file of ['048_stripe_payout_clearing.sql', '049_stripe_advance_refund_detected.sql', '049_stripe_advance_refund_detected.sql']) {
+  for (const file of ['048_stripe_payout_clearing.sql', '049_stripe_advance_refund_detected.sql', '049_stripe_advance_refund_detected.sql', '050_stripe_payout_fee_journal.sql', '050_stripe_payout_fee_journal.sql']) {
     await pool.query(fs.readFileSync(path.join(__dirname, '../migrations', file), 'utf8'))
   }
 })
@@ -260,6 +267,68 @@ test('case constraints: figures must add up and confirmation needs who and when'
   await assert.rejects(insert({ ...ok, charge: 'ch_B', over: 11 }), (err) => err.code === '23514')
   await assert.rejects(insert({ ...ok, charge: 'ch_C', alloc: 88 }), (err) => err.code === '23514')
   await assert.rejects(insert({ ...ok, charge: 'ch_D', status: 'CONFIRMED' }), (err) => err.code === '23514')
+})
+
+test('050 upgrade keeps customer components and replaces the component check exactly once', { skip }, async () => {
+  const { rows } = await q("SELECT * FROM stripe_payout_clearing_components WHERE payout_id = 'po_LEGACY0000001'")
+  const legacy = payoutStore.mapComponent(rows[0])
+  assert.deepEqual([legacy.component, legacy.zohoCustomerId, legacy.status, legacy.zohoRecordId, legacy.createdBy], ['FEE', 'C', 'VERIFIED', 'ZP-LEGACY-FEE', null])
+  const checks = await q(
+    `SELECT conname, pg_get_constraintdef(oid) AS def FROM pg_constraint
+     WHERE conrelid = 'stripe_payout_clearing_components'::regclass AND contype = 'c' AND pg_get_constraintdef(oid) LIKE '%CUSTOMER_ADVANCE_REFUND%'`,
+  )
+  assert.equal(checks.rows.length, 1)
+  assert.match(checks.rows[0].def, /PAYOUT_FEE_JOURNAL/)
+})
+
+test('payout fee journal: one per payout, no customer, journal-only, audited with created_by/updated_by', { skip }, async () => {
+  const client = await pool.connect()
+  const fee = {
+    payoutId: 'po_FEEJOURNAL00001',
+    zohoCustomerId: null,
+    component: 'PAYOUT_FEE_JOURNAL',
+    zohoRecordType: 'journal',
+    amount: 147.28,
+    currency: 'AED',
+    debitAccountId: '4265011000000648121',
+    creditAccountId: '4265011000000699653',
+    reference: 'Stripe processing fees po_FEEJOURNAL00001',
+    allocations: [],
+    advanceCaseIds: [],
+  }
+  try {
+    const planned = await payoutStore.upsertPlannedComponent(client, fee, 'user:1')
+    assert.equal(planned.component.zohoCustomerId, null)
+    assert.equal(planned.component.createdBy, 'user:1')
+    const again = await payoutStore.upsertPlannedComponent(client, fee, 'user:2')
+    assert.equal(again.component.id, planned.component.id, 'the NULL customer is matched, not duplicated')
+    assert.equal(again.component.updatedBy, 'user:2')
+    const posting = await payoutStore.transitionComponent(client, planned.component.id, ['PLANNED', 'FAILED'], 'POSTING', { incrementAttempt: true }, 'attempt', 'user:3')
+    assert.equal(posting.updatedBy, 'user:3')
+    const verified = await payoutStore.transitionComponent(client, planned.component.id, ['POSTING'], 'VERIFIED', { zohoRecordId: 'ZJ-FEE-1', postedAt: new Date().toISOString(), verifiedAt: new Date().toISOString() }, 'verified', 'user:3')
+    assert.equal(verified.zohoJournalId, 'ZJ-FEE-1')
+    const events = await payoutStore.listEvents({ query: q }, payoutStore.ENTITY.COMPONENT, [planned.component.id])
+    assert.deepEqual(events.map((e) => [e.toStatus, e.zohoCustomerId]), [['PLANNED', null], ['POSTING', null], ['VERIFIED', null]])
+
+    const insert = (patch) => {
+      const r = { customer: null, component: 'PAYOUT_FEE_JOURNAL', type: 'journal', debit: 'D', credit: 'C', allocations: '[]', payout: 'po_FEEJOURNAL00002', ...patch }
+      return q(
+        `INSERT INTO stripe_payout_clearing_components (payout_id, zoho_customer_id, component, zoho_record_type, amount, currency,
+           debit_account_id, credit_account_id, reference, allocations, status)
+         VALUES ($1, $2, $3, $4, 1, 'AED', $5, $6, 'r', $7::jsonb, 'PLANNED')`,
+        [r.payout, r.customer, r.component, r.type, r.debit, r.credit, r.allocations],
+      )
+    }
+    await assert.rejects(insert({ payout: 'po_FEEJOURNAL00001' }), (err) => err.code === '23505', 'second fee journal for the payout')
+    await assert.rejects(insert({ customer: '4265011000000160061' }), (err) => err.code === '23514', 'fee journal tagged to a customer')
+    await assert.rejects(insert({ component: 'FEE' }), (err) => err.code === '23514', 'customer component without a customer')
+    await assert.rejects(insert({ type: 'customer_payment' }), (err) => err.code === '23514', 'fee journal as a payment')
+    await assert.rejects(insert({ credit: null }), (err) => err.code === '23514', 'fee journal without both accounts')
+    await assert.rejects(insert({ allocations: '[{"invoiceId":"I","amount":1}]' }), (err) => err.code === '23514', 'fee journal with invoice lines')
+    await insert({})
+  } finally {
+    client.release()
+  }
 })
 
 test('components: unique per payout + customer + component, guarded transitions', { skip }, async () => {

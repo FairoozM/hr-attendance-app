@@ -33,13 +33,55 @@ test('group status follows component recovery', () => {
   assert.equal(m.deriveGroupStatus({ blockers: ['x'], components: [c('NET', A.POST_ELIGIBLE)], hasAdvance: false }).status, G.NEEDS_REVIEW)
 })
 
-test('payout status: customers are independent, fully cleared only when every group is complete', () => {
+test('payout status: customers are independent, fully cleared only when every group and the fee journal are done', () => {
   const g = (status) => ({ status })
-  assert.equal(m.derivePayoutStatus([g(G.READY), g(G.READY_WITH_CUSTOMER_ADVANCE)], []), P.READY)
-  assert.equal(m.derivePayoutStatus([g(G.POSTED), g(G.READY)], []), P.PARTIALLY_CLEARED)
-  assert.equal(m.derivePayoutStatus([g(G.POSTED), g(G.ALREADY_POSTED)], []), P.FULLY_CLEARED)
-  assert.equal(m.derivePayoutStatus([g(G.POSTED), g(G.POSTED)], ['does not reconcile']), P.NEEDS_REVIEW)
-  assert.equal(m.derivePayoutStatus([g(G.POSTED), g(G.NEEDS_REVIEW)], []), P.NEEDS_REVIEW)
+  const F = m.FEE_JOURNAL_STATUS
+  const fee = (status) => ({ status })
+  assert.equal(m.derivePayoutStatus([g(G.READY), g(G.READY_WITH_CUSTOMER_ADVANCE)], [], fee(F.WAITING)), P.READY)
+  assert.equal(m.derivePayoutStatus([g(G.POSTED), g(G.READY)], [], fee(F.WAITING)), P.PARTIALLY_CLEARED)
+  assert.equal(m.derivePayoutStatus([g(G.POSTED), g(G.ALREADY_POSTED)], [], fee(F.READY)), P.FEE_JOURNAL_PENDING)
+  assert.equal(m.derivePayoutStatus([g(G.POSTED), g(G.POSTED)], [], undefined), P.FEE_JOURNAL_PENDING)
+  assert.equal(m.derivePayoutStatus([g(G.POSTED), g(G.ALREADY_POSTED)], [], fee(F.VERIFIED)), P.FULLY_CLEARED)
+  assert.equal(m.derivePayoutStatus([g(G.ALREADY_POSTED)], [], fee(F.LEGACY_VERIFIED)), P.FULLY_CLEARED)
+  assert.equal(m.derivePayoutStatus([g(G.POSTED)], [], fee(F.NOT_REQUIRED)), P.FULLY_CLEARED)
+  assert.equal(m.derivePayoutStatus([g(G.POSTED), g(G.POSTED)], [], fee(F.NEEDS_REVIEW)), P.NEEDS_REVIEW)
+  assert.equal(m.derivePayoutStatus([g(G.POSTED), g(G.READY)], [], fee(F.VERIFIED)), P.PARTIALLY_CLEARED)
+  assert.equal(m.derivePayoutStatus([g(G.POSTED), g(G.POSTED)], ['does not reconcile'], fee(F.VERIFIED)), P.NEEDS_REVIEW)
+  assert.equal(m.derivePayoutStatus([g(G.POSTED), g(G.NEEDS_REVIEW)], [], fee(F.WAITING)), P.NEEDS_REVIEW)
+})
+
+test('fee journal payload: one Stripe Fees debit and one 1013 credit for the total, untagged, no notes', () => {
+  const component = { reference: m.payoutFeeReference('po_1UJNObDJogiiRoKPHtPAr3KE'), amount: 147.28, debitAccountId: '4265011000000648121', creditAccountId: '4265011000000699653' }
+  const payload = m.payoutFeeJournalPayload(component, '2026-09-28')
+  assert.equal(payload.reference_number, 'Stripe processing fees po_1UJNObDJogiiRoKPHtPAr3KE')
+  assert.equal(payload.journal_date, '2026-09-28')
+  assert.equal(payload.notes, undefined)
+  assert.deepEqual(payload.line_items.map((l) => [l.account_id, l.debit_or_credit, l.amount, l.customer_id]), [
+    ['4265011000000648121', 'debit', 147.28, undefined],
+    ['4265011000000699653', 'credit', 147.28, undefined],
+  ])
+  assert.ok(!/HR|hr-attendance|Purchase Planning/i.test(JSON.stringify(payload)))
+})
+
+test('automated references are never treated as legacy fee journals', () => {
+  assert.equal(m.isAutomatedReference('Stripe processing fees po_1UJNObDJogiiRoKPHtPAr3KE'), true)
+  assert.equal(m.isAutomatedReference('Stripe processing fee po_1UJNObDJogiiRoKPHtPAr3KE'), true)
+  assert.equal(m.isAutomatedReference('Stripe customer advance refund po_X1234567'), true)
+  assert.equal(m.isAutomatedReference('Website&Burjuman stripe transaction fee - 50 Invoices'), false)
+})
+
+test('legacy matcher: published, credits 1013, debits Stripe Fees by the total or by each customer FEE', () => {
+  const FEES = '4265011000000648121'
+  const CLR = '4265011000000699653'
+  const j = (lines, status = 'published') => ({ status, lineItems: lines.map(([accountId, debitOrCredit, amount]) => ({ accountId, debitOrCredit, amount })) })
+  const expected = { feeExpenseAccountId: FEES, clearingAccountId: CLR, totalMinor: 31577, feeMinors: [30678, 899] }
+  assert.equal(m.matchLegacyFeeJournal(j([[FEES, 'debit', 306.78], [FEES, 'debit', 8.99], [FEES, 'debit', 100], [CLR, 'credit', 415.77]]), expected).how, 'CUSTOMER_FEE_LINES')
+  assert.equal(m.matchLegacyFeeJournal(j([[FEES, 'debit', 315.77], [CLR, 'credit', 315.77]]), expected).how, 'TOTAL_LINE')
+  assert.equal(m.matchLegacyFeeJournal(j([[FEES, 'debit', 306.78], [CLR, 'credit', 306.78]]), expected).matched, false, 'one customer only')
+  assert.equal(m.matchLegacyFeeJournal(j([[FEES, 'debit', 315.77], [CLR, 'credit', 315.77]], 'draft'), expected).matched, false, 'draft')
+  assert.equal(m.matchLegacyFeeJournal(j([[FEES, 'debit', 315.77], ['OTHER', 'credit', 315.77]]), expected).matched, false, 'wrong credit account')
+  assert.equal(m.matchLegacyFeeJournal(j([['OTHER', 'debit', 315.77], [CLR, 'credit', 315.77]]), expected).matched, false, 'wrong debit account')
+  assert.equal(m.matchLegacyFeeJournal(j([[FEES, 'debit', 306.78], [FEES, 'debit', 8.99], [CLR, 'credit', 100]]), expected).matched, false, 'credit short')
 })
 
 test('the per-PaymentIntent posting route is retired (410) and never reaches Zoho', () => {

@@ -117,7 +117,19 @@ async function resolveAccounts(config, zohoPayments) {
     type: config.advanceAccountType,
     id: config.advanceAccountId,
   })
-  return { net: net.account, fee: fee.account, advance: advance.account, problems: { base: [net.problem, fee.problem].filter(Boolean), advance: advance.problem } }
+  const feeExpense = resolveAccount(accounts, {
+    name: config.feeExpenseAccountName,
+    code: config.feeExpenseAccountCode,
+    type: config.feeExpenseAccountType,
+    id: config.feeExpenseAccountId,
+  })
+  return {
+    net: net.account,
+    fee: fee.account,
+    advance: advance.account,
+    feeExpense: feeExpense.account,
+    problems: { base: [net.problem, fee.problem].filter(Boolean), advance: advance.problem, feeExpense: feeExpense.problem },
+  }
 }
 
 /** Stripe composition of a payout; the payout's own balance transaction is excluded. */
@@ -517,11 +529,171 @@ async function zohoJournalState(component, customerId, ctx, payoutId) {
   return { state: ZOHO_STATE.VERIFIED, recordId: mine[0].journalId, records, differences: [] }
 }
 
+/** The payout fee journal under its deterministic reference; any other shape is a conflict. */
+async function feeJournalZohoState(component, ctx) {
+  const found = await ctx.sources.findZohoJournalsByReference(component.reference, { source: 'stripe_payout_preview' })
+  const records = found.map((j) => ({ recordId: j.journalId }))
+  if (found.length === 0) return { state: ZOHO_STATE.MISSING, recordId: null, records, differences: [] }
+  if (found.length > 1) return { state: ZOHO_STATE.CONFLICT, recordId: null, records, differences: [], reason: `${found.length} Zoho journals have the reference "${component.reference}".` }
+  const detail = await ctx.sources.getZohoJournal(found[0].journalId, { source: 'stripe_payout_preview' })
+  const differences = model.compareFeeJournal(detail, component, component.date)
+  if (differences.length > 0) {
+    return { state: ZOHO_STATE.CONFLICT, recordId: found[0].journalId, records, differences, reason: `Zoho journal ${found[0].journalId} differs: ${differences.join(' ')}` }
+  }
+  return { state: ZOHO_STATE.VERIFIED, recordId: found[0].journalId, records, differences: [] }
+}
+
 /** Fresh Zoho state of one proposed component (no preview cache); used right before posting. */
 async function componentZohoState(component, customerId, payoutId, overrides = {}) {
   const deps = { ...defaultDeps(), ...overrides }
   const ctx = { sources: deps.sources, zohoPayments: deps.zohoPayments, config: deps.config, cache: new Map() }
+  if (component.component === COMPONENT.PAYOUT_FEE_JOURNAL) return feeJournalZohoState(component, ctx)
   return component.zohoRecordType === 'journal' ? zohoJournalState(component, customerId, ctx, payoutId) : zohoPaymentState(component, customerId, ctx)
+}
+
+function shiftDate(ymd, days) {
+  const d = new Date(`${ymd}T00:00:00.000Z`)
+  d.setUTCDate(d.getUTCDate() + days)
+  return d.toISOString().slice(0, 10)
+}
+
+/**
+ * Manual fee journals from before this workflow (e.g. "Website&Burjuman stripe transaction
+ * fee - 50 Invoices") that provably carry this payout's fees. Only published journals that
+ * mention Stripe, dated around the payout, and not written by this workflow are inspected.
+ */
+async function findLegacyFeeJournal(payout, date, expected, ctx) {
+  const { LEGACY_STATE } = model
+  const start = shiftDate(dubaiDate(payout.createdAt) || date, -ctx.config.legacyFeeJournalDaysBefore)
+  const end = shiftDate(date, ctx.config.legacyFeeJournalDaysAfter)
+  const window = { start, end }
+  if (typeof ctx.sources.listZohoJournalsInRange !== 'function') {
+    return { state: LEGACY_STATE.ERROR, window, journals: [], candidatesChecked: 0, reason: 'Legacy fee journals cannot be listed; confirm manually.' }
+  }
+  try {
+    const rows = await ctx.sources.listZohoJournalsInRange(start, end, { source: 'stripe_payout_preview' })
+    const candidates = rows.filter((j) => !model.isAutomatedReference(j.referenceNumber)
+      && /stripe/i.test(`${j.referenceNumber || ''} ${j.notes || ''}`)
+      && (j.status || 'published') === 'published'
+      && toMinor(j.total) >= expected.totalMinor)
+    const journals = []
+    for (const j of candidates) {
+      const detail = await ctx.sources.getZohoJournal(j.journalId, { source: 'stripe_payout_preview' })
+      const match = model.matchLegacyFeeJournal(detail, expected)
+      if (match.matched) {
+        journals.push({ journalId: j.journalId, entryNumber: j.entryNumber || null, journalDate: j.journalDate, referenceNumber: j.referenceNumber, total: j.total, how: match.how, matchedLines: match.lines })
+      }
+    }
+    if (journals.length === 0) {
+      return { state: LEGACY_STATE.NONE, window, journals, candidatesChecked: candidates.length, reason: `No legacy Stripe fee journal dated ${start}..${end} carries these fees.` }
+    }
+    if (journals.length > 1) {
+      return { state: LEGACY_STATE.AMBIGUOUS, window, journals, candidatesChecked: candidates.length, reason: `${journals.length} legacy journals (${journals.map((j) => `#${j.entryNumber || j.journalId}`).join(', ')}) could each carry these fees; confirm manually.` }
+    }
+    const [j] = journals
+    const how = j.how === 'TOTAL_LINE' ? `one Stripe Fees line of ${j.matchedLines[0].toFixed(2)}` : `Stripe Fees lines ${j.matchedLines.map((x) => x.toFixed(2)).join(' + ')} (one per customer FEE payment)`
+    return {
+      state: LEGACY_STATE.MATCHED,
+      window,
+      journals,
+      candidatesChecked: candidates.length,
+      reason: `Legacy journal #${j.entryNumber || j.journalId} ("${j.referenceNumber}", ${j.journalDate}) carries ${how} against Stripe Processing Chg Un-Cleared; no new fee journal is needed.`,
+    }
+  } catch (err) {
+    return { state: LEGACY_STATE.ERROR, window, journals: [], candidatesChecked: 0, reason: `Legacy fee journals could not be checked: ${err.message}` }
+  }
+}
+
+/** Hash of what the admin approves for the fee journal, including each group's verified FEE payment. */
+function feeJournalFingerprint(payout, component, feeComponents) {
+  const plan = {
+    kind: COMPONENT.PAYOUT_FEE_JOURNAL,
+    payoutId: payout.payoutId,
+    payoutAmountMinor: payout.amountMinor,
+    arrivalDate: payout.arrivalDate,
+    date: component.date,
+    amountMinor: toMinor(component.amount),
+    reference: component.reference,
+    debitAccountId: component.debitAccountId,
+    creditAccountId: component.creditAccountId,
+    fees: feeComponents.map((f) => [f.customerId, toMinor(f.amount), f.zohoState, f.zohoRecordId]),
+  }
+  return crypto.createHash('sha256').update(JSON.stringify(plan)).digest('hex')
+}
+
+/**
+ * The payout-level fee journal: Dr Stripe Fees / Cr 1013 for the sum of Stripe's fees on every
+ * balance transaction in the payout. Never tagged to a customer and never split by customer.
+ */
+async function buildFeeJournal({ payout, txns, groups, payoutBlockers, accounts, config, date, local, ctx }) {
+  const stripeFeeMinor = txns.filter((t) => t.type !== 'payout').reduce((s, t) => s + (Number(t.feeMinor) || 0), 0)
+  const feeComponents = groups.map((g) => {
+    const c = g.components.find((x) => x.component === COMPONENT.FEE)
+    return {
+      customerId: g.customerId,
+      customerName: g.customerName,
+      amount: c ? c.amount : 0,
+      zohoState: c ? c.zoho.state : ZOHO_STATE.MISSING,
+      zohoRecordId: c ? c.zoho.recordId : null,
+    }
+  })
+  const verifiedFeeMinor = feeComponents.filter((f) => f.zohoState === ZOHO_STATE.VERIFIED).reduce((s, f) => s + toMinor(f.amount), 0)
+
+  const accountProblems = []
+  if (accounts.problems.feeExpense) accountProblems.push(accounts.problems.feeExpense)
+  if (!accounts.fee) accountProblems.push('Stripe Processing Chg Un-Cleared (1013) is not resolved.')
+  else if (clean(accounts.fee.accountId) !== config.feeAccountId) accountProblems.push(`Stripe Processing Chg Un-Cleared has ID ${accounts.fee.accountId}, expected ${config.feeAccountId}.`)
+
+  const component = {
+    component: COMPONENT.PAYOUT_FEE_JOURNAL,
+    zohoRecordType: 'journal',
+    amount: toMajor(stripeFeeMinor),
+    currency: payout.currency,
+    reference: model.payoutFeeReference(payout.payoutId),
+    date,
+    debitAccountId: config.feeExpenseAccountId,
+    creditAccountId: config.feeAccountId,
+    depositAccountId: null,
+    allocations: [],
+    advanceCaseIds: [],
+  }
+  component.payload = model.payoutFeeJournalPayload(component, date)
+  const zoho = stripeFeeMinor > 0 || local
+    ? await feeJournalZohoState(component, ctx)
+    : { state: ZOHO_STATE.MISSING, recordId: null, records: [], differences: [] }
+
+  const input = { payoutBlockers, groups, stripeFeeMinor, verifiedFeeMinor, accountProblems, zoho, local }
+  let derived = model.deriveFeeJournalStatus(input)
+  let legacy = null
+  if (derived.needsLegacyCheck) {
+    legacy = await findLegacyFeeJournal(payout, date, {
+      feeExpenseAccountId: config.feeExpenseAccountId,
+      clearingAccountId: config.feeAccountId,
+      totalMinor: stripeFeeMinor,
+      feeMinors: feeComponents.map((f) => toMinor(f.amount)).filter((m) => m > 0),
+    }, ctx)
+    derived = model.deriveFeeJournalStatus({ ...input, legacy })
+  }
+  const S = model.FEE_JOURNAL_STATUS
+  const tracked = Boolean(local && local.status === 'VERIFIED')
+  return {
+    ...component,
+    status: derived.status,
+    reasons: derived.reasons,
+    stripeFeeTotal: toMajor(stripeFeeMinor),
+    verifiedFeeTotal: toMajor(verifiedFeeMinor),
+    feeComponents,
+    debitAccount: accounts.feeExpense,
+    creditAccount: accounts.fee,
+    accountProblems,
+    zoho,
+    legacy,
+    local: publicLocal(local),
+    tracked,
+    recovery: derived.recovery,
+    postable: payoutBlockers.length === 0 && (derived.status === S.READY || (derived.status === S.VERIFIED && !tracked)),
+    postingFingerprint: feeJournalFingerprint(payout, component, feeComponents),
+  }
 }
 
 /**
@@ -561,6 +733,8 @@ function publicLocal(row) {
     lastError: row.lastError,
     postedAt: row.postedAt,
     verifiedAt: row.verifiedAt,
+    createdBy: row.createdBy || null,
+    updatedBy: row.updatedBy || null,
   }
 }
 
@@ -813,7 +987,10 @@ async function previewPayout(payoutId, overrides = {}) {
   for (const t of chargeTxns) built.push(await buildLine(t, { config, sources, ordersByIntent, casesByCharge, payout, payoutTxnIds }))
   const lines = applyCases(built, casesByCharge, payout, config)
   const localComponents = await records.loadComponents(id)
-  const localByKey = new Map(localComponents.map((c) => [`${c.zohoCustomerId}|${c.component}`, c]))
+  const localFeeJournal = localComponents.find((c) => c.component === COMPONENT.PAYOUT_FEE_JOURNAL) || null
+  const localByKey = new Map(localComponents
+    .filter((c) => c.component !== COMPONENT.PAYOUT_FEE_JOURNAL)
+    .map((c) => [`${c.zohoCustomerId}|${c.component}`, c]))
 
   const accounts = await resolveAccounts(config, zohoPayments)
 
@@ -853,6 +1030,7 @@ async function previewPayout(payoutId, overrides = {}) {
     }
     g.postable = POSTABLE_GROUP.has(g.status)
   }
+  const feeJournal = await buildFeeJournal({ payout, txns, groups, payoutBlockers, accounts, config, date, local: localFeeJournal, ctx })
 
   const caseIds = cases.filter((c) => c.payoutId === id).map((c) => c.id)
   const caseEvents = caseIds.length > 0 ? await records.loadCaseEvents(caseIds) : []
@@ -873,19 +1051,21 @@ async function previewPayout(payoutId, overrides = {}) {
       arrivalDate: payout.arrivalDate,
       createdAt: payout.createdAt,
     },
-    status: model.derivePayoutStatus(groups, payoutBlockers),
+    status: model.derivePayoutStatus(groups, payoutBlockers, feeJournal),
     blockers: payoutBlockers,
     proposedPaymentDate: date,
     accounts: {
       net: accounts.net,
       fee: accounts.fee,
       advance: accounts.advance,
+      feeExpense: accounts.feeExpense,
       problems: [...accounts.problems.base, ...(accounts.problems.advance ? [accounts.problems.advance] : [])],
     },
     composition,
     reconciliation,
     customersPresent: groups.map((g) => g.customerName),
     groups,
+    feeJournal,
     unassigned,
     advanceCases: cases.filter((c) => c.payoutId === id),
     advanceCaseEvents: caseEvents,
@@ -900,6 +1080,7 @@ module.exports = {
   PAYOUT_STATUS,
   LINE_STATE,
   RECOVERY_ACTION,
+  FEE_JOURNAL_STATUS: model.FEE_JOURNAL_STATUS,
   netReference: model.netReference,
   feeReference: model.feeReference,
   listPayoutSummaries,

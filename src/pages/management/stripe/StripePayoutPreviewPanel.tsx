@@ -4,8 +4,11 @@ import {
   confirmStripeCustomerAdvance,
   getStripePayoutPreview,
   getStripePayouts,
+  postStripePayoutFeeJournal,
   postStripePayoutGroup,
   type StripePayoutComponent,
+  type StripePayoutFeeJournal,
+  type StripePayoutFeeJournalPostResult,
   type StripePayoutGroup,
   type StripePayoutLine,
   type StripePayoutPostResult,
@@ -18,6 +21,8 @@ import {
   aed,
   amount,
   componentLabel,
+  feeJournalLabel,
+  feeJournalTone,
   formatDay,
   formatWhen,
   groupTone,
@@ -47,6 +52,14 @@ interface PostState {
   posting: boolean
   error: string
   result: StripePayoutPostResult | null
+}
+
+interface FeePostState {
+  feeJournal: StripePayoutFeeJournal
+  acknowledged: boolean
+  posting: boolean
+  error: string
+  result: StripePayoutFeeJournalPostResult | null
 }
 
 function Badge({ tone, children }: { tone: Tone; children: string }) {
@@ -198,6 +211,93 @@ function PostAction({ group, postingEnabled, onPost }: { group: StripePayoutGrou
       </button>
       {!postingEnabled && <span className="stripe-page__note">Posting disabled</span>}
     </div>
+  )
+}
+
+function FeeJournalCard({
+  feeJournal: fj,
+  postingEnabled,
+  onPost,
+}: {
+  feeJournal: StripePayoutFeeJournal
+  postingEnabled: boolean
+  onPost: () => void
+}) {
+  const legacy = fj.legacy?.journals.length === 1 ? fj.legacy.journals[0] : null
+  return (
+    <section className="stripe-payout__group" aria-label="Payout fee journal">
+      <header className="stripe-payout__group-head">
+        <h3>Payout Fee Journal</h3>
+        <Badge tone={feeJournalTone(fj.status)}>{feeJournalLabel(fj.status)}</Badge>
+      </header>
+      {fj.postable && (
+        <div className="stripe-clearing__actions">
+          <button
+            type="button"
+            className="btn btn--primary"
+            disabled={!postingEnabled}
+            title={postingEnabled ? undefined : 'Posting disabled on the server (STRIPE_CLEARING_POSTING_ENABLED).'}
+            onClick={onPost}
+          >
+            Post Stripe Fee Journal to Zoho
+          </button>
+          {!postingEnabled && <span className="stripe-page__note">Posting disabled</span>}
+        </div>
+      )}
+      {fj.reasons.length > 0 && (
+        <ul className="stripe-payout__reasons">
+          {fj.reasons.map((r) => (
+            <li key={r}>{r}</li>
+          ))}
+        </ul>
+      )}
+      <dl className="stripe-payout__totals">
+        <div>
+          <dt>Total Stripe fees</dt>
+          <dd>{aed(fj.amount)}</dd>
+        </div>
+        <div>
+          <dt>Journal date</dt>
+          <dd>{fj.date || '—'}</dd>
+        </div>
+        <div>
+          <dt>Reference</dt>
+          <dd className="stripe-clearing__mono">{fj.reference}</dd>
+        </div>
+      </dl>
+      <ul className="stripe-payout__checks">
+        {fj.feeComponents.map((f) => (
+          <Check key={f.customerId} ok={f.zohoState === 'VERIFIED'}>
+            {f.customerName} FEE {amount(f.amount)} · {statusLabel(f.zohoState)}
+          </Check>
+        ))}
+        <Check ok={fj.verifiedFeeTotal === fj.stripeFeeTotal}>
+          Verified FEE payments {amount(fj.verifiedFeeTotal)} = Stripe fees {amount(fj.stripeFeeTotal)}
+        </Check>
+      </ul>
+      <table className="stripe-page__table">
+        <tbody>
+          <tr>
+            <td>Dr</td>
+            <td>{accountLabel(fj.debitAccount)}</td>
+            <td className="stripe-payout__num">{amount(fj.amount)}</td>
+          </tr>
+          <tr>
+            <td>Cr</td>
+            <td>{accountLabel(fj.creditAccount)}</td>
+            <td className="stripe-payout__num">{amount(fj.amount)}</td>
+          </tr>
+        </tbody>
+      </table>
+      {fj.zoho.recordId && <p className="stripe-page__note">Zoho journal {fj.zoho.recordId}</p>}
+      {legacy && (
+        <p className="stripe-page__note">
+          Legacy journal #{legacy.entryNumber || legacy.journalId} · {legacy.journalDate} · {legacy.referenceNumber} · Stripe Fees lines{' '}
+          {legacy.matchedLines.map((x) => amount(x)).join(' + ')}
+        </p>
+      )}
+      {fj.local?.lastError && <p className="stripe-page__note">Last attempt: {fj.local.lastError}</p>}
+    </section>
   )
 }
 
@@ -354,6 +454,7 @@ export function StripePayoutPreviewPanel() {
   const [previewError, setPreviewError] = useState('')
   const [confirm, setConfirm] = useState<ConfirmState | null>(null)
   const [post, setPost] = useState<PostState | null>(null)
+  const [feePost, setFeePost] = useState<FeePostState | null>(null)
 
   async function loadPayouts() {
     setListing(true)
@@ -413,6 +514,22 @@ export function StripePayoutPreviewPanel() {
     await loadPreview(preview.payout.payoutId)
   }
 
+  function openFeePost(feeJournal: StripePayoutFeeJournal) {
+    setFeePost({ feeJournal, acknowledged: false, posting: false, error: '', result: null })
+  }
+
+  async function submitFeePost() {
+    if (!feePost || !preview) return
+    setFeePost({ ...feePost, posting: true, error: '' })
+    try {
+      const result = await postStripePayoutFeeJournal(preview.payout.payoutId, feePost.feeJournal.postingFingerprint)
+      setFeePost((prev) => (prev ? { ...prev, posting: false, result } : prev))
+    } catch (err) {
+      setFeePost((prev) => (prev ? { ...prev, posting: false, error: err instanceof Error ? err.message : 'Posting failed.' } : prev))
+    }
+    await loadPreview(preview.payout.payoutId)
+  }
+
   const r = preview?.reconciliation
   const reasonOk = (confirm?.reason.trim().length ?? 0) >= 10
   const postingEnabled = preview?.postingEnabled === true
@@ -423,8 +540,9 @@ export function StripePayoutPreviewPanel() {
       <h2>Payout Clearing Preview</h2>
       <p className="stripe-page__note">
         Each Stripe payout is cleared per customer: NET to [1019] Stripe Undeposited Funds, FEE to [1013] Stripe Processing Chg
-        Un-Cleared, and admin-confirmed overpayments to [1123] Customer Advance Funds. Nothing is sent to Zoho until an admin
-        posts a customer group, and only while posting is enabled on the server.
+        Un-Cleared, and admin-confirmed overpayments to [1123] Customer Advance Funds. Once every customer group is verified, one
+        payout fee journal moves the total fees from [1013] to [2270] Stripe Fees. Nothing is sent to Zoho until an admin posts,
+        and only while posting is enabled on the server.
       </p>
       <div className="stripe-clearing__filters">
         <button type="button" className="btn btn--primary" onClick={() => void loadPayouts()} disabled={listing}>
@@ -547,6 +665,10 @@ export function StripePayoutPreviewPanel() {
           {preview.groups.map((g) => (
             <GroupCard key={g.groupKey} group={g} postingEnabled={postingEnabled} onConfirm={openConfirm} onPost={openPost} />
           ))}
+
+          {preview.feeJournal && (
+            <FeeJournalCard feeJournal={preview.feeJournal} postingEnabled={postingEnabled} onPost={() => preview.feeJournal && openFeePost(preview.feeJournal)} />
+          )}
 
           {preview.unassigned.length > 0 && (
             <section className="stripe-payout__group">
@@ -801,6 +923,110 @@ export function StripePayoutPreviewPanel() {
                     disabled={!post.acknowledged || post.posting || !postingEnabled}
                   >
                     {post.posting ? 'Posting…' : 'Post to Zoho'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </Modal>
+
+      <Modal title="Post Stripe Fee Journal to Zoho" open={Boolean(feePost)} onClose={() => !feePost?.posting && setFeePost(null)}>
+        {feePost && preview && (
+          <div className="stripe-clearing__confirm">
+            <dl>
+              <div>
+                <dt>Payout</dt>
+                <dd className="stripe-clearing__mono">{preview.payout.payoutId}</dd>
+              </div>
+              <div>
+                <dt>Total Stripe fees</dt>
+                <dd>
+                  <strong>{aed(feePost.feeJournal.amount)}</strong>
+                  {feePost.feeJournal.feeComponents.length > 1 &&
+                    ` (${feePost.feeJournal.feeComponents.map((f) => `${f.customerName} ${amount(f.amount)}`).join(' + ')})`}
+                </dd>
+              </div>
+              <div>
+                <dt>Journal date</dt>
+                <dd>{feePost.feeJournal.date || '—'}</dd>
+              </div>
+              <div>
+                <dt>Reference</dt>
+                <dd className="stripe-clearing__mono">{feePost.feeJournal.reference}</dd>
+              </div>
+            </dl>
+            <table className="stripe-page__table">
+              <tbody>
+                <tr>
+                  <td>Dr</td>
+                  <td>{accountLabel(feePost.feeJournal.debitAccount)}</td>
+                  <td className="stripe-payout__num">{amount(feePost.feeJournal.amount)}</td>
+                </tr>
+                <tr>
+                  <td>Cr</td>
+                  <td>{accountLabel(feePost.feeJournal.creditAccount)}</td>
+                  <td className="stripe-payout__num">{amount(feePost.feeJournal.amount)}</td>
+                </tr>
+              </tbody>
+            </table>
+            {feePost.feeJournal.status === 'VERIFIED' && (
+              <p className="stripe-page__note">
+                Already in Zoho ({feePost.feeJournal.zoho.recordId}); it will be recorded locally, not recreated.
+              </p>
+            )}
+            <p className="stripe-page__banner">
+              One journal for the whole payout: not tagged to any customer and not split per invoice. The Customer Advance refund
+              journal (Dr [1123] / Cr [1019]) is NOT part of this posting.
+            </p>
+
+            {feePost.result ? (
+              <div role="status">
+                <p>
+                  <strong>Result: {statusLabel(feePost.result.outcome)}</strong> · Zoho requests sent: {feePost.result.zohoRequests}
+                </p>
+                <p className="stripe-page__note">
+                  {componentLabel(feePost.result.component.component)} · {aed(feePost.result.component.amount)} ·{' '}
+                  {feePost.result.component.status ? statusLabel(feePost.result.component.status) : '—'}
+                  {feePost.result.component.zohoRecordId ? ` · Zoho ${feePost.result.component.zohoRecordId}` : ''}
+                  {feePost.result.component.reason || feePost.result.component.lastError
+                    ? ` · ${feePost.result.component.reason || feePost.result.component.lastError}`
+                    : ''}
+                </p>
+                <div className="stripe-clearing__actions">
+                  <button type="button" className="btn btn--primary" onClick={() => setFeePost(null)}>
+                    Close
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <label className="stripe-clearing__check">
+                  <input
+                    type="checkbox"
+                    checked={feePost.acknowledged}
+                    disabled={feePost.posting}
+                    onChange={(e) => setFeePost({ ...feePost, acknowledged: e.target.checked })}
+                  />
+                  I reviewed this journal. It moves {aed(feePost.feeJournal.amount)} of Stripe fees for this payout from Stripe
+                  Processing Chg Un-Cleared to Stripe Fees, and is created in Zoho once, then verified.
+                </label>
+                {feePost.error && (
+                  <p className="stripe-page__banner stripe-page__banner--error" role="alert">
+                    {feePost.error}
+                  </p>
+                )}
+                <div className="stripe-clearing__actions">
+                  <button type="button" className="btn btn--ghost" onClick={() => setFeePost(null)} disabled={feePost.posting}>
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--primary"
+                    onClick={() => void submitFeePost()}
+                    disabled={!feePost.acknowledged || feePost.posting || !postingEnabled}
+                  >
+                    {feePost.posting ? 'Posting…' : 'Post Fee Journal to Zoho'}
                   </button>
                 </div>
               </>

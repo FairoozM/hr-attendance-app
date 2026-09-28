@@ -11,7 +11,7 @@ const assert = require('node:assert/strict')
 
 const { getStripeClearingConfig } = require('../src/config/stripeClearing')
 const { previewPayout, listPayoutSummaries, LINE_STATE } = require('../src/services/stripeClearing/stripePayoutPreviewService')
-const { GROUP_STATUS, PAYOUT_STATUS, RECOVERY_ACTION, ZOHO_STATE } = require('../src/services/stripeClearing/stripePayoutClearingModel')
+const { GROUP_STATUS, PAYOUT_STATUS, RECOVERY_ACTION, ZOHO_STATE, FEE_JOURNAL_STATUS } = require('../src/services/stripeClearing/stripePayoutClearingModel')
 
 const config = getStripeClearingConfig()
 const WEB = config.websiteZohoCustomerId
@@ -25,6 +25,7 @@ const ACCOUNTS = [
   { accountId: A1013, accountName: 'Stripe Processing Chg Un-Cleared', accountCode: '1013', accountType: 'cash', isActive: true },
   { accountId: A1123, accountName: 'Customer Advance Funds', accountCode: '1123', accountType: 'other_current_liability', isActive: true },
   { accountId: 'A1260', accountName: 'Unearned Revenue', accountCode: '1260', accountType: 'other_current_liability', isActive: true },
+  { accountId: config.feeExpenseAccountId, accountName: 'Stripe Fees', accountCode: '2270', accountType: 'expense', isActive: true },
 ]
 
 function row(chargeId, paymentIntentId, orderNumber, invoiceNumber, gross, fee, customer, extra = {}) {
@@ -145,6 +146,7 @@ function world(spec, opts = {}) {
   }
   const writes = []
   const refundLookups = []
+  const journalRanges = []
   const deny = (name) => async () => { writes.push(name); throw new Error(`${name} attempted`) }
   const sources = {
     retrieveStripePayout: async (id) => (id === spec.payoutId
@@ -162,7 +164,13 @@ function world(spec, opts = {}) {
     findZohoJournalsByReference: async (ref) => journals.filter((j) => j.referenceNumber === ref).map((j) => ({ journalId: j.journalId, referenceNumber: j.referenceNumber })),
     getZohoJournal: async (id) => {
       const j = journals.find((x) => x.journalId === id)
-      return j ? { journalId: j.journalId, referenceNumber: j.referenceNumber, journalDate: '2026-09-28', lineItems: j.lineItems } : null
+      return j ? { journalId: j.journalId, referenceNumber: j.referenceNumber, journalDate: j.journalDate || '2026-09-28', status: j.status || 'published', lineItems: j.lineItems } : null
+    },
+    listZohoJournalsInRange: async (start, end) => {
+      journalRanges.push([start, end])
+      return journals
+        .map((j) => ({ journalId: j.journalId, entryNumber: j.entryNumber || null, referenceNumber: j.referenceNumber, notes: j.notes || '', journalDate: j.journalDate || '2026-09-28', status: j.status || 'published', total: j.lineItems.filter((l) => l.debitOrCredit === 'debit').reduce((s, l) => s + l.amount, 0) }))
+        .filter((j) => j.journalDate >= start && j.journalDate <= end)
     },
     createStripeRefund: deny('createStripeRefund'),
   }
@@ -182,7 +190,7 @@ function world(spec, opts = {}) {
     loadCaseEvents: async (ids) => records.events.filter((e) => ids.includes(e.entityId)),
   }
   const cfg = opts.config || config
-  return { deps: { config: cfg, sources, zohoPayments, records: recordReaders }, writes, refundLookups, records, run: () => previewPayout(spec.payoutId, { config: cfg, sources, zohoPayments, records: recordReaders }) }
+  return { deps: { config: cfg, sources, zohoPayments, records: recordReaders }, writes, refundLookups, journalRanges, records, run: () => previewPayout(spec.payoutId, { config: cfg, sources, zohoPayments, records: recordReaders }) }
 }
 
 // ── The real AED 35 refund on order 21111 (after the payout, not in it) ────
@@ -798,18 +806,39 @@ test('unconfirmed advance: the figures reconcile, but the payout still needs rev
 
 // ── Historical payout ───────────────────────────────────────────────────────
 
-test('historical po_1UBlP3 still matches the existing Zoho NET and FEE payments exactly', async () => {
+const A2270 = config.feeExpenseAccountId
+function historicalPayments() {
   const webNet = HISTORICAL.rows.filter((r) => r.customer === WEB)
   const alloc = (rows, fn) => rows.map((r) => ({ invoice_id: invoiceId(r.invoiceNumber), amount_applied: fn(r) / 100 }))
   const pay = (id, customerId, ref, amount, accountId, invoices) => ({ paymentId: id, customerId, referenceNumber: ref, amount, detail: { payment_id: id, customer_id: customerId, reference_number: ref, amount, account_id: accountId, invoices } })
   const shopRows = HISTORICAL.rows.filter((r) => r.customer === SHOP)
-  const payments = [
+  return [
     pay('4265011000042060301', WEB, netRef(HISTORICAL_ID), 9995.57, A1019, alloc(webNet, (r) => r.gross - r.fee)),
     pay('4265011000042060462', WEB, feeRef(HISTORICAL_ID), 306.78, A1013, alloc(webNet, (r) => r.fee)),
     pay('4265011000042060425', SHOP, netRef(HISTORICAL_ID), 266.41, A1019, alloc(shopRows, (r) => r.gross - r.fee)),
     pay('4265011000042060586', SHOP, feeRef(HISTORICAL_ID), 8.99, A1013, alloc(shopRows, (r) => r.fee)),
   ]
-  const w = world(HISTORICAL, { payments })
+}
+// Shape of the real legacy journal #3943: many Stripe Fees debits (two are this payout's
+// Website and Burjman FEE amounts), one 1013 credit for the batch, no customer tags.
+const OTHER_FEE_LINES = [120.5, 99.1, 80.25, 60, 49.2, 30.01, 25, 20, 15.5, 12.3, 10.2, 9.9, 7.1, 5.99, 4.5, 3.2, 0.5]
+function legacy3943(patch = {}) {
+  const debits = [306.78, 8.99, ...OTHER_FEE_LINES]
+  const total = Math.round(debits.reduce((s, x) => s + x, 0) * 100) / 100
+  return {
+    journalId: '4265011000042060622',
+    entryNumber: '3943',
+    journalDate: '2026-09-04',
+    referenceNumber: 'Website&Burjuman stripe transaction fee - 50 Invoices',
+    notes: 'Website&Burjuman stripe transaction fee - 50 Invoices',
+    lineItems: [...debits.map((amount) => ({ accountId: A2270, debitOrCredit: 'debit', amount })), { accountId: A1013, debitOrCredit: 'credit', amount: total }],
+    ...patch,
+  }
+}
+const HIST = { ...HISTORICAL, createdAt: '2026-09-04T00:54:49.000Z' }
+
+test('historical po_1UBlP3 still matches the existing Zoho NET and FEE payments exactly', async () => {
+  const w = world(HIST, { payments: historicalPayments(), journals: [legacy3943()] })
   const result = await w.run()
   const web = group(result, WEB)
   const shop = group(result, SHOP)
@@ -822,11 +851,50 @@ test('historical po_1UBlP3 still matches the existing Zoho NET and FEE payments 
   assert.equal(web.status, GROUP_STATUS.ALREADY_POSTED)
   assert.equal(shop.status, GROUP_STATUS.ALREADY_POSTED)
   assert.ok(web.lines.every((l) => l.state === LINE_STATE.CLEARED))
+  assert.equal(result.feeJournal.status, FEE_JOURNAL_STATUS.LEGACY_VERIFIED)
   assert.equal(result.status, PAYOUT_STATUS.FULLY_CLEARED)
   assert.equal(result.reconciliation.payoutMatches, true)
   assert.equal(result.reconciliation.total1019, 10261.98)
   assert.equal(result.proposedPaymentDate, '2026-09-07')
   assert.deepEqual(w.writes, [])
+})
+
+test('historical payout: the legacy #3943 journal is recognised and no new fee journal is offered', async () => {
+  const w = world(HIST, { payments: historicalPayments(), journals: [legacy3943()] })
+  const fj = (await w.run()).feeJournal
+  assert.equal(fj.status, FEE_JOURNAL_STATUS.LEGACY_VERIFIED)
+  assert.equal(fj.postable, false)
+  assert.equal(fj.amount, 315.77)
+  assert.equal(fj.stripeFeeTotal, 315.77)
+  assert.equal(fj.verifiedFeeTotal, 315.77)
+  assert.equal(fj.zoho.state, 'MISSING')
+  assert.equal(fj.legacy.journals.length, 1)
+  assert.equal(fj.legacy.journals[0].entryNumber, '3943')
+  assert.equal(fj.legacy.journals[0].how, 'CUSTOMER_FEE_LINES')
+  assert.deepEqual(fj.legacy.journals[0].matchedLines, [306.78, 8.99])
+  assert.match(fj.reasons[0], /Legacy journal #3943/)
+  assert.deepEqual(w.journalRanges, [['2026-08-28', '2026-11-06']])
+  assert.deepEqual(w.writes, [])
+})
+
+test('historical payout without a provable legacy journal needs review and is never auto-posted', async () => {
+  const none = (await world(HIST, { payments: historicalPayments() }).run())
+  assert.equal(none.feeJournal.status, FEE_JOURNAL_STATUS.NEEDS_REVIEW)
+  assert.equal(none.feeJournal.postable, false)
+  assert.match(none.feeJournal.reasons[0], /posted outside this workflow/)
+  assert.equal(none.status, PAYOUT_STATUS.NEEDS_REVIEW)
+
+  const second = legacy3943({ journalId: 'ZJ-DUP', entryNumber: '3950', journalDate: '2026-09-06' })
+  const two = (await world(HIST, { payments: historicalPayments(), journals: [legacy3943(), second] }).run()).feeJournal
+  assert.equal(two.status, FEE_JOURNAL_STATUS.NEEDS_REVIEW)
+  assert.equal(two.legacy.state, 'AMBIGUOUS')
+  assert.equal(two.postable, false)
+
+  const outside = (await world(HIST, { payments: historicalPayments(), journals: [legacy3943({ journalDate: '2026-12-01' })] }).run()).feeJournal
+  assert.equal(outside.status, FEE_JOURNAL_STATUS.NEEDS_REVIEW)
+
+  const draft = (await world(HIST, { payments: historicalPayments(), journals: [legacy3943({ status: 'draft' })] }).run()).feeJournal
+  assert.equal(draft.status, FEE_JOURNAL_STATUS.NEEDS_REVIEW)
 })
 
 // ── Refund linkage (preview only) ───────────────────────────────────────────

@@ -418,6 +418,47 @@ async function findZohoJournalsByReference(reference, opts = {}) {
   return journals.filter((j) => j.referenceNumber === ref)
 }
 
+const JOURNAL_RANGE_MAX_PAGES = 10
+
+/**
+ * Every journal dated dateStart..dateEnd (YYYY-MM-DD), without line items. A row outside the
+ * range means Zoho ignored the filter, and a list longer than the page cap is incomplete;
+ * both fail the lookup instead of returning a partial answer.
+ */
+async function listZohoJournalsInRange(dateStart, dateEnd, opts = {}) {
+  const out = []
+  for (let page = 1; page <= JOURNAL_RANGE_MAX_PAGES; page++) {
+    const json = await zohoBooksJsonRequest(
+      `${BOOKS_V3}/journals`,
+      new URLSearchParams({ date_start: dateStart, date_end: dateEnd, per_page: '200', page: String(page), sort_column: 'journal_date', sort_order: 'A' }),
+      'GET',
+      undefined,
+      { source: opts.source || 'stripe_payout_preview', skipCache: true, critical: opts.critical === true },
+    )
+    const rows = (Array.isArray(json && json.journals) ? json.journals : []).map((j) => ({
+      journalId: clean(j.journal_id),
+      entryNumber: clean(j.entry_number),
+      referenceNumber: clean(j.reference_number),
+      notes: clean(j.notes),
+      journalDate: clean(j.journal_date),
+      total: num(j.total),
+      status: clean(j.status),
+    }))
+    if (rows.some((j) => j.journalDate < dateStart || j.journalDate > dateEnd)) {
+      const err = new Error(`Zoho ignored the journal date filter ${dateStart}..${dateEnd}; lookup is not exact.`)
+      err.code = 'ZOHO_DATE_FILTER_IGNORED'
+      err.status = 502
+      throw err
+    }
+    out.push(...rows)
+    if (!(json && json.page_context && json.page_context.has_more_page)) return out
+  }
+  const err = new Error(`More than ${JOURNAL_RANGE_MAX_PAGES * 200} Zoho journals are dated ${dateStart}..${dateEnd}; lookup is incomplete.`)
+  err.code = 'ZOHO_JOURNAL_RANGE_TOO_LARGE'
+  err.status = 502
+  throw err
+}
+
 /** Journal with its line items, or null when Zoho no longer has it. */
 async function getZohoJournal(journalId, opts = {}) {
   const id = clean(journalId)
@@ -469,6 +510,7 @@ module.exports = {
   findZohoInvoicesByReference,
   findZohoPaymentsByReference,
   findZohoJournalsByReference,
+  listZohoJournalsInRange,
   getZohoJournal,
   fetchZohoInvoiceById,
   ORDERS_BY_INTENT_SQL,

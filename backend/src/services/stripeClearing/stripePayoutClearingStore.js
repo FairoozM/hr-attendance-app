@@ -6,7 +6,8 @@
  * - stripe_customer_advance_cases: one confirmed-or-candidate customer overpayment per
  *   Stripe charge, owned by payout + customer. PaymentIntent/charge are traceability only.
  * - stripe_payout_clearing_components: NET / FEE / CUSTOMER_ADVANCE (and later
- *   CUSTOMER_ADVANCE_REFUND) per payout + customer, tracked independently.
+ *   CUSTOMER_ADVANCE_REFUND) per payout + customer, tracked independently; plus one
+ *   PAYOUT_FEE_JOURNAL per payout with no customer.
  * - stripe_payout_clearing_events: audit history for both.
  *
  * Nothing here talks to Zoho or Stripe.
@@ -36,6 +37,7 @@ const COMPONENT_TYPE = Object.freeze({
   FEE: 'FEE',
   CUSTOMER_ADVANCE: 'CUSTOMER_ADVANCE',
   CUSTOMER_ADVANCE_REFUND: 'CUSTOMER_ADVANCE_REFUND',
+  PAYOUT_FEE_JOURNAL: 'PAYOUT_FEE_JOURNAL',
 })
 
 const COMPONENT_STATUS = Object.freeze({
@@ -191,6 +193,47 @@ const SCHEMA_SQL = [
    )`,
   `CREATE INDEX IF NOT EXISTS idx_stripe_payout_clearing_events_entity
      ON stripe_payout_clearing_events (entity_type, entity_id, created_at)`,
+  // 050: payout-level fee journal (no customer) + created_by/updated_by.
+  'ALTER TABLE stripe_payout_clearing_components ALTER COLUMN zoho_customer_id DROP NOT NULL',
+  'ALTER TABLE stripe_payout_clearing_components ADD COLUMN IF NOT EXISTS created_by TEXT',
+  'ALTER TABLE stripe_payout_clearing_components ADD COLUMN IF NOT EXISTS updated_by TEXT',
+  `DO $$
+   DECLARE r RECORD;
+   BEGIN
+     FOR r IN
+       SELECT conname FROM pg_constraint
+       WHERE conrelid = 'stripe_payout_clearing_components'::regclass AND contype = 'c'
+         AND pg_get_constraintdef(oid) LIKE '%CUSTOMER_ADVANCE_REFUND%'
+         AND pg_get_constraintdef(oid) NOT LIKE '%PAYOUT_FEE_JOURNAL%'
+     LOOP
+       EXECUTE format('ALTER TABLE stripe_payout_clearing_components DROP CONSTRAINT %I', r.conname);
+     END LOOP;
+     IF NOT EXISTS (
+       SELECT 1 FROM pg_constraint
+       WHERE conrelid = 'stripe_payout_clearing_components'::regclass AND conname = 'ck_stripe_payout_component_kind'
+     ) THEN
+       ALTER TABLE stripe_payout_clearing_components ADD CONSTRAINT ck_stripe_payout_component_kind
+         CHECK (component IN ('NET', 'FEE', 'CUSTOMER_ADVANCE', 'CUSTOMER_ADVANCE_REFUND', 'PAYOUT_FEE_JOURNAL'));
+     END IF;
+     IF NOT EXISTS (
+       SELECT 1 FROM pg_constraint
+       WHERE conrelid = 'stripe_payout_clearing_components'::regclass AND conname = 'ck_stripe_payout_component_scope'
+     ) THEN
+       ALTER TABLE stripe_payout_clearing_components ADD CONSTRAINT ck_stripe_payout_component_scope
+         CHECK ((component = 'PAYOUT_FEE_JOURNAL') = (zoho_customer_id IS NULL));
+     END IF;
+     IF NOT EXISTS (
+       SELECT 1 FROM pg_constraint
+       WHERE conrelid = 'stripe_payout_clearing_components'::regclass AND conname = 'ck_stripe_payout_fee_journal_shape'
+     ) THEN
+       ALTER TABLE stripe_payout_clearing_components ADD CONSTRAINT ck_stripe_payout_fee_journal_shape CHECK (
+         component <> 'PAYOUT_FEE_JOURNAL'
+         OR (zoho_record_type = 'journal' AND debit_account_id IS NOT NULL AND credit_account_id IS NOT NULL
+             AND allocations = '[]'::jsonb AND advance_case_ids = '{}'));
+     END IF;
+   END $$`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS uq_stripe_payout_fee_journal
+     ON stripe_payout_clearing_components (payout_id) WHERE component = 'PAYOUT_FEE_JOURNAL'`,
 ]
 
 async function ensureStripePayoutClearingTables(query) {
@@ -261,7 +304,7 @@ function mapComponent(row) {
   return {
     id: String(row.id),
     payoutId: row.payout_id,
-    zohoCustomerId: row.zoho_customer_id,
+    zohoCustomerId: row.zoho_customer_id || null,
     component: row.component,
     zohoRecordType: row.zoho_record_type,
     amount: num(row.amount),
@@ -279,6 +322,8 @@ function mapComponent(row) {
     lastError: row.last_error || null,
     postedAt: iso(row.posted_at),
     verifiedAt: iso(row.verified_at),
+    createdBy: row.created_by || null,
+    updatedBy: row.updated_by || null,
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
   }
@@ -474,21 +519,24 @@ async function listComponents(db, payoutId) {
 async function upsertPlannedComponent(db, c, actor) {
   return inTransaction(db, async () => {
     const found = await db.query(
-      'SELECT * FROM stripe_payout_clearing_components WHERE payout_id = $1 AND zoho_customer_id = $2 AND component = $3 FOR UPDATE',
-      [c.payoutId, c.zohoCustomerId, c.component],
+      `SELECT * FROM stripe_payout_clearing_components
+       WHERE payout_id = $1 AND zoho_customer_id IS NOT DISTINCT FROM $2 AND component = $3 FOR UPDATE`,
+      [c.payoutId, c.zohoCustomerId || null, c.component],
     )
     const current = found.rows[0]
     const params = [
       c.zohoRecordType, c.amount, c.currency, c.depositAccountId || null, c.debitAccountId || null,
       c.creditAccountId || null, c.reference, JSON.stringify(c.allocations || []), (c.advanceCaseIds || []).map(Number),
+      actor || null,
     ]
     if (current && !REPLANNABLE.includes(current.status)) return { component: mapComponent(current), changed: false }
     if (current) {
       const { rows } = await db.query(
         `UPDATE stripe_payout_clearing_components SET
            zoho_record_type = $1, amount = $2, currency = $3, deposit_account_id = $4, debit_account_id = $5,
-           credit_account_id = $6, reference = $7, allocations = $8::jsonb, advance_case_ids = $9::bigint[], updated_at = NOW()
-         WHERE id = $10 RETURNING *`,
+           credit_account_id = $6, reference = $7, allocations = $8::jsonb, advance_case_ids = $9::bigint[],
+           updated_by = $10, updated_at = NOW()
+         WHERE id = $11 RETURNING *`,
         [...params, current.id],
       )
       return { component: mapComponent(rows[0]), changed: true }
@@ -496,10 +544,10 @@ async function upsertPlannedComponent(db, c, actor) {
     const { rows } = await db.query(
       `INSERT INTO stripe_payout_clearing_components (
          zoho_record_type, amount, currency, deposit_account_id, debit_account_id, credit_account_id,
-         reference, allocations, advance_case_ids, payout_id, zoho_customer_id, component, status
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::bigint[], $10, $11, $12, $13)
+         reference, allocations, advance_case_ids, created_by, updated_by, payout_id, zoho_customer_id, component, status
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::bigint[], $10, $10, $11, $12, $13, $14)
        RETURNING *`,
-      [...params, c.payoutId, c.zohoCustomerId, c.component, COMPONENT_STATUS.PLANNED],
+      [...params, c.payoutId, c.zohoCustomerId || null, c.component, COMPONENT_STATUS.PLANNED],
     )
     await logEvent(db, {
       entityType: ENTITY.COMPONENT,
@@ -532,9 +580,10 @@ async function transitionComponent(db, id, fromStatuses, toStatus, patch = {}, d
          last_error = COALESCE($5, last_error),
          posted_at = COALESCE($6, posted_at),
          verified_at = COALESCE($7, verified_at),
+         updated_by = COALESCE($8, updated_by),
          updated_at = NOW()
-       WHERE id = $8 RETURNING *`,
-      [toStatus, patch.zohoRecordId || null, journalId, patch.incrementAttempt ? 1 : 0, patch.lastError || null, patch.postedAt || null, patch.verifiedAt || null, id],
+       WHERE id = $9 RETURNING *`,
+      [toStatus, patch.zohoRecordId || null, journalId, patch.incrementAttempt ? 1 : 0, patch.lastError || null, patch.postedAt || null, patch.verifiedAt || null, actor || null, id],
     )
     await logEvent(db, {
       entityType: ENTITY.COMPONENT,

@@ -23,6 +23,15 @@ const ADVANCE_ACCOUNT_NAME = 'Customer Advance Funds'
 const ADVANCE_ACCOUNT_CODE = '1123'
 const ADVANCE_ACCOUNT_ID = '4265011000015681205'
 const ADVANCE_ACCOUNT_TYPE = 'other_current_liability'
+// One journal per fully posted payout moves its total fees from 1013 to this expense.
+const FEE_ACCOUNT_ID = '4265011000000699653'
+const FEE_EXPENSE_ACCOUNT_NAME = 'Stripe Fees'
+const FEE_EXPENSE_ACCOUNT_CODE = '2270'
+const FEE_EXPENSE_ACCOUNT_ID = '4265011000000648121'
+const FEE_EXPENSE_ACCOUNT_TYPE = 'expense'
+// Legacy manual fee journals were dated from shortly before the payout to weeks after it.
+const LEGACY_FEE_JOURNAL_DAYS_BEFORE = 7
+const LEGACY_FEE_JOURNAL_DAYS_AFTER = 60
 const WEBSITE_CUSTOMER_NAME = 'Website'
 const SHOP_CUSTOMER_NAME = 'Burjman Shop - Web & App'
 
@@ -53,10 +62,17 @@ function getStripeClearingConfig() {
     depositAccountId: envString('STRIPE_CLEARING_DEPOSIT_ACCOUNT_ID', ''),
     feeAccountName: FEE_ACCOUNT_NAME,
     feeAccountCode: FEE_ACCOUNT_CODE,
+    feeAccountId: FEE_ACCOUNT_ID,
     advanceAccountName: ADVANCE_ACCOUNT_NAME,
     advanceAccountCode: ADVANCE_ACCOUNT_CODE,
     advanceAccountId: ADVANCE_ACCOUNT_ID,
     advanceAccountType: ADVANCE_ACCOUNT_TYPE,
+    feeExpenseAccountName: FEE_EXPENSE_ACCOUNT_NAME,
+    feeExpenseAccountCode: FEE_EXPENSE_ACCOUNT_CODE,
+    feeExpenseAccountId: FEE_EXPENSE_ACCOUNT_ID,
+    feeExpenseAccountType: FEE_EXPENSE_ACCOUNT_TYPE,
+    legacyFeeJournalDaysBefore: LEGACY_FEE_JOURNAL_DAYS_BEFORE,
+    legacyFeeJournalDaysAfter: LEGACY_FEE_JOURNAL_DAYS_AFTER,
     websiteCustomerName: WEBSITE_CUSTOMER_NAME,
     shopCustomerName: SHOP_CUSTOMER_NAME,
   }
@@ -72,5 +88,6 @@ module.exports = {
   ADVANCE_ACCOUNT_NAME,
   ADVANCE_ACCOUNT_CODE,
   ADVANCE_ACCOUNT_ID,
+  FEE_EXPENSE_ACCOUNT_ID,
   getStripeClearingConfig,
 }

@@ -1,4 +1,5 @@
 import type {
+  StripeFeeJournalStatus,
   StripePayoutComponent,
   StripePayoutGroup,
   StripePayoutGroupStatus,
@@ -32,8 +33,27 @@ const GROUP_TONE: Record<StripePayoutGroupStatus, Tone> = {
 const PAYOUT_TONE: Record<StripePayoutStatus, Tone> = {
   READY: 'ok',
   PARTIALLY_CLEARED: 'warn',
+  FEE_JOURNAL_PENDING: 'warn',
   FULLY_CLEARED: 'muted',
   NEEDS_REVIEW: 'bad',
+}
+
+const FEE_JOURNAL_TONE: Record<StripeFeeJournalStatus, Tone> = {
+  WAITING: 'muted',
+  READY: 'ok',
+  VERIFIED: 'muted',
+  LEGACY_VERIFIED: 'muted',
+  NOT_REQUIRED: 'muted',
+  NEEDS_REVIEW: 'bad',
+}
+
+export function feeJournalTone(status: StripeFeeJournalStatus): Tone {
+  return FEE_JOURNAL_TONE[status] ?? 'muted'
+}
+
+/** READY shows as MISSING: the journal is due but not in Zoho yet. */
+export function feeJournalLabel(status: StripeFeeJournalStatus): string {
+  return status === 'READY' ? 'MISSING — READY TO POST' : statusLabel(status)
 }
 
 export function groupTone(status: StripePayoutGroupStatus): Tone {
@@ -53,6 +73,7 @@ const COMPONENT_LABEL: Record<StripePayoutComponent['component'], string> = {
   FEE: 'FEE customer payment',
   CUSTOMER_ADVANCE: 'Customer advance journal',
   CUSTOMER_ADVANCE_REFUND: 'Customer advance refund journal',
+  PAYOUT_FEE_JOURNAL: 'Payout Stripe fee journal',
 }
 
 export function componentLabel(kind: StripePayoutComponent['component']): string {

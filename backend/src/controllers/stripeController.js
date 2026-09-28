@@ -127,6 +127,19 @@ async function payoutPostCustomerGroup(req, res) {
   }
 }
 
+async function payoutPostFeeJournal(req, res) {
+  try {
+    const { postPayoutFeeJournal } = require('../services/stripeClearing/stripePayoutPostingService')
+    const body = await postPayoutFeeJournal(req.params.payoutId, {
+      fingerprint: req.body && req.body.fingerprint,
+      actor: clearingActor(req),
+    })
+    return res.json(body)
+  } catch (err) {
+    return clearingError(res, err, 'payout fee journal posting')
+  }
+}
+
 async function payoutList(req, res) {
   try {
     const { listPayoutSummaries } = require('../services/stripeClearing/stripePayoutPreviewService')
@@ -156,5 +169,6 @@ module.exports = {
   payoutList,
   payoutPreview,
   payoutPostCustomerGroup,
+  payoutPostFeeJournal,
   confirmCustomerAdvance,
 }

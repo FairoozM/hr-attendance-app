@@ -1,13 +1,21 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import type { StripePayoutComponent, StripePayoutGroup, StripePayoutLine, StripePayoutPreview } from '../../../api/stripe'
-import { aed, confirmableAdvanceLines, groupTone, postingSteps, recoveryLabel } from './stripePayoutFormat'
+import type {
+  StripeFeeJournalStatus,
+  StripePayoutComponent,
+  StripePayoutFeeJournal,
+  StripePayoutGroup,
+  StripePayoutLine,
+  StripePayoutPreview,
+} from '../../../api/stripe'
+import { aed, confirmableAdvanceLines, feeJournalLabel, feeJournalTone, groupTone, payoutTone, postingSteps, recoveryLabel } from './stripePayoutFormat'
 
 const api = vi.hoisted(() => ({
   getStripePayouts: vi.fn(),
   getStripePayoutPreview: vi.fn(),
   confirmStripeCustomerAdvance: vi.fn(),
   postStripePayoutGroup: vi.fn(),
+  postStripePayoutFeeJournal: vi.fn(),
 }))
 vi.mock('../../../api/stripe', () => api)
 
@@ -278,6 +286,126 @@ describe('StripePayoutPreviewPanel posting', () => {
     expect(text).toContain('32.93')
     expect(text).toContain(`Stripe customer advance ${PAYOUT}`)
     expect(text).toContain('NOT part of this posting')
+  })
+})
+
+function feeJournal(status: StripeFeeJournalStatus, postable: boolean): StripePayoutFeeJournal {
+  return {
+    component: 'PAYOUT_FEE_JOURNAL',
+    status,
+    reasons: status === 'WAITING' ? ['Customer group(s) not posted yet: Website (READY WITH CUSTOMER ADVANCE).'] : [],
+    postable,
+    tracked: false,
+    amount: 147.28,
+    stripeFeeTotal: 147.28,
+    verifiedFeeTotal: status === 'WAITING' ? 40.06 : 147.28,
+    feeComponents: [
+      { customerId: 'WEB', customerName: 'Website', amount: 107.22, zohoState: status === 'WAITING' ? 'MISSING' : 'VERIFIED', zohoRecordId: null },
+      { customerId: 'BURJ', customerName: 'Burjman Shop - Web & App', amount: 40.06, zohoState: 'VERIFIED', zohoRecordId: 'PAY-FEE' },
+    ],
+    reference: `Stripe processing fees ${PAYOUT}`,
+    date: '2026-09-28',
+    debitAccountId: '4265011000000648121',
+    creditAccountId: '4265011000000699653',
+    debitAccount: account('2270', 'Stripe Fees'),
+    creditAccount: account('1013', 'Stripe Processing Chg Un-Cleared'),
+    accountProblems: [],
+    payload: {},
+    zoho: { state: 'MISSING', recordId: null, records: [], differences: [] },
+    legacy: null,
+    local: null,
+    recovery: { action: 'POST_ELIGIBLE', reason: 'Not in Zoho yet.' },
+    postingFingerprint: 'fp-fee',
+  }
+}
+
+function feePayout(postingEnabled: boolean, fj: StripePayoutFeeJournal): StripePayoutPreview {
+  const p = currentPayout(postingEnabled)
+  p.status = fj.status === 'READY' ? 'FEE_JOURNAL_PENDING' : 'PARTIALLY_CLEARED'
+  p.feeJournal = fj
+  return p
+}
+
+describe('StripePayoutPreviewPanel payout fee journal', () => {
+  it('labels the new statuses', () => {
+    expect(payoutTone('FEE_JOURNAL_PENDING')).toBe('warn')
+    expect(feeJournalLabel('READY')).toMatch(/MISSING/)
+    expect(feeJournalLabel('LEGACY_VERIFIED')).toBe('LEGACY VERIFIED')
+    expect(feeJournalTone('NEEDS_REVIEW')).toBe('bad')
+  })
+
+  it('shows the section after the groups; no button while waiting for customer groups', async () => {
+    await openPreview(feePayout(true, feeJournal('WAITING', false)))
+    const section = screen.getByRole('region', { name: 'Payout fee journal' })
+    expect(section.textContent).toContain('Payout Fee Journal')
+    expect(section.textContent).toContain('WAITING')
+    expect(section.textContent).toContain('[2270] Stripe Fees')
+    expect(section.textContent).toContain('[1013] Stripe Processing Chg Un-Cleared')
+    expect(section.textContent).toContain('Customer group(s) not posted yet')
+    expect(screen.queryByRole('button', { name: 'Post Stripe Fee Journal to Zoho' })).toBeNull()
+  })
+
+  it('shows Posting disabled and a disabled button while the server flag is off', async () => {
+    await openPreview(feePayout(false, feeJournal('READY', true)))
+    const button = screen.getByRole('button', { name: 'Post Stripe Fee Journal to Zoho' }) as HTMLButtonElement
+    expect(button.disabled).toBe(true)
+    expect(screen.getAllByText('Posting disabled').length).toBeGreaterThanOrEqual(3)
+    expect(screen.getByText('FEE JOURNAL PENDING')).toBeTruthy()
+    expect(api.postStripePayoutFeeJournal).not.toHaveBeenCalled()
+  })
+
+  it('confirms the total Dr 2270 / Cr 1013 journal with an acknowledgement and posts its fingerprint', async () => {
+    await openPreview(feePayout(true, feeJournal('READY', true)))
+    api.postStripePayoutFeeJournal.mockResolvedValue({
+      outcome: 'VERIFIED',
+      alreadyPosted: false,
+      payoutId: PAYOUT,
+      amount: 147.28,
+      reference: `Stripe processing fees ${PAYOUT}`,
+      component: { component: 'PAYOUT_FEE_JOURNAL', amount: 147.28, reference: `Stripe processing fees ${PAYOUT}`, status: 'VERIFIED', zohoRecordId: 'ZJ-FEE', requestSent: true },
+      zohoRequests: 1,
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Post Stripe Fee Journal to Zoho' }))
+    const dialog = await screen.findByRole('dialog')
+    const text = dialog.textContent || ''
+    expect(text).toContain(PAYOUT)
+    expect(text).toContain('AED 147.28')
+    expect(text).toContain('Website 107.22 + Burjman Shop - Web & App 40.06')
+    expect(text).toContain('[2270] Stripe Fees')
+    expect(text).toContain('[1013] Stripe Processing Chg Un-Cleared')
+    expect(text).toContain('2026-09-28')
+    expect(text).toContain(`Stripe processing fees ${PAYOUT}`)
+    expect(text).toContain('not tagged to any customer')
+    expect(text).not.toContain('INV-')
+
+    const submit = screen.getByRole('button', { name: 'Post Fee Journal to Zoho' }) as HTMLButtonElement
+    expect(submit.disabled).toBe(true)
+    fireEvent.click(screen.getByRole('checkbox'))
+    expect(submit.disabled).toBe(false)
+    fireEvent.click(submit)
+    await waitFor(() => expect(api.postStripePayoutFeeJournal).toHaveBeenCalledWith(PAYOUT, 'fp-fee'))
+    expect(api.postStripePayoutFeeJournal).toHaveBeenCalledTimes(1)
+    expect(api.postStripePayoutGroup).not.toHaveBeenCalled()
+    expect(await screen.findByText(/Result: VERIFIED/)).toBeTruthy()
+    expect(screen.getByText(/Zoho ZJ-FEE/)).toBeTruthy()
+  })
+
+  it('shows a legacy journal as verified with no posting offered', async () => {
+    const fj = feeJournal('LEGACY_VERIFIED', false)
+    fj.reasons = ['Legacy journal #3943 carries these fees; no new fee journal is needed.']
+    fj.legacy = {
+      state: 'MATCHED',
+      reason: fj.reasons[0],
+      window: { start: '2026-08-28', end: '2026-11-06' },
+      candidatesChecked: 1,
+      journals: [{ journalId: '4265011000042060622', entryNumber: '3943', journalDate: '2026-09-04', referenceNumber: 'Website&Burjuman stripe transaction fee - 50 Invoices', total: 863.85, how: 'CUSTOMER_FEE_LINES', matchedLines: [306.78, 8.99] }],
+    }
+    await openPreview(feePayout(true, fj))
+    const section = screen.getByRole('region', { name: 'Payout fee journal' })
+    expect(section.textContent).toContain('LEGACY VERIFIED')
+    expect(section.textContent).toContain('Legacy journal #3943')
+    expect(section.textContent).toContain('306.78 + 8.99')
+    expect(screen.queryByRole('button', { name: 'Post Stripe Fee Journal to Zoho' })).toBeNull()
   })
 })
 

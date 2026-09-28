@@ -9,6 +9,10 @@
  * - FEE              customer payment → Stripe Processing Chg Un-Cleared (1013), allocated per invoice
  * - CUSTOMER_ADVANCE journal Dr 1019 / Cr Customer Advance Funds (1123, tagged to the customer)
  * Identity is payout + customer + component; references alone never prove a record.
+ *
+ * Per payout (no customer) there is one more, posted last:
+ * - PAYOUT_FEE_JOURNAL journal Dr Stripe Fees (2270) / Cr 1013 for the payout's total Stripe fees,
+ *   once every customer group is posted and its FEE payments verified.
  */
 
 const { buildCustomerPaymentPayload, buildManualJournalPayload } = require('../amazonPaymentClearingZohoPaymentService')
@@ -22,9 +26,11 @@ const GROUP_STATUS = Object.freeze({
   ALREADY_POSTED: 'ALREADY_POSTED',
 })
 
+// FEE_JOURNAL_PENDING: every customer group is posted; the payout fee journal is not verified yet.
 const PAYOUT_STATUS = Object.freeze({
   READY: 'READY',
   PARTIALLY_CLEARED: 'PARTIALLY_CLEARED',
+  FEE_JOURNAL_PENDING: 'FEE_JOURNAL_PENDING',
   FULLY_CLEARED: 'FULLY_CLEARED',
   NEEDS_REVIEW: 'NEEDS_REVIEW',
 })
@@ -34,6 +40,25 @@ const COMPONENT = Object.freeze({
   FEE: 'FEE',
   CUSTOMER_ADVANCE: 'CUSTOMER_ADVANCE',
   CUSTOMER_ADVANCE_REFUND: 'CUSTOMER_ADVANCE_REFUND',
+  PAYOUT_FEE_JOURNAL: 'PAYOUT_FEE_JOURNAL',
+})
+
+// WAITING: customer clearing is not complete. LEGACY_VERIFIED: a manual (pre-automation)
+// journal provably covers these fees. NOT_REQUIRED: the payout carries no Stripe fees.
+const FEE_JOURNAL_STATUS = Object.freeze({
+  WAITING: 'WAITING',
+  READY: 'READY',
+  VERIFIED: 'VERIFIED',
+  LEGACY_VERIFIED: 'LEGACY_VERIFIED',
+  NOT_REQUIRED: 'NOT_REQUIRED',
+  NEEDS_REVIEW: 'NEEDS_REVIEW',
+})
+
+const LEGACY_STATE = Object.freeze({
+  MATCHED: 'MATCHED',
+  NONE: 'NONE',
+  AMBIGUOUS: 'AMBIGUOUS',
+  ERROR: 'ERROR',
 })
 
 const ZOHO_STATE = Object.freeze({
@@ -68,6 +93,12 @@ const netReference = (payoutId) => `Stripe funds received ${payoutId}`
 const feeReference = (payoutId) => `Stripe processing fee ${payoutId}`
 const advanceReference = (payoutId) => `Stripe customer advance ${payoutId}`
 const advanceRefundReference = (payoutId) => `Stripe customer advance refund ${payoutId}`
+const payoutFeeReference = (payoutId) => `Stripe processing fees ${payoutId}`
+
+/** References this workflow writes itself; such a journal is never a legacy fee journal. */
+function isAutomatedReference(reference) {
+  return /^Stripe (processing fees?|funds received|customer advance(?: refund)?) po_/.test(clean(reference))
+}
 
 /** Drop undefined keys so previews show exactly what JSON would send. */
 function plain(value) {
@@ -97,6 +128,64 @@ function advanceJournalPayload(component, customerId, date) {
       { accountId: component.creditAccountId, customerId: debitTagged ? undefined : customerId, debitOrCredit: 'credit', amount: component.amount },
     ],
   }))
+}
+
+/** One debit line (Stripe Fees) and one credit line (1013) for the payout total; never tagged. */
+function payoutFeeJournalPayload(component, date) {
+  return plain(buildManualJournalPayload({
+    date,
+    referenceNumber: component.reference,
+    lineItems: [
+      { accountId: component.debitAccountId, debitOrCredit: 'debit', amount: component.amount },
+      { accountId: component.creditAccountId, debitOrCredit: 'credit', amount: component.amount },
+    ],
+  }))
+}
+
+/** Differences between an existing Zoho journal and the proposed payout fee journal. */
+function compareFeeJournal(journal, component, date) {
+  if (!journal) return ['The Zoho journal could not be read.']
+  const differences = []
+  if (journal.referenceNumber !== component.reference) differences.push(`Reference is "${journal.referenceNumber}".`)
+  if (journal.journalDate !== date) differences.push(`Journal date is ${journal.journalDate}, expected ${date}.`)
+  const lines = journal.lineItems || []
+  const debits = lines.filter((l) => l.debitOrCredit === 'debit')
+  const credits = lines.filter((l) => l.debitOrCredit === 'credit')
+  if (debits.length !== 1 || credits.length !== 1 || lines.length !== 2) {
+    differences.push(`Journal has ${debits.length} debit and ${credits.length} credit line(s); expected one of each.`)
+    return differences
+  }
+  const [dr] = debits
+  const [cr] = credits
+  if (dr.accountId !== component.debitAccountId) differences.push(`Debit account is ${dr.accountName || dr.accountId}, not Stripe Fees.`)
+  if (cr.accountId !== component.creditAccountId) differences.push(`Credit account is ${cr.accountName || cr.accountId}, not Stripe Processing Chg Un-Cleared.`)
+  if (toMinor(dr.amount) !== toMinor(component.amount)) differences.push(`Debit ${dr.amount}, expected ${component.amount}.`)
+  if (toMinor(cr.amount) !== toMinor(component.amount)) differences.push(`Credit ${cr.amount}, expected ${component.amount}.`)
+  if (lines.some((l) => l.customerId)) differences.push('A line is tagged to a customer; the payout fee journal is untagged.')
+  return differences
+}
+
+/**
+ * Whether a manual (pre-automation) journal provably carries this payout's fees: published,
+ * credits 1013 by at least the total, and debits Stripe Fees either with one line equal to
+ * the payout total or with a separate line equal to each customer's verified FEE payment.
+ * @param {null|{ status?: string, lineItems: Array<{ accountId: string, debitOrCredit: string, amount: number }> }} journal
+ * @param {{ feeExpenseAccountId: string, clearingAccountId: string, totalMinor: number, feeMinors: number[] }} expected
+ */
+function matchLegacyFeeJournal(journal, expected) {
+  if (!journal || (journal.status && journal.status !== 'published')) return { matched: false }
+  const lines = journal.lineItems || []
+  const credited = lines.filter((l) => l.debitOrCredit === 'credit' && l.accountId === expected.clearingAccountId).reduce((s, l) => s + toMinor(l.amount), 0)
+  if (credited < expected.totalMinor) return { matched: false }
+  const debits = lines.filter((l) => l.debitOrCredit === 'debit' && l.accountId === expected.feeExpenseAccountId).map((l) => toMinor(l.amount))
+  if (debits.includes(expected.totalMinor)) return { matched: true, how: 'TOTAL_LINE', lines: [toMajor(expected.totalMinor)] }
+  const pool = [...debits]
+  for (const minor of expected.feeMinors) {
+    const at = pool.indexOf(minor)
+    if (at < 0) return { matched: false }
+    pool.splice(at, 1)
+  }
+  return expected.feeMinors.length > 0 ? { matched: true, how: 'CUSTOMER_FEE_LINES', lines: expected.feeMinors.map(toMajor) } : { matched: false }
 }
 
 /** Differences between an existing Zoho customer payment and the proposed NET/FEE component. */
@@ -293,9 +382,80 @@ function refundPostingGate({ caseStatus, originalAdvanceJournalState, refundStat
 }
 
 /** Groups never block each other; the payout is only fully cleared when every group is complete. */
-function derivePayoutStatus(groups, payoutBlockers) {
+const money = (minor) => toMajor(minor).toFixed(2)
+
+/**
+ * Status of the payout fee journal. Order matters: whatever Zoho already holds under the
+ * deterministic reference wins; then customer clearing must be complete and verified; then
+ * the verified FEE payments must equal Stripe's fee total; only then is a legacy journal
+ * considered. Pass `legacy: undefined` to learn whether a legacy lookup is needed
+ * (`needsLegacyCheck`), then call again with its result.
+ * @param {{
+ *   payoutBlockers: string[],
+ *   groups: Array<{ customerName: string, status: string, components: Array<{ component: string, zoho: { state: string } }> }>,
+ *   stripeFeeMinor: number,
+ *   verifiedFeeMinor: number,
+ *   accountProblems: string[],
+ *   zoho: { state: string, recordId?: string|null, reason?: string },
+ *   local: null|{ status: string, zohoRecordId: string|null, attemptCount: number },
+ *   legacy?: { state: string, reason?: string },
+ * }} input
+ */
+function deriveFeeJournalStatus(input) {
+  const { payoutBlockers, groups, stripeFeeMinor, verifiedFeeMinor, accountProblems, zoho, local, legacy } = input
+  const S = FEE_JOURNAL_STATUS
+  const recovery = planRecovery(zoho, local)
+  if (recovery.action === RECOVERY_ACTION.SKIP_VERIFIED) {
+    const tracked = local && local.status === 'VERIFIED'
+    return { status: S.VERIFIED, reasons: [tracked ? 'Posted and verified in Zoho.' : 'Already in Zoho and matches exactly; posting records it locally without sending anything.'], recovery }
+  }
+  if (recovery.action === RECOVERY_ACTION.NEEDS_REVIEW) return { status: S.NEEDS_REVIEW, reasons: [recovery.reason], recovery }
+  if (stripeFeeMinor === 0 && !local) return { status: S.NOT_REQUIRED, reasons: ['The payout carries no Stripe fees.'], recovery }
+
+  const waiting = []
+  if (payoutBlockers.length > 0) waiting.push('The payout does not reconcile.')
+  if (groups.length === 0) waiting.push('The payout has no customer groups.')
+  const open = groups.filter((g) => !COMPLETE_GROUP.has(g.status))
+  if (open.length > 0) waiting.push(`Customer group(s) not posted yet: ${open.map((g) => `${g.customerName} (${g.status.replace(/_/g, ' ')})`).join(', ')}.`)
+  const unverified = groups.flatMap((g) => g.components.filter((c) => c.zoho.state !== ZOHO_STATE.VERIFIED).map((c) => `${g.customerName} ${c.component}`))
+  if (open.length === 0 && unverified.length > 0) waiting.push(`Not verified in Zoho yet: ${unverified.join(', ')}.`)
+  if (waiting.length > 0) return { status: S.WAITING, reasons: waiting, recovery }
+
+  if (verifiedFeeMinor !== stripeFeeMinor) {
+    return { status: S.NEEDS_REVIEW, reasons: [`Verified FEE payments total ${money(verifiedFeeMinor)}, but Stripe fees for this payout are ${money(stripeFeeMinor)}.`], recovery }
+  }
+  if (accountProblems.length > 0) return { status: S.NEEDS_REVIEW, reasons: accountProblems, recovery }
+
+  if (legacy === undefined) return { status: null, needsLegacyCheck: true, reasons: [], recovery }
+  const legacyRecovery = { action: RECOVERY_ACTION.SKIP_VERIFIED, reason: 'Covered by a legacy Zoho journal; nothing will be posted.' }
+  if (legacy.state === LEGACY_STATE.MATCHED) return { status: S.LEGACY_VERIFIED, reasons: [legacy.reason], recovery: legacyRecovery }
+  if (legacy.state !== LEGACY_STATE.NONE) return { status: S.NEEDS_REVIEW, reasons: [legacy.reason || 'Legacy fee journals could not be checked.'], recovery }
+
+  const untracked = groups.filter((g) => g.status === GROUP_STATUS.ALREADY_POSTED)
+  if (untracked.length > 0) {
+    return {
+      status: S.NEEDS_REVIEW,
+      reasons: [`${untracked.map((g) => g.customerName).join(' and ')} ${untracked.length === 1 ? 'was' : 'were'} posted outside this workflow and no journal covering these fees could be proven in Zoho. Confirm manually; it is not offered for posting, to avoid a duplicate.`],
+      recovery,
+    }
+  }
+  return { status: S.READY, reasons: [`Every customer group is posted and its FEE payment verified; ${money(stripeFeeMinor)} is ready to move from 1013 to Stripe Fees.`], recovery }
+}
+
+const FEE_JOURNAL_DONE = new Set([FEE_JOURNAL_STATUS.VERIFIED, FEE_JOURNAL_STATUS.LEGACY_VERIFIED, FEE_JOURNAL_STATUS.NOT_REQUIRED])
+
+/**
+ * @param {Array<{ status: string }>} groups
+ * @param {string[]} payoutBlockers
+ * @param {{ status: string }} feeJournal
+ */
+function derivePayoutStatus(groups, payoutBlockers, feeJournal) {
   if (payoutBlockers.length > 0 || groups.length === 0) return PAYOUT_STATUS.NEEDS_REVIEW
-  if (groups.every((g) => COMPLETE_GROUP.has(g.status))) return PAYOUT_STATUS.FULLY_CLEARED
+  if (groups.every((g) => COMPLETE_GROUP.has(g.status))) {
+    if (feeJournal && FEE_JOURNAL_DONE.has(feeJournal.status)) return PAYOUT_STATUS.FULLY_CLEARED
+    if (feeJournal && feeJournal.status === FEE_JOURNAL_STATUS.NEEDS_REVIEW) return PAYOUT_STATUS.NEEDS_REVIEW
+    return PAYOUT_STATUS.FEE_JOURNAL_PENDING
+  }
   if (groups.some((g) => g.status === GROUP_STATUS.NEEDS_REVIEW)) return PAYOUT_STATUS.NEEDS_REVIEW
   if (groups.some((g) => COMPLETE_GROUP.has(g.status) || g.status === GROUP_STATUS.PARTIALLY_POSTED)) return PAYOUT_STATUS.PARTIALLY_CLEARED
   return PAYOUT_STATUS.READY
@@ -307,19 +467,27 @@ module.exports = {
   COMPONENT,
   ZOHO_STATE,
   RECOVERY_ACTION,
+  FEE_JOURNAL_STATUS,
+  LEGACY_STATE,
   COMPLETE_GROUP,
   POSTABLE_GROUP,
   netReference,
   feeReference,
   advanceReference,
   advanceRefundReference,
+  payoutFeeReference,
+  isAutomatedReference,
   customerPaymentPayload,
   advanceJournalPayload,
+  payoutFeeJournalPayload,
   compareCustomerPayment,
   compareAdvanceJournal,
+  compareFeeJournal,
+  matchLegacyFeeJournal,
   journalCustomer,
   planRecovery,
   deriveGroupStatus,
+  deriveFeeJournalStatus,
   derivePayoutStatus,
   assessAdvanceRefund,
   refundPostingGate,

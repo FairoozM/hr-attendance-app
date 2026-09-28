@@ -11,8 +11,8 @@ const assert = require('node:assert/strict')
 
 const { getStripeClearingConfig } = require('../src/config/stripeClearing')
 const { previewPayout } = require('../src/services/stripeClearing/stripePayoutPreviewService')
-const { postPayoutCustomerGroup } = require('../src/services/stripeClearing/stripePayoutPostingService')
-const { GROUP_STATUS, PAYOUT_STATUS } = require('../src/services/stripeClearing/stripePayoutClearingModel')
+const { postPayoutCustomerGroup, postPayoutFeeJournal } = require('../src/services/stripeClearing/stripePayoutPostingService')
+const { GROUP_STATUS, PAYOUT_STATUS, FEE_JOURNAL_STATUS: FJ } = require('../src/services/stripeClearing/stripePayoutClearingModel')
 
 const BASE = getStripeClearingConfig()
 const CFG = { ...BASE, postingEnabled: true }
@@ -28,6 +28,7 @@ const ACCOUNTS = [
   { accountId: A1019, accountName: 'Stripe Undeposited Funds', accountCode: '1019', accountType: 'cash', isActive: true },
   { accountId: A1013, accountName: 'Stripe Processing Chg Un-Cleared', accountCode: '1013', accountType: 'cash', isActive: true },
   { accountId: A1123, accountName: 'Customer Advance Funds', accountCode: '1123', accountType: 'other_current_liability', isActive: true },
+  { accountId: BASE.feeExpenseAccountId, accountName: 'Stripe Fees', accountCode: '2270', accountType: 'expense', isActive: true },
 ]
 
 const PO = 'po_1UJNObDJogiiRoKPHtPAr3KE'
@@ -93,11 +94,14 @@ function zohoError(kind) {
 
 /**
  * Stateful fake of Stripe (read-only), the website (read-only), Zoho and the local store.
- * `script[kind]` lists what successive POSTs of NET / FEE / JOURNAL do.
+ * `script[kind]` lists what successive POSTs of NET / FEE / JOURNAL / FEE_JOURNAL do.
+ * `only: [customerId]` keeps just that customer's charges (payout amount follows).
  */
 function world(opts = {}) {
+  const ROWS_IN = opts.only ? ROWS.filter((x) => opts.only.includes(x.customer)) : ROWS
+  const amountMinor = opts.only ? ROWS_IN.reduce((s, x) => s + x.gross - x.fee, 0) : 455197
   const state = {
-    payout: { status: 'paid', arrivalDate: '2026-09-28T00:00:00.000Z', amountMinor: 455197, ...(opts.payout || {}) },
+    payout: { status: 'paid', arrivalDate: '2026-09-28T00:00:00.000Z', amountMinor, ...(opts.payout || {}) },
     payments: [...(opts.payments || [])],
     journals: [...(opts.journals || [])],
     externalApplied: {},
@@ -107,10 +111,10 @@ function world(opts = {}) {
     posts: [],
     locked: false,
   }
-  const script = { NET: [], FEE: [], JOURNAL: [], ...(opts.script || {}) }
+  const script = { NET: [], FEE: [], JOURNAL: [], FEE_JOURNAL: [], ...(opts.script || {}) }
   let seq = 0
 
-  const txns = ROWS.map((x) => ({
+  const txns = ROWS_IN.map((x) => ({
     balanceTransactionId: `txn_${x.chargeId.slice(3)}`, type: 'charge', reportingCategory: 'charge', currency: 'AED', exchangeRate: null,
     amountMinor: x.gross, feeMinor: x.fee, netMinor: x.gross - x.fee, chargeId: x.chargeId, paymentIntentId: x.paymentIntentId,
     chargeRefundedMinor: x.refundedMinor || 0, chargeDisputed: false, chargeStatus: 'succeeded', chargeFullyRefunded: false,
@@ -135,17 +139,20 @@ function world(opts = {}) {
       refundId: REFUND_ID, chargeId: ADVANCE_CHARGE, paymentIntentId: ADVANCE_PI, amountMinor: 3500, currency: 'AED', status: 'succeeded', createdAt: '2026-09-28T07:09:27.000Z',
       balanceTransaction: { balanceTransactionId: REFUND_BT, type: 'refund', currency: 'AED', amountMinor: -3500, feeMinor: 0, netMinor: -3500 },
     }] : []),
-    loadWebsiteOrdersByIntents: async (ids) => ROWS.filter((x) => ids.includes(x.paymentIntentId)).map((x, i) => ({
+    loadWebsiteOrdersByIntents: async (ids) => ROWS_IN.filter((x) => ids.includes(x.paymentIntentId)).map((x, i) => ({
       orderId: String(10000 + i), orderNumber: x.orderNumber, orderStatus: 'delivered', paymentStatus: 'completed', stripePaymentIntentId: x.paymentIntentId,
       shopOrder: x.customer === SHOP, finalAmount: orderTotal(x), refundAmount: 0, walletRedeemed: 0, deleted: false, sameNumberCount: 0,
     })),
-    findZohoInvoicesByReference: async (ref) => ROWS.filter((x) => x.orderNumber === ref).map(invoiceFor),
+    findZohoInvoicesByReference: async (ref) => ROWS_IN.filter((x) => x.orderNumber === ref).map(invoiceFor),
     findZohoPaymentsByReference: async (ref) => state.payments.filter((p) => p.referenceNumber === ref).map(({ detail, ...p }) => p),
     findZohoJournalsByReference: async (ref) => state.journals.filter((j) => j.referenceNumber === ref).map((j) => ({ journalId: j.journalId, referenceNumber: j.referenceNumber })),
     getZohoJournal: async (id) => {
       const j = state.journals.find((x) => x.journalId === id)
-      return j ? { journalId: j.journalId, referenceNumber: j.referenceNumber, journalDate: j.journalDate, lineItems: j.lineItems } : null
+      return j ? { journalId: j.journalId, referenceNumber: j.referenceNumber, journalDate: j.journalDate, status: j.status || 'published', lineItems: j.lineItems } : null
     },
+    listZohoJournalsInRange: async (start, end) => state.journals
+      .filter((j) => j.journalDate >= start && j.journalDate <= end)
+      .map((j) => ({ journalId: j.journalId, entryNumber: j.entryNumber || null, referenceNumber: j.referenceNumber, notes: j.notes || '', journalDate: j.journalDate, status: j.status || 'published', total: j.lineItems.filter((l) => l.debitOrCredit === 'debit').reduce((s, l) => s + l.amount, 0) })),
   }
   const zohoPayments = {
     listZohoChartAccounts: async () => ACCOUNTS,
@@ -184,7 +191,7 @@ function world(opts = {}) {
   }
   const writer = {
     createCustomerPayment: (payload) => perform(payload.reference_number.startsWith('Stripe funds received') ? 'NET' : 'FEE', payload, storePayment),
-    createJournal: (payload) => perform('JOURNAL', payload, storeJournal),
+    createJournal: (payload) => perform(payload.reference_number.startsWith('Stripe processing fees') ? 'FEE_JOURNAL' : 'JOURNAL', payload, storeJournal),
   }
 
   let nextId = state.components.length + 1
@@ -244,6 +251,9 @@ function world(opts = {}) {
     fingerprint: async (customerId) => (await previewPayout(PO, { ...previewDeps, config: CFG, stripeConfig: LIVE })).groups.find((g) => g.customerId === customerId).postingFingerprint,
     post: async (key, fingerprint, patch) => postPayoutCustomerGroup(PO, key, { actor: 'user:1', fingerprint }, deps(patch)),
     local: (customerId, kind) => state.components.find((c) => c.zohoCustomerId === customerId && c.component === kind),
+    feeFingerprint: async () => (await previewPayout(PO, { ...previewDeps, config: CFG, stripeConfig: LIVE })).feeJournal.postingFingerprint,
+    postFee: async (fingerprint, patch) => postPayoutFeeJournal(PO, { actor: 'user:1', fingerprint }, deps(patch)),
+    localFee: () => state.components.find((c) => c.component === 'PAYOUT_FEE_JOURNAL'),
   }
 }
 
@@ -405,7 +415,7 @@ test('customer separation: each group posts only its own customer and invoices',
     assert.equal(own, p.payload.customer_id === SHOP)
   }
   const after = await w.preview()
-  assert.equal(after.status, PAYOUT_STATUS.FULLY_CLEARED)
+  assert.equal(after.status, PAYOUT_STATUS.FEE_JOURNAL_PENDING)
 })
 
 // ── Duplicate protection ────────────────────────────────────────────────────
@@ -625,4 +635,330 @@ test('one posting at a time per payout', async () => {
   w.state.locked = true
   await assert.rejects(w.post('burjman', await w.fingerprint(SHOP)), code('PAYOUT_POSTING_IN_PROGRESS'))
   assert.deepEqual(w.state.posts, [])
+})
+
+// ── Payout fee journal (Dr Stripe Fees 2270 / Cr 1013, one per payout) ──────
+
+const A2270 = BASE.feeExpenseAccountId
+const FEE_REF = `Stripe processing fees ${PO}`
+
+async function postGroups(w, keys = ['burjman', 'website']) {
+  for (const key of keys) {
+    const out = await w.post(key, await w.fingerprint(key === 'website' ? WEB : SHOP))
+    assert.equal(out.outcome, GROUP_STATUS.POSTED)
+  }
+}
+const feeJournalPosts = (w) => w.state.posts.filter((p) => p.kind === 'FEE_JOURNAL')
+const exactFeeJournal = (patch = {}) => ({
+  journalId: 'ZJ-FEE-EXIST', referenceNumber: FEE_REF, journalDate: '2026-09-28',
+  lineItems: [{ accountId: A2270, debitOrCredit: 'debit', amount: 147.28, customerId: '' }, { accountId: A1013, debitOrCredit: 'credit', amount: 147.28, customerId: '' }],
+  ...patch,
+})
+
+test('fee journal: one total journal per payout, Website 107.22 + Burjman 40.06 = Dr 2270 / Cr 1013 147.28', async () => {
+  const w = world()
+  await postGroups(w)
+  const before = await w.preview()
+  assert.equal(before.status, PAYOUT_STATUS.FEE_JOURNAL_PENDING)
+  const fj = before.feeJournal
+  assert.equal(fj.status, FJ.READY)
+  assert.equal(fj.postable, true)
+  assert.equal(fj.amount, 147.28)
+  assert.equal(fj.stripeFeeTotal, 147.28)
+  assert.equal(fj.verifiedFeeTotal, 147.28)
+  assert.deepEqual(fj.feeComponents.map((f) => [f.customerId, f.amount, f.zohoState]), [[WEB, 107.22, 'VERIFIED'], [SHOP, 40.06, 'VERIFIED']])
+  assert.equal(fj.reference, FEE_REF)
+  assert.equal(fj.date, '2026-09-28')
+
+  const out = await w.postFee(fj.postingFingerprint)
+  assert.equal(out.outcome, FJ.VERIFIED)
+  assert.equal(out.zohoRequests, 1)
+  assert.equal(feeJournalPosts(w).length, 1)
+  assert.deepEqual(feeJournalPosts(w)[0].payload, {
+    journal_date: '2026-09-28',
+    reference_number: FEE_REF,
+    journal_type: 'both',
+    line_items: [
+      { account_id: A2270, debit_or_credit: 'debit', amount: 147.28 },
+      { account_id: A1013, debit_or_credit: 'credit', amount: 147.28 },
+    ],
+  })
+  const local = w.localFee()
+  assert.equal(local.zohoCustomerId, null)
+  assert.equal(local.status, 'VERIFIED')
+  assert.equal(local.amount, 147.28)
+  assert.equal(local.debitAccountId, A2270)
+  assert.equal(local.creditAccountId, A1013)
+  assert.deepEqual(local.allocations, [])
+  assert.equal(w.state.components.filter((c) => c.component === 'PAYOUT_FEE_JOURNAL').length, 1)
+
+  const after = await w.preview()
+  assert.equal(after.feeJournal.status, FJ.VERIFIED)
+  assert.equal(after.feeJournal.postable, false)
+  assert.equal(after.status, PAYOUT_STATUS.FULLY_CLEARED)
+
+  // Re-submitting the same review is a no-op.
+  const again = await w.postFee(fj.postingFingerprint)
+  assert.equal(again.alreadyPosted, true)
+  assert.equal(feeJournalPosts(w).length, 1)
+})
+
+test('fee journal: never per customer, per invoice, pi_-referenced, tagged, noted or branded', async () => {
+  const w = world()
+  await postGroups(w)
+  await w.postFee(await w.feeFingerprint())
+  const [{ payload: p }] = feeJournalPosts(w)
+  assert.equal(p.line_items.length, 2)
+  assert.ok(p.line_items.every((l) => !l.customer_id))
+  assert.ok(!('notes' in p) && !('description' in p))
+  const text = JSON.stringify(p)
+  assert.ok(!/pi_|ch_|INV-|HR|hr-attendance|Purchase Planning|Generated/i.test(text))
+  assert.ok(!w.state.components.some((c) => c.component === 'PAYOUT_FEE_JOURNAL' && c.zohoCustomerId))
+})
+
+test('fee journal: Website-only and Burjman-only payouts post their own total', async () => {
+  const web = world({ only: [WEB] })
+  await postGroups(web, ['website'])
+  const wfj = (await web.preview()).feeJournal
+  assert.equal(wfj.status, FJ.READY)
+  assert.equal(wfj.amount, 107.22)
+  assert.deepEqual(wfj.feeComponents.map((f) => f.customerId), [WEB])
+  await web.postFee(wfj.postingFingerprint)
+  assert.equal(feeJournalPosts(web)[0].payload.line_items[0].amount, 107.22)
+  assert.equal((await web.preview()).status, PAYOUT_STATUS.FULLY_CLEARED)
+
+  const shop = world({ only: [SHOP] })
+  await postGroups(shop, ['burjman'])
+  const sfj = (await shop.preview()).feeJournal
+  assert.equal(sfj.amount, 40.06)
+  await shop.postFee(sfj.postingFingerprint)
+  assert.deepEqual(feeJournalPosts(shop)[0].payload.line_items.map((l) => [l.account_id, l.amount]), [[A2270, 40.06], [A1013, 40.06]])
+  assert.equal((await shop.preview()).status, PAYOUT_STATUS.FULLY_CLEARED)
+})
+
+test('fee journal waits for every group, every FEE and the advance journal to verify', async () => {
+  const w = world({ script: { JOURNAL: ['reject'] } })
+  const none = (await w.preview()).feeJournal
+  assert.equal(none.status, FJ.WAITING)
+  assert.equal(none.postable, false)
+  await assert.rejects(w.postFee(none.postingFingerprint), code('FEE_JOURNAL_NOT_POSTABLE'))
+
+  await postGroups(w, ['burjman'])
+  const half = await w.preview()
+  assert.equal(half.feeJournal.status, FJ.WAITING)
+  assert.match(half.feeJournal.reasons.join(' '), /Website/)
+  assert.equal(half.status, PAYOUT_STATUS.PARTIALLY_CLEARED)
+
+  // Website NET + FEE verify, but its customer advance journal is rejected.
+  const out = await w.post('website', await w.fingerprint(WEB))
+  assert.equal(out.outcome, GROUP_STATUS.PARTIALLY_POSTED)
+  const partial = (await w.preview()).feeJournal
+  assert.equal(partial.status, FJ.WAITING)
+  assert.equal(partial.feeComponents.every((f) => f.zohoState === 'VERIFIED'), true, 'both FEE payments are verified')
+  await assert.rejects(w.postFee(partial.postingFingerprint), code('FEE_JOURNAL_NOT_POSTABLE'))
+  assert.equal(feeJournalPosts(w).length, 0)
+
+  // Once the advance journal verifies, the fee journal becomes ready.
+  await w.post('website', await w.fingerprint(WEB))
+  assert.equal((await w.preview()).feeJournal.status, FJ.READY)
+})
+
+test('fee journal: an exact existing journal is recovered and recorded without posting', async () => {
+  const w = world()
+  await postGroups(w)
+  w.state.journals.push(exactFeeJournal())
+  const fj = (await w.preview()).feeJournal
+  assert.equal(fj.status, FJ.VERIFIED)
+  assert.equal(fj.tracked, false)
+  assert.equal(fj.postable, true)
+  const out = await w.postFee(fj.postingFingerprint)
+  assert.equal(out.outcome, FJ.VERIFIED)
+  assert.equal(out.zohoRequests, 0)
+  assert.equal(feeJournalPosts(w).length, 0)
+  assert.equal(w.localFee().zohoRecordId, 'ZJ-FEE-EXIST')
+  assert.equal((await w.preview()).status, PAYOUT_STATUS.FULLY_CLEARED)
+})
+
+test('fee journal: a same-reference journal with other accounts, amount or date is blocked', async () => {
+  const variants = [
+    exactFeeJournal({ lineItems: [{ accountId: A2270, debitOrCredit: 'debit', amount: 140, customerId: '' }, { accountId: A1013, debitOrCredit: 'credit', amount: 140, customerId: '' }] }),
+    exactFeeJournal({ lineItems: [{ accountId: A1019, debitOrCredit: 'debit', amount: 147.28, customerId: '' }, { accountId: A1013, debitOrCredit: 'credit', amount: 147.28, customerId: '' }] }),
+    exactFeeJournal({ lineItems: [{ accountId: A2270, debitOrCredit: 'debit', amount: 147.28, customerId: '' }, { accountId: A1123, debitOrCredit: 'credit', amount: 147.28, customerId: '' }] }),
+    exactFeeJournal({ journalDate: '2026-09-27' }),
+    exactFeeJournal({ lineItems: [{ accountId: A2270, debitOrCredit: 'debit', amount: 107.22, customerId: '' }, { accountId: A2270, debitOrCredit: 'debit', amount: 40.06, customerId: '' }, { accountId: A1013, debitOrCredit: 'credit', amount: 147.28, customerId: '' }] }),
+    exactFeeJournal({ lineItems: [{ accountId: A2270, debitOrCredit: 'debit', amount: 147.28, customerId: WEB }, { accountId: A1013, debitOrCredit: 'credit', amount: 147.28, customerId: '' }] }),
+  ]
+  for (const journal of variants) {
+    const w = world()
+    await postGroups(w)
+    w.state.journals.push(journal)
+    const before = await w.preview()
+    assert.equal(before.feeJournal.status, FJ.NEEDS_REVIEW, JSON.stringify(journal))
+    assert.equal(before.feeJournal.postable, false)
+    assert.equal(before.status, PAYOUT_STATUS.NEEDS_REVIEW)
+    await assert.rejects(w.postFee(before.feeJournal.postingFingerprint), code('FEE_JOURNAL_NOT_POSTABLE'))
+    assert.equal(feeJournalPosts(w).length, 0)
+  }
+})
+
+test('fee journal: two journals with the payout fee reference are blocked', async () => {
+  const w = world()
+  await postGroups(w)
+  w.state.journals.push(exactFeeJournal(), exactFeeJournal({ journalId: 'ZJ-FEE-TWO' }))
+  const fj = (await w.preview()).feeJournal
+  assert.equal(fj.status, FJ.NEEDS_REVIEW)
+  assert.match(fj.reasons[0], /2 Zoho journals/)
+  await assert.rejects(w.postFee(fj.postingFingerprint), code('FEE_JOURNAL_NOT_POSTABLE'))
+  assert.equal(feeJournalPosts(w).length, 0)
+})
+
+test('fee journal timeout / no ID: found → verified without re-posting; lost → retryable, then posted once', async () => {
+  const found = world({ script: { FEE_JOURNAL: ['timeout-created'] } })
+  await postGroups(found)
+  const out = await found.postFee(await found.feeFingerprint())
+  assert.equal(out.outcome, FJ.VERIFIED)
+  assert.equal(feeJournalPosts(found).length, 1)
+  assert.match(out.component.reason, /found exactly one matching journal/)
+
+  const noId = world({ script: { FEE_JOURNAL: ['no-id'] } })
+  await postGroups(noId)
+  assert.equal((await noId.postFee(await noId.feeFingerprint())).outcome, FJ.VERIFIED)
+  assert.equal(feeJournalPosts(noId).length, 1)
+
+  const lost = world({ script: { FEE_JOURNAL: ['timeout'] } })
+  await postGroups(lost)
+  const first = await lost.postFee(await lost.feeFingerprint())
+  assert.equal(first.outcome, 'NOT_POSTED')
+  assert.equal(lost.localFee().status, 'FAILED')
+  const retry = (await lost.preview()).feeJournal
+  assert.equal(retry.status, FJ.READY)
+  assert.equal(retry.recovery.action, 'RETRY_ELIGIBLE')
+  assert.equal((await lost.postFee(retry.postingFingerprint)).outcome, FJ.VERIFIED)
+  assert.equal(feeJournalPosts(lost).length, 2)
+  assert.equal(lost.localFee().attemptCount, 2)
+
+  const rejected = world({ script: { FEE_JOURNAL: ['reject'] } })
+  await postGroups(rejected)
+  assert.equal((await rejected.postFee(await rejected.feeFingerprint())).outcome, 'NOT_POSTED')
+  assert.equal(rejected.localFee().status, 'FAILED')
+})
+
+test('fee journal created but not matching on read-back needs review; the payout is not fully cleared', async () => {
+  const wrong = (payload, { state }) => {
+    state.journals.push({ journalId: 'ZJ-WRONG', referenceNumber: payload.reference_number, journalDate: payload.journal_date, lineItems: [{ accountId: A2270, debitOrCredit: 'debit', amount: 147.29, customerId: '' }, { accountId: A1013, debitOrCredit: 'credit', amount: 147.29, customerId: '' }] })
+    return { recordId: 'ZJ-WRONG' }
+  }
+  const w = world({ script: { FEE_JOURNAL: [wrong] } })
+  await postGroups(w)
+  const out = await w.postFee(await w.feeFingerprint())
+  assert.equal(out.outcome, FJ.NEEDS_REVIEW)
+  assert.equal(w.localFee().status, 'NEEDS_REVIEW')
+  const after = await w.preview()
+  assert.equal(after.feeJournal.status, FJ.NEEDS_REVIEW)
+  assert.notEqual(after.status, PAYOUT_STATUS.FULLY_CLEARED)
+})
+
+test('fee journal posting disabled / test key: refused before any read, lock or record', async () => {
+  const w = world()
+  await postGroups(w)
+  const fp = await w.feeFingerprint()
+  const locksBefore = w.state.locked
+  await assert.rejects(w.postFee(fp, { config: BASE }), (err) => err.status === 403 && err.code === 'STRIPE_CLEARING_POSTING_DISABLED')
+  await assert.rejects(w.postFee(fp, { stripeConfig: TEST_MODE }), (err) => err.status === 403)
+  assert.equal(w.state.locked, locksBefore)
+  assert.equal(feeJournalPosts(w).length, 0)
+  assert.equal(w.localFee(), undefined)
+})
+
+test('fee journal needs an admin, a payout ID and the reviewed fingerprint', async () => {
+  const w = world()
+  await postGroups(w)
+  await assert.rejects(postPayoutFeeJournal(PO, { fingerprint: 'x' }, { config: CFG, stripeConfig: LIVE }), code('ACTOR_REQUIRED'))
+  await assert.rejects(postPayoutFeeJournal(PO, { actor: 'user:1' }, { config: CFG, stripeConfig: LIVE }), code('FINGERPRINT_REQUIRED'))
+  await assert.rejects(postPayoutFeeJournal('pi_123', { actor: 'user:1', fingerprint: 'x' }, { config: CFG, stripeConfig: LIVE }), code('INVALID_PAYOUT_ID'))
+  await assert.rejects(w.postFee('not-the-reviewed-plan'), code('PREVIEW_CHANGED'))
+  assert.equal(feeJournalPosts(w).length, 0)
+})
+
+test('fee journal: a changed Stripe payout or a changed Zoho FEE payment blocks posting', async () => {
+  const moved = world()
+  await postGroups(moved)
+  const fp = await moved.feeFingerprint()
+  moved.state.payout.arrivalDate = '2026-09-29T00:00:00.000Z'
+  await assert.rejects(moved.postFee(fp), code('PREVIEW_CHANGED'))
+
+  const replaced = world()
+  await postGroups(replaced)
+  const fp2 = await replaced.feeFingerprint()
+  const fee = replaced.state.payments.find((p) => p.customerId === SHOP && p.referenceNumber.startsWith('Stripe processing fee'))
+  fee.paymentId = 'ZP-REPLACED'
+  fee.detail.payment_id = 'ZP-REPLACED'
+  await assert.rejects(replaced.postFee(fp2), (err) => ['PREVIEW_CHANGED', 'FEE_JOURNAL_NOT_POSTABLE'].includes(err.code))
+
+  const deleted = world()
+  await postGroups(deleted)
+  const fp3 = await deleted.feeFingerprint()
+  deleted.state.payments = deleted.state.payments.filter((p) => !(p.customerId === WEB && p.referenceNumber.startsWith('Stripe processing fee')))
+  await assert.rejects(deleted.postFee(fp3), (err) => ['PREVIEW_CHANGED', 'FEE_JOURNAL_NOT_POSTABLE'].includes(err.code))
+  assert.deepEqual([...feeJournalPosts(moved), ...feeJournalPosts(replaced), ...feeJournalPosts(deleted)], [])
+})
+
+test('fee journal: verified FEE payments must equal the Stripe fee total', async () => {
+  const w = world()
+  await postGroups(w)
+  const fj = (await w.preview()).feeJournal
+  assert.equal(fj.verifiedFeeTotal, fj.stripeFeeTotal)
+  const m = require('../src/services/stripeClearing/stripePayoutClearingModel')
+  const derived = m.deriveFeeJournalStatus({
+    payoutBlockers: [], groups: [{ customerName: 'Website', status: 'POSTED', components: [{ component: 'FEE', zoho: { state: 'VERIFIED' } }] }],
+    stripeFeeMinor: 14728, verifiedFeeMinor: 10722, accountProblems: [], zoho: { state: 'MISSING' }, local: null,
+  })
+  assert.equal(derived.status, FJ.NEEDS_REVIEW)
+  assert.match(derived.reasons[0], /107\.22.*147\.28/)
+})
+
+test('historical-style payout (groups posted outside this workflow) is never given a second fee journal', async () => {
+  const w = world()
+  await postGroups(w)
+  w.state.components = []
+  const none = await w.preview()
+  assert.ok(none.groups.every((g) => g.status === GROUP_STATUS.ALREADY_POSTED))
+  assert.equal(none.feeJournal.status, FJ.NEEDS_REVIEW)
+  assert.equal(none.feeJournal.postable, false)
+  await assert.rejects(w.postFee(none.feeJournal.postingFingerprint), code('FEE_JOURNAL_NOT_POSTABLE'))
+
+  w.state.journals.push({
+    journalId: 'ZJ-LEGACY', entryNumber: '3990', journalDate: '2026-09-26', referenceNumber: 'Website&Burjuman stripe transaction fee - 30 Invoices',
+    lineItems: [
+      { accountId: A2270, debitOrCredit: 'debit', amount: 107.22, customerId: '' },
+      { accountId: A2270, debitOrCredit: 'debit', amount: 40.06, customerId: '' },
+      { accountId: A2270, debitOrCredit: 'debit', amount: 12.5, customerId: '' },
+      { accountId: A1013, debitOrCredit: 'credit', amount: 159.78, customerId: '' },
+    ],
+  })
+  const legacy = await w.preview()
+  assert.equal(legacy.feeJournal.status, FJ.LEGACY_VERIFIED)
+  assert.equal(legacy.status, PAYOUT_STATUS.FULLY_CLEARED)
+  await assert.rejects(w.postFee(legacy.feeJournal.postingFingerprint), code('FEE_JOURNAL_NOT_POSTABLE'))
+  assert.equal(feeJournalPosts(w).length, 0)
+})
+
+test('the customer advance refund (Dr 1123 / Cr 1019) is never part of the fee journal', async () => {
+  const w = world()
+  await postGroups(w)
+  await w.postFee(await w.feeFingerprint())
+  const accounts = feeJournalPosts(w)[0].payload.line_items.map((l) => l.account_id)
+  assert.deepEqual(accounts, [A2270, A1013])
+  assert.ok(!accounts.includes(A1123) && !accounts.includes(A1019))
+  assert.equal(w.state.cases[0].refundStatus, 'REFUND_DETECTED')
+  assert.ok(!w.state.components.some((c) => c.component === 'CUSTOMER_ADVANCE_REFUND'))
+})
+
+test('fee journal: one posting at a time per payout', async () => {
+  const w = world()
+  await postGroups(w)
+  const fp = await w.feeFingerprint()
+  w.state.locked = true
+  await assert.rejects(w.postFee(fp), code('PAYOUT_POSTING_IN_PROGRESS'))
+  assert.equal(feeJournalPosts(w).length, 0)
 })

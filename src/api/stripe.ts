@@ -89,9 +89,11 @@ export type StripePayoutGroupStatus =
   | 'POSTED'
   | 'ALREADY_POSTED'
 
-export type StripePayoutStatus = 'READY' | 'PARTIALLY_CLEARED' | 'FULLY_CLEARED' | 'NEEDS_REVIEW'
+export type StripePayoutStatus = 'READY' | 'PARTIALLY_CLEARED' | 'FEE_JOURNAL_PENDING' | 'FULLY_CLEARED' | 'NEEDS_REVIEW'
 
-export type StripePayoutComponentKind = 'NET' | 'FEE' | 'CUSTOMER_ADVANCE' | 'CUSTOMER_ADVANCE_REFUND'
+export type StripePayoutComponentKind = 'NET' | 'FEE' | 'CUSTOMER_ADVANCE' | 'CUSTOMER_ADVANCE_REFUND' | 'PAYOUT_FEE_JOURNAL'
+
+export type StripeFeeJournalStatus = 'WAITING' | 'READY' | 'VERIFIED' | 'LEGACY_VERIFIED' | 'NOT_REQUIRED' | 'NEEDS_REVIEW'
 
 export type StripePayoutLineState = 'OPEN' | 'PARTIALLY_CLEARED' | 'CLEARED' | 'NEEDS_REVIEW'
 
@@ -263,6 +265,49 @@ export interface StripePayoutGroup {
   lines: StripePayoutLine[]
 }
 
+export interface StripeLegacyFeeJournal {
+  journalId: string
+  entryNumber: string | null
+  journalDate: string
+  referenceNumber: string
+  total: number
+  how: 'TOTAL_LINE' | 'CUSTOMER_FEE_LINES'
+  matchedLines: number[]
+}
+
+/** One payout-level journal: Dr Stripe Fees (2270) / Cr 1013 for the payout's total Stripe fees. */
+export interface StripePayoutFeeJournal {
+  component: 'PAYOUT_FEE_JOURNAL'
+  status: StripeFeeJournalStatus
+  reasons: string[]
+  postable: boolean
+  tracked: boolean
+  amount: number
+  stripeFeeTotal: number
+  verifiedFeeTotal: number
+  feeComponents: Array<{ customerId: string; customerName: string; amount: number; zohoState: 'MISSING' | 'VERIFIED' | 'CONFLICT'; zohoRecordId: string | null }>
+  reference: string
+  date: string | null
+  debitAccountId: string
+  creditAccountId: string
+  debitAccount: StripeZohoAccount | null
+  creditAccount: StripeZohoAccount | null
+  accountProblems: string[]
+  payload: Record<string, unknown>
+  zoho: StripePayoutComponent['zoho']
+  legacy: {
+    state: 'MATCHED' | 'NONE' | 'AMBIGUOUS' | 'ERROR'
+    reason: string
+    window: { start: string; end: string }
+    candidatesChecked: number
+    journals: StripeLegacyFeeJournal[]
+  } | null
+  local: StripePayoutComponent['local']
+  recovery: { action: StripeRecoveryAction; reason: string }
+  /** Sent back when posting; the server refuses if the live plan no longer matches. */
+  postingFingerprint: string
+}
+
 export interface StripePayoutReconciliation {
   netTo1019: number
   customerAdvances: number
@@ -319,11 +364,19 @@ export interface StripePayoutPreview {
   status: StripePayoutStatus
   blockers: string[]
   proposedPaymentDate: string | null
-  accounts: { net: StripeZohoAccount | null; fee: StripeZohoAccount | null; advance: StripeZohoAccount | null; problems: string[] }
+  accounts: {
+    net: StripeZohoAccount | null
+    fee: StripeZohoAccount | null
+    advance: StripeZohoAccount | null
+    feeExpense?: StripeZohoAccount | null
+    problems: string[]
+  }
   composition: StripePayoutComposition
   reconciliation: StripePayoutReconciliation
   customersPresent: string[]
   groups: StripePayoutGroup[]
+  /** Absent only from previews produced before the fee journal step existed. */
+  feeJournal?: StripePayoutFeeJournal
   unassigned: StripePayoutLine[]
   advanceCaseEvents: StripeAdvanceCaseEvent[]
   advanceRefunds: StripeAdvanceRefund[]
@@ -382,6 +435,23 @@ export function postStripePayoutGroup(payoutId: string, zohoCustomerId: string, 
   return api.post(`/api/stripe/payouts/${encodeURIComponent(payoutId)}/customers/${encodeURIComponent(zohoCustomerId)}/post`, {
     fingerprint,
   }) as Promise<StripePayoutPostResult>
+}
+
+export interface StripePayoutFeeJournalPostResult {
+  outcome: 'VERIFIED' | 'NEEDS_REVIEW' | 'POSTED_UNVERIFIED' | 'NOT_POSTED'
+  alreadyPosted: boolean
+  payoutId: string
+  amount: number | null
+  reference: string | null
+  component: StripePayoutPostComponentResult
+  zohoRequests: number
+}
+
+/** Creates the one payout-level Stripe fee journal in Zoho (after every customer group is verified). */
+export function postStripePayoutFeeJournal(payoutId: string, fingerprint: string) {
+  return api.post(`/api/stripe/payouts/${encodeURIComponent(payoutId)}/fee-journal/post`, {
+    fingerprint,
+  }) as Promise<StripePayoutFeeJournalPostResult>
 }
 
 export function getStripeStatus() {

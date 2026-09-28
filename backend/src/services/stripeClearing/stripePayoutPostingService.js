@@ -7,6 +7,9 @@
  * has an admin-confirmed overpayment) CUSTOMER_ADVANCE journal → verify. The advance
  * refund journal is never part of this: it belongs to the later payout holding the refund.
  *
+ * Last, once every group is posted and verified: one payout-level fee journal
+ * (Dr Stripe Fees / Cr 1013 for the payout's total Stripe fees, no customer).
+ *
  * Every request:
  * - requires the server posting gate (STRIPE_CLEARING_POSTING_ENABLED + live Stripe key);
  * - holds a per-payout advisory lock;
@@ -195,7 +198,8 @@ async function verifyCreated(local, c, recordId, ctx) {
     return outcomeOf(c, await store.transitionComponent(db, local.id, [COMPONENT_STATUS.POSTED], COMPONENT_STATUS.POSTED, { lastError: detail }, detail, actor), { requestSent: true, reason: detail })
   }
   if (state.state === ZOHO_STATE.VERIFIED && state.recordId === recordId) {
-    const row = await store.transitionComponent(db, local.id, [COMPONENT_STATUS.POSTED], COMPONENT_STATUS.VERIFIED, { verifiedAt: ctx.now().toISOString() }, `Zoho ${recordLabel(c)} ${recordId} verified: reference, customer, account, amount and allocations match.`, actor)
+    const matched = c.component === COMPONENT.PAYOUT_FEE_JOURNAL ? 'reference, date, accounts and amount match; no customer tag' : 'reference, customer, account, amount and allocations match'
+    const row = await store.transitionComponent(db, local.id, [COMPONENT_STATUS.POSTED], COMPONENT_STATUS.VERIFIED, { verifiedAt: ctx.now().toISOString() }, `Zoho ${recordLabel(c)} ${recordId} verified: ${matched}.`, actor)
     return outcomeOf(c, row, { requestSent: true })
   }
   const why = state.state === ZOHO_STATE.MISSING ? 'it is not found by its reference' : state.reason || `Zoho shows ${state.recordId} instead`
@@ -314,17 +318,85 @@ async function postLocked(payoutId, customerId, fingerprint, ctx) {
 }
 
 /**
- * Post one payout + customer group to Zoho.
- * @param {string} payoutId
- * @param {string} customerKey "website" | "burjman" (or the exact Zoho customer ID)
- * @param {{ actor?: string, fingerprint?: string }} opts fingerprint = group.postingFingerprint from the reviewed preview
- * @param {object} [overrides] test seams
+ * Everything checked against the live preview before the payout fee journal is created:
+ * every group posted with every component verified, verified FEE payments = Stripe fee
+ * total = journal amount, and exactly Dr Stripe Fees / Cr 1013 with no customer tag.
  */
-async function postPayoutCustomerGroup(payoutId, customerKey, opts = {}, overrides = {}) {
+function assertFeeJournalPostable(result, fingerprint, config) {
+  const S = model.FEE_JOURNAL_STATUS
+  const fj = result.feeJournal
+  const needsReview = (code, message, reasons) => fail(409, code, message, { reasons, feeJournalStatus: S.NEEDS_REVIEW })
+  if (!fj) throw needsReview('FEE_JOURNAL_MISSING', 'The preview has no payout fee journal. Nothing was posted.')
+  if (fj.postingFingerprint !== fingerprint) {
+    throw needsReview('PREVIEW_CHANGED', 'The payout, its fees or the verified FEE payments changed since this preview. Reload the preview and review it again. Nothing was posted.')
+  }
+  if (result.payout.status !== 'paid') throw needsReview('PAYOUT_NOT_PAID', `Payout status is ${result.payout.status}. Nothing was posted.`)
+  if (result.blockers.length > 0) throw needsReview('PAYOUT_NEEDS_REVIEW', 'The payout does not reconcile. Nothing was posted.', result.blockers)
+  if (!fj.postable || !(fj.status === S.READY || fj.status === S.VERIFIED)) {
+    throw fail(409, 'FEE_JOURNAL_NOT_POSTABLE', `The payout fee journal is ${fj.status}. Nothing was posted.`, { reasons: fj.reasons, feeJournalStatus: fj.status })
+  }
+
+  const problems = []
+  if (result.groups.length === 0) problems.push('The payout has no customer groups.')
+  for (const g of result.groups) {
+    const complete = fj.status === S.READY ? g.status === GROUP_STATUS.POSTED : model.COMPLETE_GROUP.has(g.status)
+    if (!complete) problems.push(`${g.customerName} is ${g.status}, not posted.`)
+    for (const c of g.components) {
+      if (c.zoho.state !== ZOHO_STATE.VERIFIED) problems.push(`${g.customerName} ${c.component} is not verified in Zoho.`)
+    }
+    if (!g.components.some((c) => c.component === COMPONENT.FEE)) problems.push(`${g.customerName} has no FEE payment.`)
+  }
+  const minor = (v) => Math.round(Number(v) * 100)
+  const verifiedFee = result.groups.reduce((s, g) => s + g.components
+    .filter((c) => c.component === COMPONENT.FEE && c.zoho.state === ZOHO_STATE.VERIFIED)
+    .reduce((t, c) => t + minor(c.amount), 0), 0)
+  if (verifiedFee !== minor(fj.stripeFeeTotal) || minor(fj.amount) !== minor(fj.stripeFeeTotal) || minor(fj.amount) <= 0) {
+    problems.push(`Verified FEE payments ${(verifiedFee / 100).toFixed(2)}, Stripe fees ${fj.stripeFeeTotal} and the journal amount ${fj.amount} must all be equal.`)
+  }
+
+  const accounts = result.accounts
+  if (fj.debitAccountId !== config.feeExpenseAccountId || !accounts.feeExpense || accounts.feeExpense.accountId !== config.feeExpenseAccountId) {
+    problems.push('The journal does not debit the verified Stripe Fees (2270) account.')
+  }
+  if (fj.creditAccountId !== config.feeAccountId || !accounts.fee || accounts.fee.accountId !== config.feeAccountId) {
+    problems.push('The journal does not credit the verified Stripe Processing Chg Un-Cleared (1013) account.')
+  }
+  if (fj.reference !== model.payoutFeeReference(result.payout.payoutId)) problems.push('The journal reference is not the payout fee reference.')
+  if (fj.date !== result.proposedPaymentDate || fj.payload.journal_date !== fj.date) problems.push('The journal date is not the payout arrival date.')
+  const lines = fj.payload.line_items || []
+  const shapeOk = lines.length === 2
+    && lines[0].account_id === config.feeExpenseAccountId && lines[0].debit_or_credit === 'debit' && minor(lines[0].amount) === minor(fj.amount)
+    && lines[1].account_id === config.feeAccountId && lines[1].debit_or_credit === 'credit' && minor(lines[1].amount) === minor(fj.amount)
+  if (!shapeOk) problems.push('The journal must be exactly one Stripe Fees debit and one 1013 credit for the total.')
+  if (lines.some((l) => l.customer_id)) problems.push('The payout fee journal must not be tagged to a customer.')
+  if (fj.payload.reference_number !== fj.reference) problems.push('The journal payload reference does not match.')
+  if (fj.payload.notes) problems.push('The journal must not carry notes.')
+  if (problems.length > 0) throw needsReview('FEE_JOURNAL_CHANGED', 'The payout fee journal cannot be posted. Nothing was posted.', problems)
+  return fj
+}
+
+async function postFeeJournalLocked(payoutId, fingerprint, ctx) {
+  const result = await ctx.previewPayout(payoutId)
+  const fj = result.feeJournal
+  const S = model.FEE_JOURNAL_STATUS
+  const summary = { payoutId, amount: fj ? fj.amount : null, reference: fj ? fj.reference : null }
+  if (fj && fj.status === S.VERIFIED && fj.tracked && fj.postingFingerprint === fingerprint) {
+    return { outcome: S.VERIFIED, alreadyPosted: true, ...summary, component: { component: fj.component, amount: fj.amount, reference: fj.reference, status: fj.local.status, zohoRecordId: fj.zoho.recordId, requestSent: false }, zohoRequests: 0 }
+  }
+  const c = assertFeeJournalPostable(result, fingerprint, ctx.config)
+  const out = await postComponent(c, componentRow(c, payoutId, null, result.payout.currency), ctx)
+  const outcome = out.status === COMPONENT_STATUS.VERIFIED ? S.VERIFIED
+    : out.status === COMPONENT_STATUS.NEEDS_REVIEW ? S.NEEDS_REVIEW
+      : out.status === COMPONENT_STATUS.POSTED ? 'POSTED_UNVERIFIED' : 'NOT_POSTED'
+  return { outcome, alreadyPosted: false, ...summary, component: out, zohoRequests: out.requestSent ? 1 : 0 }
+}
+
+/** Gate, identity and fingerprint checks, then `run` under the payout advisory lock. */
+async function underPostingLock(payoutId, opts, overrides, customerKey, run) {
   const deps = { ...defaultDeps(), ...overrides }
   const id = clean(payoutId)
   if (!PAYOUT_PATTERN.test(id)) throw fail(400, 'INVALID_PAYOUT_ID', 'A Stripe payout ID (po_…) is required.')
-  const customerId = resolveCustomer(customerKey, deps.config)
+  const customerId = customerKey === null ? null : resolveCustomer(customerKey, deps.config)
   const gate = postingGate(deps.config, deps.stripeConfig)
   if (!gate.allowed) throw fail(403, gate.reasons[0].code, `${gate.reasons.map((r) => r.message).join(' ')} Nothing was posted.`, { reasons: gate.reasons.map((r) => r.message) })
   if (!opts.actor) throw fail(401, 'ACTOR_REQUIRED', 'The posting admin could not be identified.')
@@ -334,7 +406,7 @@ async function postPayoutCustomerGroup(payoutId, customerKey, opts = {}, overrid
   const previewDeps = { ...deps.previewDeps, config: deps.config, stripeConfig: deps.stripeConfig }
   const lock = await deps.store.acquirePayoutLock(deps.pool, id)
   try {
-    return await postLocked(id, customerId, fingerprint, {
+    return await run(id, customerId, fingerprint, {
       ...deps,
       db: lock.db,
       actor: opts.actor,
@@ -346,4 +418,26 @@ async function postPayoutCustomerGroup(payoutId, customerKey, opts = {}, overrid
   }
 }
 
-module.exports = { postPayoutCustomerGroup, POSTING_ORDER }
+/**
+ * Post one payout + customer group to Zoho.
+ * @param {string} payoutId
+ * @param {string} customerKey "website" | "burjman" (or the exact Zoho customer ID)
+ * @param {{ actor?: string, fingerprint?: string }} opts fingerprint = group.postingFingerprint from the reviewed preview
+ * @param {object} [overrides] test seams
+ */
+async function postPayoutCustomerGroup(payoutId, customerKey, opts = {}, overrides = {}) {
+  return underPostingLock(payoutId, opts, overrides, customerKey, postLocked)
+}
+
+/**
+ * Post the payout-level Stripe fee journal (Dr Stripe Fees / Cr 1013, payout total, no
+ * customer). Last step of a payout: only after every customer group is posted and verified.
+ * @param {string} payoutId
+ * @param {{ actor?: string, fingerprint?: string }} opts fingerprint = feeJournal.postingFingerprint from the reviewed preview
+ * @param {object} [overrides] test seams
+ */
+async function postPayoutFeeJournal(payoutId, opts = {}, overrides = {}) {
+  return underPostingLock(payoutId, opts, overrides, null, (id, _customerId, fingerprint, ctx) => postFeeJournalLocked(id, fingerprint, ctx))
+}
+
+module.exports = { postPayoutCustomerGroup, postPayoutFeeJournal, POSTING_ORDER }
