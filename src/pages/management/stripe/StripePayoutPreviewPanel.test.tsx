@@ -160,4 +160,80 @@ describe('StripePayoutPreviewPanel', () => {
     expect(await screen.findByText('READY WITH CUSTOMER ADVANCE')).toBeTruthy()
     expect(screen.getByText(/Confirmed by user:1/)).toBeTruthy()
   })
+
+  it('shows a refund detected after the payout and keeps Confirm Customer Advance available', async () => {
+    const refunded = preview(false)
+    const line = refunded.groups[0].lines[0]
+    line.advance = {
+      ...line.advance!,
+      refundStatus: 'REFUND_DETECTED',
+      refund: {
+        refundId: 're_3UIA7CDJogiiRoKP0noUu0UZ',
+        balanceTransactionId: 'txn_refund',
+        amount: 35,
+        fee: 0,
+        net: -35,
+        currency: 'AED',
+        status: 'succeeded',
+        createdAt: '2026-09-27T12:00:00.000Z',
+        refundPayoutId: null,
+      },
+    }
+    api.getStripePayouts.mockResolvedValue({
+      rows: [{ payoutId: PAYOUT, status: 'paid', amount: 4551.97, currency: 'AED', arrivalDate: '2026-09-28T00:00:00.000Z', createdAt: null, composition: refunded.composition }],
+    })
+    api.getStripePayoutPreview.mockResolvedValueOnce(refunded)
+
+    render(<StripePayoutPreviewPanel />)
+    fireEvent.click(screen.getByRole('button', { name: 'Load recent payouts' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Preview' }))
+
+    expect(await screen.findByText('CUSTOMER OVERPAYMENT')).toBeTruthy()
+    expect(screen.getByText('Refund detected')).toBeTruthy()
+    expect(screen.getByText('re_3UIA7CDJogiiRoKP0noUu0UZ')).toBeTruthy()
+    expect(screen.getByText('Waiting for Stripe payout')).toBeTruthy()
+    expect(screen.getByText('REFUND DETECTED')).toBeTruthy()
+    expect(screen.getByText('Admin confirmation required')).toBeTruthy()
+    expect(screen.getByText('AED 1,066.00')).toBeTruthy()
+    expect(screen.getByText('NEEDS REVIEW', { selector: '.stripe-payout__group-head *' })).toBeTruthy()
+
+    const confirmButton = screen.getByRole('button', { name: 'Confirm Customer Advance' }) as HTMLButtonElement
+    expect(confirmButton.disabled).toBe(false)
+    fireEvent.click(confirmButton)
+    expect(await screen.findByText('Refund already detected')).toBeTruthy()
+    expect((screen.getByRole('textbox') as HTMLTextAreaElement).placeholder).toMatch(/refunded in Stripe after this payout/)
+  })
+
+  it('lists a matched refund in a later payout with its posting blockers', async () => {
+    const later = preview(true)
+    later.groups = []
+    later.advanceRefunds = [
+      {
+        balanceTransactionId: 'txn_refund',
+        chargeId: 'ch_3UIA7CDJogiiRoKP07RCqZKw',
+        refundId: 're_3UIA7CDJogiiRoKP0noUu0UZ',
+        amount: 35,
+        caseId: '1',
+        caseStatus: 'CONFIRMED',
+        originalPayoutId: PAYOUT,
+        status: 'REFUND_MATCHED',
+        matched: true,
+        reason: 'Refund matches the confirmed customer advance.',
+        originalAdvanceJournal: { reference: `Stripe customer advance ${PAYOUT}`, state: 'MISSING', recordId: null, reason: null },
+        posting: { allowed: false, blockers: ['The original Customer Advance journal is not verified in Zoho yet.', 'Posting is disabled.'] },
+        proposedJournal: null,
+      },
+    ]
+    api.getStripePayouts.mockResolvedValue({
+      rows: [{ payoutId: PAYOUT, status: 'paid', amount: 4551.97, currency: 'AED', arrivalDate: '2026-09-28T00:00:00.000Z', createdAt: null, composition: later.composition }],
+    })
+    api.getStripePayoutPreview.mockResolvedValueOnce(later)
+
+    render(<StripePayoutPreviewPanel />)
+    fireEvent.click(screen.getByRole('button', { name: 'Load recent payouts' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Preview' }))
+
+    expect(await screen.findByText(/Original advance journal .*MISSING/)).toBeTruthy()
+    expect(screen.getByText(/Refund journal cannot be posted yet: The original Customer Advance journal is not verified/)).toBeTruthy()
+  })
 })

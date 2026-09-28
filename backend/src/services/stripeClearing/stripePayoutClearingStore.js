@@ -20,8 +20,12 @@ const CASE_STATUS = Object.freeze({
   REJECTED: 'REJECTED',
 })
 
+// Separate from the case status: a refund may already exist before the admin confirms.
+// REFUND_DETECTED: refund exists and equals the advance, no Stripe payout contains it yet.
+// REFUND_MATCHED: a later payout contains it. REFUNDED: that payout's refund journal is verified.
 const REFUND_STATUS = Object.freeze({
   NOT_REFUNDED: 'NOT_REFUNDED',
+  REFUND_DETECTED: 'REFUND_DETECTED',
   REFUND_MATCHED: 'REFUND_MATCHED',
   REFUNDED: 'REFUNDED',
   REFUND_MISMATCH: 'REFUND_MISMATCH',
@@ -78,10 +82,12 @@ const SCHEMA_SQL = [
      confirmed_at TIMESTAMPTZ,
      refund_required BOOLEAN NOT NULL DEFAULT true,
      refund_status VARCHAR(24) NOT NULL DEFAULT 'NOT_REFUNDED' CHECK (refund_status IN (
-       'NOT_REFUNDED', 'REFUND_MATCHED', 'REFUNDED', 'REFUND_MISMATCH')),
+       'NOT_REFUNDED', 'REFUND_DETECTED', 'REFUND_MATCHED', 'REFUNDED', 'REFUND_MISMATCH')),
+     refund_id TEXT,
      refund_payout_id TEXT,
      refund_balance_transaction_id TEXT,
      refund_amount NUMERIC(14, 2),
+     refund_detected_at TIMESTAMPTZ,
      zoho_journal_id TEXT,
      refund_zoho_journal_id TEXT,
      created_by TEXT,
@@ -98,6 +104,48 @@ const SCHEMA_SQL = [
    )`,
   `CREATE INDEX IF NOT EXISTS idx_stripe_customer_advance_cases_payout
      ON stripe_customer_advance_cases (payout_id, zoho_customer_id)`,
+  // 049: refund detected before confirmation. Additive; existing rows keep their data.
+  `ALTER TABLE stripe_customer_advance_cases ADD COLUMN IF NOT EXISTS refund_id TEXT`,
+  `ALTER TABLE stripe_customer_advance_cases ADD COLUMN IF NOT EXISTS refund_detected_at TIMESTAMPTZ`,
+  `DO $$
+   DECLARE r RECORD;
+   BEGIN
+     FOR r IN
+       SELECT conname FROM pg_constraint
+       WHERE conrelid = 'stripe_customer_advance_cases'::regclass AND contype = 'c'
+         AND pg_get_constraintdef(oid) LIKE '%NOT_REFUNDED%'
+         AND pg_get_constraintdef(oid) LIKE '%REFUND_MISMATCH%'
+         AND pg_get_constraintdef(oid) NOT LIKE '%REFUND_DETECTED%'
+     LOOP
+       EXECUTE format('ALTER TABLE stripe_customer_advance_cases DROP CONSTRAINT %I', r.conname);
+     END LOOP;
+     IF NOT EXISTS (
+       SELECT 1 FROM pg_constraint
+       WHERE conrelid = 'stripe_customer_advance_cases'::regclass AND contype = 'c'
+         AND pg_get_constraintdef(oid) LIKE '%NOT_REFUNDED%'
+         AND pg_get_constraintdef(oid) LIKE '%REFUND_DETECTED%'
+     ) THEN
+       ALTER TABLE stripe_customer_advance_cases ADD CONSTRAINT ck_stripe_customer_advance_refund_status
+         CHECK (refund_status IN ('NOT_REFUNDED', 'REFUND_DETECTED', 'REFUND_MATCHED', 'REFUNDED', 'REFUND_MISMATCH'));
+     END IF;
+     IF NOT EXISTS (
+       SELECT 1 FROM pg_constraint
+       WHERE conrelid = 'stripe_customer_advance_cases'::regclass AND conname = 'ck_stripe_customer_advance_refund_fields'
+     ) THEN
+       ALTER TABLE stripe_customer_advance_cases ADD CONSTRAINT ck_stripe_customer_advance_refund_fields CHECK (
+         refund_status NOT IN ('REFUND_DETECTED', 'REFUND_MATCHED', 'REFUNDED')
+         OR (refund_id IS NOT NULL AND refund_balance_transaction_id IS NOT NULL
+             AND refund_amount = overpayment_amount AND refund_detected_at IS NOT NULL));
+     END IF;
+     IF NOT EXISTS (
+       SELECT 1 FROM pg_constraint
+       WHERE conrelid = 'stripe_customer_advance_cases'::regclass AND conname = 'ck_stripe_customer_advance_refund_payout'
+     ) THEN
+       ALTER TABLE stripe_customer_advance_cases ADD CONSTRAINT ck_stripe_customer_advance_refund_payout CHECK (
+         refund_status NOT IN ('REFUND_MATCHED', 'REFUNDED')
+         OR (refund_payout_id IS NOT NULL AND refund_payout_id <> payout_id));
+     END IF;
+   END $$`,
   `CREATE TABLE IF NOT EXISTS stripe_payout_clearing_components (
      id BIGSERIAL PRIMARY KEY,
      payout_id TEXT NOT NULL,
@@ -194,9 +242,11 @@ function mapCase(row) {
     confirmedAt: iso(row.confirmed_at),
     refundRequired: row.refund_required === true,
     refundStatus: row.refund_status,
+    refundId: row.refund_id || null,
     refundPayoutId: row.refund_payout_id || null,
     refundBalanceTransactionId: row.refund_balance_transaction_id || null,
     refundAmount: num(row.refund_amount),
+    refundDetectedAt: iso(row.refund_detected_at),
     zohoJournalId: row.zoho_journal_id || null,
     refundZohoJournalId: row.refund_zoho_journal_id || null,
     createdBy: row.created_by || null,
@@ -363,6 +413,34 @@ async function confirmCase(db, candidate, { actor, reason }) {
     if (row.status !== CASE_STATUS.REVIEW_REQUIRED) {
       return { case: mapCase(row), alreadyConfirmed: true }
     }
+    const refund = candidate.refund || null
+    if (row.refund_id && (!refund || refund.refundId !== row.refund_id)) {
+      throw storeError(409, 'ADVANCE_CASE_REFUND_CHANGED', `Case records Stripe refund ${row.refund_id}, but Stripe now shows ${refund ? refund.refundId : 'no matching refund'}.`)
+    }
+    if (refund && !row.refund_id) {
+      if (row.refund_status !== REFUND_STATUS.NOT_REFUNDED) {
+        throw storeError(409, 'ADVANCE_CASE_REFUND_CHANGED', `Case refund status is ${row.refund_status}; refusing to record refund ${refund.refundId}.`)
+      }
+      const detected = await db.query(
+        `UPDATE stripe_customer_advance_cases SET
+           refund_status = $1, refund_id = $2, refund_balance_transaction_id = $3, refund_amount = $4,
+           refund_detected_at = NOW(), updated_at = NOW()
+         WHERE id = $5
+         RETURNING *`,
+        [REFUND_STATUS.REFUND_DETECTED, refund.refundId, refund.balanceTransactionId, refund.amount, row.id],
+      )
+      row = detected.rows[0]
+      await logEvent(db, {
+        entityType: ENTITY.ADVANCE_CASE,
+        entityId: row.id,
+        payoutId: row.payout_id,
+        zohoCustomerId: row.zoho_customer_id,
+        fromStatus: REFUND_STATUS.NOT_REFUNDED,
+        toStatus: REFUND_STATUS.REFUND_DETECTED,
+        detail: `Matching Stripe refund ${refund.refundId} (${refund.amount}, ${refund.balanceTransactionId}, created ${refund.createdAt}) already existed before confirmation. It is not in this payout; it will clear the advance in its own later payout.`,
+        actor,
+      })
+    }
     const updated = await db.query(
       `UPDATE stripe_customer_advance_cases SET
          status = $1, admin_confirmed = true, confirmed_by = $2, confirmed_at = NOW(), reason = $3, updated_at = NOW()
@@ -377,7 +455,7 @@ async function confirmCase(db, candidate, { actor, reason }) {
       zohoCustomerId: row.zoho_customer_id,
       fromStatus: CASE_STATUS.REVIEW_REQUIRED,
       toStatus: CASE_STATUS.CONFIRMED,
-      detail: `Admin confirmed customer overpayment of ${candidate.overpaymentAmount}. Reason: ${reason}. Local status only; nothing was posted to Zoho.`,
+      detail: `Admin confirmed customer overpayment of ${candidate.overpaymentAmount}.${refund ? ` Matching refund ${refund.refundId} was already detected.` : ''} Reason: ${reason}. Local status only; nothing was posted to Zoho.`,
       actor,
     })
     return { case: mapCase(updated.rows[0]), alreadyConfirmed: false }

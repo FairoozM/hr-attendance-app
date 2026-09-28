@@ -171,8 +171,19 @@ function invoiceState(match, invoice, customerId, expectedTotalMinor) {
   return { state: LINE_STATE.NEEDS_REVIEW, reason: match.reason }
 }
 
+function publicRefundCheck(check) {
+  return {
+    status: check.status,
+    matchesAdvance: check.ok,
+    reason: check.reason,
+    refundedAmount: check.refundedAmount,
+    refunds: check.refunds,
+    refund: check.refund,
+  }
+}
+
 async function buildLine(t, ctx) {
-  const { config, sources, ordersByIntent, casesByCharge } = ctx
+  const { config, sources, ordersByIntent, casesByCharge, payout, payoutTxnIds } = ctx
   const line = {
     balanceTransactionId: t.balanceTransactionId,
     chargeId: t.chargeId,
@@ -190,6 +201,7 @@ async function buildLine(t, ctx) {
     invoice: null,
     customerId: null,
     advance: null,
+    refund: null,
     state: LINE_STATE.NEEDS_REVIEW,
     matchStatus: null,
     reason: '',
@@ -211,14 +223,33 @@ async function buildLine(t, ctx) {
   if (order && clean(order.orderNumber)) {
     zohoInvoices = await sources.findZohoInvoicesByReference(order.orderNumber, { source: 'stripe_payout_preview' })
   }
-  // A later refund of exactly a confirmed customer advance is booked against 1123, not this invoice.
   const linkedCase = t.chargeId ? casesByCharge.get(t.chargeId) : null
-  const refundIsAdvance = Boolean(linkedCase && CONFIRMED_CASE.has(linkedCase.status) && t.chargeRefundedMinor === toMinor(linkedCase.overpaymentAmount))
+  const orderTotalMinor = order ? toMinor(order.finalAmount) : null
+  const overpaymentMinor = order && orderTotalMinor > 0 && t.amountMinor > orderTotalMinor ? t.amountMinor - orderTotalMinor : 0
+  // The charge's refunded amount is read now, not as of the payout. A later refund of exactly
+  // the overpayment is the advance being returned in its own payout; it never rewrites this one.
+  let refundCheck = null
+  if (overpaymentMinor > 0 && t.chargeRefundedMinor > 0 && t.chargeId) {
+    refundCheck = model.assessAdvanceRefund({
+      chargeId: t.chargeId,
+      paymentIntentId: t.paymentIntentId,
+      chargeStatus: t.chargeStatus,
+      chargeFullyRefunded: t.chargeFullyRefunded === true,
+      chargeRefundedMinor: t.chargeRefundedMinor,
+      overpaymentMinor,
+      currency: config.websiteCurrency,
+      payoutCreatedAt: payout.createdAt,
+      payoutBalanceTransactionIds: payoutTxnIds,
+      refunds: await sources.listChargeRefunds(t.chargeId),
+      storedCase: linkedCase,
+    })
+    line.refund = publicRefundCheck(refundCheck)
+  }
   const stripe = {
     paymentIntentId: t.paymentIntentId,
     status: 'succeeded',
     amountReceived: toMajor(t.amountMinor),
-    amountRefunded: refundIsAdvance ? 0 : toMajor(t.chargeRefundedMinor),
+    amountRefunded: refundCheck && refundCheck.ok ? 0 : toMajor(t.chargeRefundedMinor),
     disputed: t.chargeDisputed,
     currency: t.currency,
   }
@@ -228,12 +259,17 @@ async function buildLine(t, ctx) {
   if (invoice) {
     line.invoice = { invoiceId: invoice.invoiceId, invoiceNumber: invoice.invoiceNumber, total: invoice.total, balance: invoice.balance, status: invoice.status, customerId: invoice.customerId }
   }
+  if (refundCheck && !refundCheck.ok) {
+    return review(`Stripe refunded ${toMajor(t.chargeRefundedMinor)} of ${toMajor(t.amountMinor)} (overpayment ${toMajor(overpaymentMinor)}). ${refundCheck.reason}`)
+  }
 
-  const orderTotalMinor = order ? toMinor(order.finalAmount) : null
-  const overpaid = match.status === MATCH_STATUS.AMOUNT_MISMATCH && order && t.amountMinor > orderTotalMinor
+  const overpaid = match.status === MATCH_STATUS.AMOUNT_MISMATCH && overpaymentMinor > 0
   if (!overpaid) {
     const s = invoiceState(match, invoice, line.customerId, t.amountMinor)
     return { ...line, ...s }
+  }
+  if (toMinor(order.walletRedeemed) !== 0) {
+    return review(`${match.reason} Website order used ${order.walletRedeemed} wallet credit, which may explain the difference.`)
   }
 
   // Customer overpayment candidate: every check must pass as if Stripe had collected
@@ -241,9 +277,9 @@ async function buildLine(t, ctx) {
   const asOrderTotal = classifyStripePayment({ stripe: { ...stripe, amountReceived: order.finalAmount }, websiteOrders, zohoInvoices, config })
   const s = invoiceState(asOrderTotal, invoice, line.customerId, orderTotalMinor)
   if (s.state === LINE_STATE.NEEDS_REVIEW) return review(`${match.reason} ${s.reason}`)
-  const advanceMinor = t.amountMinor - orderTotalMinor
   const netAllocMinor = orderTotalMinor - t.feeMinor
   if (netAllocMinor <= 0) return review(`${match.reason} The Stripe fee is not covered by the invoice total.`)
+  const refund = refundCheck ? refundCheck.refund : null
   return {
     ...line,
     ...s,
@@ -251,9 +287,9 @@ async function buildLine(t, ctx) {
     invoiceTotalMinor: orderTotalMinor,
     netAllocMinor,
     feeAllocMinor: t.feeMinor,
-    advanceMinor,
+    advanceMinor: overpaymentMinor,
     advance: {
-      overpaymentAmount: toMajor(advanceMinor),
+      overpaymentAmount: toMajor(overpaymentMinor),
       invoiceTotal: toMajor(orderTotalMinor),
       stripeGross: toMajor(t.amountMinor),
       netAllocation: toMajor(netAllocMinor),
@@ -263,8 +299,10 @@ async function buildLine(t, ctx) {
       confirmedBy: null,
       confirmedAt: null,
       reason: null,
+      refundStatus: refundCheck ? refundCheck.status : REFUND_STATUS.NOT_REFUNDED,
+      refund,
     },
-    reason: `Stripe collected ${toMajor(t.amountMinor)} for invoice ${invoice.invoiceNumber} total ${toMajor(orderTotalMinor)}: customer overpayment ${toMajor(advanceMinor)}.`,
+    reason: `Stripe collected ${toMajor(t.amountMinor)} for invoice ${invoice.invoiceNumber} total ${toMajor(orderTotalMinor)}: customer overpayment ${toMajor(overpaymentMinor)}.${refund ? ` Refund ${refund.refundId} of ${refund.amount} already exists and belongs to a later payout.` : ''}`,
   }
 }
 
@@ -313,6 +351,9 @@ function applyCases(lines, casesByCharge, payout, config) {
     if (diff.length > 0) {
       return { ...line, state: LINE_STATE.NEEDS_REVIEW, reason: `Customer advance case ${stored.id} differs from Stripe/Zoho now (${diff.join(', ')}).` }
     }
+    if (stored.refundId && !line.advance.refund) {
+      return { ...line, state: LINE_STATE.NEEDS_REVIEW, reason: `Customer advance case ${stored.id} records refund ${stored.refundId}, but Stripe no longer shows it on this charge.` }
+    }
     const advance = {
       ...line.advance,
       caseId: stored.id,
@@ -321,7 +362,8 @@ function applyCases(lines, casesByCharge, payout, config) {
       confirmedBy: stored.confirmedBy,
       confirmedAt: stored.confirmedAt,
       reason: stored.reason,
-      refundStatus: stored.refundStatus,
+      refundStatus: line.advance.refund ? line.advance.refundStatus : stored.refundStatus || REFUND_STATUS.NOT_REFUNDED,
+      refundDetectedAt: stored.refundDetectedAt || null,
     }
     if (stored.status === CASE_STATUS.REJECTED) {
       return { ...line, advance, state: LINE_STATE.NEEDS_REVIEW, reason: `Customer advance case ${stored.id} was rejected; resolve this charge manually.` }
@@ -355,6 +397,7 @@ function publicLine(l) {
     website: l.website,
     invoice: l.invoice,
     advance: l.advance,
+    refund: l.refund,
     state: l.state,
     matchStatus: l.matchStatus,
     reason: l.reason,
@@ -492,7 +535,8 @@ async function buildGroup(customerId, lines, ctx) {
   if (review.length > 0) blockers.push(`${review.length} charge(s) need review.`)
   const pendingAdvance = allocatable.filter((l) => l.advance && !l.advance.confirmed)
   for (const l of pendingAdvance) {
-    blockers.push(`Customer overpayment of ${l.advance.overpaymentAmount} on ${l.invoice.invoiceNumber} needs admin confirmation (Confirm Customer Advance).`)
+    const refund = l.advance.refund
+    blockers.push(`Customer overpayment of ${l.advance.overpaymentAmount} on ${l.invoice.invoiceNumber} needs admin confirmation (Confirm Customer Advance).${refund ? ` Matching Stripe refund ${refund.refundId} (${refund.amount}) already exists; it clears the advance in its own later payout.` : ''}`)
   }
   if (accounts.problems.base.length > 0) blockers.push(...accounts.problems.base)
   const hasAdvance = allocatable.some((l) => l.advanceMinor > 0)
@@ -568,46 +612,85 @@ async function buildGroup(customerId, lines, ctx) {
   }
 }
 
+function refundMismatch(t, stored) {
+  if (!REFUNDABLE_CASE.has(stored.status)) return `Customer advance case ${stored.id} is ${stored.status}.`
+  if (stored.payoutId === t.payoutId) return `Refund is in the same payout as customer advance case ${stored.id}; it must belong to a later payout.`
+  if (stored.refundId && stored.refundId !== t.sourceId) return `Customer advance case ${stored.id} records refund ${stored.refundId}, not ${t.sourceId}.`
+  if (stored.refundBalanceTransactionId && stored.refundBalanceTransactionId !== t.balanceTransactionId) {
+    return `Customer advance case ${stored.id} records refund balance transaction ${stored.refundBalanceTransactionId}, not ${t.balanceTransactionId}.`
+  }
+  if (t.refundStatus !== 'succeeded') return `Stripe refund ${t.sourceId} status is ${t.refundStatus || 'unknown'}.`
+  if (t.feeMinor !== 0) return `Refund balance transaction has a fee of ${toMajor(t.feeMinor)}.`
+  if (-t.netMinor !== toMinor(stored.overpaymentAmount) || t.currency !== stored.currency) {
+    return `Refund ${toMajor(-t.netMinor)} ${t.currency} does not equal the customer advance ${stored.overpaymentAmount} ${stored.currency}.`
+  }
+  return null
+}
+
 /** Stripe refunds in this payout, linked charge → case. Preview only; never posted here. */
-function linkRefunds(otherTxns, casesByCharge, payoutId, accounts, config, date) {
-  return otherTxns
-    .filter((t) => t.type === 'refund' || t.reportingCategory === 'refund')
-    .map((t) => {
-      const stored = t.chargeId ? casesByCharge.get(t.chargeId) : null
-      const refundMinor = -t.netMinor
-      const base = {
-        balanceTransactionId: t.balanceTransactionId,
-        refundId: t.sourceId,
-        chargeId: t.chargeId,
-        paymentIntentId: t.paymentIntentId,
-        amount: toMajor(refundMinor),
-        caseId: stored ? stored.id : null,
-        originalPayoutId: stored ? stored.payoutId : null,
-        customerId: stored ? stored.zohoCustomerId : null,
-        overpaymentAmount: stored ? stored.overpaymentAmount : null,
-      }
-      if (!stored) return { ...base, status: 'NO_ADVANCE_CASE', matched: false, reason: 'Refund is not linked to a customer advance case.', proposedJournal: null }
-      if (!REFUNDABLE_CASE.has(stored.status)) {
-        return { ...base, status: REFUND_STATUS.REFUND_MISMATCH, matched: false, reason: `Customer advance case ${stored.id} is ${stored.status}.`, proposedJournal: null }
-      }
-      if (refundMinor !== toMinor(stored.overpaymentAmount) || t.currency !== config.websiteCurrency) {
-        return { ...base, status: REFUND_STATUS.REFUND_MISMATCH, matched: false, reason: `Refund ${toMajor(refundMinor)} does not equal the customer advance ${stored.overpaymentAmount}.`, proposedJournal: null }
-      }
-      const component = {
-        component: COMPONENT.CUSTOMER_ADVANCE_REFUND,
-        amount: toMajor(refundMinor),
-        reference: model.advanceRefundReference(payoutId),
-        debitAccountId: config.advanceAccountId,
-        creditAccountId: accounts.net ? accounts.net.accountId : null,
-      }
-      return {
-        ...base,
-        status: REFUND_STATUS.REFUND_MATCHED,
-        matched: true,
-        reason: `Refund equals customer advance case ${stored.id}; Dr Customer Advance Funds / Cr Stripe Undeposited Funds.`,
-        proposedJournal: { ...component, payload: model.advanceJournalPayload(component, stored.zohoCustomerId, date) },
-      }
+async function linkRefunds(otherTxns, casesByCharge, ctx) {
+  const { payoutId, accounts, config, date } = ctx
+  const out = []
+  for (const t of otherTxns.filter((x) => x.type === 'refund' || x.reportingCategory === 'refund')) {
+    const stored = t.chargeId ? casesByCharge.get(t.chargeId) : null
+    const refundMinor = -t.netMinor
+    const base = {
+      balanceTransactionId: t.balanceTransactionId,
+      refundId: t.sourceId,
+      chargeId: t.chargeId,
+      paymentIntentId: t.paymentIntentId,
+      amount: toMajor(refundMinor),
+      caseId: stored ? stored.id : null,
+      caseStatus: stored ? stored.status : null,
+      originalPayoutId: stored ? stored.payoutId : null,
+      customerId: stored ? stored.zohoCustomerId : null,
+      overpaymentAmount: stored ? stored.overpaymentAmount : null,
+      originalAdvanceJournal: null,
+      posting: { allowed: false, blockers: ['Refund is not linked to a confirmed customer advance.'] },
+    }
+    if (!stored) {
+      out.push({ ...base, status: 'NO_ADVANCE_CASE', matched: false, reason: 'Refund is not linked to a customer advance case.', proposedJournal: null })
+      continue
+    }
+    const problem = refundMismatch({ ...t, payoutId }, stored)
+    if (problem) {
+      out.push({ ...base, status: REFUND_STATUS.REFUND_MISMATCH, matched: false, reason: problem, proposedJournal: null })
+      continue
+    }
+    const component = {
+      component: COMPONENT.CUSTOMER_ADVANCE_REFUND,
+      amount: toMajor(refundMinor),
+      reference: model.advanceRefundReference(payoutId),
+      debitAccountId: config.advanceAccountId,
+      creditAccountId: accounts.net ? accounts.net.accountId : null,
+    }
+    const originalAdvance = {
+      component: COMPONENT.CUSTOMER_ADVANCE,
+      amount: stored.overpaymentAmount,
+      reference: model.advanceReference(stored.payoutId),
+      debitAccountId: accounts.net ? accounts.net.accountId : null,
+      creditAccountId: config.advanceAccountId,
+    }
+    const journal = await zohoJournalState(originalAdvance, stored.zohoCustomerId, ctx, stored.payoutId)
+    const posting = model.refundPostingGate({
+      caseStatus: stored.status,
+      originalAdvanceJournalState: journal.state,
+      refundStatus: REFUND_STATUS.REFUND_MATCHED,
+      refundMinor,
+      overpaymentMinor: toMinor(stored.overpaymentAmount),
+      postingEnabled: config.postingEnabled === true,
     })
+    out.push({
+      ...base,
+      status: REFUND_STATUS.REFUND_MATCHED,
+      matched: true,
+      reason: `Refund equals customer advance case ${stored.id} from ${stored.payoutId}; Dr Customer Advance Funds / Cr Stripe Undeposited Funds.`,
+      originalAdvanceJournal: { reference: originalAdvance.reference, state: journal.state, recordId: journal.recordId, reason: journal.reason || null },
+      posting,
+      proposedJournal: { ...component, payload: model.advanceJournalPayload(component, stored.zohoCustomerId, date) },
+    })
+  }
+  return out
 }
 
 function reconcile(groups, payout, chargeTxns, refunds) {
@@ -687,8 +770,9 @@ async function previewPayout(payoutId, overrides = {}) {
   const cases = chargeIds.length > 0 ? await records.loadAdvanceCases(chargeIds) : []
   const casesByCharge = new Map(cases.map((c) => [c.chargeId, c]))
 
+  const payoutTxnIds = new Set(txns.map((t) => t.balanceTransactionId))
   const built = []
-  for (const t of chargeTxns) built.push(await buildLine(t, { config, sources, ordersByIntent, casesByCharge }))
+  for (const t of chargeTxns) built.push(await buildLine(t, { config, sources, ordersByIntent, casesByCharge, payout, payoutTxnIds }))
   const lines = applyCases(built, casesByCharge, payout, config)
   const localComponents = await records.loadComponents(id)
   const localByKey = new Map(localComponents.map((c) => [`${c.zohoCustomerId}|${c.component}`, c]))
@@ -714,7 +798,7 @@ async function previewPayout(payoutId, overrides = {}) {
     if (customerLines) groups.push(await buildGroup(customerId, customerLines, ctx))
   }
 
-  const refunds = linkRefunds(otherTxns, casesByCharge, id, accounts, config, date)
+  const refunds = await linkRefunds(otherTxns, casesByCharge, ctx)
   const reconciliation = reconcile(groups, payout, chargeTxns, refunds)
   const payoutBlockers = []
   if (unassigned.length > 0) payoutBlockers.push(`${unassigned.length} charge(s) could not be assigned to Website or Burjman.`)

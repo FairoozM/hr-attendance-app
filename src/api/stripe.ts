@@ -133,6 +133,31 @@ export interface StripePayoutSummary {
   composition: StripePayoutComposition
 }
 
+export type StripeAdvanceRefundStatus = 'NOT_REFUNDED' | 'REFUND_DETECTED' | 'REFUND_MATCHED' | 'REFUNDED' | 'REFUND_MISMATCH'
+
+/** A Stripe refund that equals the customer advance and belongs to a later payout. */
+export interface StripeAdvanceRefundDetail {
+  refundId: string
+  balanceTransactionId: string
+  amount: number
+  fee: number
+  net: number
+  currency: string
+  status: string
+  createdAt: string | null
+  refundPayoutId: string | null
+}
+
+/** Refunds found on an overpaid charge, and whether they are exactly the advance. */
+export interface StripeLineRefundCheck {
+  status: StripeAdvanceRefundStatus
+  matchesAdvance: boolean
+  reason: string
+  refundedAmount: number
+  refunds: Array<{ refundId: string; amount: number; status: string; createdAt: string | null; balanceTransactionId: string | null }>
+  refund: StripeAdvanceRefundDetail | null
+}
+
 export interface StripePayoutAdvance {
   overpaymentAmount: number
   invoiceTotal: number
@@ -144,7 +169,9 @@ export interface StripePayoutAdvance {
   confirmedBy: string | null
   confirmedAt: string | null
   reason: string | null
-  refundStatus?: string
+  refundStatus?: StripeAdvanceRefundStatus
+  refund?: StripeAdvanceRefundDetail | null
+  refundDetectedAt?: string | null
 }
 
 export interface StripePayoutLine {
@@ -161,6 +188,7 @@ export interface StripePayoutLine {
   website: { orderId: string; orderNumber: string; finalAmount: number; shopOrder: boolean; orderStatus: string; paymentStatus: string } | null
   invoice: { invoiceId: string; invoiceNumber: string; total: number; balance: number; status: string; customerId: string } | null
   advance: StripePayoutAdvance | null
+  refund?: StripeLineRefundCheck | null
   state: StripePayoutLineState
   matchStatus: StripeMatchStatus | null
   reason: string
@@ -261,10 +289,13 @@ export interface StripeAdvanceRefund {
   chargeId: string | null
   amount: number
   caseId: string | null
+  caseStatus: string | null
   originalPayoutId: string | null
   status: 'REFUND_MATCHED' | 'REFUND_MISMATCH' | 'NO_ADVANCE_CASE'
   matched: boolean
   reason: string
+  originalAdvanceJournal: { reference: string; state: 'MISSING' | 'VERIFIED' | 'CONFLICT'; recordId: string | null; reason: string | null } | null
+  posting: { allowed: boolean; blockers: string[] }
   proposedJournal: { amount: number; reference: string; payload: Record<string, unknown> } | null
 }
 

@@ -21,11 +21,13 @@ import {
   groupTone,
   payoutTone,
   recoveryLabel,
+  refundPayoutLabel,
   statusLabel,
   type Tone,
 } from './stripePayoutFormat'
 
 const REASON_PLACEHOLDER = 'e.g. Paid product removed after payment before invoicing. No refund was issued.'
+const REFUNDED_REASON_PLACEHOLDER = 'e.g. Customer overpaid; the difference was refunded in Stripe after this payout.'
 
 interface ConfirmState {
   group: StripePayoutGroup
@@ -74,6 +76,7 @@ function AdvanceCard({
   if (!adv) return null
   const journal = group.components.find((c) => c.component === 'CUSTOMER_ADVANCE')
   const canConfirm = !adv.confirmed && line.state === 'OPEN'
+  const refund = adv.refund
   return (
     <div className="stripe-payout__advance">
       <div className="stripe-payout__advance-head">
@@ -90,10 +93,34 @@ function AdvanceCard({
           <dd>{aed(adv.invoiceTotal)}</dd>
         </div>
         <div>
-          <dt>Difference</dt>
+          <dt>Customer Advance</dt>
           <dd>
             <strong>{aed(adv.overpaymentAmount)}</strong>
           </dd>
+        </div>
+        {refund && (
+          <>
+            <div>
+              <dt>Refund detected</dt>
+              <dd>{aed(refund.amount)}</dd>
+            </div>
+            <div>
+              <dt>Refund ID</dt>
+              <dd className="stripe-clearing__mono">{refund.refundId}</dd>
+            </div>
+            <div>
+              <dt>Refund payout</dt>
+              <dd className={refund.refundPayoutId ? 'stripe-clearing__mono' : undefined}>{refundPayoutLabel(refund.refundPayoutId)}</dd>
+            </div>
+            <div>
+              <dt>Refund status</dt>
+              <dd>{statusLabel(adv.refundStatus || 'REFUND_DETECTED')}</dd>
+            </div>
+          </>
+        )}
+        <div>
+          <dt>Status</dt>
+          <dd>{adv.confirmed ? 'Confirmed by admin' : 'Admin confirmation required'}</dd>
         </div>
         <div>
           <dt>Account</dt>
@@ -123,6 +150,12 @@ function AdvanceCard({
           </tr>
         </tbody>
       </table>
+      {refund && (
+        <p className="stripe-page__note">
+          The {aed(refund.amount)} refund happened after this payout. It is cleared in its own Stripe payout (Dr [1123] Customer
+          Advance Funds / Cr [1019] Stripe Undeposited Funds) and does not change this payout.
+        </p>
+      )}
       {adv.confirmed ? (
         <p className="stripe-page__note">
           Confirmed by {adv.confirmedBy || '—'} on {formatWhen(adv.confirmedAt)}
@@ -470,6 +503,14 @@ export function StripePayoutPreviewPanel() {
                 {preview.advanceRefunds.map((x) => (
                   <li key={x.balanceTransactionId}>
                     {statusLabel(x.status)} · {aed(x.amount)} · {x.reason}
+                    {x.originalAdvanceJournal && (
+                      <div className="stripe-page__note">
+                        Original advance journal ({x.originalAdvanceJournal.reference}): {statusLabel(x.originalAdvanceJournal.state)}
+                      </div>
+                    )}
+                    {x.matched && !x.posting.allowed && (
+                      <div className="stripe-page__note">Refund journal cannot be posted yet: {x.posting.blockers.join(' ')}</div>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -539,13 +580,22 @@ export function StripePayoutPreviewPanel() {
                   <strong>{aed(confirm.line.advance.overpaymentAmount)}</strong>
                 </dd>
               </div>
+              {confirm.line.advance.refund && (
+                <div>
+                  <dt>Refund already detected</dt>
+                  <dd>
+                    {aed(confirm.line.advance.refund.amount)} · <span className="stripe-clearing__mono">{confirm.line.advance.refund.refundId}</span> ·{' '}
+                    {refundPayoutLabel(confirm.line.advance.refund.refundPayoutId)}
+                  </dd>
+                </div>
+              )}
             </dl>
             <label className="stripe-payout__reason">
               Reason
               <textarea
                 rows={3}
                 value={confirm.reason}
-                placeholder={REASON_PLACEHOLDER}
+                placeholder={confirm.line.advance.refund ? REFUNDED_REASON_PLACEHOLDER : REASON_PLACEHOLDER}
                 disabled={confirm.saving}
                 onChange={(e) => setConfirm({ ...confirm, reason: e.target.value })}
               />
@@ -557,7 +607,8 @@ export function StripePayoutPreviewPanel() {
                 disabled={confirm.saving}
                 onChange={(e) => setConfirm({ ...confirm, acknowledged: e.target.checked })}
               />
-              The {aed(confirm.line.advance.overpaymentAmount)} is owed to the customer and belongs in Customer Advance Funds. This
+              The {aed(confirm.line.advance.overpaymentAmount)} was owed to the customer when this payout was made and belongs in
+              Customer Advance Funds{confirm.line.advance.refund ? '; the later Stripe refund clears it in its own payout' : ''}. This
               changes local status only; nothing is posted to Zoho.
             </label>
             {confirm.error && (

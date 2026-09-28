@@ -84,6 +84,11 @@ export function advanceLines(group: StripePayoutGroup): StripePayoutLine[] {
   return group.lines.filter((l) => l.advance)
 }
 
+/** Where the refund of an advance is (or will be) cleared. */
+export function refundPayoutLabel(refundPayoutId: string | null | undefined): string {
+  return refundPayoutId || 'Waiting for Stripe payout'
+}
+
 export function formatWhen(value: string | null | undefined): string {
   if (!value) return '—'
   const date = new Date(value)

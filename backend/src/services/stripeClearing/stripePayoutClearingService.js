@@ -94,6 +94,14 @@ async function confirmCustomerAdvance(payoutId, chargeId, opts = {}, overrides =
     customerAdvanceAccountId: result.accounts.advance ? result.accounts.advance.accountId : null,
     customerAdvanceAccountCode: result.accounts.advance ? result.accounts.advance.accountCode : null,
     advanceReference: group.components.find((c) => c.component === 'CUSTOMER_ADVANCE').reference,
+    refund: line.advance.refund
+      ? {
+          refundId: line.advance.refund.refundId,
+          balanceTransactionId: line.advance.refund.balanceTransactionId,
+          amount: line.advance.refund.amount,
+          createdAt: line.advance.refund.createdAt,
+        }
+      : null,
   }
   if (!candidate.customerAdvanceAccountId) {
     throw fail(409, 'ADVANCE_ACCOUNT_UNRESOLVED', 'The Customer Advance Funds account could not be verified in Zoho.')

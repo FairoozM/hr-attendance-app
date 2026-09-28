@@ -140,10 +140,51 @@ function mapBalanceTransaction(bt) {
     sourceObject,
     chargeId,
     paymentIntentId,
+    // Current charge state, not the state when the payout was made.
     chargeRefundedMinor: sourceObject === 'charge' ? Number(source.amount_refunded) || 0 : 0,
     chargeDisputed: sourceObject === 'charge' ? source.disputed === true : false,
+    chargeStatus: sourceObject === 'charge' ? clean(source.status) || null : null,
+    chargeFullyRefunded: sourceObject === 'charge' ? source.refunded === true : false,
+    refundStatus: sourceObject === 'refund' ? clean(source.status) || null : null,
     createdAt: unixToIso(bt.created),
   }
+}
+
+function balanceTransactionId(value) {
+  if (!value) return null
+  return typeof value === 'string' ? value : clean(value.id) || null
+}
+
+/** Every refund on one charge with its own balance transaction (read-only). */
+async function listChargeRefunds(chargeId) {
+  const client = requireStripeClient()
+  const out = []
+  for await (const r of client.refunds.list({ charge: chargeId, limit: 100 })) {
+    const btId = balanceTransactionId(r.balance_transaction)
+    let balanceTransaction = null
+    if (btId) {
+      const bt = await client.balanceTransactions.retrieve(btId)
+      balanceTransaction = {
+        balanceTransactionId: bt.id,
+        type: bt.type,
+        currency: clean(bt.currency).toUpperCase(),
+        amountMinor: bt.amount,
+        feeMinor: bt.fee,
+        netMinor: bt.net,
+      }
+    }
+    out.push({
+      refundId: r.id,
+      chargeId: typeof r.charge === 'string' ? r.charge : clean(r.charge && r.charge.id) || null,
+      paymentIntentId: typeof r.payment_intent === 'string' ? r.payment_intent : clean(r.payment_intent && r.payment_intent.id) || null,
+      amountMinor: r.amount,
+      currency: clean(r.currency).toUpperCase(),
+      status: clean(r.status),
+      createdAt: unixToIso(r.created),
+      balanceTransaction,
+    })
+  }
+  return out
 }
 
 async function listStripePayouts({ limit }) {
@@ -422,6 +463,7 @@ module.exports = {
   listStripePayouts,
   retrieveStripePayout,
   listPayoutBalanceTransactions,
+  listChargeRefunds,
   loadWebsiteOrdersByIntents,
   loadWebsiteStripeOrders,
   findZohoInvoicesByReference,

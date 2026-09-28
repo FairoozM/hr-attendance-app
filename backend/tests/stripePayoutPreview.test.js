@@ -102,6 +102,8 @@ function world(spec, opts = {}) {
     paymentIntentId: r.paymentIntentId,
     chargeRefundedMinor: r.refundedMinor || 0,
     chargeDisputed: r.disputed === true,
+    chargeStatus: r.chargeStatus || 'succeeded',
+    chargeFullyRefunded: r.fullyRefunded === true,
   }))
   if (spec.hold) {
     txns.push({ balanceTransactionId: 'txn_HOLD000000001', type: 'reserve_transaction', reportingCategory: 'risk_reserved_funds', currency: 'AED', amountMinor: -spec.hold, feeMinor: 0, netMinor: -spec.hold, description: 'Hold' })
@@ -142,11 +144,16 @@ function world(spec, opts = {}) {
     events: opts.events || [],
   }
   const writes = []
+  const refundLookups = []
   const deny = (name) => async () => { writes.push(name); throw new Error(`${name} attempted`) }
   const sources = {
     retrieveStripePayout: async (id) => (id === spec.payoutId
-      ? { payoutId: spec.payoutId, status: opts.payoutStatus || 'paid', amountMinor: payoutAmount, currency: 'AED', arrivalDate: spec.arrivalDate, createdAt: '2026-09-25T00:00:00.000Z' }
+      ? { payoutId: spec.payoutId, status: opts.payoutStatus || 'paid', amountMinor: payoutAmount, currency: 'AED', arrivalDate: spec.arrivalDate, createdAt: spec.createdAt || '2026-09-25T00:53:49.000Z' }
       : null),
+    listChargeRefunds: async (chargeId) => {
+      refundLookups.push(chargeId)
+      return (opts.chargeRefunds && opts.chargeRefunds[chargeId]) || []
+    },
     listStripePayouts: async () => [{ payoutId: spec.payoutId, status: 'paid', amountMinor: payoutAmount, currency: 'AED', arrivalDate: spec.arrivalDate }],
     listPayoutBalanceTransactions: async () => txns,
     loadWebsiteOrdersByIntents: async (ids) => orders.filter((o) => ids.includes(o.stripePaymentIntentId)),
@@ -174,7 +181,33 @@ function world(spec, opts = {}) {
     loadComponents: async (payoutId) => records.components.filter((c) => c.payoutId === payoutId),
     loadCaseEvents: async (ids) => records.events.filter((e) => ids.includes(e.entityId)),
   }
-  return { deps: { config, sources, zohoPayments, records: recordReaders }, writes, records, run: () => previewPayout(spec.payoutId, { config, sources, zohoPayments, records: recordReaders }) }
+  const cfg = opts.config || config
+  return { deps: { config: cfg, sources, zohoPayments, records: recordReaders }, writes, refundLookups, records, run: () => previewPayout(spec.payoutId, { config: cfg, sources, zohoPayments, records: recordReaders }) }
+}
+
+// ── The real AED 35 refund on order 21111 (after the payout, not in it) ────
+
+const ADVANCE_PI = 'pi_3UIA7CDJogiiRoKP0Qy1oodM'
+const REFUND_ID = 're_3UIA7CDJogiiRoKP0noUu0UZ'
+const REFUND_BT = 'txn_3UIA7CDJogiiRoKP0qGO7307'
+
+function realRefund(patch = {}, btPatch = {}) {
+  return {
+    refundId: REFUND_ID,
+    chargeId: 'ch_3UIA7CDJogiiRoKP07RCqZKw',
+    paymentIntentId: ADVANCE_PI,
+    amountMinor: 3500,
+    currency: 'AED',
+    status: 'succeeded',
+    createdAt: '2026-09-28T07:09:27.000Z',
+    balanceTransaction: { balanceTransactionId: REFUND_BT, type: 'refund', currency: 'AED', amountMinor: -3500, feeMinor: 0, netMinor: -3500, ...btPatch },
+    ...patch,
+  }
+}
+
+/** World options for order 21111 with Stripe refunds already on the charge. */
+function refunded(refunds = [realRefund()], refundedMinor = refunds.reduce((s, r) => s + (r.status === 'succeeded' ? r.amountMinor : 0), 0), rowPatch = {}) {
+  return { rows: { 21111: { refundedMinor, ...rowPatch } }, chargeRefunds: { 'ch_3UIA7CDJogiiRoKP07RCqZKw': refunds } }
 }
 
 /** A Zoho customer payment exactly matching a preview component. */
@@ -218,6 +251,7 @@ function confirmedCase(overrides = {}) {
     invoiceNumber: 'INV-044122',
     paymentIntentId: 'pi_3UIA7CDJogiiRoKP0Qy1oodM',
     chargeId: ADVANCE_CHARGE,
+    currency: 'AED',
     stripeGross: 1101,
     stripeNet: 1068.07,
     stripeFee: 32.93,
@@ -298,6 +332,10 @@ test('order 21111 is a customer advance candidate that requires admin confirmati
   assert.equal(l.paymentIntentId, 'pi_3UIA7CDJogiiRoKP0Qy1oodM')
   assert.equal(l.advance.caseStatus, 'CUSTOMER_ADVANCE_REVIEW_REQUIRED')
   assert.equal(l.advance.confirmed, false)
+  assert.equal(l.advance.refundStatus, 'NOT_REFUNDED')
+  assert.equal(l.advance.refund, null)
+  assert.equal(l.refund, null)
+  assert.deepEqual(w.refundLookups, [])
   assert.equal(web.status, GROUP_STATUS.NEEDS_REVIEW)
   assert.equal(web.advanceReviewRequired, true)
   assert.ok(web.reasons.some((r) => r.includes('needs admin confirmation')))
@@ -423,11 +461,12 @@ test('a stored case whose figures no longer match Stripe/Zoho sends the group to
 test('overpayment candidates require every other check to pass', async () => {
   const cases = [
     ['underpayment is not an advance', { orderTotal: 1200 }],
-    ['refunded charge', { refundedMinor: 3500 }],
+    ['refund reported but Stripe lists none', { refundedMinor: 3500 }],
     ['disputed charge', { disputed: true }],
     ['invoice total differs from order total', { invoiceTotal: 1070 }],
     ['invoice under the other customer', { invoiceCustomer: SHOP }],
     ['website order refund recorded', { order: { refundAmount: 35 } }],
+    ['wallet credit could explain the difference', { order: { walletRedeemed: 35 } }],
   ]
   for (const [label, patch] of cases) {
     const result = await world(CURRENT, { rows: { 21111: patch } }).run()
@@ -436,6 +475,143 @@ test('overpayment candidates require every other check to pass', async () => {
     assert.equal(l.advance, null, label)
     assert.equal(group(result, WEB).status, GROUP_STATUS.NEEDS_REVIEW, label)
   }
+})
+
+// ── Refund already on the charge before confirmation ────────────────────────
+
+test('an exact later refund keeps order 21111 a customer advance candidate with REFUND_DETECTED', async () => {
+  const w = world(CURRENT, refunded())
+  const result = await w.run()
+  const web = group(result, WEB)
+  const l = line(web, ADVANCE_CHARGE)
+  assert.deepEqual(w.refundLookups, [ADVANCE_CHARGE])
+  assert.equal(l.state, LINE_STATE.OPEN)
+  assert.equal(l.matchStatus, 'MATCHED_READY_TO_CLEAR')
+  assert.deepEqual(
+    { gross: l.gross, net: l.net, fee: l.fee, invoiceTotal: l.invoiceTotal, netAllocation: l.netAllocation, feeAllocation: l.feeAllocation, customerAdvance: l.customerAdvance },
+    { gross: 1101, net: 1068.07, fee: 32.93, invoiceTotal: 1066, netAllocation: 1033.07, feeAllocation: 32.93, customerAdvance: 35 },
+  )
+  assert.equal(l.advance.caseStatus, 'CUSTOMER_ADVANCE_REVIEW_REQUIRED')
+  assert.equal(l.advance.confirmed, false)
+  assert.equal(l.advance.refundStatus, 'REFUND_DETECTED')
+  assert.deepEqual(l.advance.refund, {
+    refundId: REFUND_ID,
+    balanceTransactionId: REFUND_BT,
+    amount: 35,
+    fee: 0,
+    net: -35,
+    currency: 'AED',
+    status: 'succeeded',
+    createdAt: '2026-09-28T07:09:27.000Z',
+    refundPayoutId: null,
+  })
+  assert.equal(l.refund.matchesAdvance, true)
+  assert.match(l.reason, /re_3UIA7CDJogiiRoKP0noUu0UZ/)
+  // Detection alone never makes the group postable.
+  assert.equal(web.status, GROUP_STATUS.NEEDS_REVIEW)
+  assert.equal(web.postable, false)
+  assert.equal(web.advanceReviewRequired, true)
+  assert.ok(web.reasons.some((r) => r.includes('needs admin confirmation') && r.includes(REFUND_ID)))
+  assert.equal(component(web, 'CUSTOMER_ADVANCE').amount, 35)
+  assert.equal(group(result, SHOP).status, GROUP_STATUS.READY)
+  assert.equal(result.status, PAYOUT_STATUS.NEEDS_REVIEW)
+  assert.deepEqual(result.blockers, [])
+  assert.deepEqual(result.advanceRefunds, [])
+  assert.deepEqual(w.writes, [])
+})
+
+test('the later refund does not change the original payout figures or reconciliation', async () => {
+  const before = await world(CURRENT).run()
+  const after = await world(CURRENT, refunded()).run()
+  for (const customerId of [WEB, SHOP]) {
+    assert.deepEqual(group(after, customerId).totals, group(before, customerId).totals)
+    assert.deepEqual(group(after, customerId).components.map((c) => c.payload), group(before, customerId).components.map((c) => c.payload))
+  }
+  assert.deepEqual(group(after, WEB).totals, { invoiceGross: 3420.7, netTo1019: 3313.48, customerAdvance: 35, total1019: 3348.48, feeTo1013: 107.22, stripeGross: 3455.7 })
+  assert.deepEqual(group(after, SHOP).totals, { invoiceGross: 1243.55, netTo1019: 1203.49, customerAdvance: 0, total1019: 1203.49, feeTo1013: 40.06, stripeGross: 1243.55 })
+  assert.deepEqual(after.reconciliation, before.reconciliation)
+  assert.deepEqual(after.reconciliation, {
+    netTo1019: 4516.97,
+    customerAdvances: 35,
+    total1019: 4551.97,
+    advanceRefundsOutOf1019: 0,
+    fees: 147.28,
+    payoutAmount: 4551.97,
+    stripeGross: 4699.25,
+    total1019PlusFees: 4699.25,
+    payoutMatches: true,
+    grossMatches: true,
+  })
+  const l = line(group(after, WEB), ADVANCE_CHARGE)
+  assert.equal(Math.round((l.netAllocation + l.customerAdvance) * 100), 106807)
+  assert.equal(Math.round((l.netAllocation + l.customerAdvance + l.feeAllocation) * 100), 110100)
+})
+
+test('after confirmation the group is READY_WITH_CUSTOMER_ADVANCE even though the refund exists', async () => {
+  const stored = confirmedCase({ refundStatus: 'REFUND_DETECTED', refundId: REFUND_ID, refundBalanceTransactionId: REFUND_BT, refundAmount: 35 })
+  const result = await world(CURRENT, { ...refunded(), cases: [stored] }).run()
+  const web = group(result, WEB)
+  assert.equal(web.status, GROUP_STATUS.READY_WITH_CUSTOMER_ADVANCE)
+  assert.equal(web.postable, true)
+  assert.deepEqual(web.components.map((c) => [c.component, c.amount]), [['NET', 3313.48], ['FEE', 107.22], ['CUSTOMER_ADVANCE', 35]])
+  assert.deepEqual(component(web, 'CUSTOMER_ADVANCE').advanceCaseIds, ['1'])
+  const l = line(web, ADVANCE_CHARGE)
+  assert.equal(l.advance.refundStatus, 'REFUND_DETECTED')
+  assert.equal(l.advance.refund.refundPayoutId, null)
+  assert.equal(result.status, PAYOUT_STATUS.READY)
+  assert.equal(result.reconciliation.total1019, 4551.97)
+})
+
+test('a refund that is not exactly the later-returned overpayment sends the charge to review', async () => {
+  const cases = [
+    ['refund smaller than the overpayment', refunded([realRefund({ amountMinor: 3000 }, { amountMinor: -3000, netMinor: -3000 })]), /less than the overpayment 35/],
+    ['refund larger than the overpayment', refunded([realRefund({ amountMinor: 4000 }, { amountMinor: -4000, netMinor: -4000 })]), /more than the overpayment 35/],
+    ['refund on a different charge', refunded([realRefund({ chargeId: 'ch_3UI3iPDJogiiRoKP0wqqBVBj' })]), /is not on charge/],
+    ['refund on a different PaymentIntent', refunded([realRefund({ paymentIntentId: 'pi_3UI3iPDJogiiRoKP0FqNKZix' })]), /is not on charge/],
+    ['refund with a Stripe fee', refunded([realRefund({}, { feeMinor: 100, netMinor: -3600 })]), /has a fee of 1/],
+    ['refund created before the original payout', refunded([realRefund({ createdAt: '2026-09-24T10:00:00.000Z' })]), /not created after the original payout/],
+    ['two refunds adding up to the overpayment', refunded([realRefund({ amountMinor: 2000 }), realRefund({ refundId: 're_SECOND0000001', amountMinor: 1500 })]), /2 refunds exist/],
+    ['pending refund', refunded([realRefund({ status: 'pending' })], 3500), /status is pending/],
+    ['refund in another currency', refunded([realRefund({ currency: 'USD' })]), /in USD/],
+    ['charge fully refunded', refunded([realRefund()], 3500, { fullyRefunded: true }), /fully refunded/],
+    ['charge not succeeded', refunded([realRefund()], 3500, { chargeStatus: 'pending' }), /charge status is pending/],
+    ['refund without a balance transaction', refunded([realRefund({ balanceTransaction: null })]), /no balance transaction/],
+  ]
+  for (const [label, opts, reason] of cases) {
+    const result = await world(CURRENT, opts).run()
+    const web = group(result, WEB)
+    const l = line(web, ADVANCE_CHARGE)
+    assert.equal(l.state, LINE_STATE.NEEDS_REVIEW, label)
+    assert.equal(l.advance, null, label)
+    assert.equal(l.refund.status, 'REFUND_MISMATCH', label)
+    assert.equal(l.refund.matchesAdvance, false, label)
+    assert.match(l.reason, reason, label)
+    assert.equal(web.status, GROUP_STATUS.NEEDS_REVIEW, label)
+    assert.equal(web.postable, false, label)
+    assert.ok(!component(web, 'CUSTOMER_ADVANCE'), label)
+  }
+})
+
+test('a refund whose balance transaction is inside the original payout is not a later refund', async () => {
+  const inPayout = { balanceTransactionId: REFUND_BT, type: 'refund', reportingCategory: 'refund', currency: 'AED', amountMinor: -3500, feeMinor: 0, netMinor: -3500, sourceId: REFUND_ID, chargeId: ADVANCE_CHARGE, paymentIntentId: ADVANCE_PI, refundStatus: 'succeeded' }
+  const result = await world(CURRENT, { ...refunded(), extraTxns: [inPayout] }).run()
+  const l = line(group(result, WEB), ADVANCE_CHARGE)
+  assert.equal(l.state, LINE_STATE.NEEDS_REVIEW)
+  assert.equal(l.refund.status, 'REFUND_MISMATCH')
+  assert.match(l.reason, /inside the original payout/)
+  assert.equal(result.status, PAYOUT_STATUS.NEEDS_REVIEW)
+})
+
+test('a stored case whose recorded refund differs from Stripe now needs review', async () => {
+  const other = confirmedCase({ refundStatus: 'REFUND_DETECTED', refundId: 're_SOMETHINGELSE1', refundBalanceTransactionId: REFUND_BT, refundAmount: 35 })
+  const l1 = line(group(await world(CURRENT, { ...refunded(), cases: [other] }).run(), WEB), ADVANCE_CHARGE)
+  assert.equal(l1.state, LINE_STATE.NEEDS_REVIEW)
+  assert.match(l1.reason, /records refund re_SOMETHINGELSE1/)
+
+  const gone = confirmedCase({ refundStatus: 'REFUND_DETECTED', refundId: REFUND_ID, refundBalanceTransactionId: REFUND_BT, refundAmount: 35 })
+  const l2 = line(group(await world(CURRENT, { cases: [gone] }).run(), WEB), ADVANCE_CHARGE)
+  assert.equal(l2.state, LINE_STATE.NEEDS_REVIEW)
+  assert.match(l2.reason, /no longer shows it/)
 })
 
 // ── Duplicate protection ────────────────────────────────────────────────────
@@ -656,7 +832,7 @@ test('historical po_1UBlP3 still matches the existing Zoho NET and FEE payments 
 // ── Refund linkage (preview only) ───────────────────────────────────────────
 
 const REFUND_PAYOUT = { payoutId: 'po_REFUNDPAYOUT0001', arrivalDate: '2026-10-05T00:00:00.000Z', rows: [CURRENT.rows[1]] }
-const refundTxn = (amountMinor) => ({ balanceTransactionId: 'txn_REFUND000001', type: 'refund', reportingCategory: 'refund', currency: 'AED', amountMinor: -amountMinor, feeMinor: 0, netMinor: -amountMinor, sourceId: 're_ADVANCE00001', chargeId: ADVANCE_CHARGE, paymentIntentId: 'pi_3UIA7CDJogiiRoKP0Qy1oodM' })
+const refundTxn = (amountMinor, patch = {}) => ({ balanceTransactionId: REFUND_BT, type: 'refund', reportingCategory: 'refund', currency: 'AED', amountMinor: -amountMinor, feeMinor: 0, netMinor: -amountMinor, sourceId: REFUND_ID, chargeId: ADVANCE_CHARGE, paymentIntentId: ADVANCE_PI, refundStatus: 'succeeded', ...patch })
 
 test('a later refund of exactly the advance links charge → case and previews Dr 1123 / Cr 1019', async () => {
   const w = world(REFUND_PAYOUT, { cases: [confirmedCase({ status: 'ADVANCE_POSTED' })], extraTxns: [refundTxn(3500)] })
@@ -681,6 +857,75 @@ test('a later refund of exactly the advance links charge → case and previews D
   assert.deepEqual(w.writes, [])
 })
 
+const detectedCase = (overrides = {}) => confirmedCase({ refundStatus: 'REFUND_DETECTED', refundId: REFUND_ID, refundBalanceTransactionId: REFUND_BT, refundAmount: 35, ...overrides })
+
+test('a later payout containing the exact refund transaction links it as REFUND_MATCHED', async () => {
+  const w = world(REFUND_PAYOUT, { cases: [detectedCase()], extraTxns: [refundTxn(3500)] })
+  const result = await w.run()
+  const [r] = result.advanceRefunds
+  assert.equal(r.status, 'REFUND_MATCHED')
+  assert.equal(r.matched, true)
+  assert.deepEqual([r.refundId, r.balanceTransactionId, r.chargeId, r.amount, r.caseId, r.originalPayoutId], [REFUND_ID, REFUND_BT, ADVANCE_CHARGE, 35, '1', CURRENT_ID])
+  assert.equal(r.proposedJournal.reference, 'Stripe customer advance refund po_REFUNDPAYOUT0001')
+  assert.equal(r.proposedJournal.debitAccountId, A1123)
+  assert.equal(r.proposedJournal.creditAccountId, A1019)
+  assert.equal(r.proposedJournal.payload.line_items[0].customer_id, WEB)
+  assert.equal(result.reconciliation.advanceRefundsOutOf1019, 35)
+  assert.equal(result.reconciliation.payoutMatches, true)
+  assert.deepEqual(result.blockers, [])
+  assert.deepEqual(w.writes, [])
+})
+
+test('refund linking needs the same refund, transaction, charge, amount, currency, status and a later payout', async () => {
+  const cases = [
+    ['different refund ID', { cases: [detectedCase()], extraTxns: [refundTxn(3500, { sourceId: 're_OTHERREFUND01' })] }, /records refund re_3UIA7C/],
+    ['different balance transaction', { cases: [detectedCase()], extraTxns: [refundTxn(3500, { balanceTransactionId: 'txn_OTHER0000001' })] }, /records refund balance transaction/],
+    ['refund not succeeded', { cases: [detectedCase()], extraTxns: [refundTxn(3500, { refundStatus: 'pending' })] }, /status is pending/],
+    ['refund with a fee', { cases: [detectedCase()], extraTxns: [refundTxn(3500, { feeMinor: 100, netMinor: -3600 })] }, /fee of 1/],
+    ['refund in another currency', { cases: [detectedCase()], extraTxns: [refundTxn(3500, { currency: 'USD' })] }, /does not equal the customer advance/],
+    ['case not confirmed', { cases: [detectedCase({ status: 'CUSTOMER_ADVANCE_REVIEW_REQUIRED', adminConfirmed: false })], extraTxns: [refundTxn(3500)] }, /is CUSTOMER_ADVANCE_REVIEW_REQUIRED/],
+    ['refund in the advance payout itself', { cases: [detectedCase({ payoutId: REFUND_PAYOUT.payoutId })], extraTxns: [refundTxn(3500)] }, /same payout/],
+  ]
+  for (const [label, opts, reason] of cases) {
+    const result = await world(REFUND_PAYOUT, opts).run()
+    const [r] = result.advanceRefunds
+    assert.equal(r.status, 'REFUND_MISMATCH', label)
+    assert.equal(r.matched, false, label)
+    assert.match(r.reason, reason, label)
+    assert.equal(r.posting.allowed, false, label)
+    assert.equal(r.proposedJournal, null, label)
+    assert.equal(result.status, PAYOUT_STATUS.NEEDS_REVIEW, label)
+  }
+})
+
+test('the refund journal can never post before the original advance journal is verified', async () => {
+  const enabled = { ...config, postingEnabled: true }
+  const advance = advanceJournal('ZJ-ADV', WEB, 35)
+
+  const missing = await world(REFUND_PAYOUT, { cases: [detectedCase()], extraTxns: [refundTxn(3500)], config: enabled }).run()
+  const [m] = missing.advanceRefunds
+  assert.equal(m.status, 'REFUND_MATCHED')
+  assert.equal(m.originalAdvanceJournal.reference, advRef(CURRENT_ID))
+  assert.equal(m.originalAdvanceJournal.state, ZOHO_STATE.MISSING)
+  assert.equal(m.posting.allowed, false)
+  assert.deepEqual(m.posting.blockers, ['The original Customer Advance journal is not verified in Zoho yet.'])
+
+  const wrong = await world(REFUND_PAYOUT, { cases: [detectedCase()], extraTxns: [refundTxn(3500)], config: enabled, journals: [advanceJournal('ZJ-ADV', WEB, 30)] }).run()
+  assert.equal(wrong.advanceRefunds[0].originalAdvanceJournal.state, ZOHO_STATE.CONFLICT)
+  assert.equal(wrong.advanceRefunds[0].posting.allowed, false)
+
+  const verified = await world(REFUND_PAYOUT, { cases: [detectedCase({ status: 'ADVANCE_POSTED' })], extraTxns: [refundTxn(3500)], config: enabled, journals: [advance] }).run()
+  assert.equal(verified.advanceRefunds[0].originalAdvanceJournal.state, ZOHO_STATE.VERIFIED)
+  assert.equal(verified.advanceRefunds[0].originalAdvanceJournal.recordId, 'ZJ-ADV')
+  assert.deepEqual(verified.advanceRefunds[0].posting, { allowed: true, blockers: [] })
+
+  // With posting disabled (production), even a verified advance does not allow it.
+  const disabled = await world(REFUND_PAYOUT, { cases: [detectedCase({ status: 'ADVANCE_POSTED' })], extraTxns: [refundTxn(3500)], journals: [advance] }).run()
+  assert.equal(config.postingEnabled, false)
+  assert.deepEqual(disabled.advanceRefunds[0].posting, { allowed: false, blockers: ['Posting is disabled.'] })
+  assert.equal(disabled.postingEnabled, false)
+})
+
 test('a refund that differs from the advance needs review', async () => {
   const result = await world(REFUND_PAYOUT, { cases: [confirmedCase({ status: 'ADVANCE_POSTED' })], extraTxns: [refundTxn(3000)] }).run()
   assert.equal(result.advanceRefunds[0].status, 'REFUND_MISMATCH')
@@ -689,10 +934,15 @@ test('a refund that differs from the advance needs review', async () => {
 })
 
 test('after the advance is refunded, the original payout still reads as a confirmed advance', async () => {
-  const result = await world(CURRENT, { cases: [confirmedCase({ status: 'REFUNDED' })], rows: { 21111: { refundedMinor: 3500 } } }).run()
+  const stored = confirmedCase({ status: 'REFUNDED', refundStatus: 'REFUNDED', refundId: REFUND_ID, refundBalanceTransactionId: REFUND_BT, refundPayoutId: REFUND_PAYOUT.payoutId })
+  const result = await world(CURRENT, { ...refunded(), cases: [stored] }).run()
   const web = group(result, WEB)
-  assert.equal(line(web, ADVANCE_CHARGE).advance.confirmed, true)
+  const l = line(web, ADVANCE_CHARGE)
+  assert.equal(l.advance.confirmed, true)
+  assert.equal(l.advance.refundStatus, 'REFUNDED')
+  assert.equal(l.advance.refund.refundPayoutId, REFUND_PAYOUT.payoutId)
   assert.equal(web.status, GROUP_STATUS.READY_WITH_CUSTOMER_ADVANCE)
+  assert.equal(web.totals.customerAdvance, 35)
 })
 
 // ── Misc ────────────────────────────────────────────────────────────────────
@@ -745,6 +995,10 @@ function memoryCaseStore(records) {
         records.events.push({ entityId: c.id, toStatus: c.status, actor })
       }
       if (c.status !== 'CUSTOMER_ADVANCE_REVIEW_REQUIRED') return { case: c, alreadyConfirmed: true }
+      if (candidate.refund && !c.refundId) {
+        Object.assign(c, { refundStatus: 'REFUND_DETECTED', refundId: candidate.refund.refundId, refundBalanceTransactionId: candidate.refund.balanceTransactionId, refundAmount: candidate.refund.amount })
+        records.events.push({ entityId: c.id, fromStatus: 'NOT_REFUNDED', toStatus: 'REFUND_DETECTED', actor })
+      }
       Object.assign(c, { status: 'CONFIRMED', adminConfirmed: true, confirmedBy: actor, confirmedAt: '2026-09-27T12:00:00.000Z', reason })
       records.events.push({ entityId: c.id, fromStatus: 'CUSTOMER_ADVANCE_REVIEW_REQUIRED', toStatus: 'CONFIRMED', actor })
       return { case: c, alreadyConfirmed: false }
@@ -787,6 +1041,38 @@ test('Confirm Customer Advance records the case locally and flips the group, wit
   const again = await confirmCustomerAdvance(CURRENT_ID, ADVANCE_CHARGE, { actor: 'user:8', reason: REASON }, deps)
   assert.equal(again.alreadyConfirmed, true)
   assert.equal(payoutStore.calls.length, 1)
+})
+
+test('an admin can confirm a REFUND_DETECTED candidate; the refund is recorded and audited first', async () => {
+  const w = world(CURRENT, refunded())
+  const { payoutStore, deps } = confirmDeps(w)
+  const out = await confirmCustomerAdvance(CURRENT_ID, ADVANCE_CHARGE, { actor: 'user:7', reason: 'Customer overpaid; the 35.00 difference was refunded in Stripe later.' }, deps)
+  assert.equal(out.alreadyConfirmed, false)
+  assert.equal(out.zohoWrites, 0)
+  assert.deepEqual(payoutStore.calls[0].candidate.refund, { refundId: REFUND_ID, balanceTransactionId: REFUND_BT, amount: 35, createdAt: '2026-09-28T07:09:27.000Z' })
+  assert.equal(out.case.status, 'CONFIRMED')
+  assert.equal(out.case.refundStatus, 'REFUND_DETECTED')
+  assert.equal(out.case.refundId, REFUND_ID)
+  assert.deepEqual(out.events.map((e) => e.toStatus), ['CUSTOMER_ADVANCE_REVIEW_REQUIRED', 'REFUND_DETECTED', 'CONFIRMED'])
+
+  const after = await w.run()
+  const web = group(after, WEB)
+  assert.equal(web.status, GROUP_STATUS.READY_WITH_CUSTOMER_ADVANCE)
+  assert.equal(web.postable, true)
+  assert.equal(line(web, ADVANCE_CHARGE).advance.refundStatus, 'REFUND_DETECTED')
+  assert.deepEqual(web.totals, { invoiceGross: 3420.7, netTo1019: 3313.48, customerAdvance: 35, total1019: 3348.48, feeTo1013: 107.22, stripeGross: 3455.7 })
+  assert.equal(after.status, PAYOUT_STATUS.READY)
+  assert.deepEqual(w.writes, [])
+})
+
+test('Confirm Customer Advance refuses a charge whose refund does not match the overpayment', async () => {
+  const w = world(CURRENT, refunded([realRefund({ amountMinor: 3000 }, { amountMinor: -3000, netMinor: -3000 })]))
+  const { payoutStore, deps } = confirmDeps(w)
+  await assert.rejects(
+    confirmCustomerAdvance(CURRENT_ID, ADVANCE_CHARGE, { actor: 'user:1', reason: REASON }, deps),
+    (err) => err.code === 'NOT_AN_ADVANCE_CANDIDATE',
+  )
+  assert.equal(payoutStore.calls.length, 0)
 })
 
 test('Confirm Customer Advance refuses non-candidates, missing reasons and changed figures', async () => {

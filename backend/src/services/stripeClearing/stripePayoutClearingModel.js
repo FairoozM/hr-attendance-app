@@ -199,6 +199,99 @@ function deriveGroupStatus({ blockers, components, hasAdvance }) {
     : { status: GROUP_STATUS.READY, reasons: [] }
 }
 
+/**
+ * Whether a refund already on an overpaid charge is exactly the customer advance, returned
+ * after the original payout. A later refund never changes the original payout's figures;
+ * anything that is not provably that one refund is a mismatch.
+ * @param {{
+ *   chargeId: string, paymentIntentId: string, chargeStatus: string|null, chargeFullyRefunded: boolean,
+ *   chargeRefundedMinor: number, overpaymentMinor: number, currency: string,
+ *   payoutCreatedAt: string|null, payoutBalanceTransactionIds: Set<string>,
+ *   refunds: Array<{ refundId: string, chargeId: string|null, paymentIntentId: string|null, amountMinor: number, currency: string, status: string, createdAt: string|null,
+ *     balanceTransaction: null|{ balanceTransactionId: string, currency: string, amountMinor: number, feeMinor: number, netMinor: number } }>,
+ *   storedCase: null|{ refundId: string|null, refundBalanceTransactionId: string|null, refundStatus: string, refundPayoutId: string|null },
+ * }} input
+ */
+function assessAdvanceRefund(input) {
+  const { refunds, overpaymentMinor, currency } = input
+  const summary = refunds.map((r) => ({
+    refundId: r.refundId,
+    amount: toMajor(r.amountMinor),
+    status: r.status,
+    createdAt: r.createdAt,
+    balanceTransactionId: r.balanceTransaction ? r.balanceTransaction.balanceTransactionId : null,
+  }))
+  const mismatch = (reason) => ({ ok: false, status: 'REFUND_MISMATCH', reason, refund: null, refunds: summary, refundedAmount: toMajor(input.chargeRefundedMinor) })
+  const over = toMajor(overpaymentMinor)
+
+  if (input.chargeStatus !== 'succeeded') return mismatch(`Stripe charge status is ${input.chargeStatus || 'unknown'}.`)
+  if (input.chargeFullyRefunded) return mismatch('Stripe charge is fully refunded.')
+  if (refunds.length === 0) return mismatch(`Stripe reports ${toMajor(input.chargeRefundedMinor)} refunded but lists no refund.`)
+  if (refunds.length > 1) return mismatch(`${refunds.length} refunds exist on this charge; only one refund of exactly the overpayment ${over} can be linked.`)
+  const [r] = refunds
+  if (r.chargeId !== input.chargeId || r.paymentIntentId !== input.paymentIntentId) return mismatch(`Refund ${r.refundId} is not on charge ${input.chargeId} / ${input.paymentIntentId}.`)
+  if (r.status !== 'succeeded') return mismatch(`Refund ${r.refundId} status is ${r.status}.`)
+  if (r.currency !== currency) return mismatch(`Refund ${r.refundId} is in ${r.currency}, not ${currency}.`)
+  if (r.amountMinor !== overpaymentMinor) {
+    return mismatch(`Refund ${toMajor(r.amountMinor)} is ${r.amountMinor < overpaymentMinor ? 'less' : 'more'} than the overpayment ${over}.`)
+  }
+  if (input.chargeRefundedMinor !== overpaymentMinor) return mismatch(`Stripe charge shows ${toMajor(input.chargeRefundedMinor)} refunded, not ${over}.`)
+  const bt = r.balanceTransaction
+  if (!bt) return mismatch(`Refund ${r.refundId} has no balance transaction yet.`)
+  if (bt.feeMinor !== 0) return mismatch(`Refund balance transaction ${bt.balanceTransactionId} has a fee of ${toMajor(bt.feeMinor)}.`)
+  if (bt.amountMinor !== -overpaymentMinor || bt.netMinor !== -overpaymentMinor || bt.currency !== currency) {
+    return mismatch(`Refund balance transaction ${bt.balanceTransactionId} is ${toMajor(bt.netMinor)} ${bt.currency}, not -${over} ${currency}.`)
+  }
+  if (input.payoutBalanceTransactionIds.has(bt.balanceTransactionId)) {
+    return mismatch(`Refund ${r.refundId} is inside the original payout; it is not a later refund.`)
+  }
+  const refundAt = Date.parse(r.createdAt)
+  const payoutAt = Date.parse(input.payoutCreatedAt)
+  if (!Number.isFinite(refundAt) || !Number.isFinite(payoutAt) || refundAt <= payoutAt) {
+    return mismatch(`Refund ${r.refundId} was not created after the original payout (${r.createdAt} vs ${input.payoutCreatedAt}).`)
+  }
+  const stored = input.storedCase
+  if (stored && stored.refundId && stored.refundId !== r.refundId) return mismatch(`Case records refund ${stored.refundId}, but Stripe shows ${r.refundId}.`)
+  if (stored && stored.refundBalanceTransactionId && stored.refundBalanceTransactionId !== bt.balanceTransactionId) {
+    return mismatch(`Case records refund balance transaction ${stored.refundBalanceTransactionId}, but Stripe shows ${bt.balanceTransactionId}.`)
+  }
+  const later = stored && ['REFUND_MATCHED', 'REFUNDED'].includes(stored.refundStatus)
+  return {
+    ok: true,
+    status: later ? stored.refundStatus : 'REFUND_DETECTED',
+    reason: `Refund ${r.refundId} of ${over} equals the overpayment and belongs to a later payout.`,
+    refunds: summary,
+    refundedAmount: over,
+    refund: {
+      refundId: r.refundId,
+      balanceTransactionId: bt.balanceTransactionId,
+      amount: over,
+      fee: 0,
+      net: toMajor(bt.netMinor),
+      currency: r.currency,
+      status: r.status,
+      createdAt: r.createdAt,
+      refundPayoutId: later ? stored.refundPayoutId : null,
+    },
+  }
+}
+
+const REFUND_POSTABLE_CASE = new Set(['CONFIRMED', 'ADVANCE_POSTED'])
+
+/**
+ * The refund journal (Dr 1123 / Cr 1019) may only follow a verified advance journal,
+ * so Customer Advance Funds can never go negative for the customer.
+ */
+function refundPostingGate({ caseStatus, originalAdvanceJournalState, refundStatus, refundMinor, overpaymentMinor, postingEnabled }) {
+  const blockers = []
+  if (!REFUND_POSTABLE_CASE.has(caseStatus)) blockers.push(`Customer advance case is ${caseStatus}, not confirmed.`)
+  if (originalAdvanceJournalState !== ZOHO_STATE.VERIFIED) blockers.push('The original Customer Advance journal is not verified in Zoho yet.')
+  if (refundStatus !== 'REFUND_MATCHED') blockers.push(`Refund status is ${refundStatus}, not REFUND_MATCHED.`)
+  if (refundMinor !== overpaymentMinor) blockers.push(`Refund ${toMajor(refundMinor)} does not equal the advance ${toMajor(overpaymentMinor)}.`)
+  if (!postingEnabled) blockers.push('Posting is disabled.')
+  return { allowed: blockers.length === 0, blockers }
+}
+
 /** Groups never block each other; the payout is only fully cleared when every group is complete. */
 function derivePayoutStatus(groups, payoutBlockers) {
   if (payoutBlockers.length > 0 || groups.length === 0) return PAYOUT_STATUS.NEEDS_REVIEW
@@ -228,4 +321,6 @@ module.exports = {
   planRecovery,
   deriveGroupStatus,
   derivePayoutStatus,
+  assessAdvanceRefund,
+  refundPostingGate,
 }

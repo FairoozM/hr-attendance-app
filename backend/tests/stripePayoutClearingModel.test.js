@@ -50,6 +50,48 @@ test('the per-PaymentIntent posting route is retired (410) and never reaches Zoh
   assert.equal(res.body.code, 'GROSS_CLEARING_RETIRED')
 })
 
+test('refund posting gate: requires a confirmed case, a verified advance journal, REFUND_MATCHED, the exact amount and posting enabled', () => {
+  const ok = { caseStatus: 'ADVANCE_POSTED', originalAdvanceJournalState: Z.VERIFIED, refundStatus: 'REFUND_MATCHED', refundMinor: 3500, overpaymentMinor: 3500, postingEnabled: true }
+  assert.deepEqual(m.refundPostingGate(ok), { allowed: true, blockers: [] })
+  assert.equal(m.refundPostingGate({ ...ok, caseStatus: 'CONFIRMED' }).allowed, true)
+  const blocked = [
+    ['advance journal missing (1123 would go negative)', { originalAdvanceJournalState: Z.MISSING }],
+    ['advance journal conflicting', { originalAdvanceJournalState: Z.CONFLICT }],
+    ['case not confirmed', { caseStatus: 'CUSTOMER_ADVANCE_REVIEW_REQUIRED' }],
+    ['case rejected', { caseStatus: 'REJECTED' }],
+    ['refund only detected, not in a payout', { refundStatus: 'REFUND_DETECTED' }],
+    ['refund amount differs', { refundMinor: 3000 }],
+    ['posting disabled', { postingEnabled: false }],
+  ]
+  for (const [label, patch] of blocked) {
+    const gate = m.refundPostingGate({ ...ok, ...patch })
+    assert.equal(gate.allowed, false, label)
+    assert.equal(gate.blockers.length, 1, label)
+  }
+})
+
+test('refund assessment: only one succeeded refund of exactly the overpayment, after and outside the payout', () => {
+  const refund = {
+    refundId: 're_1', chargeId: 'ch_1', paymentIntentId: 'pi_1', amountMinor: 3500, currency: 'AED', status: 'succeeded', createdAt: '2026-09-28T07:09:27.000Z',
+    balanceTransaction: { balanceTransactionId: 'txn_r1', currency: 'AED', amountMinor: -3500, feeMinor: 0, netMinor: -3500 },
+  }
+  const input = {
+    chargeId: 'ch_1', paymentIntentId: 'pi_1', chargeStatus: 'succeeded', chargeFullyRefunded: false, chargeRefundedMinor: 3500, overpaymentMinor: 3500,
+    currency: 'AED', payoutCreatedAt: '2026-09-25T00:53:49.000Z', payoutBalanceTransactionIds: new Set(['txn_c1']), refunds: [refund], storedCase: null,
+  }
+  const ok = m.assessAdvanceRefund(input)
+  assert.equal(ok.ok, true)
+  assert.equal(ok.status, 'REFUND_DETECTED')
+  assert.equal(ok.refund.refundPayoutId, null)
+  const matched = m.assessAdvanceRefund({ ...input, storedCase: { refundId: 're_1', refundBalanceTransactionId: 'txn_r1', refundStatus: 'REFUND_MATCHED', refundPayoutId: 'po_later' } })
+  assert.equal(matched.status, 'REFUND_MATCHED')
+  assert.equal(matched.refund.refundPayoutId, 'po_later')
+  assert.equal(m.assessAdvanceRefund({ ...input, payoutBalanceTransactionIds: new Set(['txn_r1']) }).status, 'REFUND_MISMATCH')
+  assert.equal(m.assessAdvanceRefund({ ...input, chargeRefundedMinor: 4000 }).status, 'REFUND_MISMATCH')
+  assert.equal(m.assessAdvanceRefund({ ...input, refunds: [] }).status, 'REFUND_MISMATCH')
+  assert.equal(m.assessAdvanceRefund({ ...input, storedCase: { refundId: 're_2', refundBalanceTransactionId: null, refundStatus: 'REFUND_DETECTED', refundPayoutId: null } }).status, 'REFUND_MISMATCH')
+})
+
 test('references are payout-scoped and neutral', () => {
   assert.equal(m.netReference('po_X'), 'Stripe funds received po_X')
   assert.equal(m.feeReference('po_X'), 'Stripe processing fee po_X')

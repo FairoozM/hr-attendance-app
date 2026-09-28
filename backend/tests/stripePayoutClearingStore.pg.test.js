@@ -64,12 +64,23 @@ test.before(async () => {
   for (const [from, to] of [[null, 'READY'], ['READY', 'POSTING'], ['POSTING', 'POSTED']]) {
     await pool.query('INSERT INTO stripe_payment_clearing_events (clearing_id, from_status, to_status, actor) VALUES ($1, $2, $3, $4)', [id, from, to, 'user:1'])
   }
+  // Production today: the 048 schema with an existing case, before REFUND_DETECTED (049).
+  await pool.query(fs.readFileSync(path.join(__dirname, '../migrations/048_stripe_payout_clearing.sql'), 'utf8'))
+  await pool.query(
+    `INSERT INTO stripe_customer_advance_cases (payout_id, zoho_customer_id, customer_name, order_number, invoice_id, invoice_number,
+       charge_id, currency, stripe_gross, stripe_net, stripe_fee, invoice_total, overpayment_amount, net_allocation,
+       customer_advance_account_id, customer_advance_account_code, advance_reference, status, admin_confirmed, confirmed_by, confirmed_at, reason)
+     VALUES ('po_LEGACY0000001', 'C', 'Website', '9', 'I9', 'INV-9', 'ch_LEGACY0000001', 'AED', 100, 97, 3, 90, 10, 87,
+       'A', '1123', 'Stripe customer advance po_LEGACY0000001', 'CONFIRMED', true, 'user:1', '2026-09-20T10:00:00Z', 'legacy reason')`,
+  )
   for (let i = 0; i < 2; i++) {
     await clearingStore.ensureStripeClearingTables(q)
     await payoutStore.ensureStripePayoutClearingTables(q)
   }
-  // The reference migration file must also apply cleanly on top.
-  await pool.query(fs.readFileSync(path.join(__dirname, '../migrations/048_stripe_payout_clearing.sql'), 'utf8'))
+  // The reference migration files must also apply cleanly on top, repeatedly.
+  for (const file of ['048_stripe_payout_clearing.sql', '049_stripe_advance_refund_detected.sql', '049_stripe_advance_refund_detected.sql']) {
+    await pool.query(fs.readFileSync(path.join(__dirname, '../migrations', file), 'utf8'))
+  }
 })
 test.after(async () => {
   if (!pool) return
@@ -136,6 +147,100 @@ test('customer advance case: candidate then confirmation, idempotent, audited', 
     ])
     const listed = await payoutStore.listCasesForPayout({ query: q }, 'po_1UJNObDJogiiRoKPHtPAr3KE')
     assert.equal(listed.length, 1)
+  } finally {
+    client.release()
+  }
+})
+
+test('049 upgrade keeps existing cases and replaces the refund_status check exactly once', { skip }, async () => {
+  const { rows } = await q("SELECT * FROM stripe_customer_advance_cases WHERE charge_id = 'ch_LEGACY0000001'")
+  const legacy = payoutStore.mapCase(rows[0])
+  assert.equal(legacy.status, 'CONFIRMED')
+  assert.equal(legacy.confirmedBy, 'user:1')
+  assert.equal(legacy.reason, 'legacy reason')
+  assert.equal(legacy.overpaymentAmount, 10)
+  assert.equal(legacy.refundStatus, 'NOT_REFUNDED')
+  assert.equal(legacy.refundId, null)
+  assert.equal(legacy.refundDetectedAt, null)
+  const checks = await q(
+    `SELECT conname, pg_get_constraintdef(oid) AS def FROM pg_constraint
+     WHERE conrelid = 'stripe_customer_advance_cases'::regclass AND contype = 'c' AND pg_get_constraintdef(oid) LIKE '%NOT_REFUNDED%'`,
+  )
+  assert.equal(checks.rows.length, 1)
+  assert.match(checks.rows[0].def, /REFUND_DETECTED/)
+  await assert.rejects(q("UPDATE stripe_customer_advance_cases SET refund_status = 'BOGUS' WHERE charge_id = 'ch_LEGACY0000001'"), (err) => err.code === '23514')
+  // REFUND_DETECTED needs the refund identity; MATCHED also needs a later payout.
+  await assert.rejects(q("UPDATE stripe_customer_advance_cases SET refund_status = 'REFUND_DETECTED' WHERE charge_id = 'ch_LEGACY0000001'"), (err) => err.code === '23514')
+  const detect = `UPDATE stripe_customer_advance_cases SET refund_status = $1, refund_id = 're_L', refund_balance_transaction_id = 'txn_L',
+    refund_amount = $2, refund_detected_at = NOW(), refund_payout_id = $3 WHERE charge_id = 'ch_LEGACY0000001'`
+  await assert.rejects(q(detect, ['REFUND_DETECTED', 9, null]), (err) => err.code === '23514')
+  await assert.rejects(q(detect, ['REFUND_MATCHED', 10, null]), (err) => err.code === '23514')
+  await assert.rejects(q(detect, ['REFUND_MATCHED', 10, 'po_LEGACY0000001']), (err) => err.code === '23514')
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    await client.query(detect, ['REFUND_DETECTED', 10, null])
+    await client.query(detect, ['REFUND_MATCHED', 10, 'po_LATER00000001'])
+  } finally {
+    await client.query('ROLLBACK')
+    client.release()
+  }
+})
+
+test('confirming a candidate whose refund already exists records REFUND_DETECTED, then CONFIRMED', { skip }, async () => {
+  const refund = { refundId: 're_3UIA7CDJogiiRoKP0noUu0UZ', balanceTransactionId: 'txn_3UIA7CDJogiiRoKP0qGO7307', amount: 35, createdAt: '2026-09-28T07:09:27.000Z' }
+  const c = candidate({ payoutId: 'po_REFUNDDETECT01', chargeId: 'ch_REFUNDDETECT01', advanceReference: 'Stripe customer advance po_REFUNDDETECT01', refund })
+  const client = await pool.connect()
+  try {
+    const out = await payoutStore.confirmCase(client, c, { actor: 'user:7', reason: 'Customer overpaid; refunded in Stripe later.' })
+    assert.equal(out.case.status, 'CONFIRMED')
+    assert.equal(out.case.refundStatus, 'REFUND_DETECTED')
+    assert.equal(out.case.refundId, refund.refundId)
+    assert.equal(out.case.refundBalanceTransactionId, refund.balanceTransactionId)
+    assert.equal(out.case.refundAmount, 35)
+    assert.equal(out.case.refundPayoutId, null)
+    assert.ok(out.case.refundDetectedAt)
+    const events = await payoutStore.listEvents({ query: q }, payoutStore.ENTITY.ADVANCE_CASE, [out.case.id])
+    assert.deepEqual(events.map((e) => [e.fromStatus, e.toStatus]), [
+      [null, 'CUSTOMER_ADVANCE_REVIEW_REQUIRED'],
+      ['NOT_REFUNDED', 'REFUND_DETECTED'],
+      ['CUSTOMER_ADVANCE_REVIEW_REQUIRED', 'CONFIRMED'],
+    ])
+    assert.match(events[1].detail, /re_3UIA7CDJogiiRoKP0noUu0UZ/)
+    assert.match(events[2].detail, /already detected/)
+
+    const again = await payoutStore.confirmCase(client, c, { actor: 'user:8', reason: 'second click on the button' })
+    assert.equal(again.alreadyConfirmed, true)
+    const after = await payoutStore.listEvents({ query: q }, payoutStore.ENTITY.ADVANCE_CASE, [out.case.id])
+    assert.equal(after.length, 3)
+  } finally {
+    client.release()
+  }
+})
+
+test('a stored refund that no longer matches the candidate blocks confirmation', { skip }, async () => {
+  const refund = { refundId: 're_FIRST00000001', balanceTransactionId: 'txn_FIRST0000001', amount: 35, createdAt: '2026-09-28T07:09:27.000Z' }
+  const base = { payoutId: 'po_REFUNDCHANGE1', chargeId: 'ch_REFUNDCHANGE1', advanceReference: 'Stripe customer advance po_REFUNDCHANGE1' }
+  await q(
+    `INSERT INTO stripe_customer_advance_cases (payout_id, zoho_customer_id, customer_name, order_number, invoice_id, invoice_number,
+       payment_intent_id, charge_id, currency, stripe_gross, stripe_net, stripe_fee, invoice_total, overpayment_amount, net_allocation,
+       customer_advance_account_id, customer_advance_account_code, advance_reference, status,
+       refund_status, refund_id, refund_balance_transaction_id, refund_amount, refund_detected_at)
+     VALUES ($1, '4265011000000160061', 'Website', '21111', '4265011000042000001', 'INV-044122', 'pi_3UIA7CDJogiiRoKP0Qy1oodM', $2, 'AED',
+       1101, 1068.07, 32.93, 1066, 35, 1033.07, '4265011000015681205', '1123', $3, 'CUSTOMER_ADVANCE_REVIEW_REQUIRED',
+       'REFUND_DETECTED', $4, $5, 35, NOW())`,
+    [base.payoutId, base.chargeId, base.advanceReference, refund.refundId, refund.balanceTransactionId],
+  )
+  const client = await pool.connect()
+  try {
+    for (const changed of [{ ...refund, refundId: 're_OTHER00000001' }, null]) {
+      await assert.rejects(
+        payoutStore.confirmCase(client, candidate({ ...base, refund: changed }), { actor: 'user:7', reason: 'refund changed since detection' }),
+        (err) => err.code === 'ADVANCE_CASE_REFUND_CHANGED',
+      )
+    }
+    const { rows } = await q('SELECT status FROM stripe_customer_advance_cases WHERE charge_id = $1', [base.chargeId])
+    assert.equal(rows[0].status, 'CUSTOMER_ADVANCE_REVIEW_REQUIRED')
   } finally {
     client.release()
   }
