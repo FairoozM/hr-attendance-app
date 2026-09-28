@@ -7,6 +7,7 @@ import {
   type StripeConnectionTestResult,
 } from '../../../api/stripe'
 import { StripeClearingPanel } from './StripeClearingPanel'
+import { StripePayoutPreviewPanel } from './StripePayoutPreviewPanel'
 import './StripeConnectionPage.css'
 
 function webhookUrl(path: string) {
@@ -159,6 +160,8 @@ export function StripeConnectionPage() {
               </button>
             </article>
           </div>
+
+          <StripePayoutPreviewPanel />
 
           <StripeClearingPanel />
 

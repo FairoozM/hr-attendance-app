@@ -345,6 +345,72 @@ async function findZohoPaymentsByReference(reference, opts = {}) {
   return payments
 }
 
+/**
+ * Manual journals whose reference equals `reference`. Zoho only offers a "contains"
+ * filter for journals, so the exact match is applied here; a row that does not even
+ * contain the reference means the filter was ignored and the lookup fails.
+ */
+async function findZohoJournalsByReference(reference, opts = {}) {
+  const ref = clean(reference)
+  if (!ref) return []
+  const json = await zohoBooksJsonRequest(
+    `${BOOKS_V3}/journals`,
+    new URLSearchParams({ reference_number_contains: ref, per_page: '50', sort_column: 'journal_date' }),
+    'GET',
+    undefined,
+    { source: opts.source || 'stripe_payout_preview', skipCache: true, critical: opts.critical === true },
+  )
+  const journals = (Array.isArray(json && json.journals) ? json.journals : []).map((j) => ({
+    journalId: clean(j.journal_id),
+    entryNumber: clean(j.entry_number),
+    referenceNumber: clean(j.reference_number),
+    journalDate: clean(j.journal_date),
+    total: num(j.total),
+    status: clean(j.status),
+  }))
+  if (journals.some((j) => !j.referenceNumber.includes(ref))) {
+    const err = new Error(`Zoho ignored the journal reference filter for ${ref}; lookup is not exact.`)
+    err.code = 'ZOHO_REFERENCE_FILTER_IGNORED'
+    err.status = 502
+    throw err
+  }
+  return journals.filter((j) => j.referenceNumber === ref)
+}
+
+/** Journal with its line items, or null when Zoho no longer has it. */
+async function getZohoJournal(journalId, opts = {}) {
+  const id = clean(journalId)
+  if (!id) return null
+  try {
+    const json = await zohoBooksJsonRequest(
+      `${BOOKS_V3}/journals/${encodeURIComponent(id)}`,
+      new URLSearchParams(),
+      'GET',
+      undefined,
+      { source: opts.source || 'stripe_payout_preview', skipCache: true, critical: opts.critical === true },
+    )
+    const j = json && json.journal
+    if (!j) return null
+    return {
+      journalId: clean(j.journal_id),
+      referenceNumber: clean(j.reference_number),
+      journalDate: clean(j.journal_date),
+      status: clean(j.status),
+      lineItems: (Array.isArray(j.line_items) ? j.line_items : []).map((l) => ({
+        accountId: clean(l.account_id),
+        accountCode: clean(l.account_code),
+        accountName: clean(l.account_name),
+        debitOrCredit: clean(l.debit_or_credit),
+        amount: num(l.amount),
+        customerId: clean(l.customer_id),
+      })),
+    }
+  } catch (err) {
+    if (Number(err && err.httpStatus) === 404) return null
+    throw err
+  }
+}
+
 module.exports = {
   mapPaymentIntent,
   mapWebsiteOrder,
@@ -360,6 +426,8 @@ module.exports = {
   loadWebsiteStripeOrders,
   findZohoInvoicesByReference,
   findZohoPaymentsByReference,
+  findZohoJournalsByReference,
+  getZohoJournal,
   fetchZohoInvoiceById,
   ORDERS_BY_INTENT_SQL,
   STRIPE_ORDERS_IN_RANGE_SQL,

@@ -18,6 +18,11 @@ const DEPOSIT_ACCOUNT_CODE = '1019'
 // Stripe processing fees clear the invoice here; a later journal moves them to the "Stripe Fees" expense.
 const FEE_ACCOUNT_NAME = 'Stripe Processing Chg Un-Cleared'
 const FEE_ACCOUNT_CODE = '1013'
+// Confirmed customer overpayments are held here (liability) until Stripe refunds them.
+const ADVANCE_ACCOUNT_NAME = 'Customer Advance Funds'
+const ADVANCE_ACCOUNT_CODE = '1123'
+const ADVANCE_ACCOUNT_ID = '4265011000015681205'
+const ADVANCE_ACCOUNT_TYPE = 'other_current_liability'
 const WEBSITE_CUSTOMER_NAME = 'Website'
 const SHOP_CUSTOMER_NAME = 'Burjman Shop - Web & App'
 
@@ -48,6 +53,10 @@ function getStripeClearingConfig() {
     depositAccountId: envString('STRIPE_CLEARING_DEPOSIT_ACCOUNT_ID', ''),
     feeAccountName: FEE_ACCOUNT_NAME,
     feeAccountCode: FEE_ACCOUNT_CODE,
+    advanceAccountName: ADVANCE_ACCOUNT_NAME,
+    advanceAccountCode: ADVANCE_ACCOUNT_CODE,
+    advanceAccountId: ADVANCE_ACCOUNT_ID,
+    advanceAccountType: ADVANCE_ACCOUNT_TYPE,
     websiteCustomerName: WEBSITE_CUSTOMER_NAME,
     shopCustomerName: SHOP_CUSTOMER_NAME,
   }
@@ -60,5 +69,8 @@ module.exports = {
   DEPOSIT_ACCOUNT_CODE,
   FEE_ACCOUNT_NAME,
   FEE_ACCOUNT_CODE,
+  ADVANCE_ACCOUNT_NAME,
+  ADVANCE_ACCOUNT_CODE,
+  ADVANCE_ACCOUNT_ID,
   getStripeClearingConfig,
 }

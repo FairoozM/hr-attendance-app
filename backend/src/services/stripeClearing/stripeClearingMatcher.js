@@ -75,6 +75,9 @@ function classifyStripePayment(input) {
   if (UNRESOLVED_LOCAL_STATUSES.has(localClearingStatus)) {
     return result(MATCH_STATUS.NEEDS_REVIEW, `A previous posting attempt is unresolved (${localClearingStatus}).`)
   }
+  if (localClearingStatus === 'REVERSED_EXTERNALLY') {
+    return result(MATCH_STATUS.NEEDS_REVIEW, 'An earlier gross-only clearing was reversed in Zoho; clear this payment through its payout.')
+  }
 
   if (stripe) {
     if (stripe.status !== 'succeeded') {

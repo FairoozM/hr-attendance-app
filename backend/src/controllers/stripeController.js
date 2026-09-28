@@ -78,13 +78,37 @@ async function clearingPreview(req, res) {
   }
 }
 
-async function clearingPost(req, res) {
+// Gross-per-PaymentIntent posting is retired; Stripe money is cleared per payout.
+function clearingPostRetired(_req, res) {
+  return res.status(410).json({
+    error: 'Per-payment Stripe posting is retired. Stripe payments are cleared per payout (Payout Clearing Preview).',
+    code: 'GROSS_CLEARING_RETIRED',
+  })
+}
+
+async function confirmCustomerAdvance(req, res) {
   try {
-    const { postStripeClearing } = require('../services/stripeClearing/stripeClearingPostingService')
-    const body = await postStripeClearing(req.params.paymentIntentId, { actor: clearingActor(req) })
+    const { confirmCustomerAdvance: confirm } = require('../services/stripeClearing/stripePayoutClearingService')
+    const body = await confirm(req.params.payoutId, req.body && req.body.chargeId, {
+      reason: req.body && req.body.reason,
+      actor: clearingActor(req),
+    })
     return res.json(body)
   } catch (err) {
-    return clearingError(res, err, 'clearing post')
+    return clearingError(res, err, 'customer advance confirmation')
+  }
+}
+
+async function clearingReversedExternally(req, res) {
+  try {
+    const { markGrossClearingReversedExternally } = require('../services/stripeClearing/stripePayoutClearingService')
+    const body = await markGrossClearingReversedExternally(req.params.paymentIntentId, {
+      zohoPaymentId: req.body && req.body.zohoPaymentId,
+      actor: clearingActor(req),
+    })
+    return res.json(body)
+  } catch (err) {
+    return clearingError(res, err, 'clearing reversal record')
   }
 }
 
@@ -112,7 +136,9 @@ module.exports = {
   clearingDryRun,
   clearingRecord,
   clearingPreview,
-  clearingPost,
+  clearingPostRetired,
+  clearingReversedExternally,
   payoutList,
   payoutPreview,
+  confirmCustomerAdvance,
 }

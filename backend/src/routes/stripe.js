@@ -12,10 +12,13 @@ router.post('/connection-test', auth.requireAuth, auth.requireAdmin, ctrl.testCo
 router.get('/clearing/dry-run', auth.requireAuth, auth.requireAdmin, ctrl.clearingDryRun)
 router.get('/clearing/:paymentIntentId', auth.requireAuth, auth.requireAdmin, ctrl.clearingRecord)
 router.get('/clearing/:paymentIntentId/preview', auth.requireAuth, auth.requireAdmin, ctrl.clearingPreview)
-// Read-only payout grouping preview (NET → 1019, FEE → 1013 per customer).
+// Read-only payout clearing preview (NET → 1019, FEE → 1013, advances → 1123 per customer).
 router.get('/payouts', auth.requireAuth, auth.requireAdmin, ctrl.payoutList)
 router.get('/payouts/:payoutId/preview', auth.requireAuth, auth.requireAdmin, ctrl.payoutPreview)
-// One PaymentIntent per request; the service re-validates everything live.
-router.post('/clearing/:paymentIntentId/post', auth.requireAuth, auth.requireAdmin, ctrl.clearingPost)
+// Local status only (no Zoho): admin confirms a detected overpayment as a customer advance.
+router.post('/payouts/:payoutId/customer-advance-cases/confirm', auth.requireAuth, auth.requireAdmin, ctrl.confirmCustomerAdvance)
+// Local status only (no Zoho): record that a gross-only clearing was deleted in Zoho.
+router.post('/clearing/:paymentIntentId/reversed-externally', auth.requireAuth, auth.requireAdmin, ctrl.clearingReversedExternally)
+router.post('/clearing/:paymentIntentId/post', auth.requireAuth, auth.requireAdmin, ctrl.clearingPostRetired)
 
 module.exports = router

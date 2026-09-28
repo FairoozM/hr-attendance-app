@@ -13,7 +13,14 @@ const CLEARING_STATUS = Object.freeze({
   BLOCKED: 'BLOCKED',
   // Zoho may hold a payment we could not confirm; never re-posted automatically.
   FAILED_NEEDS_REVIEW: 'FAILED_NEEDS_REVIEW',
+  // The Zoho payment was removed in Zoho after posting; the row and its history are kept.
+  REVERSED_EXTERNALLY: 'REVERSED_EXTERNALLY',
 })
+
+// Gross-only, one payment per PaymentIntent. Superseded by payout clearing.
+const CLEARING_MODEL_GROSS_V1 = 'GROSS_V1'
+
+const STATUS_LIST_SQL = "'READY', 'POSTING', 'POSTED', 'FAILED', 'BLOCKED', 'FAILED_NEEDS_REVIEW', 'REVERSED_EXTERNALLY'"
 
 // States from which a fresh, fully re-validated posting attempt may start.
 const RETRYABLE = [CLEARING_STATUS.READY, CLEARING_STATUS.FAILED, CLEARING_STATUS.BLOCKED]
@@ -37,8 +44,7 @@ CREATE TABLE IF NOT EXISTS stripe_payment_clearings (
   currency CHAR(3) NOT NULL,
   payment_date DATE NOT NULL,
   stripe_created_at TIMESTAMPTZ,
-  status VARCHAR(32) NOT NULL
-    CHECK (status IN ('READY', 'POSTING', 'POSTED', 'FAILED', 'BLOCKED', 'FAILED_NEEDS_REVIEW')),
+  status VARCHAR(32) NOT NULL,
   zoho_payment_id TEXT,
   attempt_count INTEGER NOT NULL DEFAULT 0,
   last_error TEXT,
@@ -52,8 +58,28 @@ CREATE TABLE IF NOT EXISTS stripe_payment_clearings (
     CHECK (status <> 'POSTED' OR (zoho_payment_id IS NOT NULL AND posted_at IS NOT NULL))
 )`
 
+// Older databases carry the original inline status check; replace it only when it lacks the new state.
+const STATUS_CHECK_SQL = `
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'stripe_payment_clearings'::regclass
+      AND conname = 'stripe_payment_clearings_status_check'
+      AND pg_get_constraintdef(oid) LIKE '%REVERSED_EXTERNALLY%'
+  ) THEN
+    ALTER TABLE stripe_payment_clearings DROP CONSTRAINT IF EXISTS stripe_payment_clearings_status_check;
+    ALTER TABLE stripe_payment_clearings
+      ADD CONSTRAINT stripe_payment_clearings_status_check CHECK (status IN (${STATUS_LIST_SQL}));
+  END IF;
+END $$`
+
 const SCHEMA_SQL = [
   TABLE_SQL,
+  STATUS_CHECK_SQL,
+  `ALTER TABLE stripe_payment_clearings ADD COLUMN IF NOT EXISTS clearing_model VARCHAR(16) NOT NULL DEFAULT '${CLEARING_MODEL_GROSS_V1}'`,
+  'ALTER TABLE stripe_payment_clearings ADD COLUMN IF NOT EXISTS reversed_at TIMESTAMPTZ',
+  'ALTER TABLE stripe_payment_clearings ADD COLUMN IF NOT EXISTS reversal_detail TEXT',
   `CREATE UNIQUE INDEX IF NOT EXISTS uq_stripe_payment_clearings_zoho_payment
      ON stripe_payment_clearings (zoho_payment_id) WHERE zoho_payment_id IS NOT NULL`,
   `CREATE INDEX IF NOT EXISTS idx_stripe_payment_clearings_status
@@ -108,6 +134,9 @@ function mapRow(row) {
     createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
     updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
     postedAt: row.posted_at ? new Date(row.posted_at).toISOString() : null,
+    clearingModel: row.clearing_model || CLEARING_MODEL_GROSS_V1,
+    reversedAt: row.reversed_at ? new Date(row.reversed_at).toISOString() : null,
+    reversalDetail: row.reversal_detail || null,
   }
 }
 
@@ -343,8 +372,39 @@ async function recordExistingPosted(db, fields, zohoPaymentId, postedAt, detail,
   }
 }
 
+/**
+ * GROSS_V1 POSTED → REVERSED_EXTERNALLY after the Zoho payment was removed in Zoho.
+ * Keeps the original payment ID, posting time and history; adds one event.
+ */
+async function markReversedExternally(db, id, expectedZohoPaymentId, detail, actor) {
+  return inTransaction(db, async () => {
+    const { rows } = await db.query('SELECT * FROM stripe_payment_clearings WHERE id = $1 FOR UPDATE', [id])
+    const current = rows[0]
+    if (!current) throw clearingError(404, 'CLEARING_NOT_FOUND', `Clearing ${id} does not exist.`)
+    if (current.status !== CLEARING_STATUS.POSTED) {
+      throw clearingError(409, 'CLEARING_STATE_CONFLICT', `Clearing ${id} is ${current.status}, not POSTED.`)
+    }
+    if ((current.clearing_model || CLEARING_MODEL_GROSS_V1) !== CLEARING_MODEL_GROSS_V1) {
+      throw clearingError(409, 'CLEARING_MODEL_CONFLICT', `Clearing ${id} is not a ${CLEARING_MODEL_GROSS_V1} record.`)
+    }
+    if (current.zoho_payment_id !== expectedZohoPaymentId) {
+      throw clearingError(409, 'ZOHO_PAYMENT_ID_MISMATCH', `Clearing ${id} records Zoho payment ${current.zoho_payment_id}, not ${expectedZohoPaymentId}.`)
+    }
+    const updated = await db.query(
+      `UPDATE stripe_payment_clearings SET
+         status = $1, reversed_at = NOW(), reversal_detail = $2, updated_at = NOW()
+       WHERE id = $3
+       RETURNING *`,
+      [CLEARING_STATUS.REVERSED_EXTERNALLY, detail, id],
+    )
+    await logEvent(db, id, CLEARING_STATUS.POSTED, CLEARING_STATUS.REVERSED_EXTERNALLY, detail, actor)
+    return mapRow(updated.rows[0])
+  })
+}
+
 module.exports = {
   CLEARING_STATUS,
+  CLEARING_MODEL_GROSS_V1,
   RETRYABLE,
   LOCK_NAMESPACE,
   SCHEMA_SQL,
@@ -356,5 +416,6 @@ module.exports = {
   claimForPosting,
   transition,
   recordExistingPosted,
+  markReversedExternally,
   mapRow,
 }
