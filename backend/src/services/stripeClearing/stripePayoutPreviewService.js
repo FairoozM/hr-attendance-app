@@ -318,8 +318,9 @@ async function describeUnassigned(line, ctx) {
       else if (typeof sources.searchZohoInvoices === 'function') invoices.push(...await sources.searchZohoInvoices({ invoiceNumber: r.value }, PREVIEW))
     }
     out.suggestion = directModel.suggestInvoice({ references: out.references, invoices, grossMinor: line.grossMinor, config })
-  } catch (err) {
-    out.evidenceError = err && err.message ? err.message : 'Stripe/Zoho evidence could not be read.'
+  } catch {
+    // Raw Stripe errors can name the API key; the admin only needs to know to verify by hand.
+    out.evidenceError = 'Stripe/Zoho evidence could not be read. Manual verification is required.'
   }
   return out
 }

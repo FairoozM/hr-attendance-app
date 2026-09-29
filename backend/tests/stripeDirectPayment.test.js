@@ -362,6 +362,127 @@ test('amount-only match: no Stripe reference means no suggestion and the admin m
   assert.match(w.store.rows[0].evidence, /re-typed by the admin/)
 })
 
+// ── Checkout Session evidence is optional (restricted key without checkout_session_read) ──
+
+function stripePermissionError() {
+  const err = new Error("Permission denied. The provided key 'rk_live_...XXXX' does not have the required permissions for this endpoint. Enabling Checkout Sessions Read ('checkout_session_read') permissions on this key would allow this request to continue. You can edit permissions at https://dashboard.stripe.com/apikeys")
+  err.type = 'StripePermissionError'
+  err.code = 'more_permissions_required'
+  err.statusCode = 403
+  return err
+}
+
+/** The real evidence reader against a Stripe client whose key cannot read Checkout Sessions. */
+async function evidenceWithoutCheckoutPermission(chargePatch = {}) {
+  const stripeConfig = require('../src/config/stripe')
+  const sources = require('../src/services/stripeClearing/stripeClearingSources')
+  const calls = []
+  const client = {
+    paymentIntents: {
+      retrieve: async (id, opts) => {
+        calls.push(['paymentIntents.retrieve', id, opts])
+        return {
+          id, status: 'succeeded', currency: 'aed', amount_received: 126100, created: 1788330391, description: null, metadata: {},
+          latest_charge: { id: CH, description: null, metadata: {}, calculated_statement_descriptor: 'WWW.LIFESMILE.AE', amount_refunded: 0, disputed: false, created: 1788330392, ...chargePatch },
+        }
+      },
+    },
+    checkout: {
+      sessions: {
+        list: async () => { calls.push(['checkout.sessions.list']); throw stripePermissionError() },
+        listLineItems: async () => { calls.push(['checkout.sessions.listLineItems']); throw stripePermissionError() },
+      },
+    },
+  }
+  const original = stripeConfig.getStripeClient
+  stripeConfig.getStripeClient = () => client
+  try {
+    return { evidence: await sources.getPaymentIntentEvidence(PI), calls }
+  } finally {
+    stripeConfig.getStripeClient = original
+  }
+}
+
+test('Checkout Session permission denied: the PaymentIntent and charge are still read and session evidence is marked unavailable', async () => {
+  const { evidence, calls } = await evidenceWithoutCheckoutPermission()
+  assert.equal(evidence.checkoutEvidence, 'UNAVAILABLE_PERMISSION')
+  assert.deepEqual(evidence.sessions, [])
+  assert.deepEqual(
+    [evidence.paymentIntentId, evidence.chargeId, evidence.status, evidence.currency, evidence.amountReceivedMinor, evidence.refundedMinor, evidence.disputed],
+    [PI, CH, 'succeeded', 'AED', 126100, 0, false],
+  )
+  assert.equal(JSON.stringify(evidence).includes('rk_live'), false)
+  assert.deepEqual(calls.map((c) => c[0]), ['paymentIntents.retrieve', 'checkout.sessions.list'])
+})
+
+test('real case with Checkout Session permission denied: nothing blocks, the admin re-types INV-043544, reason and mapping succeed', async () => {
+  const { evidence } = await evidenceWithoutCheckoutPermission()
+  const w = world({ evidence })
+  const r = await w.run()
+  const u = r.unassigned[0]
+  assert.equal(u.directEligible, true)
+  assert.equal(u.evidenceError, null)
+  assert.equal(u.stripeEvidence.checkoutEvidence, 'UNAVAILABLE_PERMISSION')
+  assert.equal(u.suggestion.status, directModel.SUGGESTION.NONE)
+  assert.equal(JSON.stringify(r).includes('rk_live'), false)
+
+  const v = await direct.validateDirectPayment(PAYOUT, PI, INV.invoiceId, w.serviceDeps)
+  assert.equal(v.blocking, false, JSON.stringify(v.checks.filter((c) => c.blocking)))
+  assert.equal(v.checkoutEvidence, 'UNAVAILABLE_PERMISSION')
+  assert.equal(v.evidenceStatus, directModel.EVIDENCE.NONE)
+  assert.equal(v.requiresTypedInvoiceNumber, true)
+  assert.ok(v.checks.find((c) => c.key === 'stripe_payment').ok)
+  assert.deepEqual([v.invoice.invoiceNumber, v.invoice.customerName, v.invoice.total, v.invoice.balance, v.invoice.referenceNumber], ['INV-043544', 'Website', 1261, 1261, '20901'])
+
+  const res = await confirm(w, { confirmInvoiceNumber: 'INV-043544' })
+  assert.deepEqual([res.zohoWrites, res.stripeWrites], [0, 0])
+  assert.equal(w.store.rows.length, 1)
+  assert.deepEqual([w.store.rows[0].zohoInvoiceNumber, w.store.rows[0].customerKey, w.store.rows[0].stripeGross, w.store.rows[0].chargeId], ['INV-043544', 'WEBSITE', 1261, CH])
+  assert.match(w.store.rows[0].evidence, /Payment Link evidence unavailable/)
+  assert.deepEqual(w.writes, [])
+  const after = await w.run()
+  assert.equal(websiteGroup(after).status, GROUP_STATUS.READY)
+  assert.equal(after.unassigned.length, 0)
+})
+
+test('Checkout evidence unavailable and no manual confirmation: blocked', async () => {
+  const { evidence } = await evidenceWithoutCheckoutPermission()
+  const w = world({ evidence })
+  await assert.rejects(confirm(w), { code: 'EVIDENCE_REQUIRED' })
+  await assert.rejects(confirm(w, { confirmInvoiceNumber: 'INV-043544', reason: 'short' }), { code: 'REASON_REQUIRED' })
+  await assert.rejects(direct.confirmDirectPayment(PAYOUT, PI, { invoiceId: INV.invoiceId, reason: REASON, confirmInvoiceNumber: 'INV-043544' }, w.serviceDeps), { code: 'ACTOR_REQUIRED' })
+  assert.equal(w.store.rows.length, 0)
+})
+
+test('Checkout evidence unavailable and a wrong invoice re-type: blocked', async () => {
+  const { evidence } = await evidenceWithoutCheckoutPermission()
+  const w = world({ evidence })
+  await assert.rejects(confirm(w, { confirmInvoiceNumber: 'INV-043545' }), { code: 'EVIDENCE_REQUIRED' })
+  await assert.rejects(confirm(w, { confirmInvoiceNumber: '20901' }), { code: 'EVIDENCE_REQUIRED' })
+  assert.equal(w.store.rows.length, 0)
+})
+
+test('Checkout evidence unavailable does not relax the mandatory Stripe facts (refunded, disputed, other charge)', async () => {
+  for (const [patch, key] of [[{ amount_refunded: 10000 }, 'charge_state'], [{ disputed: true }, 'charge_state'], [{ id: 'ch_3OTHERxxxxxxxxxxxxxx' }, 'stripe_payment']]) {
+    const { evidence } = await evidenceWithoutCheckoutPermission(patch)
+    const w = world({ evidence })
+    const v = await direct.validateDirectPayment(PAYOUT, PI, INV.invoiceId, w.serviceDeps)
+    assert.equal(v.blocking, true)
+    assert.equal(v.checks.find((c) => c.key === key).blocking, true, key)
+    await assert.rejects(confirm(w, { confirmInvoiceNumber: 'INV-043544' }), { code: 'DIRECT_MAPPING_BLOCKED' })
+    assert.equal(w.store.rows.length, 0)
+  }
+})
+
+test('an unreadable PaymentIntent (mandatory) blocks validation with a plain message', async () => {
+  const w = world({ evidence: null })
+  const u = (await w.run()).unassigned[0]
+  assert.equal(u.evidenceError, 'Stripe/Zoho evidence could not be read. Manual verification is required.')
+  await assert.rejects(direct.validateDirectPayment(PAYOUT, PI, INV.invoiceId, w.serviceDeps), { code: 'STRIPE_PAYMENT_UNREADABLE' })
+  await assert.rejects(confirm(w, { confirmInvoiceNumber: 'INV-043544' }), { code: 'STRIPE_PAYMENT_UNREADABLE' })
+  assert.equal(w.store.rows.length, 0)
+})
+
 test('a Stripe reference naming another PO contradicts the invoice and blocks the mapping', async () => {
   const other = { ...PAYMENT_LINK_EVIDENCE, sessions: [{ ...PAYMENT_LINK_EVIDENCE.sessions[0], products: [{ productName: 'Matjar meem #20977', productDescription: 'invoice #20977', amountMinor: 126100, quantity: 1 }] }] }
   const w = world({ evidence: other })

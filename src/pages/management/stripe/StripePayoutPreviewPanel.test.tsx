@@ -1428,12 +1428,12 @@ describe('StripePayoutPreviewPanel direct Stripe payments', () => {
     expect(checks.textContent).toContain('20901')
     expect(checks.textContent).toContain('AED 1,261.00')
     expect(checks.textContent).toContain('corresponds to Zoho INV-043544 P.O.# 20901')
-    expect(screen.queryByLabelText(/Re-type the invoice number/)).toBeNull()
+    expect(screen.queryByLabelText('Re-type invoice number')).toBeNull()
 
     expect(confirmButton().disabled).toBe(true)
     fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'Payment Link Matjar meem #20901 paid INV-043544' } })
     expect(confirmButton().disabled).toBe(true)
-    fireEvent.click(screen.getByRole('checkbox', { name: /I verified that this Stripe payment/ }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'I verified this Stripe payment belongs to the selected Zoho invoice.' }))
     expect(confirmButton().disabled).toBe(false)
 
     api.confirmStripeDirectPayment.mockResolvedValue({ mapping: { id: 1, zohoInvoiceNumber: 'INV-043544', status: 'ACTIVE' }, zohoWrites: 0, stripeWrites: 0 })
@@ -1458,11 +1458,11 @@ describe('StripePayoutPreviewPanel direct Stripe payments', () => {
     await chooseInvoice(validation({ evidenceStatus: 'NONE', requiresTypedInvoiceNumber: true, references: [], evidenceSummary: 'No Stripe reference; invoice number re-typed by the admin.' }))
     expect(screen.getByText(/An amount match alone is not enough/)).toBeTruthy()
     fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'Customer confirmed by phone it paid INV-043544' } })
-    fireEvent.click(screen.getByRole('checkbox', { name: /I verified that this Stripe payment/ }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'I verified this Stripe payment belongs to the selected Zoho invoice.' }))
     expect(confirmButton().disabled).toBe(true)
-    fireEvent.change(screen.getByLabelText(/Re-type the invoice number/), { target: { value: 'inv-043545' } })
+    fireEvent.change(screen.getByLabelText('Re-type invoice number'), { target: { value: 'inv-043545' } })
     expect(confirmButton().disabled).toBe(true)
-    fireEvent.change(screen.getByLabelText(/Re-type the invoice number/), { target: { value: 'inv-043544' } })
+    fireEvent.change(screen.getByLabelText('Re-type invoice number'), { target: { value: 'inv-043544' } })
     expect(confirmButton().disabled).toBe(false)
     api.confirmStripeDirectPayment.mockResolvedValue({ mapping: { id: 1, zohoInvoiceNumber: 'INV-043544', status: 'ACTIVE' }, zohoWrites: 0, stripeWrites: 0 })
     fireEvent.click(confirmButton())
@@ -1471,6 +1471,53 @@ describe('StripePayoutPreviewPanel direct Stripe payments', () => {
       reason: 'Customer confirmed by phone it paid INV-043544',
       confirmInvoiceNumber: 'inv-043544',
     }))
+  })
+
+  it('Checkout Session permission denied is a small warning; INV-043544 stays selectable and Confirm enables after manual verification', async () => {
+    const noCheckout = unresolvedLine({
+      stripeEvidence: { ...unresolvedLine().stripeEvidence!, checkoutEvidence: 'UNAVAILABLE_PERMISSION', sessions: [] },
+      references: [],
+      suggestion: { status: 'NONE', reason: 'Stripe carries no invoice or P.O. reference.', candidates: [] },
+    })
+    const p = directPreview(null)
+    p.unassigned = [noCheckout]
+    await openDirectPreview(p)
+    const warning = 'Payment Link evidence unavailable because the Stripe key cannot read Checkout Sessions. Manual verification is required.'
+    const card = screen.getByTestId('unresolved-charge')
+    expect(card.textContent).toContain(warning)
+    expect(card.textContent).not.toMatch(/rk_live|dashboard\.stripe\.com|StripePermissionError/)
+    expect((screen.getByRole('button', { name: 'Assign to Zoho Invoice' }) as HTMLButtonElement).disabled).toBe(false)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Assign to Zoho Invoice' }))
+    expect((screen.getByLabelText('Invoice number, P.O.# or amount') as HTMLInputElement).value).toBe('')
+    fireEvent.change(screen.getByLabelText('Invoice number, P.O.# or amount'), { target: { value: 'INV-043544' } })
+    api.searchStripeDirectInvoices.mockResolvedValue({ mode: 'invoice', query: 'INV-043544', invoices: [searchRow()], zohoWrites: 0 })
+    api.validateStripeDirectPayment.mockResolvedValue(validation({
+      checkoutEvidence: 'UNAVAILABLE_PERMISSION',
+      stripeEvidence: noCheckout.stripeEvidence ?? null,
+      references: [],
+      evidenceStatus: 'NONE',
+      requiresTypedInvoiceNumber: true,
+    }))
+    fireEvent.click(screen.getByRole('button', { name: 'Search Zoho' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Select INV-043544' }))
+    const checks = await screen.findByLabelText('Mapping checks')
+    expect(checks.textContent).toContain(warning)
+    const dialog = checks.closest('.stripe-clearing__confirm') as HTMLElement
+    expect(dialog.querySelector('[role="alert"], .stripe-page__banner--error')).toBeNull()
+    expect(dialog.textContent).not.toMatch(/rk_live|dashboard\.stripe\.com|StripePermissionError/)
+    expect(screen.getByText('Manual verification required')).toBeTruthy()
+
+    expect(confirmButton().disabled).toBe(true)
+    fireEvent.change(screen.getByLabelText('Re-type invoice number'), { target: { value: 'INV-043544' } })
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'Payment Link #20901 for INV-043544, verified in Stripe' } })
+    expect(confirmButton().disabled).toBe(true)
+    fireEvent.click(screen.getByRole('checkbox', { name: 'I verified this Stripe payment belongs to the selected Zoho invoice.' }))
+    expect(confirmButton().disabled).toBe(false)
+    fireEvent.change(screen.getByLabelText('Re-type invoice number'), { target: { value: 'INV-04354' } })
+    expect(confirmButton().disabled).toBe(true)
+    expect(api.confirmStripeDirectPayment).not.toHaveBeenCalled()
+    expectNoPostingCalls()
   })
 
   it('a blocking check leaves nothing to confirm', async () => {

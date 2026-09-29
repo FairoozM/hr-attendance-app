@@ -133,10 +133,13 @@ function findLine(result, pi) {
   return null
 }
 
-function evidenceText(assessment, invoice) {
+function evidenceText(assessment, invoice, evidence) {
   if (assessment.status === directModel.EVIDENCE.MATCH) {
     const texts = assessment.matched.flatMap((r) => r.sources.map((s) => `${s.source} "${s.text}"`))
     return `${texts.join('; ')} ↔ ${invoice.invoiceNumber} P.O.# ${invoice.referenceNumber || '—'}`
+  }
+  if (evidence && evidence.checkoutEvidence && evidence.checkoutEvidence !== 'AVAILABLE') {
+    return 'Payment Link evidence unavailable (Stripe key cannot read Checkout Sessions); verified manually, invoice number re-typed by the admin.'
   }
   return 'No Stripe reference; invoice number re-typed by the admin.'
 }
@@ -153,7 +156,14 @@ async function runValidation(po, pi, invoiceId, deps) {
     throw fail(409, 'CHARGE_ALREADY_ASSIGNED', `PaymentIntent ${pi} already clears through ${how}.`)
   }
   const currency = deps.config.websiteCurrency
-  const evidence = line.stripeEvidence || await deps.sources.getPaymentIntentEvidence(pi)
+  let evidence = line.stripeEvidence
+  if (!evidence) {
+    try {
+      evidence = await deps.sources.getPaymentIntentEvidence(pi)
+    } catch {
+      throw fail(502, 'STRIPE_PAYMENT_UNREADABLE', `Stripe PaymentIntent ${pi} could not be read; the mapping cannot be checked.`)
+    }
+  }
   const references = directModel.extractReferences(evidence)
   const invoice = await deps.sources.getZohoInvoiceDetail(id, READ)
   const [intentMapping] = await deps.store.listActiveByIntents(deps.reader, [pi])
@@ -174,6 +184,7 @@ async function runValidation(po, pi, invoiceId, deps) {
     chargeId: line.chargeId,
     stripe: { gross: line.gross, fee: line.fee, net: line.net, currency, createdAt: line.chargeCreatedAt, description: line.description },
     stripeEvidence: evidence,
+    checkoutEvidence: evidence.checkoutEvidence || 'AVAILABLE',
     references,
     invoice: invoice
       ? {
@@ -194,7 +205,7 @@ async function runValidation(po, pi, invoiceId, deps) {
     checks: v.checks,
     blocking: v.blocking,
     evidenceStatus: v.evidence.status,
-    evidenceSummary: invoice ? evidenceText(v.evidence, invoice) : null,
+    evidenceSummary: invoice ? evidenceText(v.evidence, invoice, evidence) : null,
     requiresTypedInvoiceNumber: directModel.evidenceNeedsTypedConfirmation(v.evidence.status),
     _assessment: v,
   }

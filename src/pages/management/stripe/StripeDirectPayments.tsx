@@ -5,6 +5,7 @@ import {
   releaseStripeDirectPayment,
   searchStripeDirectInvoices,
   validateStripeDirectPayment,
+  type StripeCheckoutEvidence,
   type StripeDirectCustomer,
   type StripeDirectInvoice,
   type StripeDirectSearchBy,
@@ -20,6 +21,17 @@ const MAPPING_REASON_PLACEHOLDER = 'e.g. Payment Link "Matjar meem #20901" paid 
 
 function errorText(err: unknown, fallback: string): string {
   return err instanceof Error && err.message ? err.message : fallback
+}
+
+function checkoutWarning(state: StripeCheckoutEvidence | undefined): string | null {
+  if (state === 'UNAVAILABLE_PERMISSION') return 'Payment Link evidence unavailable because the Stripe key cannot read Checkout Sessions. Manual verification is required.'
+  if (state === 'UNAVAILABLE_ERROR') return 'Payment Link evidence could not be read from Stripe. Manual verification is required.'
+  return null
+}
+
+function CheckoutWarning({ state }: { state: StripeCheckoutEvidence | undefined }) {
+  const text = checkoutWarning(state)
+  return text ? <p className="stripe-direct__warning">{text}</p> : null
 }
 
 function products(evidence: StripePaymentEvidence | null | undefined) {
@@ -62,7 +74,8 @@ function StripeEvidence({ evidence, description }: { evidence: StripePaymentEvid
 
 function Suggestion({ line }: { line: StripeUnassignedLine }) {
   const s = line.suggestion
-  if (line.evidenceError) return <p className="stripe-page__note">Stripe/Zoho evidence could not be read: {line.evidenceError}</p>
+  if (line.evidenceError) return <p className="stripe-direct__warning">{line.evidenceError}</p>
+  if (checkoutWarning(line.stripeEvidence?.checkoutEvidence)) return <CheckoutWarning state={line.stripeEvidence?.checkoutEvidence} />
   if (!s || s.status === 'NONE') return <p className="stripe-page__note">{s?.reason || 'No suggested invoice.'}</p>
   if (s.status === 'SUGGESTED') {
     const c = s.candidates.find((x) => x.invoiceId === s.invoiceId)
@@ -237,9 +250,12 @@ function ValidationPanel({ v }: { v: StripeDirectValidation }) {
         <p className="stripe-page__banner stripe-page__banner--error">Stripe references a different invoice or P.O.# than {inv?.invoiceNumber}.</p>
       )}
       {v.evidenceStatus === 'NONE' && (
-        <p className="stripe-page__banner">
-          Stripe does not reference this invoice. An amount match alone is not enough: re-type the invoice number below to confirm by hand.
-        </p>
+        <>
+          <CheckoutWarning state={v.checkoutEvidence} />
+          {!checkoutWarning(v.checkoutEvidence) && (
+            <p className="stripe-direct__warning">Stripe does not reference this invoice. An amount match alone is not enough; manual verification is required.</p>
+          )}
+        </>
       )}
       <ul className="stripe-direct__checks">
         {v.checks.map((c) => (
@@ -404,10 +420,20 @@ function AssignInvoiceModal({
       {v && v.invoice && !v.blocking && (
         <>
           {v.requiresTypedInvoiceNumber && (
-            <label className="stripe-payout__reason">
-              Re-type the invoice number ({v.invoice.invoiceNumber})
-              <input type="text" value={s.typedInvoiceNumber} disabled={s.saving} onChange={(e) => setS({ ...s, typedInvoiceNumber: e.target.value })} />
-            </label>
+            <>
+              <h4>Manual verification required</h4>
+              <label className="stripe-payout__reason">
+                Re-type invoice number
+                <input
+                  type="text"
+                  value={s.typedInvoiceNumber}
+                  placeholder={v.invoice.invoiceNumber}
+                  autoComplete="off"
+                  disabled={s.saving}
+                  onChange={(e) => setS({ ...s, typedInvoiceNumber: e.target.value })}
+                />
+              </label>
+            </>
           )}
           <label className="stripe-payout__reason">
             Reason
@@ -415,9 +441,12 @@ function AssignInvoiceModal({
           </label>
           <label className="stripe-clearing__check">
             <input type="checkbox" checked={s.acknowledged} disabled={s.saving} onChange={(e) => setS({ ...s, acknowledged: e.target.checked })} />
-            I verified that this Stripe payment of {aed(v.stripe.gross)} paid {v.invoice.invoiceNumber} ({v.invoice.customerName}). This saves a local mapping
-            only; nothing is sent to Zoho or Stripe. The charge then clears inside the normal {v.invoice.customerName} NET and FEE payments of this payout.
+            I verified this Stripe payment belongs to the selected Zoho invoice.
           </label>
+          <p className="stripe-page__note">
+            {aed(v.stripe.gross)} → {v.invoice.invoiceNumber} ({v.invoice.customerName}). Saves a local mapping only; nothing is sent to Zoho or Stripe. The
+            charge then clears inside the normal {v.invoice.customerName} NET and FEE payments of this payout.
+          </p>
         </>
       )}
       {s.error && (

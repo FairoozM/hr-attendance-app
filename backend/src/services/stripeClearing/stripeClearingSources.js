@@ -223,15 +223,11 @@ function plainMetadata(metadata) {
   return out
 }
 
-/**
- * What Stripe says a payment was for (read-only): PaymentIntent and charge descriptions and
- * metadata, and for a Payment Link / Checkout payment the session, link and product texts.
- * No customer contact data is returned.
- */
-async function getPaymentIntentEvidence(paymentIntentId) {
-  const client = requireStripeClient()
-  const pi = await client.paymentIntents.retrieve(paymentIntentId, { expand: ['latest_charge'] })
-  const charge = pi.latest_charge && typeof pi.latest_charge === 'object' ? pi.latest_charge : null
+function isStripePermissionError(err) {
+  return Boolean(err) && (err.type === 'StripePermissionError' || err.code === 'more_permissions_required' || err.statusCode === 403)
+}
+
+async function readCheckoutSessions(client, paymentIntentId) {
   const sessions = []
   for (const cs of (await client.checkout.sessions.list({ payment_intent: paymentIntentId, limit: 3 })).data) {
     const items = await client.checkout.sessions.listLineItems(cs.id, { limit: 20, expand: ['data.price.product'] })
@@ -252,6 +248,29 @@ async function getPaymentIntentEvidence(paymentIntentId) {
       }),
     })
   }
+  return sessions
+}
+
+/**
+ * What Stripe says a payment was for (read-only): PaymentIntent and charge descriptions and
+ * metadata, and for a Payment Link / Checkout payment the session, link and product texts.
+ * No customer contact data is returned.
+ *
+ * The PaymentIntent and charge are required. Checkout Session / Payment Link texts are optional:
+ * when they cannot be read (e.g. the restricted key lacks Checkout Sessions read) the evidence
+ * says so and carries no sessions, so the admin must re-type the invoice number.
+ */
+async function getPaymentIntentEvidence(paymentIntentId) {
+  const client = requireStripeClient()
+  const pi = await client.paymentIntents.retrieve(paymentIntentId, { expand: ['latest_charge'] })
+  const charge = pi.latest_charge && typeof pi.latest_charge === 'object' ? pi.latest_charge : null
+  let sessions = []
+  let checkoutEvidence = 'AVAILABLE'
+  try {
+    sessions = await readCheckoutSessions(client, paymentIntentId)
+  } catch (err) {
+    checkoutEvidence = isStripePermissionError(err) ? 'UNAVAILABLE_PERMISSION' : 'UNAVAILABLE_ERROR'
+  }
   return {
     paymentIntentId: pi.id,
     chargeId: charge ? charge.id : clean(pi.latest_charge) || null,
@@ -265,6 +284,7 @@ async function getPaymentIntentEvidence(paymentIntentId) {
     statementDescriptor: charge ? clean(charge.calculated_statement_descriptor || charge.statement_descriptor) || null : null,
     metadata: { ...plainMetadata(charge && charge.metadata), ...plainMetadata(pi.metadata) },
     createdAt: unixToIso(charge && charge.created ? charge.created : pi.created),
+    checkoutEvidence,
     sessions,
   }
 }

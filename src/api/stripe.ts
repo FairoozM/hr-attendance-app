@@ -264,6 +264,8 @@ export interface StripePaymentEvidence {
   statementDescriptor?: string | null
   metadata: Record<string, string>
   createdAt: string | null
+  /** Checkout Session / Payment Link texts are optional; absent on older previews. */
+  checkoutEvidence?: StripeCheckoutEvidence
   sessions: Array<{
     checkoutSessionId: string
     paymentLinkId: string | null
@@ -272,6 +274,8 @@ export interface StripePaymentEvidence {
     products: Array<{ productName: string | null; productDescription: string | null; lineDescription: string | null; amountMinor: number; quantity: number }>
   }>
 }
+
+export type StripeCheckoutEvidence = 'AVAILABLE' | 'UNAVAILABLE_PERMISSION' | 'UNAVAILABLE_ERROR'
 
 export interface StripeEvidenceReference {
   kind: 'reference' | 'invoiceNumber'
@@ -727,6 +731,7 @@ export interface StripeDirectValidation {
   chargeId: string | null
   stripe: { gross: number; fee: number; net: number; currency: string; createdAt: string | null; description: string | null }
   stripeEvidence: StripePaymentEvidence | null
+  checkoutEvidence?: StripeCheckoutEvidence
   references: StripeEvidenceReference[]
   invoice: (Omit<StripeDirectInvoice, 'selectable' | 'notSelectableReasons' | 'customerName'> & { customerName: string | null }) | null
   websiteOrdersWithReference: Array<{ orderNumber: string; orderStatus: string; paymentStatus: string; paymentMethod: string; hasStripePaymentIntent: boolean; deleted: boolean }>

@@ -152,6 +152,11 @@ function validateDirectMapping(i) {
     check('charge_state', 'Stripe charge is settled, not refunded or disputed',
       evidence && evidence.status === 'succeeded' && !evidence.refundedMinor && !evidence.disputed,
       !evidence ? 'Stripe evidence could not be read.' : `PaymentIntent ${evidence.status}; refunded ${(evidence.refundedMinor || 0) / 100}; ${evidence.disputed ? 'disputed' : 'not disputed'}.`),
+    check('stripe_payment', 'Stripe charge exists and received exactly the gross in AED',
+      Boolean(evidence && evidence.chargeId) && (!line.chargeId || evidence.chargeId === line.chargeId)
+        && clean(evidence.currency).toUpperCase() === config.websiteCurrency && Number(evidence.amountReceivedMinor) === grossMinor,
+      !evidence ? 'Stripe evidence could not be read.'
+        : `Charge ${evidence.chargeId || 'missing'}${line.chargeId && evidence.chargeId !== line.chargeId ? ` (payout has ${line.chargeId})` : ''}; received ${(Number(evidence.amountReceivedMinor) || 0) / 100} ${clean(evidence.currency).toUpperCase() || '—'} for gross ${line.gross}.`),
     check('invoice_found', 'Zoho invoice exists', Boolean(invoice), invoice ? `${invoice.invoiceNumber}` : 'Zoho has no such invoice.'),
   ]
   if (!invoice) return { checks, blocking: true, customerKey: null, evidence: ev }
