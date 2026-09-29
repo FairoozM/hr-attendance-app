@@ -59,9 +59,10 @@ async function fetchCustomers() {
  * @param {string} fromDate   YYYY-MM-DD
  * @param {string} toDate     YYYY-MM-DD
  * @param {string|null} customerId
+ * @param {{ filterBy?: string }} [opts]
  * @returns {Promise<{ rows: object[], truncated: boolean, pages: number }>}
  */
-async function fetchInvoices(fromDate, toDate, customerId = null) {
+async function fetchInvoices(fromDate, toDate, customerId = null, { filterBy = 'Status.All' } = {}) {
   const t0 = Date.now()
 
   function pageParams(page) {
@@ -69,7 +70,7 @@ async function fetchInvoices(fromDate, toDate, customerId = null) {
     if (fromDate)    p.set('date_start',  fromDate)
     if (toDate)      p.set('date_end',    toDate)
     if (customerId)  p.set('customer_id', String(customerId))
-    p.set('filter_by', 'Status.All')
+    p.set('filter_by', filterBy)
     p.set('page',      String(page))
     p.set('per_page',  '200')
     return p

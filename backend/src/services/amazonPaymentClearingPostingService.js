@@ -4,7 +4,7 @@ const zohoPaymentService = require('./amazonPaymentClearingZohoPaymentService')
 const { buildSettlementReference, buildEntryReference } = require('./amazonPaymentClearingReferenceService')
 const { isCreditNoteApplyComplete } = require('./amazonPaymentClearingCreditNotePostingService')
 const { buildReturnFeePlan, aggregateReturnFeeJournalLines } = require('./amazonPaymentClearingReturnFeeService')
-const { fetchInvoicesByIds, invoiceBalanceDue } = require('../integrations/zoho/zohoBooksClient')
+const { fetchInvoices, fetchInvoicesByIds, invoiceBalanceDue } = require('../integrations/zoho/zohoBooksClient')
 const store = require('./amazonPaymentClearingStore')
 const { isSettlementReconciliationAcceptable, legacyPaymentPreviewTolerance } = require('./amazonPaymentClearingCurrencyService')
 
@@ -333,14 +333,39 @@ function mergeInvoiceAllocations(allocations) {
   return Array.from(merged.values())
 }
 
-async function validateInvoiceBalancesForPosting(paymentPreview, opts = {}) {
+/**
+ * Live invoice balances for the plan. One paged "unpaid invoices for customer" list covers
+ * nearly every invoice in a few calls; anything absent (paid, void, list failure) is fetched
+ * individually so an already-paid invoice still surfaces as a balance issue.
+ */
+async function fetchInvoiceBalancesForPosting(invoiceIds, opts = {}) {
   const fetchByIds = opts.fetchInvoicesByIds || fetchInvoicesByIds
+  const fetchUnpaid = opts.fetchUnpaidInvoices || ((customerId) => fetchInvoices(null, null, customerId, { filterBy: 'Status.Unpaid' }))
+  const wanted = new Set(invoiceIds.map((id) => String(id).trim()).filter(Boolean))
+  const invoices = new Map()
+  const customerId = String(opts.customerId || '').trim()
+  if (customerId && (opts.fetchUnpaidInvoices || !opts.fetchInvoicesByIds)) {
+    const listed = await fetchUnpaid(customerId).catch(() => null)
+    for (const row of listed?.rows || []) {
+      const id = String(row?.invoice_id || '').trim()
+      if (wanted.has(id)) invoices.set(id, row)
+    }
+  }
+  const missing = Array.from(wanted).filter((id) => !invoices.has(id))
+  if (missing.length) {
+    const fetched = await fetchByIds(missing)
+    for (const [id, invoice] of fetched) invoices.set(String(id), invoice)
+  }
+  return invoices
+}
+
+async function validateInvoiceBalancesForPosting(paymentPreview, opts = {}) {
   const customerName = paymentPreview?.zohoCustomerName || ''
   const balanceTolerance = legacyPaymentPreviewTolerance(customerName)
   const payments = Array.isArray(paymentPreview?.payments) ? paymentPreview.payments : []
   const invoiceIds = payments.map((row) => row.zohoInvoiceId).filter(Boolean)
   if (!invoiceIds.length) return []
-  const invoices = await fetchByIds(invoiceIds)
+  const invoices = await fetchInvoiceBalancesForPosting(invoiceIds, opts)
   const issues = []
   for (const plan of payments) {
     const invoiceId = String(plan.zohoInvoiceId || '').trim()
@@ -438,6 +463,7 @@ async function postApprovedBatch({
   createManualJournal = zohoPaymentService.createZohoManualJournal,
   buildJournalPayloadPreview = zohoPaymentService.buildManualJournalPayloadPreview,
   fetchInvoicesByIds: fetchInvoicesByIdsOverride,
+  fetchUnpaidInvoices: fetchUnpaidInvoicesOverride,
 }) {
   const latestPreview = await store.getLatestPaymentPreviewForBatch(batch.batchId)
   await ensureCanPostBatch(batch, Boolean(latestPreview), { dryRun, allowPosted })
@@ -476,7 +502,9 @@ async function postApprovedBatch({
   }
 
   const balanceIssues = await validateInvoiceBalancesForPosting(paymentPreview, {
+    customerId,
     fetchInvoicesByIds: fetchInvoicesByIdsOverride,
+    fetchUnpaidInvoices: fetchUnpaidInvoicesOverride,
   }).catch(() => [])
   const balanceIssueByInvoiceId = new Map(balanceIssues.map((row) => [row.zohoInvoiceId, row]))
 
