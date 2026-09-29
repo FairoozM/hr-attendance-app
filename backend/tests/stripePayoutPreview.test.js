@@ -686,6 +686,16 @@ test('duplicate NET: a matching payment is verified; reference alone is never en
   assert.equal(conflicted.zoho.state, ZOHO_STATE.CONFLICT)
   assert.ok(conflicted.zoho.differences.some((d) => d.includes('expected 2026-09-29')))
 
+  // Posted under the arrival-date rule, then re-dated in Zoho to the Dubai day it was posted
+  // (2026-09-29T21:30Z is 2026-09-30 in Dubai): the posting-date rule's date is accepted too.
+  const oldRule = { ...attempt, postedAt: '2026-09-29T21:30:00.000Z', requestSnapshot: { payload: { ...net.payload, date: '2026-09-07' } } }
+  for (const [date, state] of [['2026-09-07', ZOHO_STATE.VERIFIED], ['2026-09-30', ZOHO_STATE.VERIFIED], ['2026-09-29', ZOHO_STATE.CONFLICT]]) {
+    const w = world(CURRENT, { cases: [confirmedCase()], payments: [zohoPaymentFor(net, WEB, 'ZP-NET', { date })], components: [oldRule], balances: balancesAfter(net) })
+    const c = component(group(await w.run(), WEB), 'NET')
+    assert.equal(c.zoho.state, state, date)
+    if (state === ZOHO_STATE.CONFLICT) assert.ok(c.zoho.differences.some((d) => d.includes('expected 2026-09-07 or 2026-09-30')), date)
+  }
+
   const twice = world(CURRENT, { cases: [confirmedCase()], payments: [zohoPaymentFor(net, WEB, 'ZP-1'), zohoPaymentFor(net, WEB, 'ZP-2')] })
   assert.equal(component(group(await twice.run(), WEB), 'NET').zoho.state, ZOHO_STATE.CONFLICT)
 

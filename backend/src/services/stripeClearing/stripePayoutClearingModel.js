@@ -206,11 +206,12 @@ function payoutFeeJournalLabels(direction) {
 }
 
 /** Differences between an existing Zoho journal and a proposed untagged two-line journal. */
-function compareFeeJournal(journal, component, date, labels = FEE_JOURNAL_LABELS) {
+function compareFeeJournal(journal, component, labels = FEE_JOURNAL_LABELS) {
   if (!journal) return ['The Zoho journal could not be read.']
   const differences = []
   if (journal.referenceNumber !== component.reference) differences.push(`Reference is "${journal.referenceNumber}".`)
-  if (date && journal.journalDate !== date) differences.push(`Journal date is ${journal.journalDate}, expected ${date}.`)
+  const dateProblem = dateDifference('Journal date', journal.journalDate, component)
+  if (dateProblem) differences.push(dateProblem)
   const lines = journal.lineItems || []
   const debits = lines.filter((l) => l.debitOrCredit === 'debit')
   const credits = lines.filter((l) => l.debitOrCredit === 'credit')
@@ -274,14 +275,34 @@ function matchDate(component) {
   return proposedDate(component)
 }
 
+/**
+ * Dates an existing Zoho record of this component may carry: `matchDate`, plus the Dubai day its
+ * recorded attempt was posted (`postedDay`), which is the date the posting-date rule gives it.
+ * Empty when `matchDate` is '' (the date is not compared).
+ */
+function acceptedDates(component) {
+  const date = matchDate(component)
+  if (!date) return []
+  const posted = clean(component.postedDay)
+  return posted && posted !== date ? [date, posted] : [date]
+}
+
+/** `"<label> is X, expected Y."` when the record's date is not an accepted date, else null. */
+function dateDifference(label, actual, component) {
+  const accepted = acceptedDates(component)
+  const value = clean(actual)
+  if (accepted.length === 0 || accepted.includes(value)) return null
+  return `${label} is ${value || 'missing'}, expected ${accepted.join(' or ')}.`
+}
+
 /** Differences between an existing Zoho customer payment and the proposed NET/FEE component. */
 function compareCustomerPayment(detail, component, customerId) {
   if (!detail) return ['The Zoho payment could not be read.']
   const differences = []
-  const date = matchDate(component)
+  const dateProblem = dateDifference('Payment date', detail.date, component)
   if (clean(detail.reference_number) !== component.reference) differences.push(`Reference is "${clean(detail.reference_number)}".`)
   if (clean(detail.customer_id) !== customerId) differences.push(`Customer is ${detail.customer_name || detail.customer_id}.`)
-  if (date && clean(detail.date) !== date) differences.push(`Payment date is ${clean(detail.date) || 'missing'}, expected ${date}.`)
+  if (dateProblem) differences.push(dateProblem)
   if (toMinor(detail.amount) !== toMinor(component.amount)) differences.push(`Amount ${detail.amount}, proposed ${component.amount}.`)
   if (clean(detail.account_id) !== component.depositAccountId) differences.push(`Deposited to ${detail.account_name || detail.account_id}.`)
   const existing = new Map()
@@ -305,9 +326,9 @@ function journalCustomer(journal, liabilityAccountId) {
 function compareAdvanceJournal(journal, component, customerId) {
   if (!journal) return ['The Zoho journal could not be read.']
   const differences = []
-  const date = matchDate(component)
+  const dateProblem = dateDifference('Journal date', journal.journalDate, component)
   if (journal.referenceNumber !== component.reference) differences.push(`Reference is "${journal.referenceNumber}".`)
-  if (date && clean(journal.journalDate) !== date) differences.push(`Journal date is ${clean(journal.journalDate) || 'missing'}, expected ${date}.`)
+  if (dateProblem) differences.push(dateProblem)
   const lines = journal.lineItems || []
   const debits = lines.filter((l) => l.debitOrCredit === 'debit')
   const credits = lines.filter((l) => l.debitOrCredit === 'credit')
@@ -658,8 +679,8 @@ function compareCreditNoteRefund(detail, component) {
   if (clean(detail.creditNoteId) !== component.creditNoteId) differences.push(`It refunds credit note ${detail.creditNoteId}, not ${component.creditNoteId}.`)
   if (toMinor(detail.amount) !== toMinor(component.amount)) differences.push(`Amount ${detail.amount}, proposed ${component.amount}.`)
   if (clean(detail.fromAccountId) !== component.depositAccountId) differences.push(`Paid from ${detail.fromAccountName || detail.fromAccountId}, not Stripe Undeposited Funds.`)
-  const date = matchDate(component)
-  if (date && clean(detail.date) !== date) differences.push(`Refund date is ${detail.date}, expected ${date}.`)
+  const dateProblem = dateDifference('Refund date', detail.date, component)
+  if (dateProblem) differences.push(dateProblem)
   return differences
 }
 
@@ -678,7 +699,7 @@ function refundFeeAdjustmentAccounts(feeMinor, depositAccountId, feeAccountId) {
 const REFUND_FEE_LABELS = { debit: 'the expected debit account', credit: 'the expected credit account', name: 'a refund fee journal' }
 
 function compareRefundFeeJournal(journal, component) {
-  return compareFeeJournal(journal, component, matchDate(component), REFUND_FEE_LABELS)
+  return compareFeeJournal(journal, component, REFUND_FEE_LABELS)
 }
 
 /**
@@ -857,6 +878,7 @@ module.exports = {
   creditNoteRefundPayload,
   proposedDate,
   matchDate,
+  acceptedDates,
   compareCustomerPayment,
   compareAdvanceJournal,
   compareFeeJournal,

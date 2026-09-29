@@ -254,6 +254,29 @@ test('refund fee adjustment follows the sign of Stripe fee and credit note refun
   assert.equal(m.compareCreditNoteRefund({ ...detail, amount: 76.71, fromAccountId: 'CASH', creditNoteId: 'CN2' }, component).length, 3)
 })
 
+test('existing records match the recorded attempt date or the Dubai day that attempt was posted', () => {
+  const journal = (journalDate) => ({
+    referenceNumber: 'Stripe processing fees po_1',
+    journalDate,
+    lineItems: [
+      { accountId: 'FEES', debitOrCredit: 'debit', amount: 80.33 },
+      { accountId: 'A1013', debitOrCredit: 'credit', amount: 80.33 },
+    ],
+  })
+  const base = { reference: 'Stripe processing fees po_1', amount: 80.33, debitAccountId: 'FEES', creditAccountId: 'A1013', date: '2026-09-30' }
+  const recorded = { ...base, matchDate: '2026-09-09', postedDay: '2026-09-29' }
+  assert.deepEqual(m.acceptedDates(recorded), ['2026-09-09', '2026-09-29'])
+  assert.deepEqual(m.compareFeeJournal(journal('2026-09-09'), recorded), [])
+  assert.deepEqual(m.compareFeeJournal(journal('2026-09-29'), recorded), [])
+  assert.deepEqual(m.compareFeeJournal(journal('2026-09-30'), recorded), ['Journal date is 2026-09-30, expected 2026-09-09 or 2026-09-29.'])
+  // No recorded attempt: the date is not compared, whatever day the record carries.
+  assert.deepEqual(m.acceptedDates({ ...base, matchDate: '', postedDay: '2026-09-29' }), [])
+  assert.deepEqual(m.compareFeeJournal(journal('2026-01-01'), { ...base, matchDate: '' }), [])
+  // Request snapshots (no matchDate) are held to their own date only.
+  assert.deepEqual(m.compareFeeJournal(journal('2026-09-29'), base), ['Journal date is 2026-09-29, expected 2026-09-30.'])
+  assert.deepEqual(m.compareRefundFeeJournal(journal('2026-09-29'), recorded), [])
+})
+
 test('normal refund status follows component recovery', () => {
   const c = (component, action, localStatus = null) => ({ component, recovery: { action, reason: action }, localStatus })
   assert.equal(m.deriveNormalRefundStatus([c('REFUND_CREDIT_NOTE_REFUND', A.POST_ELIGIBLE)]).status, NR.READY)

@@ -720,9 +720,14 @@ function recordedDate(local, arrivalDate) {
   return local.attemptCount > 0 ? clean(arrivalDate) : ''
 }
 
+/** Recorded-attempt dates an existing record is matched against (see `model.acceptedDates`). */
+function recordedDates(local, arrivalDate) {
+  return { matchDate: recordedDate(local, arrivalDate), postedDay: (local && dubaiDateOf(local.postedAt)) || '' }
+}
+
 /** Days a record of this component can carry: the proposed posting date and any recorded attempt date. */
 function componentDates(component) {
-  return [...new Set([model.proposedDate(component), model.matchDate(component)].filter(Boolean))].sort()
+  return [...new Set([model.proposedDate(component), ...model.acceptedDates(component)].filter(Boolean))].sort()
 }
 
 /**
@@ -784,7 +789,7 @@ async function feeJournalZohoState(component, ctx) {
   if (found.length === 0) return { state: ZOHO_STATE.MISSING, recordId: null, records, differences: [] }
   if (found.length > 1) return { state: ZOHO_STATE.CONFLICT, recordId: null, records, differences: [], reason: `${found.length} Zoho journals have the reference "${component.reference}".` }
   const detail = await ctx.sources.getZohoJournal(found[0].journalId, { source: 'stripe_payout_preview' })
-  const differences = model.compareFeeJournal(detail, component, model.matchDate(component), model.payoutFeeJournalLabels(component.direction))
+  const differences = model.compareFeeJournal(detail, component, model.payoutFeeJournalLabels(component.direction))
   if (differences.length > 0) {
     return { state: ZOHO_STATE.CONFLICT, recordId: found[0].journalId, records, differences, reason: `Zoho journal ${found[0].journalId} differs: ${differences.join(' ')}` }
   }
@@ -965,7 +970,7 @@ async function buildFeeJournal({ payout, txns, groups, payoutBlockers, accounts,
     currency: payout.currency,
     reference: model.payoutFeeReference(payout.payoutId),
     date,
-    matchDate: recordedDate(local, arrivalDate),
+    ...recordedDates(local, arrivalDate),
     debitAccountId: side ? side.debitAccountId : null,
     creditAccountId: side ? side.creditAccountId : null,
     depositAccountId: null,
@@ -1088,7 +1093,7 @@ async function buildGroup(customerId, lines, ctx) {
   const components = []
   for (const proposal of proposed) {
     const local = localByKey.get(`${customerId}|${proposal.component}`) || null
-    const c = { ...proposal, matchDate: recordedDate(local, ctx.arrivalDate) }
+    const c = { ...proposal, ...recordedDates(local, ctx.arrivalDate) }
     const zoho = c.zohoRecordType === 'journal' ? await zohoJournalState(c, customerId, ctx, payoutId) : await zohoPaymentState(c, customerId, ctx)
     components.push({ ...c, zoho, local: publicLocal(local), localStatus: local ? local.status : null, recovery: model.planRecovery(zoho, local) })
   }
@@ -1560,7 +1565,7 @@ async function planNormalRefund(t, ctx) {
   const components = []
   for (const proposal of proposed) {
     const row = local.find((x) => x.component === proposal.component) || null
-    const c = { ...proposal, matchDate: recordedDate(row, ctx.arrivalDate) }
+    const c = { ...proposal, ...recordedDates(row, ctx.arrivalDate) }
     const zoho = c.component === COMPONENT.REFUND_CREDIT_NOTE_REFUND ? await creditNoteRefundZohoState(c, ctx) : await refundFeeJournalZohoState(c, ctx)
     const identity = row && (row.creditNoteId !== c.creditNoteId || row.invoiceId !== invoice.invoiceId || row.zohoCustomerId !== customerId)
     const recovery = identity
