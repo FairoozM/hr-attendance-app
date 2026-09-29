@@ -2761,3 +2761,44 @@ test('UAE sample settlement classifies, matches, and reconciles in AED', () => {
   assert.match(reference.referenceBase, /^AMZ-UAE-/)
 })
 
+test('reopened UAE batch applies saved UAE fee journal mappings', () => {
+  const { savedBatchToPreview } = require('../src/services/amazonPaymentClearingService')._internals
+  const { buildNonOrderLinkedAmazonFeeMappings } = require('../src/services/amazonPaymentClearingPreviewService')
+  const parsed = parseAmazonSettlementReport(UAE_SETTLEMENT_TSV, { defaultCurrency: 'AED' })
+  const fresh = buildPreview({
+    report: { marketplace: 'UAE', settlementId: parsed.metadata.settlementId, currency: 'AED' },
+    rows: parsed.rows,
+    invoices: [],
+  })
+  const rules = fresh.nonOrderLinkedAmazonFeeMappings.map((row, idx) => ({
+    id: idx + 1,
+    marketplace: 'UAE',
+    normalizedFeeType: row.normalizedFeeType,
+    rawTransactionType: row.rawTransactionType,
+    descriptionPattern: row.description,
+    debitAccountId: `debit-${idx}`,
+    debitAccountName: 'Debit',
+    creditAccountId: `credit-${idx}`,
+    creditAccountName: 'Credit',
+    isActive: true,
+    priority: 100,
+  }))
+  assert.ok(rules.length > 0)
+
+  const reopened = savedBatchToPreview({
+    batchId: 1,
+    status: 'draft',
+    marketplace: 'UAE',
+    report: { settlementId: parsed.metadata.settlementId, currency: 'AED' },
+    allRows: fresh.allRows,
+  })
+  assert.equal(reopened.report.marketplace, 'UAE')
+
+  const mappings = buildNonOrderLinkedAmazonFeeMappings(reopened.allRows, reopened.report, rules)
+  assert.equal(mappings.length, rules.length)
+  for (const row of mappings) {
+    assert.equal(row.marketplace, 'UAE')
+    assert.notEqual(row.mappingStatus, 'needs_mapping')
+  }
+})
+

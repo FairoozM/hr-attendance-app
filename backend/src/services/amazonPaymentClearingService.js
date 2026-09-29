@@ -657,6 +657,7 @@ function savedBatchToPreview(batch) {
         batch.report?.currency,
         getPaymentClearingMarketplaceConfig(batch.marketplace || MARKETPLACE).currency
       ),
+      marketplace: normalizeMarketplaceCode(batch.marketplace || batch.report?.marketplace || MARKETPLACE),
     },
     totals: batch.totals || {},
     pivot: batch.pivot || [],
@@ -856,6 +857,7 @@ async function refreshBatchPreviewFromStoredRows(batchId, batch = null) {
     report: {
       ...report,
       currency: settlementCurrencyForCustomer(customerName, report.currency),
+      marketplace: normalizeMarketplaceCode(resolvedBatch.marketplace || report.marketplace || MARKETPLACE),
     },
     rows,
     invoices: invoicesFromMatchedOrders(resolvedBatch.matchedOrders),
@@ -1524,5 +1526,6 @@ module.exports = {
     clampSettlementListDaysBack,
     resolveSettlementListCreatedSince,
     marketplaceConfigFromOptions,
+    savedBatchToPreview,
   },
 }

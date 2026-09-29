@@ -223,7 +223,7 @@ async function postFeeJournalMapping(req, res) {
   try {
     const cfg = marketplaceFromReq(req)
     const json = await service.saveFeeJournalMapping(
-      { ...(req.body || {}), marketplace: req.body?.marketplace || cfg.code },
+      { ...(req.body || {}), marketplace: cfg.code },
       req.user?.userId
     )
     res.json(json)
