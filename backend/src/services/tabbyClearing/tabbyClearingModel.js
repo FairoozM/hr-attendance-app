@@ -5,17 +5,18 @@
  * the complete posting plan (built before any Zoho write) and a ledger simulation of that plan.
  * No I/O. Amounts are integer fils until a Zoho payload is built.
  *
- * Accounting per statement:
- *   SALE_NET                  customer payment  Dr Tabby Undeposited          / Cr invoice (AR)   transferred amount
- *   SALE_CHARGES              customer payment  Dr Tabby Processing Chg       / Cr invoice (AR)   gross − transferred (= total deduction)
- *   REFUND_PAYMENT            credit note refund from Tabby Undeposited                            refunded gross
- *   REFUND_COMMISSION_REVERSAL journal Dr Tabby Undeposited / Cr Tabby Commission Expense        commission Tabby returned
- *   REFUND_FEE_REVERSAL       journal Dr Tabby Undeposited / Cr Tabby Fees Expense              fixed fee Tabby returned
- *   REFUND_VAT_REVERSAL       journal Dr Tabby Undeposited / Cr Input VAT                       VAT Tabby returned
- *   CHARGE_EXPENSE_CLEARING   journal Dr Commission + Dr Fees + Dr Input VAT / Cr Tabby Processing Chg (to zero)
- *   PAYOUT_FEE                journal Dr Fees + Dr Input VAT / Cr Tabby Undeposited
+ * Accounting per statement (COMBINED layout, per Zoho customer like Stripe payouts):
+ *   SALE_NET                  one customer payment  Dr Tabby Undeposited    / Cr every invoice (AR)   transferred amounts
+ *   SALE_CHARGES              one customer payment  Dr Tabby Processing Chg / Cr every invoice (AR)   gross − transferred
+ *   REFUND_PAYMENT            credit note refund from Tabby Undeposited (one per refund)                refunded gross
+ *   SETTLEMENT_JOURNAL        one journal, net per account: Dr Commission + Dr Fees + Dr Input VAT
+ *                             / Cr Tabby Processing Chg (to zero) / Cr Tabby Undeposited (payout fee, less
+ *                             what Tabby returned on refunds)
  *   BANK_SETTLEMENT           transfer Tabby Undeposited → RAK Bank (only when no existing transfer is found)
- * A charge Tabby adds on a refund (positive effect) posts the same journals in the other direction.
+ *
+ * PER_INVOICE layout (statements already posted that way are never re-planned): one SALE_NET and
+ * SALE_CHARGES payment per invoice, REFUND_*_REVERSAL journals per refund, and separate
+ * CHARGE_EXPENSE_CLEARING and PAYOUT_FEE journals.
  */
 
 const crypto = require('crypto')
@@ -33,8 +34,29 @@ const COMPONENT = Object.freeze({
   REFUND_VAT_REVERSAL: 'REFUND_VAT_REVERSAL',
   CHARGE_EXPENSE_CLEARING: 'CHARGE_EXPENSE_CLEARING',
   PAYOUT_FEE: 'PAYOUT_FEE',
+  SETTLEMENT_JOURNAL: 'SETTLEMENT_JOURNAL',
   BANK_SETTLEMENT: 'BANK_SETTLEMENT',
 })
+
+const PLAN_LAYOUT = Object.freeze({
+  COMBINED: 'COMBINED',
+  PER_INVOICE: 'PER_INVOICE',
+})
+
+const CUSTOMER_SCOPE = 'CUSTOMER:'
+const PER_INVOICE_ONLY = new Set([
+  COMPONENT.REFUND_COMMISSION_REVERSAL,
+  COMPONENT.REFUND_FEE_REVERSAL,
+  COMPONENT.REFUND_VAT_REVERSAL,
+  COMPONENT.CHARGE_EXPENSE_CLEARING,
+  COMPONENT.PAYOUT_FEE,
+])
+
+/** A stored component that only exists in the PER_INVOICE layout. */
+function isPerInvoiceComponent(c) {
+  if (PER_INVOICE_ONLY.has(c.component)) return true
+  return (c.component === COMPONENT.SALE_NET || c.component === COMPONENT.SALE_CHARGES) && !String(c.scope || '').startsWith(CUSTOMER_SCOPE)
+}
 
 // Execution order. Every sale is paid before any refund, so a sale and its refund in the same
 // statement never run in Excel row order.
@@ -47,6 +69,7 @@ const PHASE = Object.freeze({
   [COMPONENT.REFUND_FEE_REVERSAL]: 22,
   [COMPONENT.REFUND_VAT_REVERSAL]: 23,
   [COMPONENT.CHARGE_EXPENSE_CLEARING]: 30,
+  [COMPONENT.SETTLEMENT_JOURNAL]: 30,
   [COMPONENT.PAYOUT_FEE]: 40,
   [COMPONENT.BANK_SETTLEMENT]: 50,
 })
@@ -486,6 +509,72 @@ function withAccounts(lines, accounts) {
 }
 
 /**
+ * One SALE_NET and one SALE_CHARGES customer payment per Zoho customer, each applied to every
+ * invoice of that customer in the statement. Shop sales carry a SHOP tag so both references stay
+ * unique when a statement has both customers.
+ */
+function pushCombinedSales(push, statementNumber, sales, accounts, config) {
+  const groups = new Map()
+  for (const r of sales) {
+    const id = r.match.invoice.customerId
+    if (!groups.has(id)) groups.set(id, [])
+    groups.get(id).push(r)
+  }
+  for (const [customerId, list] of groups) {
+    const tag = config.shopZohoCustomerId && customerId === config.shopZohoCustomerId && customerId !== config.websiteZohoCustomerId ? 'SHOP' : null
+    const parts = [
+      [COMPONENT.SALE_NET, (r) => r.economics.transferMinor, ACCOUNT_ROLE.UNDEPOSITED],
+      [COMPONENT.SALE_CHARGES, (r) => r.economics.grossMinor - r.economics.transferMinor, ACCOUNT_ROLE.PROCESSING],
+    ]
+    for (const [component, amountOf, depositRole] of parts) {
+      const applied = list.filter((r) => amountOf(r) > 0)
+      if (applied.length === 0) continue
+      push({
+        component,
+        scope: `${CUSTOMER_SCOPE}${customerId}`,
+        zohoRecordType: 'customer_payment',
+        customerId,
+        amountMinor: applied.reduce((s, r) => s + amountOf(r), 0),
+        reference: reference(statementNumber, tag, component),
+        depositRole,
+        depositAccountId: accountIdOf(accounts, depositRole),
+        allocations: applied.map((r) => ({ invoiceId: r.match.invoice.invoiceId, invoiceNumber: r.match.invoice.invoiceNumber, websiteOrderId: r.websiteOrderId, amount: toMajor(amountOf(r)) })),
+        sourceRows: applied.map((r) => r.excelRow),
+      })
+    }
+  }
+}
+
+/**
+ * The statement's single journal, netted per account: sale charges out of Tabby Processing into
+ * commission / fees / input VAT, the payout fee and VAT out of Tabby Undeposited, and whatever
+ * Tabby returned (or added) on refunds back into Tabby Undeposited. Balanced by construction.
+ */
+function pushSettlementJournal(push, statementNumber, { sales, refunds, payouts, netCharges }, accounts) {
+  const sum = (list, f) => list.reduce((s, r) => s + f(r), 0)
+  const refundCharges = (r) => r.effects.commissionEffect + r.effects.fixedFeeEffect + r.effects.roundingEffect + r.effects.vatEffect
+  const payoutCredit = -sum(payouts, (r) => r.economics.transferMinor)
+  const net = [
+    [ACCOUNT_ROLE.COMMISSION_EXPENSE, sum(sales, (r) => r.economics.commissionMinor) + sum(refunds, (r) => r.effects.commissionEffect)],
+    [ACCOUNT_ROLE.FEES_EXPENSE, sum(sales, (r) => r.economics.fixedFeeMinor + r.effects.roundingEffect) + sum(payouts, (r) => r.economics.feeMinor + r.effects.roundingEffect) + sum(refunds, (r) => r.effects.fixedFeeEffect + r.effects.roundingEffect)],
+    [ACCOUNT_ROLE.INPUT_VAT, sum(sales, (r) => r.economics.vatMinor) + sum(payouts, (r) => r.economics.vatMinor) + sum(refunds, (r) => r.effects.vatEffect)],
+    [ACCOUNT_ROLE.PROCESSING, -netCharges],
+    [ACCOUNT_ROLE.UNDEPOSITED, -payoutCredit - sum(refunds, refundCharges)],
+  ]
+  const lines = withAccounts(net.filter(([, v]) => v !== 0).map(([role, v]) => ({ role, side: v > 0 ? 'debit' : 'credit', amountMinor: Math.abs(v) })), accounts)
+  if (lines.length === 0) return
+  push({
+    component: COMPONENT.SETTLEMENT_JOURNAL,
+    scope: 'STATEMENT',
+    zohoRecordType: 'journal',
+    amountMinor: lines.filter((l) => l.side === 'debit').reduce((s, l) => s + l.amountMinor, 0),
+    reference: reference(statementNumber, 'SETTLEMENT'),
+    lines,
+    sourceRows: [...sales, ...refunds, ...payouts].map((r) => r.excelRow).sort((a, b) => a - b),
+  })
+}
+
+/**
  * Every Zoho record this statement needs, in execution order, with deterministic keys and
  * references. Rows that are not matched (or carry problems) produce no components; the caller
  * blocks posting in that case.
@@ -494,7 +583,8 @@ function withAccounts(lines, accounts) {
  *   bank: { status: string, amountMinor: number },
  * }} input rows: analyzed rows with `match` (+ `refund` for refunds)
  */
-function buildPostingPlan({ statementNumber, rows, accounts, date, config, bank }) {
+function buildPostingPlan({ statementNumber, rows, accounts, date, config, bank, layout = PLAN_LAYOUT.COMBINED }) {
+  const combined = layout !== PLAN_LAYOUT.PER_INVOICE
   const components = []
   const push = (c) => {
     c.statementNumber = statementNumber
@@ -509,7 +599,9 @@ function buildPostingPlan({ statementNumber, rows, accounts, date, config, bank 
   const refunds = rows.filter((r) => r.kind === ROW_KIND.REFUND && r.match && r.match.matched && r.problems.length === 0 && r.refund && !r.refund.code && r.refund.creditNote)
   const payouts = rows.filter((r) => r.kind === ROW_KIND.PAYOUT_FEE && r.problems.length === 0)
 
-  for (const r of sales.sort((a, b) => a.excelRow - b.excelRow)) {
+  sales.sort((a, b) => a.excelRow - b.excelRow)
+  if (combined) pushCombinedSales(push, statementNumber, sales, accounts, config)
+  for (const r of combined ? [] : sales) {
     const inv = r.match.invoice
     const netMinor = r.economics.transferMinor
     const chargesMinor = r.economics.grossMinor - netMinor
@@ -550,6 +642,7 @@ function buildPostingPlan({ statementNumber, rows, accounts, date, config, bank 
       creditNoteNumber: cn.creditNoteNumber,
       candidateCreditNoteIds: r.refund.candidateCreditNoteIds || [cn.creditNoteId],
     })
+    if (combined) continue
     const reversals = [
       [COMPONENT.REFUND_COMMISSION_REVERSAL, r.effects.commissionEffect, ACCOUNT_ROLE.COMMISSION_EXPENSE, 'COMM_REV'],
       [COMPONENT.REFUND_FEE_REVERSAL, r.effects.fixedFeeEffect + r.effects.roundingEffect, ACCOUNT_ROLE.FEES_EXPENSE, 'FEE_REV'],
@@ -563,7 +656,8 @@ function buildPostingPlan({ statementNumber, rows, accounts, date, config, bank 
   }
 
   const netCharges = sales.reduce((s, r) => s + (r.economics.grossMinor - r.economics.transferMinor), 0)
-  if (netCharges > 0) {
+  if (combined) pushSettlementJournal(push, statementNumber, { sales, refunds, payouts, netCharges }, accounts)
+  if (!combined && netCharges > 0) {
     const commission = sales.reduce((s, r) => s + r.economics.commissionMinor, 0)
     const fees = sales.reduce((s, r) => s + r.economics.fixedFeeMinor + r.effects.roundingEffect, 0)
     const vat = sales.reduce((s, r) => s + r.economics.vatMinor, 0)
@@ -576,7 +670,7 @@ function buildPostingPlan({ statementNumber, rows, accounts, date, config, bank 
     push({ component: COMPONENT.CHARGE_EXPENSE_CLEARING, scope: 'STATEMENT', zohoRecordType: 'journal', amountMinor: netCharges, reference: reference(statementNumber, 'CHARGE_CLEARING'), lines, sourceRows: sales.map((r) => r.excelRow) })
   }
 
-  if (payouts.length > 0) {
+  if (!combined && payouts.length > 0) {
     const fee = payouts.reduce((s, r) => s + r.economics.feeMinor + r.effects.roundingEffect, 0)
     const vat = payouts.reduce((s, r) => s + r.economics.vatMinor, 0)
     const credit = -payouts.reduce((s, r) => s + r.economics.transferMinor, 0)
@@ -690,6 +784,7 @@ function postingFingerprint(statementNumber, fileHash, date, components, bank) {
       reference: c.reference,
       customer: c.customerId || null,
       invoice: c.invoiceId || null,
+      allocations: (c.allocations || []).map((a) => [a.invoiceId, Math.round(a.amount * 100)]),
       creditNote: c.creditNoteId || null,
       deposit: c.depositAccountId || null,
       from: c.fromAccountId || null,
@@ -701,6 +796,8 @@ function postingFingerprint(statementNumber, fileHash, date, components, bank) {
 
 module.exports = {
   COMPONENT,
+  PLAN_LAYOUT,
+  isPerInvoiceComponent,
   PHASE,
   MATCH_STATUS,
   BANK_STATUS,

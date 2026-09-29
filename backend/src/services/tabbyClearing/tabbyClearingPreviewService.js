@@ -17,7 +17,15 @@ const { COMPONENT_STATUS, REPLANNABLE, BATCH_STATUS } = require('./tabbyClearing
 const { ACCOUNT_ROLE } = require('../../config/tabbyClearing')
 const { getDubaiPostingDate } = require('../stripeClearing/stripePostingDate')
 
-const { COMPONENT, MATCH_STATUS, BANK_STATUS, toMajor, money } = model
+const { COMPONENT, PLAN_LAYOUT, MATCH_STATUS, BANK_STATUS, toMajor, money } = model
+
+const isSalePayment = (c) => c.component === COMPONENT.SALE_NET || c.component === COMPONENT.SALE_CHARGES
+
+/** Fils a sale payment applies to one invoice (0 when it does not touch it). */
+function appliedTo(c, invoiceId) {
+  if (c.allocations && c.allocations.length) return c.allocations.filter((a) => a.invoiceId === invoiceId).reduce((s, a) => s + Math.round(a.amount * 100), 0)
+  return c.invoiceId === invoiceId ? Math.round(c.amount * 100) : 0
+}
 const { ZOHO_STATE } = zohoChecks
 
 const RECOVERY_ACTION = Object.freeze({
@@ -147,6 +155,7 @@ function componentView(c, accounts, local, zoho, recovery) {
     websiteOrderId: c.websiteOrderId || null,
     creditNoteId: c.creditNoteId || null,
     creditNoteNumber: c.creditNoteNumber || null,
+    allocations: (c.allocations || []).map((a) => ({ invoiceId: a.invoiceId, invoiceNumber: a.invoiceNumber, websiteOrderId: a.websiteOrderId || null, amount: a.amount })),
     depositAccount: c.depositRole ? accountLabel(accounts, c.depositRole) : null,
     fromAccount: c.fromRole ? accountLabel(accounts, c.fromRole) : null,
     toAccount: c.toRole ? accountLabel(accounts, c.toRole) : null,
@@ -304,8 +313,10 @@ async function buildTabbyPreview({ batchId, store, sources, config, now = new Da
   }
   bank.linkedTransactionId = batch.bankTransactionId || null
 
-  // Plan
-  const plan = model.buildPostingPlan({ statementNumber, rows, accounts, date, config, bank })
+  // Plan. A statement with anything already sent in the per-invoice layout stays in it, so no
+  // record is ever planned twice under a different key.
+  const layout = localList.some((l) => !REPLANNABLE.includes(l.status) && model.isPerInvoiceComponent(l)) ? PLAN_LAYOUT.PER_INVOICE : PLAN_LAYOUT.COMBINED
+  const plan = model.buildPostingPlan({ statementNumber, rows, accounts, date, config, bank, layout })
   const hasAccountProblems = accountProblems.length > 0 || chart.length === 0
   for (const c of plan) {
     for (const p of model.componentProblems(c)) {
@@ -326,16 +337,21 @@ async function buildTabbyPreview({ batchId, store, sources, config, now = new Da
   const nowMs = now.getTime()
   const zohoStates = new Map()
   const saleRows = rows.filter((r) => r.kind === ROW_KIND.SALE && r.match && r.match.matched)
+  const openInvoices = new Set()
   for (const r of saleRows) {
     const inv = r.match.invoice
     const totalMinor = Math.round(inv.total * 100)
     const balanceMinor = Math.round(inv.balance * 100)
     r.invoiceState = balanceMinor === totalMinor ? 'OPEN' : balanceMinor === 0 ? 'PAID' : 'PARTIALLY_PAID'
-    if (balanceMinor === totalMinor && !deep) {
-      // No payment is applied yet, so neither sale payment exists.
-      for (const c of plan.filter((x) => x.invoiceId === inv.invoiceId && (x.component === COMPONENT.SALE_NET || x.component === COMPONENT.SALE_CHARGES))) {
-        const l = local.get(c.key)
-        if (!l || REPLANNABLE.includes(l.status)) zohoStates.set(c.key, { state: ZOHO_STATE.MISSING, reason: `Invoice ${inv.invoiceNumber} has no payments applied.` })
+    if (balanceMinor === totalMinor) openInvoices.add(inv.invoiceId)
+  }
+  if (!deep) {
+    // No payment of any kind touches these invoices yet, so the sale payment cannot exist.
+    for (const c of plan.filter(isSalePayment)) {
+      const l = local.get(c.key)
+      if (c.allocations.every((a) => openInvoices.has(a.invoiceId)) && (!l || REPLANNABLE.includes(l.status))) {
+        const which = c.allocations.length === 1 ? `Invoice ${c.allocations[0].invoiceNumber} has` : `None of its ${c.allocations.length} invoices has`
+        zohoStates.set(c.key, { state: ZOHO_STATE.MISSING, reason: `${which} payments applied.` })
       }
     }
   }
@@ -359,8 +375,8 @@ async function buildTabbyPreview({ batchId, store, sources, config, now = new Da
   for (const r of saleRows) {
     const inv = r.match.invoice
     const paidMinor = Math.round((inv.total - inv.balance) * 100)
-    const ours = components.filter((c) => c.invoiceId === inv.invoiceId && (c.component === COMPONENT.SALE_NET || c.component === COMPONENT.SALE_CHARGES) && c.zoho && c.zoho.state === ZOHO_STATE.VERIFIED)
-      .reduce((s, c) => s + Math.round(c.amount * 100), 0)
+    const ours = components.filter((c) => isSalePayment(c) && c.zoho && c.zoho.state === ZOHO_STATE.VERIFIED)
+      .reduce((s, c) => s + appliedTo(c, inv.invoiceId), 0)
     if (paidMinor !== ours) {
       blockers.push(issue('INVOICE_ALREADY_PAID', `Zoho invoice ${inv.invoiceNumber} already has ${money(paidMinor - ours)} applied by other payments (balance ${inv.balance.toFixed(2)} of ${inv.total.toFixed(2)}).`, { scope: 'ROW', excelRow: r.excelRow, websiteOrderId: r.websiteOrderId }))
     }
@@ -477,6 +493,7 @@ async function buildTabbyPreview({ batchId, store, sources, config, now = new Da
     statementNumber,
     date,
     status,
+    layout,
     postingEnabled: config.postingEnabled === true,
     canPost: config.postingEnabled === true && blockers.length === 0 && status !== BATCH_STATUS.POSTED,
     fingerprint,

@@ -295,7 +295,10 @@ function ComponentsTable({ components }: { components: TabbyComponent[] }) {
               <tr className="tabby-page__clickable" onClick={() => setOpen(open === c.key ? null : c.key)}>
                 <td>
                   {humanize(c.component)}
-                  <div className="tabby-page__sub">{humanize(c.zohoRecordType)}</div>
+                  <div className="tabby-page__sub">
+                    {humanize(c.zohoRecordType)}
+                    {c.allocations.length > 1 ? ` · ${c.allocations.length} invoices` : ''}
+                  </div>
                 </td>
                 <td className="tabby-page__mono">{c.reference}</td>
                 <td className="num">{formatAed(c.amount)}</td>
@@ -319,6 +322,12 @@ function ComponentsTable({ components }: { components: TabbyComponent[] }) {
                     {c.zoho?.reason ? <p>Zoho: {c.zoho.reason}</p> : null}
                     {c.local?.lastError ? <p className="tabby-page__issue">Last error: {c.local.lastError}</p> : null}
                     {c.invoiceNumber ? <p>Invoice {c.invoiceNumber}</p> : null}
+                    {!c.invoiceNumber && c.allocations.length ? (
+                      <p>
+                        Applied to {c.allocations.length} invoice(s):{' '}
+                        {c.allocations.map((a) => `${a.invoiceNumber} ${formatAed(a.amount)}`).join(' · ')}
+                      </p>
+                    ) : null}
                     {c.creditNoteNumber ? <p>Credit note {c.creditNoteNumber}</p> : null}
                     {c.sourceRows.length ? <p>Statement rows {c.sourceRows.join(', ')}</p> : null}
                     {c.payload ? <pre className="tabby-page__pre">{JSON.stringify(c.payload, null, 2)}</pre> : null}

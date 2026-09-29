@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import type { TabbyBatch, TabbyPostJob, TabbyPreview } from '../../../api/tabbyClearing'
+import type { TabbyBatch, TabbyComponent, TabbyPostJob, TabbyPreview } from '../../../api/tabbyClearing'
 
 const api = vi.hoisted(() => ({
   listTabbyBatches: vi.fn(),
@@ -30,6 +30,7 @@ function preview(overrides: Partial<TabbyPreview> = {}): TabbyPreview {
     statementNumber: STATEMENT,
     date: '2026-09-29',
     status: 'READY',
+    layout: 'COMBINED',
     postingEnabled: true,
     canPost: true,
     fingerprint: 'fp-1',
@@ -177,6 +178,47 @@ describe('TabbyClearingPage', () => {
     expect(screen.getByText('1 blocker(s) must be resolved first.')).toBeTruthy()
     expect((screen.getByRole('button', { name: 'Post to Zoho' }) as HTMLButtonElement).disabled).toBe(true)
     expect(api.getTabbyPreview).toHaveBeenCalledWith('7', { deep: false })
+  })
+
+  it('shows a combined payment with every invoice it is applied to', async () => {
+    const payment: TabbyComponent = {
+      key: `${STATEMENT}|SALE_NET|CUSTOMER:C1`,
+      component: 'SALE_NET',
+      phase: 10,
+      scope: 'CUSTOMER:C1',
+      zohoRecordType: 'customer_payment',
+      reference: `${STATEMENT}/SALE_NET`,
+      amount: 1500,
+      date: '2026-09-29',
+      customerId: 'C1',
+      invoiceId: null,
+      invoiceNumber: null,
+      websiteOrderId: null,
+      creditNoteId: null,
+      creditNoteNumber: null,
+      allocations: [
+        { invoiceId: 'I1', invoiceNumber: 'INV-001', websiteOrderId: '21047', amount: 1000 },
+        { invoiceId: 'I2', invoiceNumber: 'INV-002', websiteOrderId: '21091', amount: 500 },
+      ],
+      depositAccount: 'Tabby Undeposited Funds',
+      fromAccount: null,
+      toAccount: null,
+      lines: [],
+      direction: null,
+      sourceRows: [12, 13],
+      payload: null,
+      local: null,
+      zoho: { state: 'MISSING' },
+      recovery: { action: 'POST_ELIGIBLE' },
+    }
+    api.getTabbyPreview.mockResolvedValue({ preview: preview({ components: [payment] }) })
+    renderAt('/management/tabby-clearing/batch/7')
+
+    fireEvent.click(await screen.findByRole('tab', { name: 'Zoho records (1)' }))
+    const reference = await screen.findByText(`${STATEMENT}/SALE_NET`)
+    expect(screen.getByText(/2 invoices/)).toBeTruthy()
+    fireEvent.click(reference)
+    expect(await screen.findByText(/Applied to 2 invoice\(s\): INV-001 1,000\.00 · INV-002 500\.00/)).toBeTruthy()
   })
 
   it('refreshes the saved statements list after a preview so its status is not stale', async () => {

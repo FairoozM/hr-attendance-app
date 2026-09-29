@@ -5,7 +5,7 @@
  * reviewed (same posting fingerprint). Guards: posting enabled on the server, an admin actor, the
  * reviewed fingerprint, no blockers, the per-statement lock.
  *
- * For each component in phase order (sales → refunds → charge clearing → payout fee → bank):
+ * For each component in phase order (sales → refunds → settlement journal → bank):
  *   - Zoho is searched directly (deep) first. One matching record: link it, never re-post.
  *     More than one: AMBIGUOUS_RECOVERY, stop. A differing record: NEEDS_REVIEW, stop.
  *   - An earlier attempt with an unknown result is only re-sent when Zoho still has nothing
@@ -68,6 +68,7 @@ function snapshotOf(c) {
     date: c.date,
     customerId: c.customerId || null,
     invoiceId: c.invoiceId || null,
+    allocations: c.allocations || null,
     creditNoteId: c.creditNoteId || null,
     depositAccountId: c.depositAccountId || null,
     fromAccountId: c.fromAccountId || null,

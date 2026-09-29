@@ -37,6 +37,7 @@ test.before(async () => {
   await pool.query(fs.readFileSync(path.join(__dirname, '../migrations/058_tabby_posting_job.sql'), 'utf8'))
   await tabbyStore.ensureTabbyClearingTables((sql, params) => pool.query(sql, params))
   await tabbyStore.ensureTabbyClearingTables((sql, params) => pool.query(sql, params))
+  await pool.query(fs.readFileSync(path.join(__dirname, '../migrations/059_tabby_settlement_journal.sql'), 'utf8'))
   store = tabbyStore.createPgTabbyStore(pool)
 })
 
@@ -90,6 +91,22 @@ test('components: unique key, guarded transitions, VERIFIED needs a record id, u
   await pool.query('DELETE FROM tabby_clearing_components WHERE id = $1', [component.id])
 })
 
+test('an existing table is upgraded to accept SETTLEMENT_JOURNAL; unknown components are still refused', { skip }, async () => {
+  const { rows } = await pool.query("SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conname = 'tabby_clearing_components_component_check'")
+  assert.equal(rows.length, 1)
+  assert.match(rows[0].def, /SETTLEMENT_JOURNAL/)
+  assert.match(rows[0].def, /CHARGE_EXPENSE_CLEARING/)
+  const batch = await store.getBatchByStatement('Tabby20260928AED')
+  const insert = (component) => pool.query(
+    `INSERT INTO tabby_clearing_components (batch_id, statement_number, component_key, component, scope, zoho_record_type, amount, currency, reference, plan, status)
+     VALUES ($1, 'Tabby20260928AED', $2, $3, 'STATEMENT', 'journal', 1, 'AED', 'r', '{}'::jsonb, 'PLANNED') RETURNING id`,
+    [batch.id, `k-${component}`, component],
+  )
+  const ok = await insert('SETTLEMENT_JOURNAL')
+  await pool.query('DELETE FROM tabby_clearing_components WHERE id = $1', [ok.rows[0].id])
+  await assert.rejects(insert('SOMETHING_ELSE'), /tabby_clearing_components_component_check/)
+})
+
 test('bank record can settle one statement only; advisory lock excludes a second poster', { skip }, async () => {
   const batch = await store.getBatchByStatement('Tabby20260928AED')
   const other = analyzed(F.buildStatementXlsx({ statementNumber: 'Tabby20261005AED', date: '2026-10-05', rows: [F.saleRow('1', '2', 10)] }))
@@ -118,12 +135,12 @@ test('end to end on Postgres: 28 Sep posts once, rerun writes nothing', { skip }
   const args = { batchId: batch.id, store, sources: fake.sources, writer: fake.writer, config, actor: 'user:1', now: () => NOW }
   const r = await postTabbyBatch({ ...args, fingerprint: p.fingerprint })
   assert.equal(r.status, 'POSTED')
-  assert.equal(fake.writer.calls.length, 14)
+  assert.equal(fake.writer.calls.length, 5)
   const again = await postTabbyBatch({ ...args, fingerprint: r.preview.fingerprint })
   assert.equal(again.status, 'POSTED')
-  assert.equal(fake.writer.calls.length, 14)
-  const { rows } = await pool.query("SELECT COUNT(*)::int AS n FROM tabby_clearing_components WHERE batch_id = $1 AND status = 'VERIFIED'", [batch.id])
-  assert.equal(rows[0].n, 14)
+  assert.equal(fake.writer.calls.length, 5)
+  const { rows } = await pool.query("SELECT component, COUNT(*)::int AS n FROM tabby_clearing_components WHERE batch_id = $1 AND status = 'VERIFIED' GROUP BY 1 ORDER BY 1", [batch.id])
+  assert.deepEqual(rows.map((x) => [x.component, x.n]), [['SALE_CHARGES', 2], ['SALE_NET', 2], ['SETTLEMENT_JOURNAL', 1]])
   const b = await store.getBatch(batch.id)
   assert.equal(b.status, 'POSTED')
   assert.equal(b.bankTransactionId, 'BANK-28')

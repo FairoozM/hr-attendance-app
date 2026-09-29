@@ -129,20 +129,61 @@ test('plan + ledger simulation clears Processing and Undeposited to 0.00 on both
   }
 })
 
-test('payout fee is a journal (Dr Fees 6.00, Dr Input VAT 0.30, Cr Undeposited 6.30), never a customer payment', () => {
-  const { parsed, analysis } = analyze(SEP28)
+function matchedPlan(buffer, layout) {
+  const { parsed, analysis } = analyze(buffer)
   const accounts = { UNDEPOSITED: { accountId: 'U' }, PROCESSING: { accountId: 'P' }, COMMISSION_EXPENSE: { accountId: 'C' }, FEES_EXPENSE: { accountId: 'F' }, INPUT_VAT: { accountId: 'V' }, BANK: { accountId: 'B' } }
-  const plan = model.buildPostingPlan({ statementNumber: parsed.statement.statementNumber, rows: analysis.rows, accounts, date: '2026-09-29', config: baseConfig(), bank: null })
-  const fee = plan.filter((c) => c.component === 'PAYOUT_FEE')
-  assert.equal(fee.length, 1)
-  assert.equal(fee[0].zohoRecordType, 'journal')
-  assert.equal(fee[0].reference, 'Tabby20260928AED/PAYOUT_FEE')
-  assert.deepEqual(fee[0].payload.line_items, [
+  const customerOf = (r) => (F.SHOP_ORDER_NUMBERS.has(r.orderNumber) ? F.IDS.SHOP : F.IDS.WEBSITE)
+  const rows = analysis.rows.map((r) => (r.kind === 'SALE' ? { ...r, match: { matched: true, invoice: { invoiceId: `I${r.websiteOrderId}`, invoiceNumber: `INV-${r.websiteOrderId}`, customerId: customerOf(r) } } } : r))
+  const plan = model.buildPostingPlan({ statementNumber: parsed.statement.statementNumber, rows, accounts, date: '2026-09-29', config: baseConfig(), bank: null, layout })
+  return { plan, analysis, sales: rows.filter((r) => r.kind === 'SALE') }
+}
+
+test('28 Sep: one payment per customer applied to all its invoices, and one settlement journal for the statement', () => {
+  const { plan, analysis, sales } = matchedPlan(SEP28)
+  const payments = plan.filter((c) => c.zohoRecordType === 'customer_payment')
+  assert.deepEqual(payments.map((c) => c.reference).sort(), [
+    'Tabby20260928AED/SALE_CHARGES', 'Tabby20260928AED/SALE_NET', 'Tabby20260928AED/SHOP/SALE_CHARGES', 'Tabby20260928AED/SHOP/SALE_NET',
+  ])
+  for (const component of ['SALE_NET', 'SALE_CHARGES']) {
+    const list = payments.filter((c) => c.component === component)
+    const invoices = list.flatMap((c) => c.allocations.map((a) => a.invoiceId)).sort()
+    assert.deepEqual(invoices, sales.map((r) => `I${r.websiteOrderId}`).sort(), `${component} covers every invoice once`)
+    for (const c of list) {
+      assert.equal(c.payload.invoices.length, c.allocations.length)
+      assert.equal(Math.round(c.payload.amount * 100), c.allocations.reduce((s, a) => s + Math.round(a.amount * 100), 0))
+      assert.ok(c.allocations.every((a) => sales.find((r) => `I${r.websiteOrderId}` === a.invoiceId).match.invoice.customerId === c.customerId))
+    }
+  }
+  assert.equal(M(payments.filter((c) => c.component === 'SALE_NET').reduce((s, c) => s + c.amountMinor, 0)), 3084.15)
+  assert.equal(M(payments.filter((c) => c.component === 'SALE_CHARGES').reduce((s, c) => s + c.amountMinor, 0)), 232.69)
+
+  const journals = plan.filter((c) => c.zohoRecordType === 'journal')
+  assert.equal(journals.length, 1)
+  assert.equal(journals[0].component, 'SETTLEMENT_JOURNAL')
+  assert.equal(journals[0].reference, 'Tabby20260928AED/SETTLEMENT')
+  assert.deepEqual(journals[0].payload.line_items, [
+    { account_id: 'C', debit_or_credit: 'debit', amount: 215.6 },
+    { account_id: 'F', debit_or_credit: 'debit', amount: 12 },
+    { account_id: 'V', debit_or_credit: 'debit', amount: 11.39 },
+    { account_id: 'P', debit_or_credit: 'credit', amount: 232.69 },
+    { account_id: 'U', debit_or_credit: 'credit', amount: 6.3 },
+  ])
+  assert.equal(journals[0].amount, 238.99)
+  assert.equal(M(analysis.totals.feesExpenseNetMinor), 12)
+  for (const c of plan) assert.deepEqual(model.componentProblems(c), [])
+})
+
+test('per-invoice layout (statements already posted that way) keeps one payment per invoice and separate journals', () => {
+  const { plan } = matchedPlan(SEP28, 'PER_INVOICE')
+  assert.equal(plan.filter((c) => c.zohoRecordType === 'customer_payment').length, 12)
+  assert.deepEqual(plan.filter((c) => c.zohoRecordType === 'journal').map((c) => c.component), ['CHARGE_EXPENSE_CLEARING', 'PAYOUT_FEE'])
+  const fee = plan.find((c) => c.component === 'PAYOUT_FEE')
+  assert.deepEqual(fee.payload.line_items, [
     { account_id: 'F', debit_or_credit: 'debit', amount: 6 },
     { account_id: 'V', debit_or_credit: 'debit', amount: 0.3 },
     { account_id: 'U', debit_or_credit: 'credit', amount: 6.3 },
   ])
-  assert.ok(plan.filter((c) => c.zohoRecordType === 'customer_payment').every((c) => c.component === 'SALE_NET' || c.component === 'SALE_CHARGES'))
+  assert.ok(plan.every((c) => model.isPerInvoiceComponent(c) || c.component === 'BANK_SETTLEMENT'))
 })
 
 test('Zoho payloads carry no notes, descriptions or app branding', async () => {
@@ -227,7 +268,9 @@ test('matching: both identifiers → one order → one invoice; customer follows
   assert.equal(p.bank.status, 'BANK_MATCHED')
   assert.equal(p.bank.matched.transactionId, 'BANK-Tabby20260928AED')
   assert.ok(!p.components.some((c) => c.component === 'BANK_SETTLEMENT'))
-  assert.equal(p.components.length, 14)
+  assert.equal(p.layout, 'COMBINED')
+  assert.deepEqual(p.components.map((c) => c.component), ['SALE_NET', 'SALE_NET', 'SALE_CHARGES', 'SALE_CHARGES', 'SETTLEMENT_JOURNAL'])
+  assert.equal(p.components.filter((c) => c.component === 'SALE_NET').reduce((s, c) => s + c.allocations.length, 0), 6)
   assert.equal(p.sections.vat.inputVat, 11.39)
   assert.equal(p.sections.clearing.final, 0)
   assert.equal(p.sections.undeposited.final, 0)
@@ -294,8 +337,10 @@ test('28 Sep posts end to end; Processing and Undeposited end at 0.00; rerun wri
   const s = await setup(SEP28)
   const r = await s.post()
   assert.equal(r.status, 'POSTED')
-  assert.equal(s.fake.writer.calls.length, 14)
-  assert.deepEqual(s.fake.writer.calls.map((c) => c.type), [...Array(12).fill('customer_payment'), 'journal', 'journal'])
+  assert.equal(s.fake.writer.calls.length, 5)
+  assert.deepEqual(s.fake.writer.calls.map((c) => c.type), [...Array(4).fill('customer_payment'), 'journal'])
+  assert.equal(s.fake.st.payments.length, 4)
+  assert.equal(s.fake.st.journals.length, 1)
   assert.equal(s.fake.st.invoices.filter((i) => i.balance !== 0).length, 0)
   const ledger = ledgerByName(s.fake)
   assert.equal(ledger['Tabby Undeposited Funds'], 0)
@@ -307,10 +352,40 @@ test('28 Sep posts end to end; Processing and Undeposited end at 0.00; rerun wri
   assert.equal((await s.store.getBatch(s.batchId)).bankTransactionId, 'BANK-Tabby20260928AED')
   const again = await s.post()
   assert.equal(again.status, 'POSTED')
-  assert.equal(s.fake.writer.calls.length, 14)
+  assert.equal(s.fake.writer.calls.length, 5)
   const comps = await s.store.listComponents(s.batchId)
   assert.equal(new Set(comps.map((c) => c.key)).size, comps.length)
   assert.ok(comps.every((c) => c.status === 'VERIFIED'))
+})
+
+test('a statement already started in the per-invoice layout finishes in it; nothing is planned twice', async () => {
+  const s = await setup(SEP28)
+  const legacy = {
+    key: 'Tabby20260928AED|PAYOUT_FEE|STATEMENT', statementNumber: 'Tabby20260928AED', component: 'PAYOUT_FEE', scope: 'STATEMENT', zohoRecordType: 'journal',
+    amount: 6.3, amountMinor: 630, currency: 'AED', reference: 'Tabby20260928AED/PAYOUT_FEE', date: '2026-09-29',
+    lines: [
+      { role: 'FEES_EXPENSE', side: 'debit', amountMinor: 600, accountId: F.IDS.PAYOUT_FEE },
+      { role: 'INPUT_VAT', side: 'debit', amountMinor: 30, accountId: F.IDS.INPUT_VAT },
+      { role: 'UNDEPOSITED', side: 'credit', amountMinor: 630, accountId: F.IDS.UNDEPOSITED },
+    ],
+  }
+  legacy.payload = model.payloadFor(legacy, s.config)
+  const { recordId } = await s.fake.writer.createJournal(legacy.payload)
+  s.fake.writer.calls.length = 0
+  const { component } = await s.store.upsertPlannedComponent(s.batchId, legacy, 'user:1')
+  await s.store.transitionComponent(component.id, ['PLANNED'], 'VERIFIED', { zohoRecordId: recordId, verifiedAt: NOW.toISOString() }, 'posted before the combined layout', 'user:1')
+
+  const p = await s.preview()
+  assert.equal(p.layout, 'PER_INVOICE')
+  assert.deepEqual(p.blockers, [])
+  assert.equal(p.components.length, 14)
+  assert.equal(p.components.find((c) => c.component === 'PAYOUT_FEE').recovery.action, 'SKIP_VERIFIED')
+  const r = await s.post()
+  assert.equal(r.status, 'POSTED')
+  assert.equal(s.fake.writer.calls.length, 13)
+  assert.equal(s.fake.st.journals.length, 2)
+  assert.equal(ledgerByName(s.fake)['Tabby Undeposited Funds'], 0)
+  assert.equal(ledgerByName(s.fake)['Tabby Un-cleared Commission'], 0)
 })
 
 test('14 Sep posts end to end with Input VAT 20.69 and bank 5635.85 linked', async () => {
@@ -336,8 +411,8 @@ test('a rejected write stops the run; the rerun posts only the missing component
   assert.equal(s.fake.st.payments.length, 2)
   const second = await s.post()
   assert.equal(second.status, 'POSTED')
-  assert.equal(s.fake.writer.calls.length, 3 + 12)
-  assert.equal(s.fake.st.payments.length, 12)
+  assert.equal(s.fake.writer.calls.length, 3 + 3)
+  assert.equal(s.fake.st.payments.length, 4)
 })
 
 test('uncertain response with the record created: recovered by reference, never duplicated', async () => {
@@ -345,7 +420,7 @@ test('uncertain response with the record created: recovered by reference, never 
   s.fake.writer.faults = [{ kind: 'timeout', create: true }]
   const r = await s.post()
   assert.equal(r.status, 'POSTED')
-  assert.equal(s.fake.st.payments.length, 12)
+  assert.equal(s.fake.st.payments.length, 4)
   const first = (await s.store.listComponents(s.batchId))[0]
   assert.equal(first.recoveryStatus, 'RECOVERED')
 })
@@ -355,7 +430,7 @@ test('uncertain response, search index lagging: direct invoice read still finds 
   s.fake.writer.faults = [{ kind: '5xx', create: true, lag: true }]
   const r = await s.post()
   assert.equal(r.status, 'POSTED')
-  assert.equal(s.fake.st.payments.length, 12)
+  assert.equal(s.fake.st.payments.length, 4)
 })
 
 test('uncertain response, nothing created: no resend before the settle window, one resend after', async () => {
@@ -371,8 +446,8 @@ test('uncertain response, nothing created: no resend before the settle window, o
   const later = new Date(NOW.getTime() + 6 * 60000)
   const retried = await s.post({ now: later })
   assert.equal(retried.status, 'POSTED')
-  assert.equal(s.fake.writer.calls.length, 1 + 14)
-  assert.equal(s.fake.st.payments.length, 12)
+  assert.equal(s.fake.writer.calls.length, 1 + 5)
+  assert.equal(s.fake.st.payments.length, 4)
 })
 
 test('uncertain response that created two records: AMBIGUOUS_RECOVERY stops the run', async () => {
@@ -390,8 +465,9 @@ test('a Zoho record with our reference but different content is a conflict, neve
   const s = await setup(SEP28)
   const p0 = await s.preview()
   const c = p0.components[0]
-  s.fake.st.payments.push({ payment_id: 'PAY-X', customer_id: c.customerId, amount: 1, reference_number: c.reference, account_id: F.IDS.UNDEPOSITED, invoices: [{ invoice_id: c.invoiceId, amount_applied: 1 }] })
-  const inv = s.fake.st.invoices.find((i) => i.invoiceId === c.invoiceId)
+  const invoiceId = c.allocations[0].invoiceId
+  s.fake.st.payments.push({ payment_id: 'PAY-X', customer_id: c.customerId, amount: 1, reference_number: c.reference, account_id: F.IDS.UNDEPOSITED, invoices: [{ invoice_id: invoiceId, amount_applied: 1 }] })
+  const inv = s.fake.st.invoices.find((i) => i.invoiceId === invoiceId)
   inv.balance = (Math.round(inv.balance * 100) - 100) / 100
   const p = await s.preview()
   assert.equal(p.components[0].recovery.action, RECOVERY_ACTION.NEEDS_REVIEW)
@@ -476,7 +552,7 @@ async function refundScenario({ refunds, creditNotes = [{ number: '30001', total
   return { store, fake, s1, s2 }
 }
 
-test('full refund of an order settled in an earlier statement: credit note refund + commission/VAT reversals, retained charges stay', async () => {
+test('full refund of an order settled in an earlier statement: credit note refund, what Tabby returned is netted into the one journal', async () => {
   const { fake, s2 } = await refundScenario({ refunds: [F.refundRow('20001', '30001', 1000)], extraSales: [F.saleRow('20002', '30002', 2000)] })
   const p = await s2.preview()
   assert.deepEqual(p.blockers, [])
@@ -487,9 +563,15 @@ test('full refund of an order settled in an earlier statement: credit note refun
   assert.equal(comps.REFUND_PAYMENT.amount, 1000)
   assert.equal(comps.REFUND_PAYMENT.payload.from_account_id, F.IDS.UNDEPOSITED)
   assert.equal(comps.REFUND_PAYMENT.reference, 'Tabby20261012AED/30001/R1/REFUND')
-  assert.deepEqual(comps.REFUND_COMMISSION_REVERSAL.lines.map((l) => [l.role, l.side, l.amount]), [['UNDEPOSITED', 'debit', 45], ['COMMISSION_EXPENSE', 'credit', 45]])
-  assert.deepEqual(comps.REFUND_VAT_REVERSAL.lines.map((l) => [l.role, l.side, l.amount]), [['UNDEPOSITED', 'debit', 2.25], ['INPUT_VAT', 'credit', 2.25]])
-  assert.equal(comps.REFUND_FEE_REVERSAL, undefined, 'fixed fee and non-refundable commission are retained')
+  for (const k of ['REFUND_COMMISSION_REVERSAL', 'REFUND_FEE_REVERSAL', 'REFUND_VAT_REVERSAL', 'CHARGE_EXPENSE_CLEARING', 'PAYOUT_FEE']) assert.equal(comps[k], undefined, k)
+  // Sale 2000: commission 130, fixed fee 1, VAT 6.55 (137.55). Refund returns commission 45 + VAT 2.25.
+  assert.deepEqual(comps.SETTLEMENT_JOURNAL.lines.map((l) => [l.role, l.side, l.amount]), [
+    ['COMMISSION_EXPENSE', 'debit', 85],
+    ['FEES_EXPENSE', 'debit', 1],
+    ['INPUT_VAT', 'debit', 4.3],
+    ['PROCESSING', 'credit', 137.55],
+    ['UNDEPOSITED', 'debit', 47.25],
+  ])
   const phases = p.components.map((c) => c.component)
   assert.ok(phases.indexOf('SALE_CHARGES') < phases.indexOf('REFUND_PAYMENT'))
   const r = await s2.post()

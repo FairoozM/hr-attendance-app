@@ -171,8 +171,10 @@ async function componentZohoState(c, sources, { deep = false } = {}) {
     if (c.zohoRecordType === 'customer_payment') {
       const found = await sources.findPaymentsByReference(c.reference, { critical: deep })
       let ids = [...new Set(found.map((p) => p.paymentId))]
-      if (deep) {
-        const direct = (await sources.listInvoicePayments(c.invoiceId, { critical: true })).filter((p) => p.referenceNumber === c.reference).map((p) => p.paymentId)
+      // A payment applied to several invoices shows on each of them, so one invoice is enough.
+      const invoiceId = c.invoiceId || (c.allocations && c.allocations[0] && c.allocations[0].invoiceId)
+      if (deep && invoiceId) {
+        const direct = (await sources.listInvoicePayments(invoiceId, { critical: true })).filter((p) => p.referenceNumber === c.reference).map((p) => p.paymentId)
         ids = [...new Set([...ids, ...direct])]
       }
       return settle(ids, (id) => sources.getCustomerPayment(id), compareCustomerPayment, c)

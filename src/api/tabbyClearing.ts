@@ -140,6 +140,13 @@ export interface TabbyComponentLine {
   amount: number
 }
 
+export interface TabbyAllocation {
+  invoiceId: string
+  invoiceNumber: string
+  websiteOrderId: string | null
+  amount: number
+}
+
 export interface TabbyComponent {
   key: string
   component: string
@@ -155,6 +162,7 @@ export interface TabbyComponent {
   websiteOrderId: string | null
   creditNoteId: string | null
   creditNoteNumber: string | null
+  allocations: TabbyAllocation[]
   depositAccount: string | null
   fromAccount: string | null
   toAccount: string | null
@@ -252,6 +260,7 @@ export interface TabbyPreview {
   statementNumber: string
   date: string
   status: TabbyBatchStatus
+  layout: 'COMBINED' | 'PER_INVOICE'
   postingEnabled: boolean
   canPost: boolean
   fingerprint: string

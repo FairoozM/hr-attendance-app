@@ -67,6 +67,10 @@ const EVENT = Object.freeze({
 })
 
 const STATUS_LIST = Object.values(COMPONENT_STATUS).map((s) => `'${s}'`).join(', ')
+const COMPONENT_LIST = [
+  'SALE_NET', 'SALE_CHARGES', 'REFUND_CREDIT_NOTE', 'REFUND_PAYMENT', 'REFUND_COMMISSION_REVERSAL',
+  'REFUND_FEE_REVERSAL', 'REFUND_VAT_REVERSAL', 'CHARGE_EXPENSE_CLEARING', 'PAYOUT_FEE', 'SETTLEMENT_JOURNAL', 'BANK_SETTLEMENT',
+].map((s) => `'${s}'`).join(', ')
 const BATCH_STATUS_LIST = Object.values(BATCH_STATUS).map((s) => `'${s}'`).join(', ')
 
 const SCHEMA_SQL = [
@@ -121,9 +125,7 @@ const SCHEMA_SQL = [
      batch_id BIGINT NOT NULL REFERENCES tabby_settlement_batches(id) ON DELETE CASCADE,
      statement_number TEXT NOT NULL,
      component_key TEXT NOT NULL,
-     component VARCHAR(40) NOT NULL CHECK (component IN (
-       'SALE_NET', 'SALE_CHARGES', 'REFUND_CREDIT_NOTE', 'REFUND_PAYMENT', 'REFUND_COMMISSION_REVERSAL',
-       'REFUND_FEE_REVERSAL', 'REFUND_VAT_REVERSAL', 'CHARGE_EXPENSE_CLEARING', 'PAYOUT_FEE', 'BANK_SETTLEMENT')),
+     component VARCHAR(40) NOT NULL CONSTRAINT tabby_clearing_components_component_check CHECK (component IN (${COMPONENT_LIST})),
      scope TEXT NOT NULL,
      zoho_record_type VARCHAR(24) NOT NULL CHECK (zoho_record_type IN (
        'customer_payment', 'journal', 'creditnote_refund', 'creditnote_link', 'bank_transfer')),
@@ -162,6 +164,17 @@ const SCHEMA_SQL = [
      ON tabby_clearing_components (zoho_record_type, zoho_record_id)
      WHERE zoho_record_id IS NOT NULL AND zoho_record_type <> 'creditnote_link'`,
   `CREATE INDEX IF NOT EXISTS idx_tabby_clearing_components_batch ON tabby_clearing_components (batch_id)`,
+  `DO $$ BEGIN
+     IF NOT EXISTS (
+       SELECT 1 FROM pg_constraint
+        WHERE conrelid = 'tabby_clearing_components'::regclass
+          AND conname = 'tabby_clearing_components_component_check'
+          AND pg_get_constraintdef(oid) LIKE '%SETTLEMENT_JOURNAL%'
+     ) THEN
+       ALTER TABLE tabby_clearing_components DROP CONSTRAINT IF EXISTS tabby_clearing_components_component_check;
+       ALTER TABLE tabby_clearing_components ADD CONSTRAINT tabby_clearing_components_component_check CHECK (component IN (${COMPONENT_LIST}));
+     END IF;
+   END $$`,
   `CREATE TABLE IF NOT EXISTS tabby_clearing_events (
      id BIGSERIAL PRIMARY KEY,
      batch_id BIGINT REFERENCES tabby_settlement_batches(id) ON DELETE CASCADE,

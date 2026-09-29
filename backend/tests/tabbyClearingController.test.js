@@ -105,9 +105,8 @@ test('post runs in the background: 202 at once, 409 while running, then the job 
     assert.equal(status.body.job.status, 'SUCCEEDED')
     assert.equal(status.body.job.result.status, 'POSTED')
     const verified = status.body.job.result.log.filter((l) => l.status === 'VERIFIED')
-    assert.equal(verified.length, 15)
-    assert.equal(verified.filter((l) => l.component === 'BANK_SETTLEMENT').length, 1)
-    assert.equal(fake.writer.calls.length, 15)
+    assert.deepEqual(verified.map((l) => l.component), ['SALE_NET', 'SALE_NET', 'SALE_CHARGES', 'SALE_CHARGES', 'SETTLEMENT_JOURNAL', 'BANK_SETTLEMENT'])
+    assert.equal(fake.writer.calls.length, 6)
   } finally {
     if (prev === undefined) delete process.env.TABBY_CLEARING_POSTING_ENABLED
     else process.env.TABBY_CLEARING_POSTING_ENABLED = prev
