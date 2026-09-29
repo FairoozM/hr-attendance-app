@@ -20,6 +20,7 @@ import {
   type StripePayoutPreview,
   type StripePayoutRefundPostResult,
   type StripePayoutSummary,
+  type StripeReturnWarning,
   type StripeUncertainComponent,
   type StripeUncertainResolution,
 } from '../../../api/stripe'
@@ -575,6 +576,20 @@ function NormalRefundCard({
   )
 }
 
+function ReturnPendingNotice({ warning }: { warning: StripeReturnWarning }) {
+  return (
+    <div className="stripe-page__banner stripe-page__banner--warning" role="note">
+      <strong>{warning.title}</strong>
+      <ul className="stripe-payout__reasons">
+        {warning.details.map((d) => (
+          <li key={d}>{d}</li>
+        ))}
+      </ul>
+      <p className="stripe-page__note">{warning.message}</p>
+    </div>
+  )
+}
+
 function GroupCard({
   payoutId,
   group,
@@ -641,6 +656,8 @@ function GroupCard({
         .map((l) => (
           <DirectPaymentCard key={l.balanceTransactionId} payoutId={payoutId} line={l} customerName={group.customerName} onChanged={onDirectChanged} />
         ))}
+
+      {group.lines.map((l) => (l.returnWarning ? <ReturnPendingNotice key={l.balanceTransactionId} warning={l.returnWarning} /> : null))}
 
       <div className="stripe-clearing__scroll">
         <table className="stripe-page__table">

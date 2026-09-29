@@ -176,6 +176,12 @@ function world(spec, opts = {}) {
         .map((j) => ({ journalId: j.journalId, entryNumber: j.entryNumber || null, referenceNumber: j.referenceNumber, notes: j.notes || '', journalDate: j.journalDate || '2026-09-28', status: j.status || 'published', total: j.lineItems.filter((l) => l.debitOrCredit === 'debit').reduce((s, l) => s + l.amount, 0) }))
         .filter((j) => j.journalDate >= start && j.journalDate <= end)
     },
+    findZohoCreditNotesForOrder: async (orderNumber, customerId) => {
+      const notes = (opts.creditNotes && opts.creditNotes[orderNumber]) || []
+      if (notes instanceof Error) throw notes
+      return notes.filter((n) => n.customerId === customerId)
+    },
+    getZohoCreditNote: async (id) => Object.values(opts.creditNotes || {}).flat().find((n) => n.creditNoteId === id) || null,
     createStripeRefund: deny('createStripeRefund'),
   }
   const zohoPayments = {
@@ -1244,4 +1250,171 @@ test('GROSS_V1 repair marks REVERSED_EXTERNALLY only when Zoho confirms the paym
   const again = await markGrossClearingReversedExternally('pi_3UJALVDJogiiRoKP2ugPotQ9', { zohoPaymentId: '4265011000042471002', actor: 'user:1' }, done.deps)
   assert.equal(again.alreadyReversed, true)
   assert.equal(done.calls.length, 0)
+})
+
+// ── Physical return is not a financial refund (po_1UEIIDDJogiiRoKPB2HxFZ07, order 20942) ──
+
+const RETURN_PAYOUT_ID = 'po_1UEIIDDJogiiRoKPB2HxFZ07'
+const RETURN_CHARGE = 'ch_3UCEOJDJogiiRoKP1HabhCS6'
+const RETURN_PAYOUT = {
+  payoutId: RETURN_PAYOUT_ID,
+  amountMinor: 496228,
+  arrivalDate: '2026-09-14T00:00:00.000Z',
+  createdAt: '2026-09-11T00:26:13.000Z',
+  hold: 100000,
+  rows: [
+    row('ch_3UD7JXDJogiiRoKP2W7hjaeD', 'pi_3UD7JXDJogiiRoKP2YxedcdP', '20974', 'INV-043738', 39040, 1232, WEB),
+    row('ch_3UCymvDJogiiRoKP2ILk35FT', 'pi_3UCymvDJogiiRoKP2Br1ZxF6', '20965', 'INV-043734', 33065, 1059, WEB),
+    row('ch_3UCcAsDJogiiRoKP1jJl9OsM', 'pi_3UCcAsDJogiiRoKP1rvD7GzS', '20954', 'INV-043736', 56525, 1739, WEB),
+    row('ch_3UCWs6DJogiiRoKP2R8al6q7', 'pi_3UCWs6DJogiiRoKP2pqHGERU', '20953', 'INV-043699', 188900, 5578, WEB),
+    row('ch_3UCS9uDJogiiRoKP1cMjLxIO', 'pi_3UCS9uDJogiiRoKP1izuRqH8', '20952', 'INV-043694', 18870, 647, WEB, { order: { orderStatus: 'confirmed' } }),
+    row('ch_3UCPBFDJogiiRoKP045ZGvuc', 'pi_3UCPBFDJogiiRoKP0KJQ8rNB', '20949', 'INV-043656', 42400, 1330, WEB),
+    row('ch_3UCJGUDJogiiRoKP25JEL2Zd', 'pi_3UCJGUDJogiiRoKP29NCNp56', '20946', 'INV-043655', 38378, 1213, WEB),
+    row('ch_3UCICUDJogiiRoKP1rkeDzEX', 'pi_3UCICUDJogiiRoKP1UXq2nXz', '20945', 'INV-043654', 48290, 1500, WEB),
+    row('ch_3UCG5jDJogiiRoKP2eLyXSRZ', 'pi_3UCG5jDJogiiRoKP21A2GsRT', '20944', 'INV-043653', 7097, 306, WEB),
+    row(RETURN_CHARGE, 'pi_3UCEOJDJogiiRoKP1K5jv6nl', '20942', 'INV-043652', 25166, 830, WEB, { order: { orderStatus: 'partiallyReturned' } }),
+    row('ch_3UCFn7DJogiiRoKP0NmquwzO', 'pi_3UCFn7DJogiiRoKP0wzxS6em', '20943', 'INV-043658', 14450, 519, SHOP, { status: 'overdue' }),
+  ],
+}
+
+/** Zoho credit note 20942 exactly as read on 2026-09-29: open, AED 199, RMA-04331, nothing refunded or applied. */
+function cn20942(patch = {}) {
+  return {
+    creditNoteId: '4265011000042497823',
+    creditNoteNumber: '20942',
+    customerId: WEB,
+    status: 'open',
+    total: 199,
+    balance: 199,
+    currencyCode: 'AED',
+    invoiceId: invoiceId('INV-043652'),
+    invoiceNumber: 'INV-043652',
+    salesReturnNumber: 'RMA-04331',
+    totalRefunded: 0,
+    totalCreditsUsed: 0,
+    lineItems: [],
+    ...patch,
+  }
+}
+
+function returnWorld(opts = {}) {
+  const { order, creditNotes = [cn20942()], row: rowPatch = {}, ...rest } = opts
+  return world(RETURN_PAYOUT, {
+    ...rest,
+    rows: { 20942: { ...rowPatch, order: { orderStatus: 'partiallyReturned', ...order } } },
+    creditNotes: { 20942: creditNotes },
+  })
+}
+
+function assertReturnPayoutReconciles(result) {
+  const web = group(result, WEB)
+  const shop = group(result, SHOP)
+  assert.equal(web.status, GROUP_STATUS.READY)
+  assert.equal(shop.status, GROUP_STATUS.READY)
+  assert.deepEqual(web.totals, { invoiceGross: 4977.31, netTo1019: 4822.97, customerAdvance: 0, total1019: 4822.97, feeTo1013: 154.34, stripeGross: 4977.31 })
+  assert.deepEqual(shop.totals, { invoiceGross: 144.5, netTo1019: 139.31, customerAdvance: 0, total1019: 139.31, feeTo1013: 5.19, stripeGross: 144.5 })
+  assert.equal(result.reconciliation.stripeGross, 5121.81)
+  assert.equal(result.reconciliation.fees, 159.53)
+  assert.equal(result.reconciliation.netTo1019, 4962.28)
+  assert.equal(result.reconciliation.payoutAmount, 4962.28)
+  assert.equal(result.reconciliation.payoutMatches, true)
+  assert.equal(result.reconciliation.grossMatches, true)
+  assert.deepEqual(result.otherTransactions.map((t) => t.amount), [-1000, 1000])
+  assert.deepEqual(result.blockers, [])
+  assert.equal(result.status, PAYOUT_STATUS.READY)
+}
+
+test('order 20942 partially returned, credit note open, no refund: original payment clears with a warning', async () => {
+  const w = returnWorld()
+  const result = await w.run()
+  const l = line(group(result, WEB), RETURN_CHARGE)
+  assert.equal(l.state, LINE_STATE.OPEN)
+  assert.equal(l.matchStatus, 'MATCHED_READY_TO_CLEAR')
+  assert.equal(l.netAllocation, 243.36)
+  assert.equal(l.feeAllocation, 8.3)
+  assert.equal(l.returnWarning.title, 'RETURN PENDING — ORIGINAL PAYMENT CLEARABLE')
+  assert.deepEqual(l.returnWarning.details, [
+    'Order 20942 is partiallyReturned.',
+    'Credit Note 20942: AED 199.00',
+    'Status: OPEN',
+    'Credit remaining: AED 199.00',
+    'Sales Return: RMA-04331',
+    'Refund status: pending',
+    'Stripe refunded amount: AED 0.00',
+  ])
+  assert.equal(l.returnWarning.message, 'Original Stripe payment will be cleared in this payout. The customer refund will be cleared separately when an actual financial refund occurs.')
+  assert.ok(result.warnings.some((x) => x.startsWith('RETURN PENDING — ORIGINAL PAYMENT CLEARABLE: order 20942')))
+  assertReturnPayoutReconciles(result)
+  assert.ok(component(group(result, WEB), 'NET').allocations.some((a) => a.invoiceNumber === 'INV-043652' && a.amount === 243.36))
+  assert.deepEqual(w.writes, [])
+})
+
+test('full return with no financial refund clears with the same warning', async () => {
+  const result = await returnWorld({ order: { orderStatus: 'returned' }, creditNotes: [cn20942({ total: 251.66, balance: 251.66 })] }).run()
+  const l = line(group(result, WEB), RETURN_CHARGE)
+  assert.equal(l.state, LINE_STATE.OPEN)
+  assert.equal(l.returnWarning.orderStatus, 'returned')
+  assertReturnPayoutReconciles(result)
+})
+
+test('return with no credit note yet still clears with a warning', async () => {
+  const result = await returnWorld({ creditNotes: [] }).run()
+  const l = line(group(result, WEB), RETURN_CHARGE)
+  assert.equal(l.state, LINE_STATE.OPEN)
+  assert.ok(l.returnWarning.details.includes('No Zoho credit note exists yet.'))
+  assertReturnPayoutReconciles(result)
+})
+
+test('return with a financial reversal keeps the charge in review; Burjman lines stay open', async () => {
+  const cases = [
+    ['credit note applied to the invoice', { creditNotes: [cn20942({ status: 'closed', balance: 0, totalCreditsUsed: 199 })] }, /applied as credit/],
+    ['credit note refunded', { creditNotes: [cn20942({ status: 'closed', balance: 0, totalRefunded: 199 })] }, /199 refunded/],
+    ['website refundAmount > 0 without a Stripe refund', { order: { refundAmount: 199 } }, /refund of 199/],
+    ['charge disputed', { row: { disputed: true } }, /dispute/i],
+    ['credit notes cannot be read', { creditNotes: new Error('Zoho timeout') }, /could not be searched/],
+  ]
+  for (const [label, opts, reason] of cases) {
+    const w = returnWorld(opts)
+    const result = await w.run()
+    const l = line(group(result, WEB), RETURN_CHARGE)
+    assert.equal(l.state, LINE_STATE.NEEDS_REVIEW, label)
+    assert.match(l.reason, reason, label)
+    assert.equal(l.returnWarning, null, label)
+    assert.equal(group(result, WEB).status, GROUP_STATUS.NEEDS_REVIEW, label)
+    assert.ok(group(result, SHOP).lines.every((x) => x.state === LINE_STATE.OPEN), label)
+    assert.equal(result.status === PAYOUT_STATUS.READY, false, label)
+    assert.ok(!result.warnings.some((x) => x.startsWith('RETURN PENDING')), label)
+    assert.deepEqual(w.writes, [], label)
+  }
+})
+
+test('invoice balance reduced on a returned order → Website group NEEDS_REVIEW, no warning', async () => {
+  const result = await returnWorld({ balances: { 'INV-043652': 52.66 } }).run()
+  const l = line(group(result, WEB), RETURN_CHARGE)
+  assert.notEqual(l.state, LINE_STATE.OPEN)
+  assert.equal(l.returnWarning, null)
+  assert.equal(group(result, WEB).status, GROUP_STATUS.NEEDS_REVIEW)
+  assert.ok(group(result, SHOP).lines.every((x) => x.state === LINE_STATE.OPEN))
+})
+
+test('Stripe refund exists on the returned order → refund flow, not the return warning', async () => {
+  const refund = {
+    refundId: 're_3UCEOJDJogiiRoKP1EWKdJky',
+    chargeId: RETURN_CHARGE,
+    paymentIntentId: 'pi_3UCEOJDJogiiRoKP1K5jv6nl',
+    amountMinor: 19900,
+    currency: 'AED',
+    status: 'succeeded',
+    createdAt: '2026-09-29T11:55:36.000Z',
+    balanceTransaction: { balanceTransactionId: 'txn_3UCEOJDJogiiRoKP1VPzaaTm', type: 'refund', currency: 'AED', amountMinor: -19900, feeMinor: 0, netMinor: -19900 },
+  }
+  const w = returnWorld({ row: { refundedMinor: 19900 }, chargeRefunds: { [RETURN_CHARGE]: [refund] } })
+  const result = await w.run()
+  const l = line(group(result, WEB), RETURN_CHARGE)
+  assert.equal(l.state, LINE_STATE.OPEN)
+  assert.equal(l.returnWarning, null)
+  assert.deepEqual(l.normalRefunds.map((r) => [r.refundId, r.amount, r.inThisPayout]), [['re_3UCEOJDJogiiRoKP1EWKdJky', 199, false]])
+  assert.match(l.reason, /cleared separately as credit note refunds/)
+  assertReturnPayoutReconciles(result)
+  assert.deepEqual(w.writes, [])
 })

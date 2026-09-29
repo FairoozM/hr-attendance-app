@@ -20,7 +20,7 @@ const { getStripeClearingConfig } = require('../../config/stripeClearing')
 const defaultStripeConfig = require('../../config/stripe')
 const { postingGate } = require('./stripeClearingGate')
 const defaultSources = require('./stripeClearingSources')
-const { MATCH_STATUS, classifyStripePayment, expectedZohoCustomerId, pickMatchedInvoice } = require('./stripeClearingMatcher')
+const { MATCH_STATUS, WEBSITE_RETURN_STATUSES, classifyStripePayment, expectedZohoCustomerId, pickMatchedInvoice } = require('./stripeClearingMatcher')
 const model = require('./stripePayoutClearingModel')
 const payoutStore = require('./stripePayoutClearingStore')
 const directStore = require('./stripeDirectPaymentStore')
@@ -414,6 +414,22 @@ async function buildLine(t, ctx) {
       return review(`Stripe shows ${toMajor(t.chargeRefundedMinor)} refunded on this charge, but its refunds add up to ${toMajor(listedMinor)}.`)
     }
   }
+  // A physical return is not a refund. Its credit notes show whether money actually moved back.
+  let returnCreditNotes
+  if (order && WEBSITE_RETURN_STATUSES.has(order.orderStatus) && !refundsClearedSeparately && t.chargeRefundedMinor === 0
+    && !(order.refundAmount > 0) && order.paymentStatus !== 'refunded' && line.customerId) {
+    try {
+      const rows = await sources.findZohoCreditNotesForOrder(order.orderNumber, line.customerId, PREVIEW)
+      returnCreditNotes = []
+      for (const row of rows.filter((n) => n.status !== 'void')) {
+        const detail = await cached(ctx.zohoCache, `cn:${row.creditNoteId}`, () => sources.getZohoCreditNote(row.creditNoteId, PREVIEW))
+        if (!detail) return review(`Website order is ${order.orderStatus}; Zoho credit note ${row.creditNoteNumber} could not be read.`)
+        returnCreditNotes.push(detail)
+      }
+    } catch (err) {
+      return review(`Website order is ${order.orderStatus}; its Zoho credit notes could not be searched: ${err.message}`)
+    }
+  }
   const stripe = {
     paymentIntentId: t.paymentIntentId,
     status: 'succeeded',
@@ -422,7 +438,10 @@ async function buildLine(t, ctx) {
     disputed: t.chargeDisputed,
     currency: t.currency,
   }
-  const match = classifyStripePayment({ stripe, websiteOrders, zohoInvoices, config, refundsClearedSeparately })
+  const match = classifyStripePayment({ stripe, websiteOrders, zohoInvoices, config, refundsClearedSeparately, returnCreditNotes })
+  const withReturn = (l) => (match.returnPending && (l.state === LINE_STATE.OPEN || l.state === LINE_STATE.CLEARED)
+    ? { ...l, returnWarning: returnWarning(match.returnPending, config.websiteCurrency) }
+    : l)
   line.matchStatus = match.status
   const invoice = order ? pickMatchedInvoice(zohoInvoices, order.orderNumber) : null
   if (invoice) {
@@ -439,7 +458,7 @@ async function buildLine(t, ctx) {
       const ids = line.normalRefunds.map((r) => `${r.refundId} (${r.amount})`).join(', ')
       s.reason = `${s.reason} Stripe refund(s) ${ids} are cleared separately as credit note refunds in the payout that carries them.`
     }
-    return { ...line, ...s }
+    return withReturn({ ...line, ...s })
   }
   if (toMinor(order.walletRedeemed) !== 0) {
     return review(`${match.reason} Website order used ${order.walletRedeemed} wallet credit, which may explain the difference.`)
@@ -447,13 +466,15 @@ async function buildLine(t, ctx) {
 
   // Customer overpayment candidate: every check must pass as if Stripe had collected
   // exactly the website order total (one invoice, same customer, same total, no refund/dispute).
-  const asOrderTotal = classifyStripePayment({ stripe: { ...stripe, amountReceived: order.finalAmount }, websiteOrders, zohoInvoices, config })
+  const asOrderTotal = classifyStripePayment({ stripe: { ...stripe, amountReceived: order.finalAmount }, websiteOrders, zohoInvoices, config, returnCreditNotes })
   const s = invoiceState(asOrderTotal, invoice, line.customerId, orderTotalMinor)
   if (s.state === LINE_STATE.NEEDS_REVIEW) return review(`${match.reason} ${s.reason}`)
   const netAllocMinor = orderTotalMinor - t.feeMinor
   if (netAllocMinor <= 0) return review(`${match.reason} The Stripe fee is not covered by the invoice total.`)
   const refund = refundCheck ? refundCheck.refund : null
+  const overpaidReturn = asOrderTotal.returnPending ? { returnWarning: returnWarning(asOrderTotal.returnPending, config.websiteCurrency) } : {}
   return {
+    ...overpaidReturn,
     ...line,
     ...s,
     matchStatus: asOrderTotal.status,
@@ -595,9 +616,43 @@ function publicLine(l) {
     advance: l.advance,
     refund: l.refund,
     normalRefunds: l.normalRefunds || null,
+    returnWarning: (l.state !== LINE_STATE.NEEDS_REVIEW && l.returnWarning) || null,
     state: l.state,
     matchStatus: l.matchStatus,
     reason: l.reason,
+  }
+}
+
+const RETURN_WARNING_TITLE = 'RETURN PENDING — ORIGINAL PAYMENT CLEARABLE'
+
+/** Non-blocking notice for a returned order whose money has not moved back yet. */
+function returnWarning(pending, currency) {
+  const money = (v) => `${currency} ${(Number(v) || 0).toFixed(2)}`
+  const creditNotes = pending.creditNotes.map((n) => ({
+    creditNoteId: n.creditNoteId,
+    creditNoteNumber: n.creditNoteNumber,
+    status: n.status,
+    total: n.total,
+    balance: n.balance,
+    salesReturnNumber: n.salesReturnNumber || null,
+    refundStatus: (Number(n.totalRefunded) || 0) > 0 ? 'refunded' : 'pending',
+  }))
+  const details = [`Order ${pending.orderNumber} is ${pending.orderStatus}.`]
+  if (creditNotes.length === 0) details.push('No Zoho credit note exists yet.')
+  for (const n of creditNotes) {
+    details.push(`Credit Note ${n.creditNoteNumber}: ${money(n.total)}`, `Status: ${n.status.toUpperCase()}`, `Credit remaining: ${money(n.balance)}`)
+    if (n.salesReturnNumber) details.push(`Sales Return: ${n.salesReturnNumber}`)
+    details.push(`Refund status: ${n.refundStatus}`)
+  }
+  details.push(`Stripe refunded amount: ${money(pending.stripeRefunded)}`)
+  return {
+    title: RETURN_WARNING_TITLE,
+    orderNumber: pending.orderNumber,
+    orderStatus: pending.orderStatus,
+    creditNotes,
+    stripeRefunded: pending.stripeRefunded,
+    details,
+    message: 'Original Stripe payment will be cleared in this payout. The customer refund will be cleared separately when an actual financial refund occurs.',
   }
 }
 
@@ -1708,8 +1763,9 @@ async function previewPayout(payoutId, overrides = {}) {
 
   const payoutTxnIds = new Set(txns.map((t) => t.balanceTransactionId))
   const stripeCache = new Map()
+  const zohoCache = new Map()
   const built = []
-  for (const t of chargeTxns) built.push(await buildLine(t, { config, sources, ordersByIntent, casesByCharge, payout, payoutTxnIds, stripeCache, mappingsByIntent }))
+  for (const t of chargeTxns) built.push(await buildLine(t, { config, sources, ordersByIntent, casesByCharge, payout, payoutTxnIds, stripeCache, zohoCache, mappingsByIntent }))
   const lines = flagSharedInvoices(applyCases(built, casesByCharge, payout, config))
   const localComponents = await records.loadComponents(id)
   const localFeeJournal = localComponents.find((c) => c.component === COMPONENT.PAYOUT_FEE_JOURNAL) || null
@@ -1738,7 +1794,7 @@ async function previewPayout(payoutId, overrides = {}) {
     byCustomer.set(line.customerId, list)
   }
 
-  const ctx = { sources, zohoPayments, config, payout, accounts, date, arrivalDate, localByKey, payoutId: id, cache: new Map() }
+  const ctx = { sources, zohoPayments, config, payout, accounts, date, arrivalDate, localByKey, payoutId: id, cache: zohoCache }
   const unassigned = []
   for (const line of unassignedLines) {
     unassigned.push({ ...publicLine(line), ...await describeUnassigned(line, { ...ctx, ordersByIntent, stripeCache }) })
@@ -1795,6 +1851,9 @@ async function previewPayout(payoutId, overrides = {}) {
   const nonRefundOther = otherTxns.filter((t) => !isRefundTxn(t))
   if (nonRefundOther.length > 0) warnings.push(`${nonRefundOther.length} non-charge balance transaction(s) are in this payout; they are not part of invoice clearing.`)
   if (refundTxns.length > 0) warnings.push(`${refundTxns.length} refund balance transaction(s) are in this payout; see Refunds.`)
+  for (const l of lines.filter((x) => x.returnWarning && x.state !== LINE_STATE.NEEDS_REVIEW)) {
+    warnings.push(`${l.returnWarning.title}: order ${l.returnWarning.orderNumber} (${l.returnWarning.orderStatus}). ${l.returnWarning.message}`)
+  }
 
   const uncertainComponents = [
     ...localComponents.map((row) => uncertainEntry('component', row, config, deps.now)),

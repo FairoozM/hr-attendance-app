@@ -23,8 +23,8 @@ const MATCH_STATUS = Object.freeze({
 })
 
 const WEBSITE_CANCELLED = new Set(['cancelled'])
-const WEBSITE_REFUNDED = new Set(['returned'])
-const WEBSITE_PARTIAL_REFUND = new Set(['partiallyReturned'])
+// Operational return statuses: goods came back; they say nothing about money going back.
+const WEBSITE_RETURN_STATUSES = new Set(['returned', 'partiallyReturned'])
 const WEBSITE_REVIEW = new Set(['returnRequested'])
 // Zoho may already hold a payment for these; only reference-based recovery may resolve them.
 const UNRESOLVED_LOCAL_STATUSES = new Set(['POSTING', 'FAILED_NEEDS_REVIEW'])
@@ -55,6 +55,24 @@ function expectedZohoCustomerId(order, config) {
 }
 
 /**
+ * Why the order's Zoho credit notes show a financial reversal of this invoice, or null when
+ * every live credit note is still fully open (not applied, not refunded, not used elsewhere).
+ */
+function returnCreditNoteProblem(creditNotes, invoice, tolerance) {
+  const live = creditNotes.filter((n) => n.status !== 'void')
+  for (const n of live) {
+    const label = `Zoho credit note ${n.creditNoteNumber}`
+    if (clean(n.invoiceId) && clean(n.invoiceId) !== invoice.invoiceId) return `${label} is linked to invoice ${n.invoiceNumber || n.invoiceId}, not ${invoice.invoiceNumber}.`
+    if ((Number(n.totalCreditsUsed) || 0) > tolerance) return `${label} has ${round2(n.totalCreditsUsed)} applied as credit.`
+    if ((Number(n.totalRefunded) || 0) > tolerance) return `${label} has ${round2(n.totalRefunded)} refunded.`
+    if (n.status === 'closed' || differs(n.balance, n.total, tolerance)) return `${label} has ${round2(n.balance)} of ${round2(n.total)} left; part of it was used or refunded.`
+  }
+  const creditedTotal = live.reduce((s, n) => s + (Number(n.total) || 0), 0)
+  if (creditedTotal > invoice.total + tolerance) return `Zoho credit notes total ${round2(creditedTotal)}, more than invoice ${invoice.invoiceNumber} ${round2(invoice.total)}.`
+  return null
+}
+
+/**
  * @param {object} input
  * @param {null|{ paymentIntentId: string, status: string, amountReceived: number, amountRefunded: number, currency: string }} input.stripe
  * @param {Array<{ orderId: string, orderNumber: string, orderStatus: string, paymentStatus: string, finalAmount: number, refundAmount: number, stripePaymentIntentId: string, shopOrder: boolean, deleted: boolean, sameNumberCount: number }>} input.websiteOrders
@@ -64,6 +82,9 @@ function expectedZohoCustomerId(order, config) {
  * @param {string|null} [input.localClearingStatus] status of the local stripe_payment_clearings row, if any
  * @param {boolean} [input.refundsClearedSeparately] every Stripe refund on the charge is accounted for as its own
  *   normal refund (credit note refund) in the payout that carries it, so the sale itself clears at full value
+ * @param {Array<{ creditNoteId: string, creditNoteNumber: string, status: string, total: number, balance: number, invoiceId: string, invoiceNumber: string, salesReturnNumber?: string, totalRefunded: number, totalCreditsUsed: number }>} [input.returnCreditNotes]
+ *   Zoho credit notes of the order, read when the website shows a return status. Without them a
+ *   return status still blocks; with them a return that moved no money clears with `returnPending`.
  * @param {{ websiteZohoCustomerId: string, shopZohoCustomerId: string, websiteCurrency: string, amountTolerance: number }} input.config
  */
 function classifyStripePayment(input) {
@@ -120,14 +141,18 @@ function classifyStripePayment(input) {
   if (order.sameNumberCount > 0) {
     return result(MATCH_STATUS.NEEDS_REVIEW, `Order number ${order.orderNumber} is used by another website order.`)
   }
-  if (!separate && (order.paymentStatus === 'refunded' || WEBSITE_REFUNDED.has(order.orderStatus))) {
+  if (!separate && order.paymentStatus === 'refunded') {
     return result(MATCH_STATUS.REFUNDED, `Website order is ${order.orderStatus} / payment ${order.paymentStatus}.`)
   }
-  if (!separate && (order.refundAmount > 0 || WEBSITE_PARTIAL_REFUND.has(order.orderStatus))) {
-    const reason = order.refundAmount > 0
-      ? `Website order has a refund of ${round2(order.refundAmount)}.`
-      : `Website order status is ${order.orderStatus}.`
-    return result(MATCH_STATUS.PARTIALLY_REFUNDED, reason)
+  if (!separate && order.refundAmount > 0) {
+    return result(MATCH_STATUS.PARTIALLY_REFUNDED, `Website order has a refund of ${round2(order.refundAmount)}.`)
+  }
+  const returnStatus = !separate && WEBSITE_RETURN_STATUSES.has(order.orderStatus)
+  if (returnStatus && (!stripe || !Array.isArray(input.returnCreditNotes))) {
+    return result(
+      order.orderStatus === 'returned' ? MATCH_STATUS.REFUNDED : MATCH_STATUS.PARTIALLY_REFUNDED,
+      `Website order status is ${order.orderStatus}; without the Stripe charge and the Zoho credit notes it cannot be shown that no money was refunded.`,
+    )
   }
   // A cancelled order only clears when Stripe refunded all of it; the refund is booked on its own.
   const refundedInFull = Boolean(stripe && stripe.amountRefunded > 0 && stripe.amountRefunded >= stripe.amountReceived - tolerance)
@@ -183,6 +208,20 @@ function classifyStripePayment(input) {
     return result(MATCH_STATUS.NEEDS_REVIEW, `Zoho invoice ${invoice.invoiceNumber} is still a draft.`, amountDifference)
   }
 
+  let returnPending = null
+  if (returnStatus) {
+    const problem = returnCreditNoteProblem(input.returnCreditNotes, invoice, tolerance)
+    if (problem) return result(MATCH_STATUS.NEEDS_REVIEW, `Website order is ${order.orderStatus}. ${problem}`, amountDifference)
+    returnPending = {
+      orderNumber: order.orderNumber,
+      orderStatus: order.orderStatus,
+      stripeRefunded: round2(stripe.amountRefunded),
+      creditNotes: input.returnCreditNotes.filter((n) => n.status !== 'void'),
+    }
+  }
+  // The sale still clears on its own terms; the return only adds the warning.
+  const done = (r) => (returnPending ? { ...r, returnPending } : r)
+
   const expected = stripe ? stripe.amountReceived : order.finalAmount
   const label = stripe ? 'Stripe amount' : 'website total'
   amountDifference.expectedMinusZohoTotal = round2(expected - invoice.total)
@@ -191,36 +230,36 @@ function classifyStripePayment(input) {
   const intentPayments = intentId ? zohoIntentPayments.filter((p) => clean(p.referenceNumber) === intentId) : []
   if (intentPayments.length > 0) {
     const appliedTo = intentPayments.map((p) => p.invoiceNumbers || '(unapplied)').join(' | ')
-    return result(MATCH_STATUS.ALREADY_CLEARED, `A Zoho customer payment with reference ${intentId} already exists (applied to ${appliedTo}).`, amountDifference)
+    return done(result(MATCH_STATUS.ALREADY_CLEARED, `A Zoho customer payment with reference ${intentId} already exists (applied to ${appliedTo}).`, amountDifference))
   }
   if (invoice.status === 'paid' || invoice.balance <= tolerance) {
-    return result(MATCH_STATUS.ALREADY_CLEARED, `Zoho invoice ${invoice.invoiceNumber} has no balance left.`, amountDifference)
+    return done(result(MATCH_STATUS.ALREADY_CLEARED, `Zoho invoice ${invoice.invoiceNumber} has no balance left.`, amountDifference))
   }
 
   if (differs(expected, invoice.total, tolerance)) {
-    return result(
+    return done(result(
       MATCH_STATUS.AMOUNT_MISMATCH,
       `${label} ${round2(expected)} does not equal Zoho invoice total ${round2(invoice.total)}.`,
       amountDifference,
-    )
+    ))
   }
   if (differs(invoice.balance, invoice.total, tolerance)) {
-    return result(
+    return done(result(
       MATCH_STATUS.ZOHO_BALANCE_MISMATCH,
       `Zoho invoice ${invoice.invoiceNumber} is partly paid: balance ${round2(invoice.balance)} of ${round2(invoice.total)}.`,
       amountDifference,
-    )
+    ))
   }
 
   if (!stripe) {
-    return result(
+    return done(result(
       MATCH_STATUS.STRIPE_NOT_VERIFIED,
       'Website order and Zoho invoice agree; the Stripe payment was not read.',
       amountDifference,
-    )
+    ))
   }
 
-  return result(MATCH_STATUS.MATCHED_READY_TO_CLEAR, `Stripe, website order ${order.orderNumber} and Zoho ${invoice.invoiceNumber} agree.`, amountDifference)
+  return done(result(MATCH_STATUS.MATCHED_READY_TO_CLEAR, `Stripe, website order ${order.orderNumber} and Zoho ${invoice.invoiceNumber} agree.`, amountDifference))
 }
 
 /** The single live Zoho invoice that matched exactly, if any. */
@@ -232,6 +271,7 @@ function pickMatchedInvoice(zohoInvoices, orderNumber) {
 
 module.exports = {
   MATCH_STATUS,
+  WEBSITE_RETURN_STATUSES,
   classifyStripePayment,
   expectedZohoCustomerId,
   pickMatchedInvoice,

@@ -94,6 +94,10 @@
   color: var(--danger);
 }
 
+.stripe-page__banner--warning {
+  background: var(--warning-soft);
+}
+
 .stripe-page__url {
   display: block;
   margin: 0.75rem 0;

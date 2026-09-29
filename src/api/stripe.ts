@@ -225,9 +225,30 @@ export interface StripePayoutLine {
   } | null
   advance: StripePayoutAdvance | null
   refund?: StripeLineRefundCheck | null
+  /** Set when the order was physically returned but no money has moved back yet. */
+  returnWarning?: StripeReturnWarning | null
   state: StripePayoutLineState
   matchStatus: StripeMatchStatus | 'DIRECT_PAYMENT_MAPPED' | null
   reason: string
+}
+
+/** Non-blocking: the original payment still clears; the refund clears when it actually happens. */
+export interface StripeReturnWarning {
+  title: string
+  orderNumber: string
+  orderStatus: string
+  creditNotes: Array<{
+    creditNoteId: string
+    creditNoteNumber: string
+    status: string
+    total: number
+    balance: number
+    salesReturnNumber: string | null
+    refundStatus: 'pending' | 'refunded'
+  }>
+  stripeRefunded: number
+  details: string[]
+  message: string
 }
 
 export type StripeLineSource = 'WEBSITE_ORDER' | 'DIRECT_STRIPE_PAYMENT'

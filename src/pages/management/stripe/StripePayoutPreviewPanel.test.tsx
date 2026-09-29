@@ -332,6 +332,43 @@ describe('StripePayoutPreviewPanel posting', () => {
     expect(text).toContain(`Stripe customer advance ${PAYOUT}`)
     expect(text).toContain('NOT part of this posting')
   })
+
+  it('shows a returned order with no refund as a non-blocking warning and keeps the group postable', async () => {
+    const p = currentPayout(true)
+    const web = websiteGroup(true)
+    const returned = websiteLine('txn_20942', 'INV-043652', '20942', 251.66, 8.3)
+    returned.website = { ...returned.website!, orderStatus: 'partiallyReturned' }
+    returned.returnWarning = {
+      title: 'RETURN PENDING — ORIGINAL PAYMENT CLEARABLE',
+      orderNumber: '20942',
+      orderStatus: 'partiallyReturned',
+      creditNotes: [{ creditNoteId: 'cn1', creditNoteNumber: '20942', status: 'open', total: 199, balance: 199, salesReturnNumber: 'RMA-04331', refundStatus: 'pending' }],
+      stripeRefunded: 0,
+      details: [
+        'Order 20942 is partiallyReturned.',
+        'Credit Note 20942: AED 199.00',
+        'Status: OPEN',
+        'Credit remaining: AED 199.00',
+        'Sales Return: RMA-04331',
+        'Refund status: pending',
+        'Stripe refunded amount: AED 0.00',
+      ],
+      message: 'Original Stripe payment will be cleared in this payout. The customer refund will be cleared separately when an actual financial refund occurs.',
+    }
+    web.lines = [...web.lines, returned]
+    p.groups = [burjmanGroup(), web]
+    await openPreview(p)
+    const notice = screen.getByRole('note')
+    expect(notice.textContent).toContain('RETURN PENDING — ORIGINAL PAYMENT CLEARABLE')
+    expect(notice.textContent).toContain('Credit Note 20942: AED 199.00')
+    expect(notice.textContent).toContain('Sales Return: RMA-04331')
+    expect(notice.textContent).toContain('Stripe refunded amount: AED 0.00')
+    expect(notice.textContent).toContain('The customer refund will be cleared separately')
+    const buttons = screen.getAllByRole('button', { name: 'Post Customer Group to Zoho' }) as HTMLButtonElement[]
+    expect(buttons).toHaveLength(2)
+    expect(buttons.every((b) => !b.disabled)).toBe(true)
+    expect(api.postStripePayoutGroup).not.toHaveBeenCalled()
+  })
 })
 
 function feeJournal(status: StripeFeeJournalStatus, postable: boolean): StripePayoutFeeJournal {
