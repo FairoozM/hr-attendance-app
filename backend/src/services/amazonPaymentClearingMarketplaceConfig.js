@@ -120,14 +120,14 @@ function feeJournalAccountSuggestions(key) {
     return Object.freeze({
       STORAGE: {
         debitAccountName: 'Amazon Storage Exp',
-        creditAccountName: 'Amazon Undeposited Funds',
+        creditAccountName: 'Amazon Undeposided Funds',
       },
       ADVERTISING: {
         debitAccountName: 'Amazon Advertising Exp',
-        creditAccountName: 'Amazon Undeposited Funds',
+        creditAccountName: 'Amazon Undeposided Funds',
       },
       ADVERTISING_CREDIT: {
-        debitAccountName: 'Amazon Undeposited Funds',
+        debitAccountName: 'Amazon Undeposided Funds',
         creditAccountName: 'Amazon Advertising Exp',
       },
       PREMIUM_SERVICES: {
@@ -145,6 +145,10 @@ function feeJournalAccountSuggestions(key) {
       SUBSCRIPTION: {
         debitAccountName: 'Amazon Commission Exp',
         creditAccountName: 'Amazon Uncleared Commission Exp',
+      },
+      SAFET_REIMBURSEMENT: {
+        debitAccountName: 'Amazon Undeposided Funds',
+        creditAccountName: 'Amazon Safe-T Damage Claim',
       },
       OTHER_ACCOUNT_LEVEL_FEE: {
         debitAccountName: '',
@@ -180,6 +184,10 @@ function feeJournalAccountSuggestions(key) {
     SUBSCRIPTION: {
       debitAccountName: 'KSA Amazon Commission Exp',
       creditAccountName: 'KSA-Amazon Uncleared Commission Exp',
+    },
+    SAFET_REIMBURSEMENT: {
+      debitAccountName: 'KSA-Amazon Undeposited Funds',
+      creditAccountName: 'KSA-Amazon Safe-T Damage Claim',
     },
     OTHER_ACCOUNT_LEVEL_FEE: {
       debitAccountName: '',

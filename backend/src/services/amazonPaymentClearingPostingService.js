@@ -586,7 +586,7 @@ async function postApprovedBatch({
 
     const journalRequest = {
       feeType: row.feeType,
-      description: row.description,
+      description: row.lineDescription || row.description,
       amount: Math.abs(round2(Number(row.totalAmount) || 0)),
       debit: row.debit,
       credit: row.credit,

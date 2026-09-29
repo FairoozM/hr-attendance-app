@@ -2761,6 +2761,59 @@ test('UAE sample settlement classifies, matches, and reconciles in AED', () => {
   assert.match(reference.referenceBase, /^AMZ-UAE-/)
 })
 
+test('UAE SAFE-T reimbursements become one simple journal, not invoice payments', () => {
+  const header = 'settlement-id\tsettlement-start-date\tsettlement-end-date\tdeposit-date\ttotal-amount\tcurrency\ttransaction-type\torder-id\tmerchant-order-id\tamount-type\tamount-description\tamount\tsku\tquantity-purchased\tmarketplace-name'
+  const base = '27758265792\t03.09.2026\t17.09.2026\t18.09.2026\t924.18\tAED'
+  const tsv = [
+    header,
+    `${base}\tOrder\t404-1111111-1111111\tM-1\tItemPrice\tPrincipal\t200.00\tSKU-1\t1\tAmazon.ae`,
+    `${base}\tSAFE-T Reimbursement\t403-7899568-4465903\tamzn1.DMSReimbursement.1\tOther Transaction\tSAFE-T reimbursement\t37.73\tFK-10G-1900-CREAM\t\tAmazon.ae`,
+    `${base}\tSAFE-T Reimbursement\t403-3282003-4189922\tamzn1.DMSReimbursement.2\tOther Transaction\tSAFE-T reimbursement\t662.90\tSPHM-S-MIX-21-1-BEIGE\t\tAmazon.ae`,
+    `${base}\tSAFE-T Reimbursement\t407-3586917-0392359\tamzn1.DMSReimbursement.3\tOther Transaction\tSAFE-T reimbursement\t23.55\tLIFEP17-MIX-8-1-BLACK\t\tAmazon.ae`,
+  ].join('\n')
+  const parsed = parseAmazonSettlementReport(tsv, { defaultCurrency: 'AED' })
+  const safeTRows = parsed.rows.filter((row) => row.transactionType === 'SAFE-T Reimbursement')
+  assert.equal(safeTRows.length, 3)
+  assert.ok(safeTRows.every((row) => isNonOrderLinkedAmazonFee(row)))
+  assert.ok(safeTRows.every((row) => classifySettlementRow(row) === ROW_CLASS.NON_ORDER_LINKED_AMAZON_FEE))
+
+  const invoices = [
+    { invoice_id: 'inv-1', invoice_number: 'INV-1', reference_number: '404-1111111-1111111', customer_id: 'c', total: 200, status: 'sent' },
+    { invoice_id: 'inv-old', invoice_number: 'INV-042787', reference_number: '403-3282003-4189922', customer_id: 'c', total: 662.9, status: 'paid' },
+  ]
+  const preview = buildPreview({
+    report: {
+      marketplace: 'UAE',
+      settlementId: parsed.metadata.settlementId,
+      settlementStartDate: parsed.metadata.settlementStartDate,
+      settlementEndDate: parsed.metadata.settlementEndDate,
+      currency: 'AED',
+    },
+    rows: parsed.rows,
+    invoices,
+  })
+
+  const orderIds = [...preview.matchedOrders, ...preview.unmatchedOrders].map((order) => order.orderId)
+  assert.deepEqual(orderIds, ['404-1111111-1111111'])
+  assert.equal(preview.reconciliationSummary.reconciliationStatus, 'reconciled')
+  assert.ok(!preview.blockingIssues.some((issue) => issue.code === 'UNKNOWN_ROWS'))
+
+  const group = preview.nonOrderLinkedAmazonFeeMappings.find((row) => row.normalizedFeeType === 'SAFET_REIMBURSEMENT')
+  assert.ok(group)
+  assert.equal(preview.nonOrderLinkedAmazonFeeMappings.filter((row) => row.normalizedFeeType === 'SAFET_REIMBURSEMENT').length, 1)
+  assert.equal(group.totalAmount, 724.18)
+  assert.equal(group.rowCount, 3)
+  assert.equal(group.debitAccountName, 'Amazon Undeposided Funds')
+  assert.equal(group.creditAccountName, 'Amazon Safe-T Damage Claim')
+  assert.equal(group.journalPreview.referenceNumber, 'SAFE-T Reimbursement 3 Orders 03.09.2026-17.09.2026')
+  assert.equal(group.journalPreview.lineDescription, 'SAFE-T Reimbursement 3 Orders 03.09.2026-17.09.2026')
+  assert.equal(
+    group.journalPreview.notes,
+    'SAFE-T Reimbursement 3 Orders 03.09.2026-17.09.2026\n403-7899568-4465903, 403-3282003-4189922, 407-3586917-0392359'
+  )
+  assert.doesNotMatch(group.journalPreview.notes, /HR|hr-attendance|Generated|Purchase Planning/)
+})
+
 test('reopened UAE batch applies saved UAE fee journal mappings', () => {
   const { savedBatchToPreview } = require('../src/services/amazonPaymentClearingService')._internals
   const { buildNonOrderLinkedAmazonFeeMappings } = require('../src/services/amazonPaymentClearingPreviewService')

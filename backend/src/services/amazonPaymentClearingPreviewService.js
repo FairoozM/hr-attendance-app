@@ -97,6 +97,39 @@ function journalNotes(report = {}, paymentType = 'advertising') {
   return `Transferring ${label} payment from ${referenceNumber} to Expenses accounts`
 }
 
+function dottedYmd(value) {
+  const m = String(value || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})/)
+  return m ? `${m[3]}.${m[2]}.${m[1]}` : ''
+}
+
+const ZOHO_JOURNAL_NOTES_MAX = 480
+
+function safeTJournalText(report = {}, orderIds = []) {
+  const start = dottedYmd(report.settlementStartDate)
+  const end = dottedYmd(report.settlementEndDate)
+  const period = start && end ? `${start}-${end}` : start || end
+  const count = orderIds.length
+  const referenceNumber = period
+    ? `SAFE-T Reimbursement ${count} ${count === 1 ? 'Order' : 'Orders'} ${period}`
+    : journalReferenceNumber(report, NORMALIZED_FEE_TYPE.SAFET_REIMBURSEMENT)
+  let orderText = ''
+  for (const [idx, orderId] of orderIds.entries()) {
+    const next = orderText ? `${orderText}, ${orderId}` : orderId
+    const remaining = orderIds.length - idx - 1
+    const tail = remaining > 0 ? ` +${remaining} more` : ''
+    if (referenceNumber.length + 1 + next.length + tail.length > ZOHO_JOURNAL_NOTES_MAX) {
+      orderText = `${orderText} +${orderIds.length - idx} more`
+      break
+    }
+    orderText = next
+  }
+  return {
+    referenceNumber,
+    notes: orderText ? `${referenceNumber}\n${orderText}` : referenceNumber,
+    lineDescription: referenceNumber,
+  }
+}
+
 function matchesDescriptionPattern(pattern, description) {
   const p = String(pattern || '').trim()
   if (!p) return true
@@ -145,14 +178,20 @@ function buildNonOrderLinkedAmazonFeeMappings(rows, report = {}, mappingRules = 
       rowCount: 0,
       totalAmount: 0,
       rowNumbers: [],
+      orderIds: [],
     }
     entry.rowCount += 1
     entry.totalAmount = round2(entry.totalAmount + (Number(row.amount) || 0))
     if (row.rowNumber != null) entry.rowNumbers.push(row.rowNumber)
+    const orderId = String(row.orderId || '').trim()
+    if (orderId && !entry.orderIds.includes(orderId)) entry.orderIds.push(orderId)
     groups.set(key, entry)
   }
   return Array.from(groups.values())
     .map((entry) => {
+      const safeTText = entry.normalizedFeeType === NORMALIZED_FEE_TYPE.SAFET_REIMBURSEMENT
+        ? safeTJournalText(report, entry.orderIds)
+        : null
       const rule = findFeeJournalMappingRule(entry, mappingRules)
       const suggestion = suggestedAccountsForNormalizedFeeType(entry.normalizedFeeType, marketplace)
       const accounts = rule
@@ -171,8 +210,9 @@ function buildNonOrderLinkedAmazonFeeMappings(rows, report = {}, mappingRules = 
         lastUsedAt: rule?.lastUsedAt || null,
         mappingStatus: mappingStatus(accounts, entry.totalAmount, rule),
         journalPreview: {
-          referenceNumber: journalReferenceNumber(report, entry.normalizedFeeType || entry.feeType),
-          notes: journalNotes(report, entry.normalizedFeeType || entry.feeType),
+          referenceNumber: safeTText?.referenceNumber || journalReferenceNumber(report, entry.normalizedFeeType || entry.feeType),
+          notes: safeTText?.notes || journalNotes(report, entry.normalizedFeeType || entry.feeType),
+          lineDescription: safeTText?.lineDescription || '',
           debit: {
             accountId: accounts.debitAccountId,
             accountName: accounts.debitAccountName,
