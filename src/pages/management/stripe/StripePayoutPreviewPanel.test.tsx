@@ -1509,11 +1509,16 @@ describe('StripePayoutPreviewPanel direct Stripe payments', () => {
     expect(screen.getByText('Manual verification required')).toBeTruthy()
 
     expect(confirmButton().disabled).toBe(true)
-    fireEvent.change(screen.getByLabelText('Re-type invoice number'), { target: { value: 'INV-043544' } })
+    const retype = screen.getByLabelText('Re-type invoice number') as HTMLInputElement
+    expect(retype.value).toBe('')
+    expect(retype.placeholder).toBe('')
     fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'Payment Link #20901 for INV-043544, verified in Stripe' } })
-    expect(confirmButton().disabled).toBe(true)
     fireEvent.click(screen.getByRole('checkbox', { name: 'I verified this Stripe payment belongs to the selected Zoho invoice.' }))
+    expect(confirmButton().disabled).toBe(true)
+    expect(screen.getByTestId('confirm-missing').textContent).toBe('To enable Confirm Mapping: type INV-043544 in "Re-type invoice number".')
+    fireEvent.change(retype, { target: { value: 'INV-043544' } })
     expect(confirmButton().disabled).toBe(false)
+    expect(screen.queryByTestId('confirm-missing')).toBeNull()
     fireEvent.change(screen.getByLabelText('Re-type invoice number'), { target: { value: 'INV-04354' } })
     expect(confirmButton().disabled).toBe(true)
     expect(api.confirmStripeDirectPayment).not.toHaveBeenCalled()

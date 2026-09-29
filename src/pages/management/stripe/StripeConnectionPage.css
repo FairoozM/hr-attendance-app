@@ -390,6 +390,15 @@
   color: var(--warning);
 }
 
+.stripe-direct__input {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.55rem;
+  background: var(--surface-raised);
+  color: inherit;
+  font: inherit;
+}
+
 .stripe-direct__warning {
   margin: 0.35rem 0;
   font-size: 0.85rem;

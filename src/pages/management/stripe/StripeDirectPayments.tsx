@@ -291,6 +291,12 @@ function AssignInvoiceModal({
   const v = s.validation
   const typedOk = !v?.requiresTypedInvoiceNumber || s.typedInvoiceNumber.trim().toUpperCase() === v.invoice?.invoiceNumber.toUpperCase()
   const canConfirm = Boolean(v && v.invoice && !v.blocking) && s.reason.trim().length >= MIN_REASON && s.acknowledged && typedOk && !s.saving
+  const missing: string[] = []
+  if (v && v.invoice && !v.blocking && !s.saving) {
+    if (!typedOk) missing.push(s.typedInvoiceNumber.trim() ? `re-typed invoice number does not match ${v.invoice.invoiceNumber}` : `type ${v.invoice.invoiceNumber} in "Re-type invoice number"`)
+    if (s.reason.trim().length < MIN_REASON) missing.push(`reason needs at least ${MIN_REASON} characters`)
+    if (!s.acknowledged) missing.push('tick the verification box')
+  }
 
   async function search() {
     setS((prev) => ({ ...prev, searching: true, searchError: '', results: null, invoiceId: '', validation: null, validateError: '' }))
@@ -426,13 +432,14 @@ function AssignInvoiceModal({
                 Re-type invoice number
                 <input
                   type="text"
+                  className="stripe-direct__input"
                   value={s.typedInvoiceNumber}
-                  placeholder={v.invoice.invoiceNumber}
                   autoComplete="off"
                   disabled={s.saving}
                   onChange={(e) => setS({ ...s, typedInvoiceNumber: e.target.value })}
                 />
               </label>
+              <p className="stripe-page__note">Type {v.invoice.invoiceNumber} exactly as shown above.</p>
             </>
           )}
           <label className="stripe-payout__reason">
@@ -452,6 +459,11 @@ function AssignInvoiceModal({
       {s.error && (
         <p className="stripe-page__banner stripe-page__banner--error" role="alert">
           {s.error}
+        </p>
+      )}
+      {missing.length > 0 && (
+        <p className="stripe-direct__warning" data-testid="confirm-missing">
+          To enable Confirm Mapping: {missing.join('; ')}.
         </p>
       )}
       <div className="stripe-clearing__actions">
