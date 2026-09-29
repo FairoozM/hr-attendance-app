@@ -217,6 +217,58 @@ async function listPayoutBalanceTransactions(payoutId) {
   return out
 }
 
+function plainMetadata(metadata) {
+  const out = {}
+  for (const [k, v] of Object.entries(metadata || {})) if (clean(v)) out[k] = clean(v).slice(0, 200)
+  return out
+}
+
+/**
+ * What Stripe says a payment was for (read-only): PaymentIntent and charge descriptions and
+ * metadata, and for a Payment Link / Checkout payment the session, link and product texts.
+ * No customer contact data is returned.
+ */
+async function getPaymentIntentEvidence(paymentIntentId) {
+  const client = requireStripeClient()
+  const pi = await client.paymentIntents.retrieve(paymentIntentId, { expand: ['latest_charge'] })
+  const charge = pi.latest_charge && typeof pi.latest_charge === 'object' ? pi.latest_charge : null
+  const sessions = []
+  for (const cs of (await client.checkout.sessions.list({ payment_intent: paymentIntentId, limit: 3 })).data) {
+    const items = await client.checkout.sessions.listLineItems(cs.id, { limit: 20, expand: ['data.price.product'] })
+    sessions.push({
+      checkoutSessionId: cs.id,
+      paymentLinkId: typeof cs.payment_link === 'string' ? cs.payment_link : clean(cs.payment_link && cs.payment_link.id) || null,
+      clientReferenceId: clean(cs.client_reference_id) || null,
+      metadata: plainMetadata(cs.metadata),
+      products: items.data.map((li) => {
+        const product = li.price && typeof li.price.product === 'object' ? li.price.product : null
+        return {
+          lineDescription: clean(li.description) || null,
+          productName: product ? clean(product.name) || null : null,
+          productDescription: product ? clean(product.description) || null : null,
+          amountMinor: li.amount_total,
+          quantity: li.quantity,
+        }
+      }),
+    })
+  }
+  return {
+    paymentIntentId: pi.id,
+    chargeId: charge ? charge.id : clean(pi.latest_charge) || null,
+    status: clean(pi.status),
+    currency: clean(pi.currency).toUpperCase(),
+    amountReceivedMinor: pi.amount_received,
+    refundedMinor: charge ? Number(charge.amount_refunded) || 0 : 0,
+    disputed: Boolean(charge && charge.disputed),
+    description: clean(pi.description) || null,
+    chargeDescription: charge ? clean(charge.description) || null : null,
+    statementDescriptor: charge ? clean(charge.calculated_statement_descriptor || charge.statement_descriptor) || null : null,
+    metadata: { ...plainMetadata(charge && charge.metadata), ...plainMetadata(pi.metadata) },
+    createdAt: unixToIso(charge && charge.created ? charge.created : pi.created),
+    sessions,
+  }
+}
+
 // ── Website orders (read-only DB) ───────────────────────────────────────────
 
 const ORDER_COLUMNS = `
@@ -290,6 +342,21 @@ async function loadWebsiteOrdersByIntents(paymentIntentIds, currency) {
   return rows.map((row) => mapWebsiteOrder(row, currency))
 }
 
+const ORDERS_BY_NUMBER_SQL = `
+SELECT ${ORDER_COLUMNS}
+FROM orders o
+WHERE o.invoice_number = ANY($1::text[])
+`
+
+/** Website orders with these order numbers (a Zoho invoice's P.O.# is the order number). */
+async function loadWebsiteOrdersByNumbers(orderNumbers, currency) {
+  const numbers = [...new Set((orderNumbers || []).map(clean).filter(Boolean))]
+  if (numbers.length === 0) return []
+  assertWebsiteDb()
+  const { rows } = await lifesmileWebsiteDb.readQuery(ORDERS_BY_NUMBER_SQL, [numbers])
+  return rows.map((row) => mapWebsiteOrder(row, currency))
+}
+
 async function loadWebsiteStripeOrders({ start, end, limit }, currency) {
   assertWebsiteDb()
   const { rows } = await lifesmileWebsiteDb.readQuery(STRIPE_ORDERS_IN_RANGE_SQL, [start, end, limit])
@@ -335,6 +402,50 @@ async function findZohoInvoicesByReference(reference, opts = {}) {
     throw err
   }
   return invoices
+}
+
+const INVOICE_SEARCH_MAX = 50
+
+/**
+ * Invoice search for mapping a direct Stripe payment. Exactly one criterion is sent to Zoho and
+ * every returned row is checked against it here: a row that does not match means Zoho ignored
+ * the filter, and the search fails instead of offering unrelated invoices.
+ * @param {{ invoiceNumber?: string, reference?: string, amount?: number, customerId?: string }} criteria
+ */
+async function searchZohoInvoices(criteria, opts = {}) {
+  const invoiceNumber = clean(criteria.invoiceNumber)
+  const reference = clean(criteria.reference)
+  const customerId = clean(criteria.customerId)
+  const amount = criteria.amount == null || criteria.amount === '' ? null : Number(criteria.amount)
+  const params = {}
+  let matches
+  if (invoiceNumber) {
+    params.invoice_number = invoiceNumber
+    matches = (inv) => inv.invoiceNumber.toLowerCase() === invoiceNumber.toLowerCase()
+  } else if (reference) {
+    params.reference_number = reference
+    matches = (inv) => inv.referenceNumber === reference
+  } else if (amount != null && Number.isFinite(amount) && amount > 0) {
+    if (!customerId) throw lookupError('ZOHO_SEARCH_CUSTOMER_REQUIRED', 'An amount search needs a customer.')
+    params.total = amount.toFixed(2)
+    matches = (inv) => Math.round(inv.total * 100) === Math.round(amount * 100)
+  } else {
+    throw lookupError('ZOHO_SEARCH_CRITERIA', 'Search by invoice number, PO number or amount.')
+  }
+  if (customerId) params.customer_id = customerId
+  const rows = (await zohoListAll('/invoices', params, 'invoices', { ...opts, maxPages: 1, perPage: INVOICE_SEARCH_MAX })).map((inv) => ({
+    ...mapZohoInvoice(inv),
+    customerName: clean(inv.customer_name),
+  }))
+  const ignored = rows.filter((inv) => !matches(inv) || (customerId && inv.customerId !== customerId))
+  // Zoho's invoice_number filter also matches longer numbers; those are dropped, anything else fails.
+  if (invoiceNumber) {
+    const unrelated = ignored.filter((inv) => !inv.invoiceNumber.toLowerCase().includes(invoiceNumber.toLowerCase()) || (customerId && inv.customerId !== customerId))
+    if (unrelated.length > 0) throw lookupError('ZOHO_REFERENCE_FILTER_IGNORED', `Zoho ignored the invoice number filter for ${invoiceNumber}; search is not exact.`)
+    return rows.filter(matches)
+  }
+  if (ignored.length > 0) throw lookupError('ZOHO_REFERENCE_FILTER_IGNORED', 'Zoho ignored the invoice search filter; search is not exact.')
+  return rows
 }
 
 /** Live invoice by ID, or null when Zoho no longer has it. */
@@ -686,9 +797,12 @@ module.exports = {
   retrieveStripePayout,
   listPayoutBalanceTransactions,
   listChargeRefunds,
+  getPaymentIntentEvidence,
   loadWebsiteOrdersByIntents,
+  loadWebsiteOrdersByNumbers,
   loadWebsiteStripeOrders,
   findZohoInvoicesByReference,
+  searchZohoInvoices,
   findZohoPaymentsByReference,
   findZohoJournalsByReference,
   listZohoJournalsInRange,

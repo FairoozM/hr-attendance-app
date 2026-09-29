@@ -197,6 +197,59 @@ async function payoutListRefresh(_req, res) {
   }
 }
 
+async function directPaymentInvoiceSearch(req, res) {
+  try {
+    const { searchInvoices } = require('../services/stripeClearing/stripeDirectPaymentService')
+    return res.json(await searchInvoices({ q: req.query.q, by: req.query.by, customer: req.query.customer }))
+  } catch (err) {
+    return clearingError(res, err, 'direct payment invoice search')
+  }
+}
+
+async function directPaymentValidate(req, res) {
+  try {
+    const { validateDirectPayment } = require('../services/stripeClearing/stripeDirectPaymentService')
+    return res.json(await validateDirectPayment(req.params.payoutId, req.params.paymentIntentId, req.query.invoiceId))
+  } catch (err) {
+    return clearingError(res, err, 'direct payment validation')
+  }
+}
+
+async function directPaymentConfirm(req, res) {
+  try {
+    const { confirmDirectPayment } = require('../services/stripeClearing/stripeDirectPaymentService')
+    return res.json(await confirmDirectPayment(req.params.payoutId, req.params.paymentIntentId, {
+      invoiceId: req.body && req.body.invoiceId,
+      reason: req.body && req.body.reason,
+      confirmInvoiceNumber: req.body && req.body.confirmInvoiceNumber,
+      actor: clearingActor(req),
+    }))
+  } catch (err) {
+    return clearingError(res, err, 'direct payment mapping')
+  }
+}
+
+async function directPaymentRelease(req, res) {
+  try {
+    const { releaseDirectPayment } = require('../services/stripeClearing/stripeDirectPaymentService')
+    return res.json(await releaseDirectPayment(req.params.payoutId, req.params.paymentIntentId, {
+      reason: req.body && req.body.reason,
+      actor: clearingActor(req),
+    }))
+  } catch (err) {
+    return clearingError(res, err, 'direct payment release')
+  }
+}
+
+async function directPaymentHistory(req, res) {
+  try {
+    const { directPaymentHistory: history } = require('../services/stripeClearing/stripeDirectPaymentService')
+    return res.json(await history(req.params.paymentIntentId))
+  } catch (err) {
+    return clearingError(res, err, 'direct payment history')
+  }
+}
+
 async function payoutPreview(req, res) {
   try {
     const { previewPayout } = require('../services/stripeClearing/stripePayoutPreviewService')
@@ -223,4 +276,9 @@ module.exports = {
   payoutRecheckUncertain,
   payoutConfirmUncertainNotCreated,
   confirmCustomerAdvance,
+  directPaymentInvoiceSearch,
+  directPaymentValidate,
+  directPaymentConfirm,
+  directPaymentRelease,
+  directPaymentHistory,
 }

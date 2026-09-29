@@ -325,6 +325,71 @@
   margin: 0.6rem 0 !important;
 }
 
+.stripe-direct__card {
+  border: 1px solid var(--warning);
+  border-radius: 10px;
+  padding: 0.75rem 0.85rem;
+  background: var(--surface-raised);
+}
+
+.stripe-direct__card--mapped {
+  border-color: var(--success);
+}
+
+.stripe-direct__card dl,
+.stripe-direct__validation dl {
+  margin: 0.6rem 0 !important;
+}
+
+.stripe-direct__summary {
+  margin: 0.4rem 0;
+}
+
+.stripe-direct__suggestion {
+  margin: 0.4rem 0;
+}
+
+.stripe-direct__search {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.6rem;
+}
+
+.stripe-direct__search label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.85rem;
+}
+
+.stripe-direct__row--selected {
+  background: var(--surface-raised);
+  font-weight: 600;
+}
+
+.stripe-direct__evidence--match {
+  color: var(--success);
+}
+
+.stripe-direct__checks {
+  list-style: none;
+  padding-left: 0;
+  margin: 0.5rem 0;
+}
+
+.stripe-direct__check--ok {
+  color: var(--success);
+}
+
+.stripe-direct__check--bad {
+  color: var(--danger);
+}
+
+.stripe-direct__check--warn {
+  color: var(--warning);
+}
+
 .stripe-payout__journal {
   margin-bottom: 0.6rem;
 }

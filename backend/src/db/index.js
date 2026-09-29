@@ -1945,6 +1945,8 @@ async function ensureStripeTables() {
   await ensureStripePayoutClearingTables(query)
   const { ensureStripePayoutListCacheTables } = require('../services/stripeClearing/stripePayoutListCacheStore')
   await ensureStripePayoutListCacheTables(query)
+  const { ensureStripeDirectPaymentTables } = require('../services/stripeClearing/stripeDirectPaymentStore')
+  await ensureStripeDirectPaymentTables(query)
 }
 
 module.exports = {

@@ -207,20 +207,114 @@ export interface StripePayoutLine {
   netAllocation: number
   feeAllocation: number
   customerAdvance: number
+  /** Absent from previews produced before direct Stripe payments were supported. */
+  source?: StripeLineSource | null
   website: { orderId: string; orderNumber: string; finalAmount: number; shopOrder: boolean; orderStatus: string; paymentStatus: string } | null
-  invoice: { invoiceId: string; invoiceNumber: string; total: number; balance: number; status: string; customerId: string } | null
+  direct?: StripeDirectMapping | null
+  chargeCreatedAt?: string | null
+  description?: string | null
+  invoice: {
+    invoiceId: string
+    invoiceNumber: string
+    total: number
+    balance: number
+    status: string
+    customerId: string
+    referenceNumber?: string
+    date?: string
+  } | null
   advance: StripePayoutAdvance | null
   refund?: StripeLineRefundCheck | null
   state: StripePayoutLineState
-  matchStatus: StripeMatchStatus | null
+  matchStatus: StripeMatchStatus | 'DIRECT_PAYMENT_MAPPED' | null
   reason: string
+}
+
+export type StripeLineSource = 'WEBSITE_ORDER' | 'DIRECT_STRIPE_PAYMENT'
+
+/** Admin-confirmed mapping of a direct Stripe payment (Payment Link) to an existing Zoho invoice. */
+export interface StripeDirectMapping {
+  mappingId: number
+  mappingType: 'DIRECT_PAYMENT'
+  status: 'ACTIVE' | 'RELEASED'
+  paymentIntentId: string
+  chargeId: string | null
+  zohoInvoiceId: string
+  invoiceNumber: string
+  zohoCustomerId: string
+  customerKey: 'WEBSITE' | 'SHOP'
+  invoiceReference: string | null
+  stripeGross: number
+  evidence: string | null
+  reason: string
+  firstPayoutId: string
+  mappedBy: string
+  mappedAt: string | null
+  /** False once any accounting exists for the payout customer. */
+  removable: boolean
+  lockedReason: string | null
+}
+
+export interface StripePaymentEvidence {
+  paymentIntentId: string
+  chargeId: string | null
+  status?: string
+  description: string | null
+  chargeDescription: string | null
+  statementDescriptor?: string | null
+  metadata: Record<string, string>
+  createdAt: string | null
+  sessions: Array<{
+    checkoutSessionId: string
+    paymentLinkId: string | null
+    clientReferenceId: string | null
+    metadata: Record<string, string>
+    products: Array<{ productName: string | null; productDescription: string | null; lineDescription: string | null; amountMinor: number; quantity: number }>
+  }>
+}
+
+export interface StripeEvidenceReference {
+  kind: 'reference' | 'invoiceNumber'
+  value: string
+  sources: Array<{ source: string; text: string }>
+}
+
+export interface StripeDirectCandidate {
+  invoiceId: string
+  invoiceNumber: string
+  referenceNumber: string
+  customerId: string
+  customerName: string | null
+  date: string
+  total: number
+  balance: number
+  status: string
+  fits: boolean
+}
+
+export interface StripeDirectSuggestion {
+  status: 'SUGGESTED' | 'NEEDS_REVIEW' | 'NONE'
+  reason: string
+  invoiceId?: string
+  candidates: StripeDirectCandidate[]
+}
+
+/** A charge that belongs to no customer group yet. */
+export interface StripeUnassignedLine extends StripePayoutLine {
+  directEligible?: boolean
+  directIneligibleReason?: string | null
+  stripeEvidence?: StripePaymentEvidence | null
+  references?: StripeEvidenceReference[]
+  suggestion?: StripeDirectSuggestion | null
+  evidenceError?: string | null
 }
 
 export interface StripePayoutAllocation {
   invoiceId: string
   invoiceNumber: string
-  orderNumber: string
+  orderNumber: string | null
   paymentIntentId: string | null
+  source?: StripeLineSource
   amount: number
 }
 
@@ -545,7 +639,8 @@ export interface StripePayoutPreview {
   groups: StripePayoutGroup[]
   /** Absent only from previews produced before the fee journal step existed. */
   feeJournal?: StripePayoutFeeJournal
-  unassigned: StripePayoutLine[]
+  unassigned: StripeUnassignedLine[]
+  directMappings?: StripeDirectMapping[]
   advanceCaseEvents: StripeAdvanceCaseEvent[]
   advanceRefunds: StripeAdvanceRefund[]
   /** Absent from previews produced before normal refunds were handled. */
@@ -590,6 +685,88 @@ export function confirmStripeCustomerAdvance(payoutId: string, chargeId: string,
     chargeId,
     reason,
   }) as Promise<StripeAdvanceConfirmResult>
+}
+
+export type StripeDirectSearchBy = 'auto' | 'invoice' | 'reference' | 'amount'
+export type StripeDirectCustomer = 'all' | 'website' | 'shop'
+
+export interface StripeDirectInvoice {
+  invoiceId: string
+  invoiceNumber: string
+  referenceNumber: string
+  customerId: string
+  customerName: string
+  customerKey: 'WEBSITE' | 'SHOP' | null
+  date: string
+  total: number
+  balance: number
+  status: string
+  currencyCode: string
+  selectable: boolean
+  notSelectableReasons: string[]
+}
+
+export interface StripeDirectSearchResult {
+  mode: Exclude<StripeDirectSearchBy, 'auto'>
+  query: string
+  invoices: StripeDirectInvoice[]
+  zohoWrites: 0
+}
+
+export interface StripeDirectCheck {
+  key: string
+  label: string
+  ok: boolean
+  blocking: boolean
+  detail: string
+}
+
+export interface StripeDirectValidation {
+  payoutId: string
+  paymentIntentId: string
+  chargeId: string | null
+  stripe: { gross: number; fee: number; net: number; currency: string; createdAt: string | null; description: string | null }
+  stripeEvidence: StripePaymentEvidence | null
+  references: StripeEvidenceReference[]
+  invoice: (Omit<StripeDirectInvoice, 'selectable' | 'notSelectableReasons' | 'customerName'> & { customerName: string | null }) | null
+  websiteOrdersWithReference: Array<{ orderNumber: string; orderStatus: string; paymentStatus: string; paymentMethod: string; hasStripePaymentIntent: boolean; deleted: boolean }>
+  checks: StripeDirectCheck[]
+  blocking: boolean
+  evidenceStatus: 'MATCH' | 'CONFLICT' | 'NONE'
+  evidenceSummary: string | null
+  requiresTypedInvoiceNumber: boolean
+  zohoWrites: 0
+}
+
+export interface StripeDirectMappingResult {
+  mapping: { id: number; zohoInvoiceNumber: string; status: string }
+  zohoWrites: 0
+  stripeWrites: 0
+}
+
+const directPath = (payoutId: string, paymentIntentId: string) =>
+  `/api/stripe/payouts/${encodeURIComponent(payoutId)}/direct-payments/${encodeURIComponent(paymentIntentId)}`
+
+/** Read-only Zoho invoice search (invoice number, P.O.# or amount) within the Stripe-clearing customers. */
+export function searchStripeDirectInvoices(q: string, by: StripeDirectSearchBy, customer: StripeDirectCustomer) {
+  const params = new URLSearchParams({ q, by, customer })
+  return api.get(`/api/stripe/direct-payments/invoices?${params.toString()}`) as Promise<StripeDirectSearchResult>
+}
+
+/** Read-only: every check for mapping one charge to one invoice. */
+export function validateStripeDirectPayment(payoutId: string, paymentIntentId: string, invoiceId: string) {
+  const params = new URLSearchParams({ invoiceId })
+  return api.get(`${directPath(payoutId, paymentIntentId)}/validate?${params.toString()}`) as Promise<StripeDirectValidation>
+}
+
+/** Local mapping only; nothing is sent to Zoho or Stripe. */
+export function confirmStripeDirectPayment(payoutId: string, paymentIntentId: string, body: { invoiceId: string; reason: string; confirmInvoiceNumber?: string }) {
+  return api.post(`${directPath(payoutId, paymentIntentId)}/confirm`, body) as Promise<StripeDirectMappingResult>
+}
+
+/** Local only; refused once any accounting exists for the payout customer. */
+export function releaseStripeDirectPayment(payoutId: string, paymentIntentId: string, reason: string) {
+  return api.post(`${directPath(payoutId, paymentIntentId)}/release`, { reason }) as Promise<StripeDirectMappingResult>
 }
 
 export interface StripePayoutPostComponentResult {

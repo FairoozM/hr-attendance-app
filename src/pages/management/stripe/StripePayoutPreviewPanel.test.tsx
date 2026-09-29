@@ -9,7 +9,11 @@ import type {
   StripePayoutLine,
   StripePayoutPreview,
   StripePayoutSummary,
+  StripeDirectInvoice,
+  StripeDirectMapping,
+  StripeDirectValidation,
   StripeUncertainComponent,
+  StripeUnassignedLine,
 } from '../../../api/stripe'
 import {
   aed,
@@ -36,6 +40,10 @@ const api = vi.hoisted(() => ({
   postStripePayoutRefund: vi.fn(),
   recheckStripeUncertainComponent: vi.fn(),
   confirmStripeUncertainNotCreated: vi.fn(),
+  searchStripeDirectInvoices: vi.fn(),
+  validateStripeDirectPayment: vi.fn(),
+  confirmStripeDirectPayment: vi.fn(),
+  releaseStripeDirectPayment: vi.fn(),
 }))
 vi.mock('../../../api/stripe', () => api)
 
@@ -1024,6 +1032,7 @@ function expectNoPostingCalls() {
   expect(api.recheckStripeUncertainComponent).not.toHaveBeenCalled()
   expect(api.confirmStripeUncertainNotCreated).not.toHaveBeenCalled()
   expect(api.confirmStripeCustomerAdvance).not.toHaveBeenCalled()
+  expect(api.releaseStripeDirectPayment).not.toHaveBeenCalled()
 }
 
 describe('pageOf', () => {
@@ -1166,5 +1175,370 @@ describe('StripePayoutPreviewPanel payout list', () => {
     expect(api.getStripePayoutPreview).toHaveBeenCalledWith('po_list_003')
     expect(api.refreshStripePayouts).not.toHaveBeenCalled()
     expectNoPostingCalls()
+  })
+})
+
+const DIRECT_PAYOUT = 'po_1UDDZ3DJogiiRoKPj4uB4mEL'
+const DIRECT_PI = 'pi_3UB7cxDJogiiRoKP2ddNSqC5'
+const DIRECT_CH = 'ch_3UB7cxDJogiiRoKP2kd1Ng0X'
+
+const INV_043544 = {
+  invoiceId: 'ZID-INV-043544',
+  invoiceNumber: 'INV-043544',
+  referenceNumber: '20901',
+  customerId: 'WEB',
+  customerName: 'Website',
+  customerKey: 'WEBSITE' as const,
+  date: '2026-09-02',
+  total: 1261,
+  balance: 1261,
+  status: 'sent',
+  currencyCode: 'AED',
+}
+
+function unresolvedLine(patch: Partial<StripeUnassignedLine> = {}): StripeUnassignedLine {
+  return {
+    balanceTransactionId: 'txn_direct',
+    chargeId: DIRECT_CH,
+    paymentIntentId: DIRECT_PI,
+    gross: 1261,
+    fee: 50.18,
+    net: 1210.82,
+    invoiceTotal: 1261,
+    netAllocation: 1210.82,
+    feeAllocation: 50.18,
+    customerAdvance: 0,
+    source: null,
+    website: null,
+    direct: null,
+    chargeCreatedAt: '2026-09-02T09:15:00.000Z',
+    description: null,
+    invoice: null,
+    advance: null,
+    state: 'NEEDS_REVIEW',
+    matchStatus: null,
+    reason: 'No website order carries this PaymentIntent.',
+    directEligible: true,
+    directIneligibleReason: null,
+    stripeEvidence: {
+      paymentIntentId: DIRECT_PI,
+      chargeId: DIRECT_CH,
+      description: null,
+      chargeDescription: null,
+      metadata: {},
+      createdAt: '2026-09-02T09:15:00.000Z',
+      sessions: [{
+        checkoutSessionId: 'cs_live_x',
+        paymentLinkId: 'plink_1',
+        clientReferenceId: null,
+        metadata: {},
+        products: [{ productName: 'Matjar meem #20901', productDescription: 'invoice #20901', lineDescription: 'Matjar meem #20901', amountMinor: 126100, quantity: 1 }],
+      }],
+    },
+    references: [{ kind: 'reference', value: '20901', sources: [{ source: 'Payment Link product', text: 'Matjar meem #20901' }] }],
+    suggestion: {
+      status: 'SUGGESTED',
+      reason: 'Stripe reference matches INV-043544 (P.O.# 20901), same amount, open, supported customer.',
+      invoiceId: INV_043544.invoiceId,
+      candidates: [{ ...INV_043544, fits: true }],
+    },
+    evidenceError: null,
+    ...patch,
+  }
+}
+
+function mapping(patch: Partial<StripeDirectMapping> = {}): StripeDirectMapping {
+  return {
+    mappingId: 1,
+    mappingType: 'DIRECT_PAYMENT',
+    status: 'ACTIVE',
+    paymentIntentId: DIRECT_PI,
+    chargeId: DIRECT_CH,
+    zohoInvoiceId: INV_043544.invoiceId,
+    invoiceNumber: 'INV-043544',
+    zohoCustomerId: 'WEB',
+    customerKey: 'WEBSITE',
+    invoiceReference: '20901',
+    stripeGross: 1261,
+    evidence: 'Payment Link product "Matjar meem #20901" ↔ INV-043544 P.O.# 20901',
+    reason: 'Payment Link Matjar meem #20901 paid INV-043544',
+    firstPayoutId: DIRECT_PAYOUT,
+    mappedBy: 'user:7',
+    mappedAt: '2026-09-29T10:00:00.000Z',
+    removable: true,
+    lockedReason: null,
+    ...patch,
+  }
+}
+
+function websiteLine(id: string, invoiceNumber: string, order: string, gross: number, fee: number): StripePayoutLine {
+  return {
+    balanceTransactionId: id,
+    chargeId: `ch_${id}`,
+    paymentIntentId: `pi_${id}`,
+    gross,
+    fee,
+    net: Math.round((gross - fee) * 100) / 100,
+    invoiceTotal: gross,
+    netAllocation: Math.round((gross - fee) * 100) / 100,
+    feeAllocation: fee,
+    customerAdvance: 0,
+    source: 'WEBSITE_ORDER',
+    website: { orderId: id, orderNumber: order, finalAmount: gross, shopOrder: false, orderStatus: 'delivered', paymentStatus: 'completed' },
+    invoice: { invoiceId: invoiceNumber, invoiceNumber, total: gross, balance: gross, status: 'sent', customerId: 'WEB' },
+    advance: null,
+    state: 'OPEN',
+    matchStatus: 'MATCHED_READY_TO_CLEAR',
+    reason: 'Invoice open for the Stripe gross.',
+  }
+}
+
+function directPreview(mapped: StripeDirectMapping | null): StripePayoutPreview {
+  const web = [websiteLine('w1', 'INV-043551', '20905', 600, 18.9), websiteLine('w2', 'INV-043556', '20908', 370.7, 11.25)]
+  const lines: StripePayoutLine[] = mapped
+    ? [...web, {
+        ...unresolvedLine(),
+        source: 'DIRECT_STRIPE_PAYMENT',
+        direct: mapped,
+        invoice: { invoiceId: INV_043544.invoiceId, invoiceNumber: 'INV-043544', total: 1261, balance: 1261, status: 'sent', customerId: 'WEB', referenceNumber: '20901' },
+        state: 'OPEN',
+        matchStatus: 'DIRECT_PAYMENT_MAPPED',
+        reason: 'Direct Stripe payment mapped to INV-043544.',
+      }]
+    : web
+  const net = mapped ? 2151.37 : 940.55
+  const fee = mapped ? 80.33 : 30.15
+  const gross = mapped ? 2231.7 : 970.7
+  const allocations = (kind: 'NET' | 'FEE') => lines.map((l): [string, string, number] => [l.invoice?.invoiceNumber || '', l.website?.orderNumber || '', kind === 'NET' ? l.netAllocation : l.feeAllocation])
+  const netPayment = payment('NET', net, allocations('NET'))
+  const feePayment = payment('FEE', fee, allocations('FEE'))
+  if (mapped) {
+    netPayment.allocations[2] = { ...netPayment.allocations[2], orderNumber: null, source: 'DIRECT_STRIPE_PAYMENT' }
+    feePayment.allocations[2] = { ...feePayment.allocations[2], orderNumber: null, source: 'DIRECT_STRIPE_PAYMENT' }
+  }
+  const group: StripePayoutGroup = {
+    groupKey: `${DIRECT_PAYOUT}|WEB`,
+    customerId: 'WEB',
+    customerName: 'Website',
+    status: 'READY',
+    reasons: [],
+    postable: true,
+    advanceReviewRequired: false,
+    invoiceCount: lines.length,
+    chargeCount: lines.length,
+    totals: { invoiceGross: gross, netTo1019: net, customerAdvance: 0, total1019: net, feeTo1013: fee, stripeGross: gross },
+    checks: { total1019PlusFeeEqualsGross: true, netPlusFeeEqualsInvoices: true, everyLineBalances: true },
+    components: [netPayment, feePayment],
+    postingFingerprint: mapped ? 'fp-mapped' : 'fp-before',
+    lines,
+  }
+  return {
+    preview: true,
+    postingEnabled: false,
+    payout: { payoutId: DIRECT_PAYOUT, status: 'paid', amount: 2151.37, currency: 'AED', arrivalDate: '2026-09-04T00:00:00.000Z', createdAt: null },
+    status: mapped ? 'READY' : 'NEEDS_REVIEW',
+    blockers: mapped ? [] : ['1 charge has no customer group. Map a direct Stripe payment with "Assign to Zoho Invoice".'],
+    proposedPaymentDate: '2026-09-04',
+    accounts: { net: null, fee: null, advance: null, problems: [] },
+    composition: { chargeCount: 3, chargeGross: 2231.7, chargeFee: 80.33, chargeNet: 2151.37, otherCount: 0, otherNet: 0, contentNet: 2151.37, payoutAmount: 2151.37, reconciles: true },
+    reconciliation: { netTo1019: net, customerAdvances: 0, total1019: net, advanceRefundsOutOf1019: 0, fees: fee, payoutAmount: 2151.37, stripeGross: gross, total1019PlusFees: gross, payoutMatches: Boolean(mapped), grossMatches: Boolean(mapped) },
+    customersPresent: ['Website'],
+    groups: [group],
+    unassigned: mapped ? [] : [unresolvedLine()],
+    directMappings: mapped ? [mapped] : [],
+    advanceCaseEvents: [],
+    advanceRefunds: [],
+    otherTransactions: [],
+    warnings: [],
+  }
+}
+
+function searchRow(patch: Partial<StripeDirectInvoice> = {}): StripeDirectInvoice {
+  return { ...INV_043544, selectable: true, notSelectableReasons: [], ...patch }
+}
+
+function validation(patch: Partial<StripeDirectValidation> = {}): StripeDirectValidation {
+  return {
+    payoutId: DIRECT_PAYOUT,
+    paymentIntentId: DIRECT_PI,
+    chargeId: DIRECT_CH,
+    stripe: { gross: 1261, fee: 50.18, net: 1210.82, currency: 'AED', createdAt: '2026-09-02T09:15:00.000Z', description: null },
+    stripeEvidence: unresolvedLine().stripeEvidence ?? null,
+    references: unresolvedLine().references ?? [],
+    invoice: INV_043544,
+    websiteOrdersWithReference: [],
+    checks: [
+      { key: 'currency', label: 'Currency matches', ok: true, blocking: false, detail: 'AED = AED' },
+      { key: 'amount', label: 'Stripe gross equals invoice total', ok: true, blocking: false, detail: '1261.00 = 1261.00' },
+      { key: 'no_intent_mapping', label: 'PaymentIntent not mapped elsewhere', ok: true, blocking: false, detail: '' },
+    ],
+    blocking: false,
+    evidenceStatus: 'MATCH',
+    evidenceSummary: 'Payment Link product "Matjar meem #20901" ↔ INV-043544 P.O.# 20901',
+    requiresTypedInvoiceNumber: false,
+    zohoWrites: 0,
+    ...patch,
+  }
+}
+
+async function openDirectPreview(first: StripePayoutPreview) {
+  api.getStripePayouts.mockResolvedValue(cachedList([{ payoutId: DIRECT_PAYOUT, status: 'paid', amount: 2151.37, currency: 'AED', arrivalDate: '2026-09-04T00:00:00.000Z', createdAt: null, composition: first.composition } as StripePayoutSummary]))
+  api.getStripePayoutPreview.mockResolvedValue(first)
+  render(<StripePayoutPreviewPanel />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Preview' }))
+  await screen.findAllByText('Website')
+}
+
+async function chooseInvoice(v: StripeDirectValidation) {
+  api.searchStripeDirectInvoices.mockResolvedValue({ mode: 'invoice', query: 'INV-043544', invoices: [searchRow()], zohoWrites: 0 })
+  api.validateStripeDirectPayment.mockResolvedValue(v)
+  fireEvent.click(screen.getByRole('button', { name: 'Assign to Zoho Invoice' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Search Zoho' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Select INV-043544' }))
+  await screen.findByLabelText('Mapping checks')
+}
+
+const confirmButton = () => screen.getByRole('button', { name: 'Confirm Mapping' }) as HTMLButtonElement
+
+describe('StripePayoutPreviewPanel direct Stripe payments', () => {
+  it('shows an unresolved-charge card with the Stripe evidence and a suggestion that is never auto-mapped', async () => {
+    await openDirectPreview(directPreview(null))
+    const card = screen.getByTestId('unresolved-charge')
+    expect(card.textContent).toContain(DIRECT_PI)
+    expect(card.textContent).toContain(DIRECT_CH)
+    expect(card.textContent).toContain('AED 1,261.00')
+    expect(card.textContent).toContain('AED 50.18')
+    expect(card.textContent).toContain('AED 1,210.82')
+    expect(card.textContent).toContain('Matjar meem #20901 · invoice #20901')
+    expect(card.textContent).toContain('Suggested match: INV-043544')
+    expect(screen.queryByText('Charges without a customer')).toBeNull()
+    expect(screen.queryByTestId('direct-payment')).toBeNull()
+    expect(api.validateStripeDirectPayment).not.toHaveBeenCalled()
+    expect(api.confirmStripeDirectPayment).not.toHaveBeenCalled()
+    expectNoPostingCalls()
+  })
+
+  it('assigns INV-043544 after search, validation, reason and acknowledgement, then shows DIRECT STRIPE PAYMENT', async () => {
+    await openDirectPreview(directPreview(null))
+    await chooseInvoice(validation())
+    expect(api.searchStripeDirectInvoices).toHaveBeenCalledWith('INV-043544', 'auto', 'all')
+    expect(api.validateStripeDirectPayment).toHaveBeenCalledWith(DIRECT_PAYOUT, DIRECT_PI, 'ZID-INV-043544')
+    const checks = screen.getByLabelText('Mapping checks')
+    expect(checks.textContent).toContain('2026-09-02')
+    expect(checks.textContent).toContain('20901')
+    expect(checks.textContent).toContain('AED 1,261.00')
+    expect(checks.textContent).toContain('corresponds to Zoho INV-043544 P.O.# 20901')
+    expect(screen.queryByLabelText(/Re-type the invoice number/)).toBeNull()
+
+    expect(confirmButton().disabled).toBe(true)
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'Payment Link Matjar meem #20901 paid INV-043544' } })
+    expect(confirmButton().disabled).toBe(true)
+    fireEvent.click(screen.getByRole('checkbox', { name: /I verified that this Stripe payment/ }))
+    expect(confirmButton().disabled).toBe(false)
+
+    api.confirmStripeDirectPayment.mockResolvedValue({ mapping: { id: 1, zohoInvoiceNumber: 'INV-043544', status: 'ACTIVE' }, zohoWrites: 0, stripeWrites: 0 })
+    api.getStripePayoutPreview.mockResolvedValue(directPreview(mapping({ removable: false, lockedReason: null })))
+    fireEvent.click(confirmButton())
+
+    const mapped = await screen.findByTestId('direct-payment')
+    expect(api.confirmStripeDirectPayment).toHaveBeenCalledWith(DIRECT_PAYOUT, DIRECT_PI, { invoiceId: 'ZID-INV-043544', reason: 'Payment Link Matjar meem #20901 paid INV-043544' })
+    expect(api.getStripePayoutPreview).toHaveBeenCalledTimes(2)
+    expect(mapped.textContent).toContain('DIRECT STRIPE PAYMENT')
+    expect(mapped.textContent).toContain('MANUALLY VERIFIED')
+    expect(mapped.textContent).toContain('INV-043544 · Website · PO 20901 · AED 1,261.00')
+    expect(screen.queryByTestId('unresolved-charge')).toBeNull()
+    expect(screen.getAllByText('DIRECT STRIPE PAYMENT').length).toBeGreaterThan(1)
+    const totals = screen.getAllByText(/^AED /, { selector: '.stripe-payout__totals dd' }).map((el) => el.textContent)
+    expect(totals).toEqual(expect.arrayContaining(['AED 2,231.70', 'AED 2,151.37', 'AED 80.33']))
+    expectNoPostingCalls()
+  })
+
+  it('without a Stripe reference the admin must re-type the invoice number', async () => {
+    await openDirectPreview(directPreview(null))
+    await chooseInvoice(validation({ evidenceStatus: 'NONE', requiresTypedInvoiceNumber: true, references: [], evidenceSummary: 'No Stripe reference; invoice number re-typed by the admin.' }))
+    expect(screen.getByText(/An amount match alone is not enough/)).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'Customer confirmed by phone it paid INV-043544' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: /I verified that this Stripe payment/ }))
+    expect(confirmButton().disabled).toBe(true)
+    fireEvent.change(screen.getByLabelText(/Re-type the invoice number/), { target: { value: 'inv-043545' } })
+    expect(confirmButton().disabled).toBe(true)
+    fireEvent.change(screen.getByLabelText(/Re-type the invoice number/), { target: { value: 'inv-043544' } })
+    expect(confirmButton().disabled).toBe(false)
+    api.confirmStripeDirectPayment.mockResolvedValue({ mapping: { id: 1, zohoInvoiceNumber: 'INV-043544', status: 'ACTIVE' }, zohoWrites: 0, stripeWrites: 0 })
+    fireEvent.click(confirmButton())
+    await waitFor(() => expect(api.confirmStripeDirectPayment).toHaveBeenCalledWith(DIRECT_PAYOUT, DIRECT_PI, {
+      invoiceId: 'ZID-INV-043544',
+      reason: 'Customer confirmed by phone it paid INV-043544',
+      confirmInvoiceNumber: 'inv-043544',
+    }))
+  })
+
+  it('a blocking check leaves nothing to confirm', async () => {
+    await openDirectPreview(directPreview(null))
+    await chooseInvoice(validation({
+      blocking: true,
+      checks: [{ key: 'no_intent_mapping', label: 'PaymentIntent not mapped elsewhere', ok: false, blocking: true, detail: 'Already mapped to INV-043000.' }],
+    }))
+    expect(screen.getByText(/Already mapped to INV-043000/)).toBeTruthy()
+    expect(screen.queryByLabelText('Reason')).toBeNull()
+    expect(confirmButton().disabled).toBe(true)
+    expect(api.confirmStripeDirectPayment).not.toHaveBeenCalled()
+  })
+
+  it('shows why an invoice cannot be selected', async () => {
+    await openDirectPreview(directPreview(null))
+    api.searchStripeDirectInvoices.mockResolvedValue({
+      mode: 'reference',
+      query: '20901',
+      invoices: [searchRow({ customerName: 'Other Co', customerKey: null, selectable: false, notSelectableReasons: ['Customer is not a Stripe-clearing customer.'] })],
+      zohoWrites: 0,
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Assign to Zoho Invoice' }))
+    fireEvent.change(screen.getByLabelText('Invoice number, P.O.# or amount'), { target: { value: '20901' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Search Zoho' }))
+    expect(await screen.findByText('Customer is not a Stripe-clearing customer.')).toBeTruthy()
+    expect(api.searchStripeDirectInvoices).toHaveBeenCalledWith('20901', 'auto', 'all')
+    expect(screen.queryByRole('button', { name: 'Select INV-043544' })).toBeNull()
+    expect(api.validateStripeDirectPayment).not.toHaveBeenCalled()
+  })
+
+  it('several fitting invoices show NEEDS REVIEW with the candidates and no suggestion', async () => {
+    const p = directPreview(null)
+    p.unassigned = [unresolvedLine({
+      suggestion: {
+        status: 'NEEDS_REVIEW',
+        reason: '2 open invoices fit the Stripe reference and amount; choose by hand.',
+        candidates: [{ ...INV_043544, fits: true }, { ...INV_043544, invoiceId: 'Z2', invoiceNumber: 'INV-043990', customerName: 'Burjman Shop - Web & App', fits: true }],
+      },
+    })]
+    await openDirectPreview(p)
+    const card = screen.getByTestId('unresolved-charge')
+    expect(card.textContent).toContain('NEEDS REVIEW')
+    expect(card.textContent).toContain('INV-043544')
+    expect(card.textContent).toContain('INV-043990')
+    expect(card.textContent).not.toContain('Suggested match')
+  })
+
+  it('a mapping with accounting shows why it is locked and offers no release', async () => {
+    await openDirectPreview(directPreview(mapping({ removable: false, lockedReason: 'Accounting exists for this payout customer (NET VERIFIED); the mapping can only change through a separate correction.' })))
+    const mapped = screen.getByTestId('direct-payment')
+    expect(mapped.textContent).toContain('Payment Link Matjar meem #20901 paid INV-043544')
+    expect(mapped.textContent).toContain('user:7')
+    expect(mapped.textContent).toContain('separate correction')
+    expect(screen.queryByRole('button', { name: /Release mapping/ })).toBeNull()
+  })
+
+  it('a mapping without accounting can be released with a reason, then the preview reloads', async () => {
+    await openDirectPreview(directPreview(mapping()))
+    fireEvent.click(screen.getByRole('button', { name: 'Release mapping…' }))
+    const release = screen.getByRole('button', { name: 'Release Mapping' }) as HTMLButtonElement
+    expect(release.disabled).toBe(true)
+    fireEvent.change(screen.getByLabelText('Why release this mapping?'), { target: { value: 'Mapped to the wrong invoice' } })
+    api.releaseStripeDirectPayment.mockResolvedValue({ mapping: { id: 1, zohoInvoiceNumber: 'INV-043544', status: 'RELEASED' }, zohoWrites: 0, stripeWrites: 0 })
+    api.getStripePayoutPreview.mockResolvedValue(directPreview(null))
+    fireEvent.click(release)
+    await screen.findByTestId('unresolved-charge')
+    expect(api.releaseStripeDirectPayment).toHaveBeenCalledWith(DIRECT_PAYOUT, DIRECT_PI, 'Mapped to the wrong invoice')
+    expect(api.postStripePayoutGroup).not.toHaveBeenCalled()
   })
 })

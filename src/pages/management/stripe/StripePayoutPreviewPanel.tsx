@@ -46,6 +46,7 @@ import {
   UNCERTAIN_WARNING,
   type Tone,
 } from './stripePayoutFormat'
+import { DirectPaymentCard, UnresolvedCharges } from './StripeDirectPayments'
 
 const REASON_PLACEHOLDER = 'e.g. Paid product removed after payment before invoicing. No refund was issued.'
 const REFUNDED_REASON_PLACEHOLDER = 'e.g. Customer overpaid; the difference was refunded in Stripe after this payout.'
@@ -574,15 +575,19 @@ function NormalRefundCard({
 }
 
 function GroupCard({
+  payoutId,
   group,
   postingEnabled,
   onConfirm,
   onPost,
+  onDirectChanged,
 }: {
+  payoutId: string
   group: StripePayoutGroup
   postingEnabled: boolean
   onConfirm: (group: StripePayoutGroup, line: StripePayoutLine) => void
   onPost: (group: StripePayoutGroup) => void
+  onDirectChanged: () => void
 }) {
   const t = group.totals
   return (
@@ -629,6 +634,12 @@ function GroupCard({
       {advanceLines(group).map((l) => (
         <AdvanceCard key={l.balanceTransactionId} group={group} line={l} onConfirm={onConfirm} />
       ))}
+
+      {group.lines
+        .filter((l) => l.direct)
+        .map((l) => (
+          <DirectPaymentCard key={l.balanceTransactionId} payoutId={payoutId} line={l} customerName={group.customerName} onChanged={onDirectChanged} />
+        ))}
 
       <div className="stripe-clearing__scroll">
         <table className="stripe-page__table">
@@ -688,7 +699,7 @@ function GroupCard({
             <tbody>
               {group.lines.map((l) => (
                 <tr key={l.balanceTransactionId}>
-                  <td>{l.website?.orderNumber || '—'}</td>
+                  <td>{l.direct ? 'DIRECT STRIPE PAYMENT' : l.website?.orderNumber || '—'}</td>
                   <td>{l.invoice?.invoiceNumber || '—'}</td>
                   <td className="stripe-payout__num">{amount(l.gross)}</td>
                   <td className="stripe-payout__num">{amount(l.invoiceTotal)}</td>
@@ -1055,25 +1066,26 @@ export function StripePayoutPreviewPanel() {
           )}
 
           {preview.groups.map((g) => (
-            <GroupCard key={g.groupKey} group={g} postingEnabled={postingEnabled} onConfirm={openConfirm} onPost={openPost} />
+            <GroupCard
+              key={g.groupKey}
+              payoutId={preview.payout.payoutId}
+              group={g}
+              postingEnabled={postingEnabled}
+              onConfirm={openConfirm}
+              onPost={openPost}
+              onDirectChanged={() => void loadPreview(preview.payout.payoutId)}
+            />
           ))}
 
           {preview.feeJournal && (
             <FeeJournalCard feeJournal={preview.feeJournal} postingEnabled={postingEnabled} onPost={() => preview.feeJournal && openFeePost(preview.feeJournal)} />
           )}
 
-          {preview.unassigned.length > 0 && (
-            <section className="stripe-payout__group">
-              <h3>Charges without a customer</h3>
-              <ul className="stripe-payout__reasons">
-                {preview.unassigned.map((l) => (
-                  <li key={l.balanceTransactionId}>
-                    <span className="stripe-clearing__mono">{l.paymentIntentId || l.chargeId}</span> · {aed(l.gross)} · {l.reason}
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
+          <UnresolvedCharges
+            payoutId={preview.payout.payoutId}
+            lines={preview.unassigned}
+            onChanged={() => void loadPreview(preview.payout.payoutId)}
+          />
 
           {(normalRefunds.length > 0 || preview.advanceRefunds.length > 0) && (
             <section className="stripe-payout__group" aria-label="Refunds">
@@ -1279,7 +1291,7 @@ export function StripePayoutPreviewPanel() {
                         {c.allocations.map((a) => (
                           <tr key={a.invoiceId}>
                             <td>{a.invoiceNumber}</td>
-                            <td>{a.orderNumber}</td>
+                            <td>{a.orderNumber || 'DIRECT STRIPE PAYMENT'}</td>
                             <td className="stripe-payout__num">{amount(a.amount)}</td>
                           </tr>
                         ))}

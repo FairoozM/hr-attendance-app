@@ -19,6 +19,13 @@ router.post('/payouts/refresh', auth.requireAuth, auth.requireAdmin, ctrl.payout
 router.get('/payouts/:payoutId/preview', auth.requireAuth, auth.requireAdmin, ctrl.payoutPreview)
 // Local status only (no Zoho): admin confirms a detected overpayment as a customer advance.
 router.post('/payouts/:payoutId/customer-advance-cases/confirm', auth.requireAuth, auth.requireAdmin, ctrl.confirmCustomerAdvance)
+// Direct Stripe payments (Payment Links) → existing Zoho invoice. Zoho/Stripe/website read only;
+// confirm and release change the local mapping only.
+router.get('/direct-payments/invoices', auth.requireAuth, auth.requireAdmin, ctrl.directPaymentInvoiceSearch)
+router.get('/direct-payments/:paymentIntentId/history', auth.requireAuth, auth.requireAdmin, ctrl.directPaymentHistory)
+router.get('/payouts/:payoutId/direct-payments/:paymentIntentId/validate', auth.requireAuth, auth.requireAdmin, ctrl.directPaymentValidate)
+router.post('/payouts/:payoutId/direct-payments/:paymentIntentId/confirm', auth.requireAuth, auth.requireAdmin, ctrl.directPaymentConfirm)
+router.post('/payouts/:payoutId/direct-payments/:paymentIntentId/release', auth.requireAuth, auth.requireAdmin, ctrl.directPaymentRelease)
 // Zoho write: NET + FEE customer payments (+ confirmed advance journal) for one payout + customer.
 // Refused unless STRIPE_CLEARING_POSTING_ENABLED=true and the live preview still matches.
 router.post('/payouts/:payoutId/customers/:customerKey/post', auth.requireAuth, auth.requireAdmin, ctrl.payoutPostCustomerGroup)
