@@ -75,7 +75,7 @@ function memoryDirectStore(initial = []) {
     getActiveByInvoice: async (_db, id) => rows.find((m) => m.status === 'ACTIVE' && m.zohoInvoiceId === id) || null,
     listHistoryByIntent: async (_db, pi) => rows.filter((m) => m.paymentIntentId === pi).reverse(),
     listComponentsAllocating: async (_db, { zohoInvoiceId, paymentIntentId }) => components
-      .filter((c) => (c.allocations || []).some((a) => a.invoiceId === zohoInvoiceId || a.paymentIntentId === paymentIntentId)),
+      .filter((c) => (c.allocations || []).some((a) => (zohoInvoiceId && a.invoiceId === zohoInvoiceId) || (paymentIntentId && a.paymentIntentId === paymentIntentId))),
     insertMapping: async (_db, m) => {
       if (rows.some((r) => r.status === 'ACTIVE' && (r.paymentIntentId === m.paymentIntentId || r.zohoInvoiceId === m.zohoInvoiceId || (m.chargeId && r.chargeId === m.chargeId)))) {
         const err = new Error('exists')
@@ -83,7 +83,7 @@ function memoryDirectStore(initial = []) {
         err.code = 'DIRECT_MAPPING_EXISTS'
         throw err
       }
-      const row = { ...m, id: rows.length + 1, status: 'ACTIVE', mappingType: 'DIRECT_PAYMENT', mappedAt: '2026-09-29T09:00:00.000Z' }
+      const row = { ...m, id: rows.length + 1, status: 'ACTIVE', mappingType: m.mappingType || 'DIRECT_PAYMENT', mappedAt: '2026-09-29T09:00:00.000Z' }
       rows.push(row)
       return row
     },
@@ -154,7 +154,7 @@ function world(opts = {}) {
   const sources = {
     retrieveStripePayout: async (id) => (id === PAYOUT ? { payoutId: PAYOUT, status: 'paid', amountMinor: payoutAmount, currency: 'AED', arrivalDate: '2026-09-09T00:00:00.000Z', createdAt: '2026-09-08T01:11:09.000Z' } : null),
     listPayoutBalanceTransactions: async () => txns,
-    listChargeRefunds: async () => [],
+    listChargeRefunds: async (chargeId) => (opts.refunds || []).filter((r) => r.chargeId === chargeId),
     getPaymentIntentEvidence: async (pi) => {
       stripeReads.push(pi)
       if (pi !== PI || !evidence) throw new Error(`no evidence for ${pi}`)
@@ -652,4 +652,259 @@ test('confirmation needs an admin and a reason', async () => {
   await assert.rejects(direct.confirmDirectPayment(PAYOUT, PI, { invoiceId: INV.invoiceId, reason: 'short', actor: ACTOR }, w.serviceDeps), { code: 'REASON_REQUIRED' })
   await assert.rejects(direct.confirmDirectPayment('po_bad', PI, { invoiceId: INV.invoiceId, reason: REASON, actor: ACTOR }, w.serviceDeps), { code: 'INVALID_PAYOUT_ID' })
   assert.equal(w.store.rows.length, 0)
+})
+
+// ── Reassigned payments: cancelled order, nothing refunded, funds reused for a replacement invoice ──
+
+const REASSIGN_REASON = 'Customer cancelled original order and same Stripe funds were reused for replacement order.'
+const ORIGINAL_ORDER = {
+  orderId: '19870', orderNumber: '20890', orderStatus: 'cancelled', paymentStatus: 'completed', paymentMethod: 'stripe', stripePaymentIntentId: PI,
+  shopOrder: false, finalAmount: 1261, refundAmount: 0, walletRedeemed: 0, deleted: false, sameNumberCount: 0, createdAt: '2026-08-30T09:00:00.000Z',
+}
+const ORIGINAL_INV = { invoiceId: 'ZID-INV-043530', invoiceNumber: 'INV-043530', referenceNumber: '20890', customerId: WEB, status: 'void', total: 1261, balance: 0, currencyCode: 'AED', date: '2026-08-30' }
+// Staff re-created the order without a Stripe payment; its invoice INV-043544 (P.O.# 20901) is the replacement.
+const REPLACEMENT_ORDER = {
+  orderId: '19911', orderNumber: '20901', orderStatus: 'processing', paymentStatus: 'pending', paymentMethod: 'cashOnDelivery', stripePaymentIntentId: null,
+  shopOrder: false, finalAmount: 1261, refundAmount: 0, walletRedeemed: 0, deleted: false, sameNumberCount: 0,
+}
+const ORIGINAL_EVIDENCE = { ...PAYMENT_LINK_EVIDENCE, sessions: [], description: 'Order #20890' }
+
+function reassignWorld({ original = {}, originalInvoice = {}, extraOrders = [], extraInvoices = [], ...rest } = {}) {
+  return world({
+    evidence: ORIGINAL_EVIDENCE,
+    ...rest,
+    extraOrders: [{ ...ORIGINAL_ORDER, ...original }, REPLACEMENT_ORDER, ...extraOrders],
+    extraInvoices: [{ ...ORIGINAL_INV, ...originalInvoice }, ...extraInvoices],
+  })
+}
+
+function reassigned(patch = {}) {
+  return mapped({
+    mappingType: 'REASSIGNED_PAYMENT', originalOrderId: '19870', originalOrderNumber: '20890', originalOrderStatus: 'cancelled',
+    originalInvoiceId: ORIGINAL_INV.invoiceId, originalInvoiceNumber: ORIGINAL_INV.invoiceNumber, evidence: 'No Stripe reference; invoice number re-typed by the admin.',
+    reason: REASSIGN_REASON, ...patch,
+  })
+}
+
+const reassign = (w, extra = {}) => direct.confirmDirectPayment(PAYOUT, PI, { invoiceId: INV.invoiceId, reason: REASSIGN_REASON, actor: ACTOR, confirmInvoiceNumber: 'INV-043544', ...extra }, w.serviceDeps)
+const blockingKeys = (v) => v.checks.filter((c) => c.blocking).map((c) => c.key)
+
+test('reassigned 1: cancelled original order + no refund + replacement invoice is mappable through "Assign to Zoho Invoice"', async () => {
+  const w = reassignWorld()
+  const r = await w.run()
+  assert.equal(r.status, PAYOUT_STATUS.NEEDS_REVIEW)
+  assert.equal(r.unassigned.length, 1)
+  const u = r.unassigned[0]
+  assert.equal(u.mappingType, 'REASSIGNED_PAYMENT')
+  assert.equal(u.directEligible, true)
+  assert.deepEqual([u.gross, u.fee, u.net], [1261, 50.18, 1210.82])
+  assert.deepEqual([u.originalOrder.orderNumber, u.originalOrder.orderStatus, u.originalOrder.refundedThroughStripe, u.originalOrder.zohoCustomerId], ['20890', 'cancelled', 0, WEB])
+  assert.deepEqual(u.originalInvoices.map((i) => [i.invoiceNumber, i.status]), [['INV-043530', 'void']])
+  assert.match(u.reason, /20890 is cancelled but Stripe refunded nothing/)
+  assert.equal(u.suggestion.status, directModel.SUGGESTION.NEEDS_REVIEW)
+  assert.deepEqual(u.suggestion.candidates.map((c) => c.invoiceNumber), ['INV-043544'])
+  assert.match(r.blockers[0], /Assign to Zoho Invoice/)
+
+  const v = await direct.validateDirectPayment(PAYOUT, PI, INV.invoiceId, w.serviceDeps)
+  assert.equal(v.mappingType, 'REASSIGNED_PAYMENT')
+  assert.equal(v.blocking, false, JSON.stringify(v.checks.filter((c) => c.blocking)))
+  assert.ok(['original_order', 'no_stripe_refund', 'original_not_consumed', 'replacement_invoice', 'same_customer'].every((k) => v.checks.find((c) => c.key === k).ok))
+  assert.equal(v.checks.find((c) => c.key === 'charge_unassigned'), undefined)
+  // Stripe naming the original order is expected, not evidence for or against the replacement.
+  assert.equal(v.evidenceStatus, directModel.EVIDENCE.NONE)
+  assert.equal(v.requiresTypedInvoiceNumber, true)
+  assert.equal(v.originalOrder.orderNumber, '20890')
+
+  await assert.rejects(reassign(w, { confirmInvoiceNumber: '' }), { code: 'EVIDENCE_REQUIRED' })
+  await assert.rejects(reassign(w, { reason: 'reused' }), { code: 'REASON_REQUIRED' })
+  const out = await reassign(w)
+  assert.deepEqual([out.zohoWrites, out.stripeWrites], [0, 0])
+  const m = w.store.rows[0]
+  assert.deepEqual(
+    [m.mappingType, m.paymentIntentId, m.chargeId, m.zohoInvoiceNumber, m.originalOrderId, m.originalOrderNumber, m.originalOrderStatus, m.originalInvoiceId, m.originalInvoiceNumber, m.mappedBy, m.reason],
+    ['REASSIGNED_PAYMENT', PI, CH, 'INV-043544', '19870', '20890', 'cancelled', 'ZID-INV-043530', 'INV-043530', ACTOR, REASSIGN_REASON],
+  )
+})
+
+test('reassigned 2: an original Stripe refund blocks the reassignment', async () => {
+  // Stripe amount_refunded > 0: the cancelled order stays a website-order review, never reassignable.
+  const w1 = reassignWorld({ directCharge: { refundedMinor: 126100 }, evidence: { ...ORIGINAL_EVIDENCE, refundedMinor: 126100 },
+    refunds: [{ refundId: 're_1', chargeId: CH, amountMinor: 126100, status: 'succeeded', balanceTransaction: null }] })
+  const r1 = await w1.run()
+  assert.equal(r1.unassigned.length, 0)
+  await assert.rejects(reassign(w1), { code: 'CHARGE_NOT_REASSIGNABLE' })
+  // A refund listed on the charge (e.g. pending) blocks even while amount_refunded still reads 0.
+  const w2 = reassignWorld({ refunds: [{ refundId: 're_pending', chargeId: CH, amountMinor: 126100, status: 'pending', balanceTransaction: null }] })
+  const v = await direct.validateDirectPayment(PAYOUT, PI, INV.invoiceId, w2.serviceDeps)
+  assert.deepEqual(blockingKeys(v), ['no_stripe_refund'])
+  await assert.rejects(reassign(w2), { code: 'DIRECT_MAPPING_BLOCKED' })
+  // A refund recorded by the website (money or wallet credit back) is a financial reversal too.
+  for (const original of [{ refundAmount: 1261 }, { paymentStatus: 'refunded' }]) {
+    const w = reassignWorld({ original })
+    assert.equal((await w.run()).unassigned.length, 0)
+    await assert.rejects(reassign(w), { code: 'CHARGE_NOT_REASSIGNABLE' })
+  }
+  for (const w of [w1, w2]) assert.equal(w.store.rows.length, 0)
+})
+
+test('reassigned 3: a disputed charge is blocked', async () => {
+  const w1 = reassignWorld({ directCharge: { disputed: true }, evidence: { ...ORIGINAL_EVIDENCE, disputed: true } })
+  assert.equal((await w1.run()).unassigned.length, 0)
+  await assert.rejects(reassign(w1), { code: 'CHARGE_NOT_REASSIGNABLE' })
+  const w2 = reassignWorld({ evidence: { ...ORIGINAL_EVIDENCE, disputed: true } })
+  assert.deepEqual(blockingKeys(await direct.validateDirectPayment(PAYOUT, PI, INV.invoiceId, w2.serviceDeps)), ['charge_state', 'original_order'])
+  await assert.rejects(reassign(w2), { code: 'DIRECT_MAPPING_BLOCKED' })
+  assert.equal(w2.store.rows.length, 0)
+})
+
+test('reassigned 4: a target invoice that is already paid is blocked', async () => {
+  for (const invoice of [{ balance: 0, status: 'paid' }, { balance: 261, status: 'partially_paid' }]) {
+    const w = reassignWorld({ invoice })
+    assert.ok(blockingKeys(await direct.validateDirectPayment(PAYOUT, PI, INV.invoiceId, w.serviceDeps)).includes('balance'))
+    await assert.rejects(reassign(w), { code: 'DIRECT_MAPPING_BLOCKED' })
+  }
+})
+
+test('reassigned 5: target amount mismatch is blocked (no partial reassignment)', async () => {
+  const w = reassignWorld({ invoice: { total: 1300, balance: 1300 } })
+  const v = await direct.validateDirectPayment(PAYOUT, PI, INV.invoiceId, w.serviceDeps)
+  assert.deepEqual(blockingKeys(v), ['amount'])
+  assert.match(v.checks.find((c) => c.key === 'amount').detail, /1261 ≠ invoice 1300/)
+  await assert.rejects(reassign(w), { code: 'DIRECT_MAPPING_BLOCKED' })
+})
+
+test('reassigned 6: a replacement invoice under a different Zoho customer is NEEDS_REVIEW, not mappable', async () => {
+  const w = reassignWorld({ invoice: { customerId: SHOP } })
+  const v = await direct.validateDirectPayment(PAYOUT, PI, INV.invoiceId, w.serviceDeps)
+  assert.deepEqual(blockingKeys(v), ['same_customer'])
+  assert.match(v.checks.find((c) => c.key === 'same_customer').detail, /Website.*Burjman.*needs review/)
+  await assert.rejects(reassign(w), { code: 'DIRECT_MAPPING_BLOCKED' })
+  const r = await w.run()
+  assert.equal(r.status, PAYOUT_STATUS.NEEDS_REVIEW)
+  assert.equal(r.unassigned.length, 1)
+})
+
+test('reassigned 7: the same PaymentIntent cannot be mapped twice', async () => {
+  const w = reassignWorld({ extraInvoices: [{ ...INV, invoiceId: 'ZID-INV-043600', invoiceNumber: 'INV-043600', referenceNumber: '20950' }] })
+  await reassign(w)
+  await assert.rejects(reassign(w, { invoiceId: 'ZID-INV-043600', confirmInvoiceNumber: 'INV-043600' }), { code: 'CHARGE_ALREADY_ASSIGNED' })
+  await assert.rejects(w.store.insertMapping(null, reassigned({ zohoInvoiceId: 'ZID-INV-043600', zohoInvoiceNumber: 'INV-043600' })), { code: 'DIRECT_MAPPING_EXISTS' })
+  assert.equal(w.store.rows.length, 1)
+})
+
+test('reassigned 8: the original and the replacement invoice can never both take the payment', async () => {
+  // Target is the cancelled order's own invoice.
+  const w1 = reassignWorld({ originalInvoice: { status: 'sent', balance: 1261 } })
+  const v1 = await direct.validateDirectPayment(PAYOUT, PI, ORIGINAL_INV.invoiceId, w1.serviceDeps)
+  assert.ok(blockingKeys(v1).includes('replacement_invoice'))
+  // The original invoice already received a payment.
+  const w2 = reassignWorld({ originalInvoice: { status: 'paid', balance: 0 } })
+  const v2 = await direct.validateDirectPayment(PAYOUT, PI, INV.invoiceId, w2.serviceDeps)
+  assert.deepEqual(blockingKeys(v2), ['original_not_consumed'])
+  await assert.rejects(reassign(w2), { code: 'DIRECT_MAPPING_BLOCKED' })
+  // The original invoice is allocated by payout accounting.
+  const w3 = reassignWorld({ components: [{ id: 3, payoutId: 'po_1EARLIERJogiiRoKPj4uB4mEL', zohoCustomerId: WEB, component: 'NET', status: 'VERIFIED', allocations: [{ invoiceId: ORIGINAL_INV.invoiceId, amount: 1210.82 }] }] })
+  assert.deepEqual(blockingKeys(await direct.validateDirectPayment(PAYOUT, PI, INV.invoiceId, w3.serviceDeps)), ['original_not_consumed'])
+  // The replacement invoice is already allocated to another Stripe clearing component.
+  const w4 = reassignWorld({ components: [{ id: 4, payoutId: 'po_1EARLIERJogiiRoKPj4uB4mEL', zohoCustomerId: WEB, component: 'NET', status: 'VERIFIED', allocations: [{ invoiceId: INV.invoiceId, amount: 1210.82 }] }] })
+  assert.deepEqual(blockingKeys(await direct.validateDirectPayment(PAYOUT, PI, INV.invoiceId, w4.serviceDeps)), ['not_allocated'])
+  // An open original invoice is only a warning: this mapping does not clear it.
+  const v5 = await direct.validateDirectPayment(PAYOUT, PI, INV.invoiceId, w1.serviceDeps)
+  assert.equal(v5.blocking, false)
+  const warn = v5.checks.find((c) => c.key === 'original_invoice_open')
+  assert.deepEqual([warn.ok, warn.blocking], [false, false])
+  assert.match(warn.detail, /INV-043530.*stays open/)
+})
+
+test('reassigned 9: the mapped charge joins the normal grouped Website NET and FEE payments', async () => {
+  const r = await reassignWorld({ mappings: [reassigned()] }).run()
+  const g = websiteGroup(r)
+  const line = g.lines.find((l) => l.paymentIntentId === PI)
+  assert.equal(line.source, directModel.SOURCE.REASSIGNED_STRIPE_PAYMENT)
+  assert.equal(line.matchStatus, 'REASSIGNED_PAYMENT_MAPPED')
+  assert.equal(line.state, LINE_STATE.OPEN)
+  assert.equal(line.website, null)
+  assert.match(line.reason, /Reassigned Stripe payment from cancelled order 20890 for Zoho INV-043544/)
+  assert.deepEqual([line.direct.mappingType, line.direct.originalOrderNumber, line.direct.originalInvoiceNumber, line.direct.invoiceNumber, line.direct.mappedBy, line.direct.reason],
+    ['REASSIGNED_PAYMENT', '20890', 'INV-043530', 'INV-043544', ACTOR, REASSIGN_REASON])
+  assert.deepEqual([line.invoiceTotal, line.netAllocation, line.feeAllocation, line.customerAdvance], [1261, 1210.82, 50.18, 0])
+  assert.deepEqual(g.components.map((c) => c.component), ['NET', 'FEE'])
+  const net = g.components.find((c) => c.component === 'NET')
+  const fee = g.components.find((c) => c.component === 'FEE')
+  assert.deepEqual([net.amount, net.account.accountCode, fee.amount, fee.account.accountCode], [2151.37, '1019', 80.33, '1013'])
+  assert.deepEqual(net.allocations[2], { invoiceId: INV.invoiceId, invoiceNumber: 'INV-043544', orderNumber: null, paymentIntentId: PI, source: 'REASSIGNED_STRIPE_PAYMENT', amount: 1210.82 })
+  assert.deepEqual(fee.allocations[2].amount, 50.18)
+  assert.ok(!net.allocations.some((a) => a.invoiceId === ORIGINAL_INV.invoiceId))
+  assert.equal(net.payload.notes, undefined)
+  assert.deepEqual(r.groups.flatMap((x) => x.components).filter((c) => c.zohoRecordType === 'journal'), [])
+})
+
+test('reassigned 10: the payout reconciles after the reassignment', async () => {
+  const w = reassignWorld()
+  await reassign(w)
+  const r = await w.run()
+  assert.deepEqual(r.unassigned, [])
+  assert.deepEqual(r.blockers, [])
+  const g = websiteGroup(r)
+  assert.equal(g.status, GROUP_STATUS.READY)
+  assert.deepEqual(g.totals, { invoiceGross: 2231.7, netTo1019: 2151.37, customerAdvance: 0, total1019: 2151.37, feeTo1013: 80.33, stripeGross: 2231.7 })
+  assert.equal(r.reconciliation.payoutMatches, true)
+  assert.equal(r.reconciliation.grossMatches, true)
+  assert.equal(r.feeJournal.amount, 80.33)
+})
+
+test('reassigned: a stored mapping stops holding when the original order is no longer cancelled or unrefunded', async () => {
+  for (const [original, re] of [[{ orderStatus: 'delivered' }, /not cancelled/], [{ refundAmount: 1261 }, /records a refund/], [{ orderNumber: '20891' }, /confirmed for cancelled order 20890/]]) {
+    const r = await reassignWorld({ original, mappings: [reassigned()] }).run()
+    const line = r.groups.flatMap((g) => g.lines).find((l) => l.paymentIntentId === PI)
+    assert.equal(line.state, LINE_STATE.NEEDS_REVIEW)
+    assert.match(line.reason, re)
+    assert.equal(websiteGroup(r).postable, false)
+  }
+})
+
+test('reassigned 11: direct-payment mapping is unchanged (no website order, DIRECT_PAYMENT, no original evidence)', async () => {
+  const w = world()
+  const u = (await w.run()).unassigned[0]
+  assert.equal(u.mappingType, 'DIRECT_PAYMENT')
+  assert.equal(u.originalOrder, null)
+  const v = await direct.validateDirectPayment(PAYOUT, PI, INV.invoiceId, w.serviceDeps)
+  assert.equal(v.mappingType, 'DIRECT_PAYMENT')
+  assert.ok(v.checks.find((c) => c.key === 'charge_unassigned').ok)
+  assert.equal(v.checks.find((c) => c.key === 'original_order'), undefined)
+  await confirm(w)
+  const m = w.store.rows[0]
+  assert.deepEqual([m.mappingType, m.originalOrderNumber, m.originalInvoiceNumber], ['DIRECT_PAYMENT', null, null])
+  const line = websiteGroup(await w.run()).lines.find((l) => l.paymentIntentId === PI)
+  assert.equal(line.source, directModel.SOURCE.DIRECT_STRIPE_PAYMENT)
+  assert.equal(line.matchStatus, 'DIRECT_PAYMENT_MAPPED')
+})
+
+test('reassigned 12: creating the local mapping makes no Zoho, Stripe or website write', async () => {
+  const w = reassignWorld()
+  await direct.searchInvoices({ q: '1261.00', customer: 'website' }, w.serviceDeps)
+  await direct.validateDirectPayment(PAYOUT, PI, INV.invoiceId, w.serviceDeps)
+  await reassign(w)
+  await w.run()
+  await direct.releaseDirectPayment(PAYOUT, PI, { actor: ACTOR, reason: 'Release in the reassigned no-writes test' }, w.serviceDeps)
+  assert.deepEqual(w.writes, [])
+  assert.equal(w.locks(), 2)
+  assert.deepEqual([...new Set(w.stripeReads)], [PI])
+  assert.equal(ORIGINAL_ORDER.orderStatus, 'cancelled')
+  const loaded = Object.keys(require.cache).filter((p) => /stripeClearing\/stripePayoutPostingService|stripePayoutZohoWriter/.test(p))
+  assert.deepEqual(loaded, [])
+})
+
+test('reassignableOrigin: only a cancelled, completed, unrefunded, undisputed order qualifies', () => {
+  const ok = directModel.reassignableOrigin(ORIGINAL_ORDER, { refundedMinor: 0, disputed: false })
+  assert.equal(ok.ok, true)
+  for (const [order, charge] of [
+    [{ ...ORIGINAL_ORDER, orderStatus: 'delivered' }, null],
+    [{ ...ORIGINAL_ORDER, orderStatus: 'returned' }, null],
+    [{ ...ORIGINAL_ORDER, deleted: true }, null],
+    [{ ...ORIGINAL_ORDER, paymentStatus: 'pending' }, null],
+    [ORIGINAL_ORDER, { refundedMinor: 1 }],
+    [ORIGINAL_ORDER, { disputed: true }],
+    [null, null],
+  ]) assert.equal(directModel.reassignableOrigin(order, charge).ok, false, JSON.stringify([order && order.orderStatus, charge]))
 })

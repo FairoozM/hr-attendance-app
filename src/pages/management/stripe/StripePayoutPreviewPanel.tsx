@@ -48,7 +48,7 @@ import {
   zohoPostingDate,
   type Tone,
 } from './stripePayoutFormat'
-import { DirectPaymentCard, UnresolvedCharges } from './StripeDirectPayments'
+import { DirectPaymentCard, UnresolvedCharges, mappedPaymentLabel } from './StripeDirectPayments'
 
 const REASON_PLACEHOLDER = 'e.g. Paid product removed after payment before invoicing. No refund was issued.'
 const REFUNDED_REASON_PLACEHOLDER = 'e.g. Customer overpaid; the difference was refunded in Stripe after this payout.'
@@ -717,7 +717,7 @@ function GroupCard({
             <tbody>
               {group.lines.map((l) => (
                 <tr key={l.balanceTransactionId}>
-                  <td>{l.direct ? 'DIRECT STRIPE PAYMENT' : l.website?.orderNumber || '—'}</td>
+                  <td>{l.direct ? mappedPaymentLabel(l.direct) : l.website?.orderNumber || '—'}</td>
                   <td>{l.invoice?.invoiceNumber || '—'}</td>
                   <td className="stripe-payout__num">{amount(l.gross)}</td>
                   <td className="stripe-payout__num">{amount(l.invoiceTotal)}</td>
@@ -1311,7 +1311,7 @@ export function StripePayoutPreviewPanel() {
                         {c.allocations.map((a) => (
                           <tr key={a.invoiceId}>
                             <td>{a.invoiceNumber}</td>
-                            <td>{a.orderNumber || 'DIRECT STRIPE PAYMENT'}</td>
+                            <td>{a.orderNumber || (a.source === 'REASSIGNED_STRIPE_PAYMENT' ? 'REASSIGNED STRIPE PAYMENT' : 'DIRECT STRIPE PAYMENT')}</td>
                             <td className="stripe-payout__num">{amount(a.amount)}</td>
                           </tr>
                         ))}

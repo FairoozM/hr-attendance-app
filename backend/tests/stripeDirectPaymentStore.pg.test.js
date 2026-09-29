@@ -1,5 +1,5 @@
 /**
- * Real PostgreSQL checks for direct Stripe payment mappings.
+ * Real PostgreSQL checks for direct and reassigned Stripe payment mappings.
  * Runs only against a disposable database, in its own schema:
  *   STRIPE_CLEARING_TEST_DATABASE_URL=postgres://…/scratch node --test tests/stripeDirectPaymentStore.pg.test.js
  */
@@ -15,6 +15,7 @@ const url = process.env.STRIPE_CLEARING_TEST_DATABASE_URL
 const skip = url ? false : 'STRIPE_CLEARING_TEST_DATABASE_URL not set'
 const SCHEMA = 'stripe_direct_payment_test'
 const MIGRATION = path.join(__dirname, '../migrations/054_stripe_direct_payment_mapping.sql')
+const MIGRATION_055 = path.join(__dirname, '../migrations/055_stripe_reassigned_payment_mapping.sql')
 
 const PAYOUT = 'po_1UDDZ3DJogiiRoKPj4uB4mEL'
 const PI = 'pi_3UB7cxDJogiiRoKP2ddNSqC5'
@@ -51,9 +52,12 @@ test.before(async () => {
   await admin.end()
   pool = newPool()
   await payoutStore.ensureStripePayoutClearingTables((sql, params) => pool.query(sql, params))
-  // The reference migration and the boot-time ensure must agree and both be re-runnable.
+  // The reference migrations and the boot-time ensure must agree and all be re-runnable; 054
+  // alone leaves the DIRECT_PAYMENT-only check that 055 replaces.
   await pool.query(fs.readFileSync(MIGRATION, 'utf8'))
+  await pool.query(fs.readFileSync(MIGRATION_055, 'utf8'))
   await directStore.ensureStripeDirectPaymentTables((sql, params) => pool.query(sql, params))
+  await pool.query(fs.readFileSync(MIGRATION_055, 'utf8'))
   await pool.query(fs.readFileSync(MIGRATION, 'utf8'))
 })
 
@@ -121,13 +125,66 @@ test('release is refused once any component exists for the payout customer, and 
   assert.equal(again.status, 'ACTIVE')
 })
 
-test('054 holds only mapping columns (no website order ID) and re-running it keeps the rows', { skip }, async () => {
+const PI_REASSIGNED = 'pi_3UC1reDJogiiRoKP0reassign'
+const CH_REASSIGNED = 'ch_3UC1reDJogiiRoKP0reassign'
+const ORIGINAL = { originalOrderId: '19870', originalOrderNumber: '20890', originalOrderStatus: 'cancelled', originalInvoiceId: 'ZID-INV-043530', originalInvoiceNumber: 'INV-043530' }
+
+test('a reassigned mapping persists the original order and invoice as audit evidence', { skip }, async () => {
+  const m = await directStore.insertMapping(pool, mapping({
+    mappingType: 'REASSIGNED_PAYMENT', paymentIntentId: PI_REASSIGNED, chargeId: CH_REASSIGNED, zohoInvoiceId: 'ZID-INV-043600', zohoInvoiceNumber: 'INV-043600',
+    reason: 'Customer cancelled original order and same Stripe funds were reused for replacement order.', ...ORIGINAL,
+  }))
+  const restarted = newPool()
+  try {
+    const [again] = await directStore.listActiveByIntents(restarted, [PI_REASSIGNED])
+    assert.deepEqual(
+      [again.id, again.mappingType, again.originalOrderId, again.originalOrderNumber, again.originalOrderStatus, again.originalInvoiceId, again.originalInvoiceNumber, again.zohoInvoiceNumber],
+      [m.id, 'REASSIGNED_PAYMENT', '19870', '20890', 'cancelled', 'ZID-INV-043530', 'INV-043530', 'INV-043600'],
+    )
+  } finally {
+    await restarted.end()
+  }
+  const [direct] = await directStore.listActiveByIntents(pool, [PI])
+  assert.deepEqual([direct.mappingType, direct.originalOrderNumber, direct.originalInvoiceNumber], ['DIRECT_PAYMENT', null, null])
+})
+
+test('mapping type and original order must agree; unknown types are refused', { skip }, async () => {
+  const insert = (type, originalOrderNumber) => pool.query(
+    `INSERT INTO stripe_direct_payment_mappings (stripe_payment_intent_id, zoho_invoice_id, zoho_invoice_number, zoho_customer_id, customer_key, payout_id,
+       mapping_type, currency, stripe_gross, reason, mapped_by, original_order_number)
+     VALUES ('pi_3TYPE000000000000000', 'Z8', 'INV-8', $1, 'WEBSITE', $2, $3, 'AED', 10, 'A reason long enough', 'user:7', $4)`,
+    [WEB, PAYOUT, type, originalOrderNumber],
+  )
+  await assert.rejects(insert('REASSIGNED_PAYMENT', null), /ck_stripe_direct_payment_original_order/)
+  await assert.rejects(insert('REASSIGNED_PAYMENT', ' '), /ck_stripe_direct_payment_original_order/)
+  await assert.rejects(insert('DIRECT_PAYMENT', '20890'), /ck_stripe_direct_payment_original_order/)
+  await assert.rejects(insert('REFUND', null), /stripe_direct_payment_mappings_mapping_type_check/)
+})
+
+test('an allocation lookup by invoice alone matches only that invoice', { skip }, async () => {
+  await pool.query(
+    `INSERT INTO stripe_payout_clearing_components (payout_id, zoho_customer_id, component, zoho_record_type, amount, currency, reference, allocations, status)
+     VALUES ($1, $2, 'NET', 'customer_payment', 10, 'AED', 'Stripe funds received lookup', $3::jsonb, 'PLANNED')`,
+    ['po_1LOOKUPDJogiiRoKPj4uB4mEL', WEB, JSON.stringify([{ invoiceId: 'ZID-INV-099999', paymentIntentId: 'pi_3LOOKUP', amount: 10 }])],
+  )
+  try {
+    assert.deepEqual(await directStore.listComponentsAllocating(pool, { zohoInvoiceId: 'ZID-INV-043530' }), [])
+    assert.equal((await directStore.listComponentsAllocating(pool, { zohoInvoiceId: 'ZID-INV-099999' })).length, 1)
+    assert.deepEqual(await directStore.listComponentsAllocating(pool, {}), [])
+  } finally {
+    await pool.query('DELETE FROM stripe_payout_clearing_components')
+  }
+})
+
+test('054 + 055 hold mapping columns plus original-order evidence only, and re-running them keeps the rows', { skip }, async () => {
   await pool.query(fs.readFileSync(MIGRATION, 'utf8'))
+  await pool.query(fs.readFileSync(MIGRATION_055, 'utf8'))
   const { rows: cols } = await pool.query(
     `SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = 'stripe_direct_payment_mappings' ORDER BY ordinal_position`,
     [SCHEMA],
   )
   const names = cols.map((c) => c.column_name)
-  assert.ok(!names.some((n) => /order/.test(n)), names.join(','))
+  assert.deepEqual(names.filter((n) => /order|original/.test(n)), ['original_order_id', 'original_order_number', 'original_order_status', 'original_invoice_id', 'original_invoice_number'])
   assert.equal((await directStore.listHistoryByIntent(pool, PI)).length, 2)
+  assert.equal((await directStore.listHistoryByIntent(pool, PI_REASSIGNED)).length, 1)
 })

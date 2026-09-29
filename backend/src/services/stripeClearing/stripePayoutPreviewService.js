@@ -226,6 +226,11 @@ function publicMapping(m) {
     firstPayoutId: m.payoutId,
     mappedBy: m.mappedBy,
     mappedAt: m.mappedAt,
+    originalOrderId: m.originalOrderId || null,
+    originalOrderNumber: m.originalOrderNumber || null,
+    originalOrderStatus: m.originalOrderStatus || null,
+    originalInvoiceId: m.originalInvoiceId || null,
+    originalInvoiceNumber: m.originalInvoiceNumber || null,
     // Set once the payout's local components are known.
     removable: false,
     lockedReason: null,
@@ -233,27 +238,30 @@ function publicMapping(m) {
 }
 
 /**
- * A charge an admin mapped to an existing Zoho invoice (direct Stripe payment / Payment Link).
+ * A charge an admin mapped to an existing Zoho invoice: a direct Stripe payment (Payment Link) or
+ * a reassigned payment (cancelled order's unrefunded funds reused for a replacement invoice).
  * It clears exactly like an invoice-backed website charge: invoice = gross, NET and FEE as Stripe
  * split them. The mapping is re-checked against Stripe and the live invoice on every preview.
  */
 async function buildDirectLine(t, line, mapping, ctx) {
   const { config, sources } = ctx
+  const reassigned = mapping.mappingType === directModel.MAPPING_TYPE.REASSIGNED_PAYMENT
+  const kind = reassigned ? 'reassigned' : 'direct'
   const base = {
     ...line,
-    source: directModel.SOURCE.DIRECT_STRIPE_PAYMENT,
+    source: reassigned ? directModel.SOURCE.REASSIGNED_STRIPE_PAYMENT : directModel.SOURCE.DIRECT_STRIPE_PAYMENT,
     direct: publicMapping(mapping),
     customerId: mapping.zohoCustomerId,
-    matchStatus: 'DIRECT_PAYMENT_MAPPED',
+    matchStatus: reassigned ? 'REASSIGNED_PAYMENT_MAPPED' : 'DIRECT_PAYMENT_MAPPED',
   }
   const review = (reason) => ({ ...base, state: LINE_STATE.NEEDS_REVIEW, reason })
-  const label = `Direct-payment mapping ${mapping.id} (${mapping.zohoInvoiceNumber})`
+  const label = `${reassigned ? 'Reassigned' : 'Direct'}-payment mapping ${mapping.id} (${mapping.zohoInvoiceNumber})`
   if (!directModel.customerKeyOf(mapping.zohoCustomerId, config)) return review(`${label} names customer ${mapping.zohoCustomerId}, which is not a Stripe-clearing customer.`)
   if (mapping.chargeId && t.chargeId && mapping.chargeId !== t.chargeId) return review(`${label} was confirmed for charge ${mapping.chargeId}, not ${t.chargeId}.`)
   if (toMinor(mapping.stripeGross) !== t.amountMinor) return review(`${label} was confirmed for ${mapping.stripeGross}; Stripe now shows ${toMajor(t.amountMinor)}.`)
   if (clean(mapping.currency) !== t.currency) return review(`${label} is in ${mapping.currency}; Stripe is ${t.currency}.`)
   if (t.chargeDisputed) return review('Stripe charge is disputed.')
-  if (t.chargeRefundedMinor > 0) return review(`Stripe refunded ${toMajor(t.chargeRefundedMinor)} on this direct payment; refunds of direct payments are resolved by hand.`)
+  if (t.chargeRefundedMinor > 0) return review(`Stripe refunded ${toMajor(t.chargeRefundedMinor)} on this ${kind} payment; refunds of ${kind} payments are resolved by hand.`)
   if (typeof sources.getZohoInvoiceDetail !== 'function') return review('Zoho invoice lookup is unavailable.')
   const inv = await cached(ctx.stripeCache, `direct-inv:${mapping.zohoInvoiceId}`, () => sources.getZohoInvoiceDetail(mapping.zohoInvoiceId, PREVIEW))
   if (!inv) return review(`Zoho no longer has invoice ${mapping.zohoInvoiceNumber}.`)
@@ -273,34 +281,108 @@ async function buildDirectLine(t, line, mapping, ctx) {
   if (directModel.BLOCKED_INVOICE_STATUS.has(inv.status)) return review(`Zoho ${inv.invoiceNumber} is ${inv.status}.`)
   if (toMinor(inv.total) !== t.amountMinor) return review(`Zoho ${inv.invoiceNumber} total ${inv.total} does not equal Stripe ${toMajor(t.amountMinor)}.`)
   const who = `mapped by ${mapping.mappedBy}`
+  const what = reassigned ? `reassigned Stripe payment from cancelled order ${mapping.originalOrderNumber}` : 'direct Stripe payment'
   if (toMinor(inv.balance) === toMinor(inv.total)) {
-    return { ...base, state: LINE_STATE.OPEN, reason: `Direct Stripe payment for Zoho ${inv.invoiceNumber} (P.O.# ${inv.referenceNumber || '—'}), ${who}.` }
+    return { ...base, state: LINE_STATE.OPEN, reason: `${what[0].toUpperCase()}${what.slice(1)} for Zoho ${inv.invoiceNumber} (P.O.# ${inv.referenceNumber || '—'}), ${who}.` }
   }
   if (inv.status === 'paid' || toMinor(inv.balance) === 0) {
-    return { ...base, state: LINE_STATE.CLEARED, reason: `Zoho invoice ${inv.invoiceNumber} is already paid (direct Stripe payment, ${who}).` }
+    return { ...base, state: LINE_STATE.CLEARED, reason: `Zoho invoice ${inv.invoiceNumber} is already paid (${what}, ${who}).` }
   }
-  return { ...base, state: LINE_STATE.PARTIALLY_CLEARED, reason: `Zoho invoice ${inv.invoiceNumber} is partly paid (balance ${inv.balance}; direct Stripe payment, ${who}).` }
+  return { ...base, state: LINE_STATE.PARTIALLY_CLEARED, reason: `Zoho invoice ${inv.invoiceNumber} is partly paid (balance ${inv.balance}; ${what}, ${who}).` }
+}
+
+/**
+ * A reassigned mapping holds only while its PaymentIntent still belongs to exactly the recorded
+ * cancelled order and that order still shows no refund. Returns why it no longer holds, or null.
+ */
+function reassignedMappingProblem(mapping, websiteOrders) {
+  const label = `Reassigned-payment mapping ${mapping.id} (${mapping.zohoInvoiceNumber})`
+  if (websiteOrders.length !== 1 || websiteOrders[0].orderNumber !== mapping.originalOrderNumber) {
+    const now = websiteOrders.length === 0 ? 'no website order' : `website order(s) ${websiteOrders.map((o) => o.orderNumber).join(', ')}`
+    return `${label} was confirmed for cancelled order ${mapping.originalOrderNumber}, but ${now} now carries this PaymentIntent.`
+  }
+  const origin = directModel.reassignableOrigin(websiteOrders[0], null)
+  return origin.ok ? null : `${label} no longer holds: ${origin.reason}`
 }
 
 const MAX_SUGGESTION_REFERENCES = 3
 
+const MAX_REASSIGN_CANDIDATES = 10
+
 /**
- * Stripe evidence and an invoice suggestion for a charge without a website order. Read-only;
- * a suggestion is never a mapping. Lookup failures are reported, not hidden.
+ * The cancelled order's own Zoho invoices and, for a reassigned charge, open invoices of the same
+ * customer and exact amount as replacement candidates. Amount alone is never a suggestion.
+ */
+async function describeReassignOrigin(line, ctx, out) {
+  const { sources, config } = ctx
+  const origin = line.reassignOrigin
+  const originals = await cached(ctx.cache, `inv-ref:${origin.orderNumber}`, () => sources.findZohoInvoicesByReference(origin.orderNumber, PREVIEW))
+  out.originalInvoices = originals.map((inv) => ({
+    invoiceId: inv.invoiceId,
+    invoiceNumber: inv.invoiceNumber,
+    referenceNumber: inv.referenceNumber,
+    total: inv.total,
+    balance: inv.balance,
+    status: inv.status,
+    customerId: inv.customerId,
+  }))
+  if (typeof sources.searchZohoInvoices !== 'function') return
+  const originalIds = new Set(originals.map((inv) => inv.invoiceId))
+  const found = await sources.searchZohoInvoices({ amount: toMajor(line.grossMinor), customerId: origin.zohoCustomerId }, PREVIEW)
+  const candidates = found
+    .filter((inv) => !originalIds.has(inv.invoiceId) && clean(inv.referenceNumber) !== clean(origin.orderNumber))
+    .filter((inv) => !directModel.BLOCKED_INVOICE_STATUS.has(inv.status) && toMinor(inv.total) === line.grossMinor && toMinor(inv.balance) === line.grossMinor)
+    .slice(0, MAX_REASSIGN_CANDIDATES)
+    .map((inv) => ({
+      invoiceId: inv.invoiceId,
+      invoiceNumber: inv.invoiceNumber,
+      referenceNumber: inv.referenceNumber,
+      customerId: inv.customerId,
+      customerName: directModel.customerNameOf(inv.customerId, config),
+      date: inv.date,
+      total: inv.total,
+      balance: inv.balance,
+      status: inv.status,
+      fits: true,
+    }))
+  const who = directModel.customerNameOf(origin.zohoCustomerId, config)
+  out.suggestion = candidates.length > 0
+    ? { status: directModel.SUGGESTION.NEEDS_REVIEW, reason: `${candidates.length} open ${who} invoice(s) for exactly ${config.websiteCurrency} ${toMajor(line.grossMinor).toFixed(2)}; amount alone is not proof — choose the replacement by hand.`, candidates }
+    : { status: directModel.SUGGESTION.NONE, reason: `No open ${who} invoice for exactly ${config.websiteCurrency} ${toMajor(line.grossMinor).toFixed(2)}; search for the replacement invoice.`, candidates: [] }
+}
+
+/**
+ * Stripe evidence and an invoice suggestion for a charge without a customer group: a direct
+ * payment (no website order) or a reassignable payment (cancelled order, nothing refunded).
+ * Read-only; a suggestion is never a mapping. Lookup failures are reported, not hidden.
  */
 async function describeUnassigned(line, ctx) {
   const { sources, config } = ctx
-  const eligible = !line.website && !line.direct && Boolean(line.paymentIntentId)
-    && (ctx.ordersByIntent.get(line.paymentIntentId) || []).length === 0
+  const orders = ctx.ordersByIntent.get(line.paymentIntentId) || []
+  const directOk = !line.website && !line.direct && !line.reassignOrigin && Boolean(line.paymentIntentId) && orders.length === 0
+  const reassignOk = Boolean(line.reassignOrigin) && !line.direct
+  const eligible = directOk || reassignOk
   const out = {
+    mappingType: directOk ? directModel.MAPPING_TYPE.DIRECT_PAYMENT : reassignOk ? directModel.MAPPING_TYPE.REASSIGNED_PAYMENT : null,
     directEligible: eligible,
-    directIneligibleReason: eligible ? null : line.direct ? 'A direct-payment mapping exists for this PaymentIntent.' : line.website || (ctx.ordersByIntent.get(line.paymentIntentId) || []).length > 0 ? 'A website order carries this PaymentIntent.' : 'The charge has no PaymentIntent.',
+    directIneligibleReason: eligible ? null : line.direct ? 'A Stripe payment mapping exists for this PaymentIntent.' : line.website || orders.length > 0 ? 'A website order carries this PaymentIntent and it is not a cancelled, unrefunded order.' : 'The charge has no PaymentIntent.',
+    originalInvoices: [],
     stripeEvidence: null,
     references: [],
     suggestion: null,
     evidenceError: null,
   }
   if (!eligible || typeof sources.getPaymentIntentEvidence !== 'function') return out
+  if (reassignOk) {
+    try {
+      out.stripeEvidence = await cached(ctx.stripeCache, `evidence:${line.paymentIntentId}`, () => sources.getPaymentIntentEvidence(line.paymentIntentId))
+      out.references = directModel.extractReferences(out.stripeEvidence)
+      await describeReassignOrigin(line, ctx, out)
+    } catch {
+      out.evidenceError = 'Stripe/Zoho evidence could not be read. Manual verification is required.'
+    }
+    return out
+  }
   try {
     const evidence = await cached(ctx.stripeCache, `evidence:${line.paymentIntentId}`, () => sources.getPaymentIntentEvidence(line.paymentIntentId))
     out.stripeEvidence = evidence
@@ -356,6 +438,16 @@ async function buildLine(t, ctx) {
 
   const websiteOrders = ordersByIntent.get(t.paymentIntentId) || []
   const mapping = ctx.mappingsByIntent ? ctx.mappingsByIntent.get(t.paymentIntentId) || null : null
+  if (mapping && mapping.mappingType === directModel.MAPPING_TYPE.REASSIGNED_PAYMENT) {
+    const problem = reassignedMappingProblem(mapping, websiteOrders)
+    if (problem) {
+      line.direct = publicMapping(mapping)
+      line.source = directModel.SOURCE.REASSIGNED_STRIPE_PAYMENT
+      line.customerId = mapping.zohoCustomerId
+      return review(problem)
+    }
+    return buildDirectLine(t, line, mapping, ctx)
+  }
   if (mapping && websiteOrders.length > 0) {
     line.direct = publicMapping(mapping)
     return review(`Website order(s) ${websiteOrders.map((o) => o.orderNumber).join(', ')} and direct-payment mapping ${mapping.id} (${mapping.zohoInvoiceNumber}) both claim this PaymentIntent; it cannot clear both ways.`)
@@ -363,6 +455,26 @@ async function buildLine(t, ctx) {
   if (mapping) return buildDirectLine(t, line, mapping, ctx)
 
   const order = websiteOrders.length === 1 ? websiteOrders[0] : null
+  // A cancelled order whose money Stripe never returned: the funds may have been reused for a
+  // replacement invoice. It stays out of every customer group until an admin maps it.
+  if (order && !(t.chargeId && casesByCharge.get(t.chargeId))) {
+    const origin = directModel.reassignableOrigin(order, { refundedMinor: t.chargeRefundedMinor, disputed: t.chargeDisputed })
+    if (origin.ok) {
+      line.reassignOrigin = {
+        orderId: order.orderId,
+        orderNumber: order.orderNumber,
+        orderStatus: order.orderStatus,
+        paymentStatus: order.paymentStatus,
+        paymentMethod: order.paymentMethod || null,
+        finalAmount: order.finalAmount,
+        shopOrder: order.shopOrder,
+        createdAt: order.createdAt || null,
+        zohoCustomerId: expectedZohoCustomerId(order, config),
+        refundedThroughStripe: toMajor(t.chargeRefundedMinor),
+      }
+      return review(`Website order ${order.orderNumber} is cancelled but Stripe refunded nothing. If the same funds paid a replacement invoice, map it with "Assign to Zoho Invoice"; otherwise refund it in Stripe.`)
+    }
+  }
   if (order) {
     line.source = directModel.SOURCE.WEBSITE_ORDER
     line.website = { orderId: order.orderId, orderNumber: order.orderNumber, finalAmount: order.finalAmount, shopOrder: order.shopOrder, orderStatus: order.orderStatus, paymentStatus: order.paymentStatus }
@@ -582,7 +694,7 @@ function allocation(line, amountMinor) {
       invoiceNumber: line.invoice.invoiceNumber,
       orderNumber: null,
       paymentIntentId: line.paymentIntentId,
-      source: directModel.SOURCE.DIRECT_STRIPE_PAYMENT,
+      source: line.source,
       amount: toMajor(amountMinor),
     }
   }
@@ -610,6 +722,7 @@ function publicLine(l) {
     source: l.source || null,
     website: l.website,
     direct: l.direct || null,
+    originalOrder: l.reassignOrigin || null,
     chargeCreatedAt: l.chargeCreatedAt || null,
     description: l.description || null,
     invoice: l.invoice,
@@ -1819,7 +1932,7 @@ async function previewPayout(payoutId, overrides = {}) {
 
   const reconciliation = reconcile(groups, payout, chargeTxns, refunds, normalRefundTxns)
   const payoutBlockers = []
-  if (unassigned.length > 0) payoutBlockers.push(`${unassigned.length} charge(s) could not be assigned to Website or Burjman. Map a direct Stripe payment with "Assign to Zoho Invoice".`)
+  if (unassigned.length > 0) payoutBlockers.push(`${unassigned.length} charge(s) could not be assigned to Website or Burjman. Map a direct or reassigned Stripe payment with "Assign to Zoho Invoice".`)
   if (!composition.reconciles) payoutBlockers.push('Stripe balance transactions do not add up to the payout amount.')
   if (!reconciliation.payoutMatches) {
     const normalText = normalRefundTxns.length > 0 ? ` − normal refunds ${reconciliation.normalRefundsNetOutOf1019}` : ''

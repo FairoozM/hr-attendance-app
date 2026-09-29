@@ -1649,3 +1649,128 @@ describe('StripePayoutPreviewPanel direct Stripe payments', () => {
     expect(api.postStripePayoutGroup).not.toHaveBeenCalled()
   })
 })
+
+const REASSIGN_REASON = 'Customer cancelled original order and same Stripe funds were reused for replacement order.'
+
+function reassignLine(): StripeUnassignedLine {
+  return unresolvedLine({
+    mappingType: 'REASSIGNED_PAYMENT',
+    originalOrder: {
+      orderId: '19870', orderNumber: '20890', orderStatus: 'cancelled', paymentStatus: 'completed', paymentMethod: 'stripe', finalAmount: 1261,
+      shopOrder: false, createdAt: '2026-08-30T09:00:00.000Z', zohoCustomerId: 'WEB', refundedThroughStripe: 0,
+    },
+    originalInvoices: [{ invoiceId: 'ZID-INV-043530', invoiceNumber: 'INV-043530', referenceNumber: '20890', total: 1261, balance: 0, status: 'void', customerId: 'WEB' }],
+    stripeEvidence: { ...unresolvedLine().stripeEvidence!, description: 'Order #20890', sessions: [] },
+    references: [{ kind: 'reference', value: '20890', sources: [{ source: 'PaymentIntent description', text: 'Order #20890' }] }],
+    suggestion: {
+      status: 'NEEDS_REVIEW',
+      reason: '1 open Website invoice(s) for exactly AED 1261.00; amount alone is not proof — choose the replacement by hand.',
+      candidates: [{ ...INV_043544, fits: true }],
+    },
+    reason: 'Website order 20890 is cancelled but Stripe refunded nothing. If the same funds paid a replacement invoice, map it with "Assign to Zoho Invoice"; otherwise refund it in Stripe.',
+  })
+}
+
+function reassignedMapping(patch: Partial<StripeDirectMapping> = {}): StripeDirectMapping {
+  return mapping({
+    mappingType: 'REASSIGNED_PAYMENT',
+    originalOrderId: '19870',
+    originalOrderNumber: '20890',
+    originalOrderStatus: 'cancelled',
+    originalInvoiceId: 'ZID-INV-043530',
+    originalInvoiceNumber: 'INV-043530',
+    evidence: 'No Stripe reference; invoice number re-typed by the admin.',
+    reason: REASSIGN_REASON,
+    ...patch,
+  })
+}
+
+function reassignPreview(mapped: StripeDirectMapping | null): StripePayoutPreview {
+  const p = directPreview(mapped)
+  if (!mapped) {
+    p.unassigned = [reassignLine()]
+    return p
+  }
+  const group = p.groups[0]
+  group.lines = group.lines.map((l) => (l.direct ? { ...l, source: 'REASSIGNED_STRIPE_PAYMENT', matchStatus: 'REASSIGNED_PAYMENT_MAPPED', reason: 'Reassigned Stripe payment from cancelled order 20890 for Zoho INV-043544.' } : l))
+  for (const c of group.components) c.allocations = c.allocations.map((a) => (a.orderNumber ? a : { ...a, source: 'REASSIGNED_STRIPE_PAYMENT' }))
+  return p
+}
+
+describe('StripePayoutPreviewPanel reassigned Stripe payments', () => {
+  it('shows the cancelled original order, its invoice and AED 0.00 refunded, and maps only after manual confirmation', async () => {
+    await openDirectPreview(reassignPreview(null))
+    const card = screen.getByTestId('unresolved-charge')
+    expect(card.textContent).toContain('CANCELLED ORDER, NOT REFUNDED')
+    expect(card.textContent).toContain('ORIGINAL ORDER')
+    expect(card.textContent).toContain('20890 · cancelled · payment completed · stripe · AED 1,261.00')
+    expect(card.textContent).toContain('INV-043530 (void, balance AED 0.00)')
+    expect(card.textContent).toContain('Refunded through StripeAED 0.00')
+    expect(card.textContent).toContain('AED 1,261.00')
+    expect(card.textContent).toContain('AED 50.18')
+    expect(card.textContent).toContain('AED 1,210.82')
+    expect(card.textContent).toContain('choose the replacement by hand')
+    expect(card.textContent).not.toContain('Suggested match')
+    expect(api.validateStripeDirectPayment).not.toHaveBeenCalled()
+
+    api.searchStripeDirectInvoices.mockResolvedValue({ mode: 'amount', query: '1261.00', invoices: [searchRow()], zohoWrites: 0 })
+    api.validateStripeDirectPayment.mockResolvedValue(validation({
+      mappingType: 'REASSIGNED_PAYMENT',
+      originalOrder: { orderId: '19870', orderNumber: '20890', orderStatus: 'cancelled', paymentStatus: 'completed', paymentMethod: 'stripe', finalAmount: 1261, shopOrder: false, createdAt: null },
+      originalInvoices: reassignLine().originalInvoices,
+      references: [],
+      evidenceStatus: 'NONE',
+      requiresTypedInvoiceNumber: true,
+      evidenceSummary: 'No Stripe reference; invoice number re-typed by the admin.',
+      checks: [
+        { key: 'original_order', label: 'Original website order is cancelled without a refund', ok: true, blocking: false, detail: 'Website order 20890 is cancelled and Stripe refunded nothing.' },
+        { key: 'no_stripe_refund', label: 'No Stripe refund exists for the charge', ok: true, blocking: false, detail: 'None.' },
+        { key: 'same_customer', label: 'Replacement invoice is under the original order’s customer', ok: true, blocking: false, detail: 'Website' },
+      ],
+    }))
+    fireEvent.click(screen.getByRole('button', { name: 'Assign to Zoho Invoice' }))
+    expect((screen.getByLabelText('Invoice number, P.O.# or amount') as HTMLInputElement).value).toBe('1261.00')
+    fireEvent.click(screen.getByRole('button', { name: 'Search Zoho' }))
+    expect(api.searchStripeDirectInvoices).toHaveBeenCalledWith('1261.00', 'amount', 'website')
+    fireEvent.click(await screen.findByRole('button', { name: 'Select INV-043544' }))
+    const checks = await screen.findByLabelText('Mapping checks')
+    expect(checks.textContent).toContain('Reassigned payment: cancelled order 20890')
+    expect(checks.textContent).toContain('Original website order is cancelled without a refund')
+
+    const ack = `I verified order 20890 was cancelled without a refund and the same Stripe funds paid the selected Zoho invoice.`
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: REASSIGN_REASON } })
+    fireEvent.click(screen.getByRole('checkbox', { name: ack }))
+    expect(confirmButton().disabled).toBe(true)
+    fireEvent.change(screen.getByLabelText('Re-type invoice number'), { target: { value: 'INV-043544' } })
+    expect(confirmButton().disabled).toBe(false)
+
+    api.confirmStripeDirectPayment.mockResolvedValue({ mapping: { id: 1, zohoInvoiceNumber: 'INV-043544', status: 'ACTIVE' }, zohoWrites: 0, stripeWrites: 0 })
+    api.getStripePayoutPreview.mockResolvedValue(reassignPreview(reassignedMapping()))
+    fireEvent.click(confirmButton())
+    const mapped = await screen.findByTestId('direct-payment')
+    expect(api.confirmStripeDirectPayment).toHaveBeenCalledWith(DIRECT_PAYOUT, DIRECT_PI, { invoiceId: 'ZID-INV-043544', reason: REASSIGN_REASON, confirmInvoiceNumber: 'INV-043544' })
+    expect(mapped.textContent).toContain('REASSIGNED STRIPE PAYMENT')
+    expect(mapped.textContent).toContain('MANUALLY VERIFIED')
+    const summary = screen.getByTestId('reassigned-summary')
+    expect(summary.textContent).toContain('Original order20890 · cancelled · original invoice INV-043530')
+    expect(summary.textContent).toContain('Clearing invoiceINV-043544 · PO 20901')
+    expect(summary.textContent).toContain('CustomerWebsite')
+    expect(summary.textContent).toContain('AmountAED 1,261.00')
+    expect(screen.queryByTestId('unresolved-charge')).toBeNull()
+    expectNoPostingCalls()
+  })
+
+  it('the mapped card keeps the full audit trail and the allocations are labelled REASSIGNED STRIPE PAYMENT', async () => {
+    await openDirectPreview(reassignPreview(reassignedMapping()))
+    const mapped = screen.getByTestId('direct-payment')
+    expect(mapped.textContent).toContain('REASSIGNED_PAYMENT')
+    expect(mapped.textContent).toContain('Original website order20890 · id 19870 · cancelled')
+    expect(mapped.textContent).toContain('Original invoiceINV-043530 · ZID-INV-043530')
+    expect(mapped.textContent).toContain('Replacement Zoho invoice')
+    expect(mapped.textContent).toContain(`${DIRECT_PI} · ${DIRECT_CH}`)
+    expect(mapped.textContent).toContain('user:7')
+    expect(mapped.textContent).toContain(REASSIGN_REASON)
+    expect(screen.getAllByText('REASSIGNED STRIPE PAYMENT').length).toBeGreaterThan(1)
+    expect(screen.queryByText('DIRECT STRIPE PAYMENT')).toBeNull()
+  })
+})

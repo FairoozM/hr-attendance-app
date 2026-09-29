@@ -211,6 +211,8 @@ export interface StripePayoutLine {
   source?: StripeLineSource | null
   website: { orderId: string; orderNumber: string; finalAmount: number; shopOrder: boolean; orderStatus: string; paymentStatus: string } | null
   direct?: StripeDirectMapping | null
+  /** Set on an unassigned charge whose website order was cancelled without any refund. */
+  originalOrder?: StripeReassignOrigin | null
   chargeCreatedAt?: string | null
   description?: string | null
   invoice: {
@@ -228,8 +230,34 @@ export interface StripePayoutLine {
   /** Set when the order was physically returned but no money has moved back yet. */
   returnWarning?: StripeReturnWarning | null
   state: StripePayoutLineState
-  matchStatus: StripeMatchStatus | 'DIRECT_PAYMENT_MAPPED' | null
+  matchStatus: StripeMatchStatus | 'DIRECT_PAYMENT_MAPPED' | 'REASSIGNED_PAYMENT_MAPPED' | null
   reason: string
+}
+
+/** The cancelled website order a reassignable charge originally paid; evidence only, never changed. */
+export interface StripeReassignOrigin {
+  orderId: string
+  orderNumber: string
+  orderStatus: string
+  paymentStatus: string
+  paymentMethod: string | null
+  finalAmount: number
+  shopOrder: boolean
+  createdAt: string | null
+  zohoCustomerId: string
+  refundedThroughStripe: number
+}
+
+export interface StripeOriginalInvoice {
+  invoiceId: string
+  invoiceNumber: string
+  referenceNumber: string
+  total: number
+  balance: number
+  status: string
+  customerId: string
+  customerName?: string | null
+  date?: string
 }
 
 /** Non-blocking: the original payment still clears; the refund clears when it actually happens. */
@@ -251,12 +279,24 @@ export interface StripeReturnWarning {
   message: string
 }
 
-export type StripeLineSource = 'WEBSITE_ORDER' | 'DIRECT_STRIPE_PAYMENT'
+export type StripeLineSource = 'WEBSITE_ORDER' | 'DIRECT_STRIPE_PAYMENT' | 'REASSIGNED_STRIPE_PAYMENT'
 
-/** Admin-confirmed mapping of a direct Stripe payment (Payment Link) to an existing Zoho invoice. */
+/**
+ * DIRECT_PAYMENT: the charge never had a website order (Payment Link).
+ * REASSIGNED_PAYMENT: the charge paid a cancelled website order and was reused for a replacement invoice.
+ */
+export type StripeDirectMappingType = 'DIRECT_PAYMENT' | 'REASSIGNED_PAYMENT'
+
+/** Admin-confirmed mapping of a Stripe charge (direct or reassigned payment) to an existing Zoho invoice. */
 export interface StripeDirectMapping {
   mappingId: number
-  mappingType: 'DIRECT_PAYMENT'
+  mappingType: StripeDirectMappingType
+  /** Reassigned payments only: the cancelled order and its invoice, kept as audit evidence. */
+  originalOrderId?: string | null
+  originalOrderNumber?: string | null
+  originalOrderStatus?: string | null
+  originalInvoiceId?: string | null
+  originalInvoiceNumber?: string | null
   status: 'ACTIVE' | 'RELEASED'
   paymentIntentId: string
   chargeId: string | null
@@ -326,8 +366,11 @@ export interface StripeDirectSuggestion {
 
 /** A charge that belongs to no customer group yet. */
 export interface StripeUnassignedLine extends StripePayoutLine {
+  /** Which mapping "Assign to Zoho Invoice" would create; null when none is allowed. */
+  mappingType?: StripeDirectMappingType | null
   directEligible?: boolean
   directIneligibleReason?: string | null
+  originalInvoices?: StripeOriginalInvoice[]
   stripeEvidence?: StripePaymentEvidence | null
   references?: StripeEvidenceReference[]
   suggestion?: StripeDirectSuggestion | null
@@ -762,6 +805,9 @@ export interface StripeDirectValidation {
   payoutId: string
   paymentIntentId: string
   chargeId: string | null
+  mappingType?: StripeDirectMappingType
+  originalOrder?: Omit<StripeReassignOrigin, 'zohoCustomerId' | 'refundedThroughStripe'> | null
+  originalInvoices?: StripeOriginalInvoice[]
   stripe: { gross: number; fee: number; net: number; currency: string; createdAt: string | null; description: string | null }
   stripeEvidence: StripePaymentEvidence | null
   checkoutEvidence?: StripeCheckoutEvidence

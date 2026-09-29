@@ -8,8 +8,10 @@ import {
   type StripeCheckoutEvidence,
   type StripeDirectCustomer,
   type StripeDirectInvoice,
+  type StripeDirectMapping,
   type StripeDirectSearchBy,
   type StripeDirectValidation,
+  type StripeOriginalInvoice,
   type StripePayoutLine,
   type StripePaymentEvidence,
   type StripeUnassignedLine,
@@ -18,6 +20,17 @@ import { aed, amount, formatDay, formatWhen, statusLabel } from './stripePayoutF
 
 const MIN_REASON = 10
 const MAPPING_REASON_PLACEHOLDER = 'e.g. Payment Link "Matjar meem #20901" paid invoice INV-043544 (P.O.# 20901); no website order exists.'
+const REASSIGN_REASON_PLACEHOLDER = 'e.g. Customer cancelled original order and same Stripe funds were reused for replacement order.'
+
+/** Label for a charge cleared through an admin mapping, by mapping type. */
+export function mappedPaymentLabel(m: Pick<StripeDirectMapping, 'mappingType'> | null | undefined): string {
+  return m?.mappingType === 'REASSIGNED_PAYMENT' ? 'REASSIGNED STRIPE PAYMENT' : 'DIRECT STRIPE PAYMENT'
+}
+
+function originalInvoicesText(invoices: StripeOriginalInvoice[] | null | undefined): string {
+  if (!invoices || invoices.length === 0) return 'None in Zoho'
+  return invoices.map((i) => `${i.invoiceNumber} (${i.status}, balance ${aed(i.balance)})`).join('; ')
+}
 
 function errorText(err: unknown, fallback: string): string {
   return err instanceof Error && err.message ? err.message : fallback
@@ -102,13 +115,33 @@ function Suggestion({ line }: { line: StripeUnassignedLine }) {
 }
 
 function UnresolvedChargeCard({ line, onAssign }: { line: StripeUnassignedLine; onAssign: (line: StripeUnassignedLine) => void }) {
+  const origin = line.originalOrder
   return (
     <div className="stripe-direct__card" data-testid="unresolved-charge">
       <div className="stripe-payout__advance-head">
-        <strong>UNRESOLVED CHARGE</strong>
+        <strong>{origin ? 'UNRESOLVED CHARGE · CANCELLED ORDER, NOT REFUNDED' : 'UNRESOLVED CHARGE'}</strong>
         <span className="stripe-payout__badge stripe-payout__badge--warn">{statusLabel(line.state)}</span>
       </div>
       <dl>
+        {origin && (
+          <>
+            <div>
+              <dt>ORIGINAL ORDER</dt>
+              <dd>
+                <strong>{origin.orderNumber}</strong> · {origin.orderStatus} · payment {origin.paymentStatus}
+                {origin.paymentMethod ? ` · ${origin.paymentMethod}` : ''} · {aed(origin.finalAmount)}
+              </dd>
+            </div>
+            <div>
+              <dt>Original invoice</dt>
+              <dd>{originalInvoicesText(line.originalInvoices)}</dd>
+            </div>
+            <div>
+              <dt>Refunded through Stripe</dt>
+              <dd>{aed(origin.refundedThroughStripe)}</dd>
+            </div>
+          </>
+        )}
         <div>
           <dt>PaymentIntent</dt>
           <dd className="stripe-clearing__mono">{line.paymentIntentId || '—'}</dd>
@@ -172,10 +205,12 @@ interface AssignState {
 }
 
 function freshAssign(line: StripeUnassignedLine): AssignState {
+  const origin = line.originalOrder
   return {
-    by: 'auto',
-    customer: 'all',
-    q: initialQuery(line),
+    // A replacement invoice is found by the same amount under the original order's customer.
+    by: origin ? 'amount' : 'auto',
+    customer: origin ? (origin.shopOrder ? 'shop' : 'website') : 'all',
+    q: origin ? line.gross.toFixed(2) : initialQuery(line),
     searching: false,
     searchError: '',
     results: null,
@@ -195,6 +230,12 @@ function ValidationPanel({ v }: { v: StripeDirectValidation }) {
   const inv = v.invoice
   return (
     <div className="stripe-direct__validation" aria-label="Mapping checks">
+      {v.mappingType === 'REASSIGNED_PAYMENT' && v.originalOrder && (
+        <p className="stripe-page__note">
+          Reassigned payment: cancelled order <strong>{v.originalOrder.orderNumber}</strong> (original invoice {originalInvoicesText(v.originalInvoices)}) stays
+          unchanged as evidence; its Stripe funds clear the replacement invoice instead.
+        </p>
+      )}
       {inv && (
         <dl>
           <div>
@@ -288,6 +329,7 @@ function AssignInvoiceModal({
 }) {
   const [s, setS] = useState<AssignState>(() => freshAssign(line))
   const pi = line.paymentIntentId || ''
+  const origin = line.originalOrder
   const v = s.validation
   const typedOk = !v?.requiresTypedInvoiceNumber || s.typedInvoiceNumber.trim().toUpperCase() === v.invoice?.invoiceNumber.toUpperCase()
   const canConfirm = Boolean(v && v.invoice && !v.blocking) && s.reason.trim().length >= MIN_REASON && s.acknowledged && typedOk && !s.saving
@@ -338,6 +380,12 @@ function AssignInvoiceModal({
       <p>
         <span className="stripe-clearing__mono">{pi}</span> · {aed(line.gross)} · fee {aed(line.fee)} · net {aed(line.net)}
       </p>
+      {origin && (
+        <p className="stripe-page__note">
+          Original order <strong>{origin.orderNumber}</strong> ({origin.orderStatus}) · refunded through Stripe {aed(origin.refundedThroughStripe)}. Select the
+          replacement invoice the same funds paid.
+        </p>
+      )}
       <form
         className="stripe-direct__search"
         onSubmit={(e) => {
@@ -444,11 +492,19 @@ function AssignInvoiceModal({
           )}
           <label className="stripe-payout__reason">
             Reason
-            <textarea rows={3} value={s.reason} placeholder={MAPPING_REASON_PLACEHOLDER} disabled={s.saving} onChange={(e) => setS({ ...s, reason: e.target.value })} />
+            <textarea
+              rows={3}
+              value={s.reason}
+              placeholder={origin ? REASSIGN_REASON_PLACEHOLDER : MAPPING_REASON_PLACEHOLDER}
+              disabled={s.saving}
+              onChange={(e) => setS({ ...s, reason: e.target.value })}
+            />
           </label>
           <label className="stripe-clearing__check">
             <input type="checkbox" checked={s.acknowledged} disabled={s.saving} onChange={(e) => setS({ ...s, acknowledged: e.target.checked })} />
-            I verified this Stripe payment belongs to the selected Zoho invoice.
+            {origin
+              ? `I verified order ${origin.orderNumber} was cancelled without a refund and the same Stripe funds paid the selected Zoho invoice.`
+              : 'I verified this Stripe payment belongs to the selected Zoho invoice.'}
           </label>
           <p className="stripe-page__note">
             {aed(v.stripe.gross)} → {v.invoice.invoiceNumber} ({v.invoice.customerName}). Saves a local mapping only; nothing is sent to Zoho or Stripe. The
@@ -488,8 +544,9 @@ export function UnresolvedCharges({ payoutId, lines, onChanged }: { payoutId: st
         <h3>Unresolved charges ({lines.length})</h3>
       </header>
       <p className="stripe-page__note">
-        No website order carries these PaymentIntents. A direct Stripe payment (e.g. a Payment Link) can be assigned to its existing Zoho invoice after
-        you review the checks; it is never mapped automatically.
+        These charges belong to no customer group. A direct Stripe payment (e.g. a Payment Link, no website order) can be assigned to its existing Zoho
+        invoice; a payment whose website order was cancelled without a refund can be reassigned to the replacement invoice the same funds paid. Nothing is
+        mapped automatically, and the cancelled order is never changed.
       </p>
       {lines.map((l) => (
         <UnresolvedChargeCard key={l.balanceTransactionId} line={l} onAssign={setAssigning} />
@@ -512,7 +569,7 @@ export function UnresolvedCharges({ payoutId, lines, onChanged }: { payoutId: st
   )
 }
 
-/** A charge cleared through an admin-confirmed direct-payment mapping. */
+/** A charge cleared through an admin-confirmed direct or reassigned payment mapping. */
 export function DirectPaymentCard({
   payoutId,
   line,
@@ -527,6 +584,7 @@ export function DirectPaymentCard({
   const [release, setRelease] = useState<{ reason: string; saving: boolean; error: string } | null>(null)
   const m = line.direct
   if (!m) return null
+  const reassigned = m.mappingType === 'REASSIGNED_PAYMENT'
 
   async function submitRelease() {
     if (!release || !m) return
@@ -543,12 +601,39 @@ export function DirectPaymentCard({
   return (
     <div className="stripe-direct__card stripe-direct__card--mapped" data-testid="direct-payment">
       <div className="stripe-payout__advance-head">
-        <strong>DIRECT STRIPE PAYMENT</strong>
+        <strong>{mappedPaymentLabel(m)}</strong>
         <span className="stripe-payout__badge stripe-payout__badge--ok">MANUALLY VERIFIED</span>
       </div>
-      <p className="stripe-direct__summary">
-        <strong>{m.invoiceNumber}</strong> · {customerName} · PO {m.invoiceReference || '—'} · {aed(m.stripeGross)}
-      </p>
+      {reassigned ? (
+        <dl className="stripe-direct__summary" data-testid="reassigned-summary">
+          <div>
+            <dt>Original order</dt>
+            <dd>
+              <strong>{m.originalOrderNumber}</strong>
+              {m.originalOrderStatus ? ` · ${m.originalOrderStatus}` : ''}
+              {m.originalInvoiceNumber ? ` · original invoice ${m.originalInvoiceNumber}` : ''}
+            </dd>
+          </div>
+          <div>
+            <dt>Clearing invoice</dt>
+            <dd>
+              <strong>{m.invoiceNumber}</strong> · PO {m.invoiceReference || '—'}
+            </dd>
+          </div>
+          <div>
+            <dt>Customer</dt>
+            <dd>{customerName}</dd>
+          </div>
+          <div>
+            <dt>Amount</dt>
+            <dd>{aed(m.stripeGross)}</dd>
+          </div>
+        </dl>
+      ) : (
+        <p className="stripe-direct__summary">
+          <strong>{m.invoiceNumber}</strong> · {customerName} · PO {m.invoiceReference || '—'} · {aed(m.stripeGross)}
+        </p>
+      )}
       {line.state === 'NEEDS_REVIEW' && <p className="stripe-page__banner stripe-page__banner--error">{line.reason}</p>}
       <details className="stripe-payout__details">
         <summary>Mapping details</summary>
@@ -556,9 +641,28 @@ export function DirectPaymentCard({
           <div>
             <dt>Mapping</dt>
             <dd>
-              #{m.mappingId} · {statusLabel(m.status)}
+              #{m.mappingId} · {m.mappingType} · {statusLabel(m.status)}
             </dd>
           </div>
+          {reassigned && (
+            <>
+              <div>
+                <dt>Original website order</dt>
+                <dd>
+                  {m.originalOrderNumber}
+                  {m.originalOrderId ? <span className="stripe-clearing__mono"> · id {m.originalOrderId}</span> : null}
+                  {m.originalOrderStatus ? ` · ${m.originalOrderStatus}` : ''}
+                </dd>
+              </div>
+              <div>
+                <dt>Original invoice</dt>
+                <dd>
+                  {m.originalInvoiceNumber || '—'}
+                  {m.originalInvoiceId ? <span className="stripe-clearing__mono"> · {m.originalInvoiceId}</span> : null}
+                </dd>
+              </div>
+            </>
+          )}
           <div>
             <dt>PaymentIntent / charge</dt>
             <dd className="stripe-clearing__mono">
@@ -566,7 +670,7 @@ export function DirectPaymentCard({
             </dd>
           </div>
           <div>
-            <dt>Zoho invoice</dt>
+            <dt>{reassigned ? 'Replacement Zoho invoice' : 'Zoho invoice'}</dt>
             <dd>
               {m.invoiceNumber} · <span className="stripe-clearing__mono">{m.zohoInvoiceId}</span>
             </dd>

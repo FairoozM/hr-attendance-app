@@ -271,6 +271,7 @@ function pickMatchedInvoice(zohoInvoices, orderNumber) {
 
 module.exports = {
   MATCH_STATUS,
+  WEBSITE_CANCELLED,
   WEBSITE_RETURN_STATUSES,
   classifyStripePayment,
   expectedZohoCustomerId,

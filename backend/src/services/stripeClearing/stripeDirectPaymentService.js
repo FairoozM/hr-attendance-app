@@ -1,8 +1,10 @@
 'use strict'
 
 /**
- * Admin actions for direct Stripe payments (Payment Links) against an existing Zoho invoice:
- * invoice search, read-only validation, confirmation and release of the local mapping.
+ * Admin actions for mapping a Stripe charge to an existing Zoho invoice — a direct payment
+ * (Payment Link, no website order) or a reassigned payment (cancelled website order, no refund,
+ * funds reused for a replacement invoice): invoice search, read-only validation, confirmation and
+ * release of the local mapping. The preview decides which kind a charge is.
  *
  * Nothing here creates, changes or deletes anything in Zoho, Stripe or the website database;
  * they are only read. Confirmation and release hold the payout posting lock so they never race
@@ -144,6 +146,54 @@ function evidenceText(assessment, invoice, evidence) {
   return 'No Stripe reference; invoice number re-typed by the admin.'
 }
 
+function publicOrder(o) {
+  return { orderId: o.orderId, orderNumber: o.orderNumber, orderStatus: o.orderStatus, paymentStatus: o.paymentStatus, paymentMethod: o.paymentMethod, finalAmount: o.finalAmount, refundAmount: o.refundAmount, shopOrder: o.shopOrder, createdAt: o.createdAt }
+}
+
+function publicInvoice(config) {
+  return (inv) => ({
+    invoiceId: inv.invoiceId,
+    invoiceNumber: inv.invoiceNumber,
+    referenceNumber: inv.referenceNumber,
+    customerId: inv.customerId,
+    customerName: directModel.customerNameOf(inv.customerId, config),
+    date: inv.date,
+    total: inv.total,
+    balance: inv.balance,
+    status: inv.status,
+  })
+}
+
+/**
+ * Evidence about the cancelled order a reassigned charge originally paid: the order, its Zoho
+ * invoices, Stripe refunds on the charge and any payout accounting of the original invoice.
+ * Unreadable sources stay undefined so their checks block.
+ */
+async function loadOriginal(line, websiteOrdersForIntent, deps) {
+  const originalOrder = websiteOrdersForIntent.length === 1 ? websiteOrdersForIntent[0] : null
+  let originalInvoices
+  let chargeRefunds
+  const allocatingOriginal = []
+  if (originalOrder) {
+    try {
+      originalInvoices = await deps.sources.findZohoInvoicesByReference(originalOrder.orderNumber, READ)
+    } catch {
+      originalInvoices = undefined
+    }
+    for (const inv of originalInvoices || []) {
+      allocatingOriginal.push(...await deps.store.listComponentsAllocating(deps.reader, { zohoInvoiceId: inv.invoiceId }))
+    }
+  }
+  if (line.chargeId) {
+    try {
+      chargeRefunds = await deps.sources.listChargeRefunds(line.chargeId)
+    } catch {
+      chargeRefunds = undefined
+    }
+  }
+  return { originalOrder, originalInvoices, chargeRefunds, allocatingOriginal }
+}
+
 async function runValidation(po, pi, invoiceId, deps) {
   const id = clean(invoiceId)
   if (!id) throw fail(400, 'INVOICE_REQUIRED', 'Select a Zoho invoice.')
@@ -152,6 +202,9 @@ async function runValidation(po, pi, invoiceId, deps) {
   if (!found) throw fail(404, 'CHARGE_NOT_IN_PAYOUT', `PaymentIntent ${pi} has no charge in payout ${po}.`)
   const { line, group } = found
   if (group) {
+    if (!line.direct && line.website && line.state === 'NEEDS_REVIEW') {
+      throw fail(409, 'CHARGE_NOT_REASSIGNABLE', `PaymentIntent ${pi} belongs to website order ${line.website.orderNumber} and cannot be reassigned: ${line.reason}`)
+    }
     const how = line.direct ? `mapped to ${line.direct.invoiceNumber}` : line.website ? `website order ${line.website.orderNumber}` : 'its customer group'
     throw fail(409, 'CHARGE_ALREADY_ASSIGNED', `PaymentIntent ${pi} already clears through ${how}.`)
   }
@@ -174,14 +227,21 @@ async function runValidation(po, pi, invoiceId, deps) {
   const websiteOrdersForIntent = await deps.sources.loadWebsiteOrdersByIntents([pi], currency)
   const ordersWithReference = invoice && invoice.referenceNumber ? await deps.sources.loadWebsiteOrdersByNumbers([invoice.referenceNumber], currency) : []
   const competingOrders = ordersWithReference.filter((o) => !o.deleted && clean(o.stripePaymentIntentId) && o.stripePaymentIntentId !== pi)
+  const mappingType = line.mappingType || directModel.MAPPING_TYPE.DIRECT_PAYMENT
+  const original = mappingType === directModel.MAPPING_TYPE.REASSIGNED_PAYMENT
+    ? await loadOriginal(line, websiteOrdersForIntent, deps)
+    : {}
   const v = directModel.validateDirectMapping({
     line, invoice, config: deps.config, evidence, references, intentMapping, invoiceMapping, allocatingComponents,
-    competingOrders, zohoIntentPayments, localClearing, websiteOrdersForIntent,
+    competingOrders, zohoIntentPayments, localClearing, websiteOrdersForIntent, mappingType, ...original,
   })
   return {
     payoutId: po,
     paymentIntentId: pi,
     chargeId: line.chargeId,
+    mappingType,
+    originalOrder: original.originalOrder ? publicOrder(original.originalOrder) : null,
+    originalInvoices: (original.originalInvoices || []).map(publicInvoice(deps.config)),
     stripe: { gross: line.gross, fee: line.fee, net: line.net, currency, createdAt: line.chargeCreatedAt, description: line.description },
     stripeEvidence: evidence,
     checkoutEvidence: evidence.checkoutEvidence || 'AVAILABLE',
@@ -211,6 +271,14 @@ async function runValidation(po, pi, invoiceId, deps) {
   }
 }
 
+/** The original order's own invoice for the audit trail: its single live invoice, else its only invoice. */
+function pickOriginalInvoice(invoices) {
+  const all = invoices || []
+  const live = all.filter((inv) => !directModel.BLOCKED_INVOICE_STATUS.has(inv.status))
+  if (live.length === 1) return live[0]
+  return all.length === 1 ? all[0] : null
+}
+
 function publicValidation({ _assessment, ...rest }) {
   return rest
 }
@@ -223,9 +291,10 @@ async function validateDirectPayment(payoutId, paymentIntentId, invoiceId, overr
 }
 
 /**
- * Admin confirms a direct Stripe payment for one Zoho invoice. Re-validates under the payout
- * lock; every blocking check must pass. Without a Stripe reference to the invoice the admin must
- * re-type the invoice number (amount alone is never enough). Writes one local row only.
+ * Admin confirms a direct or reassigned Stripe payment for one Zoho invoice. Re-validates under
+ * the payout lock; every blocking check must pass. Without a Stripe reference to the invoice the
+ * admin must re-type the invoice number (amount alone is never enough). Writes one local row only;
+ * a reassigned mapping records the cancelled order and its invoice as evidence and changes neither.
  */
 async function confirmDirectPayment(payoutId, paymentIntentId, opts = {}, overrides = {}) {
   const deps = { ...defaultDeps(), ...overrides }
@@ -242,7 +311,14 @@ async function confirmDirectPayment(payoutId, paymentIntentId, opts = {}, overri
     if (v.requiresTypedInvoiceNumber && clean(opts.confirmInvoiceNumber).toUpperCase() !== v.invoice.invoiceNumber.toUpperCase()) {
       throw fail(400, 'EVIDENCE_REQUIRED', `Stripe does not reference ${v.invoice.invoiceNumber}. Re-type the invoice number to confirm this mapping by hand.`)
     }
+    const originalInvoice = pickOriginalInvoice(v.originalInvoices)
     const mapping = await deps.store.insertMapping(lock.db, {
+      mappingType: v.mappingType,
+      originalOrderId: v.originalOrder ? String(v.originalOrder.orderId) : null,
+      originalOrderNumber: v.originalOrder ? v.originalOrder.orderNumber : null,
+      originalOrderStatus: v.originalOrder ? v.originalOrder.orderStatus : null,
+      originalInvoiceId: originalInvoice ? originalInvoice.invoiceId : null,
+      originalInvoiceNumber: originalInvoice ? originalInvoice.invoiceNumber : null,
       paymentIntentId: pi,
       chargeId: v.chargeId,
       zohoInvoiceId: v.invoice.invoiceId,
