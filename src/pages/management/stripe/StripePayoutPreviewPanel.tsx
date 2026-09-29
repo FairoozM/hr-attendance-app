@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Modal } from '../../../components/Modal'
 import {
   confirmStripeCustomerAdvance,
@@ -9,6 +9,7 @@ import {
   postStripePayoutGroup,
   postStripePayoutRefund,
   recheckStripeUncertainComponent,
+  refreshStripePayouts,
   type StripeNormalRefund,
   type StripePayoutComponent,
   type StripePayoutFeeJournal,
@@ -35,6 +36,7 @@ import {
   formatWhen,
   groupTone,
   normalRefundTone,
+  pageOf,
   payoutTone,
   postingSteps,
   recoveryLabel,
@@ -717,7 +719,10 @@ function GroupCard({
 
 export function StripePayoutPreviewPanel() {
   const [payouts, setPayouts] = useState<StripePayoutSummary[] | null>(null)
-  const [listing, setListing] = useState(false)
+  const [refreshedAt, setRefreshedAt] = useState<string | null>(null)
+  const [page, setPage] = useState(1)
+  const [listing, setListing] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [listError, setListError] = useState('')
   const [preview, setPreview] = useState<StripePayoutPreview | null>(null)
   const [loadingId, setLoadingId] = useState('')
@@ -729,16 +734,37 @@ export function StripePayoutPreviewPanel() {
   const [recheck, setRecheck] = useState<RecheckState | null>(null)
   const [notCreated, setNotCreated] = useState<NotCreatedState | null>(null)
 
-  async function loadPayouts() {
-    setListing(true)
+  useEffect(() => {
+    let cancelled = false
+    getStripePayouts()
+      .then((list) => {
+        if (cancelled) return
+        setPayouts(list.rows)
+        setRefreshedAt(list.refreshedAt)
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setListError(err instanceof Error ? err.message : 'Could not load cached payouts.')
+      })
+      .finally(() => {
+        if (!cancelled) setListing(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  async function reloadPayouts() {
+    setRefreshing(true)
     setListError('')
     try {
-      setPayouts((await getStripePayouts(10)).rows)
+      const list = await refreshStripePayouts()
+      setPayouts(list.rows)
+      setRefreshedAt(list.refreshedAt)
+      setPage(1)
     } catch (err) {
-      setPayouts(null)
-      setListError(err instanceof Error ? err.message : 'Could not load payouts.')
+      setListError(err instanceof Error ? err.message : 'Could not reload payouts from Stripe.')
     } finally {
-      setListing(false)
+      setRefreshing(false)
     }
   }
 
@@ -852,6 +878,7 @@ export function StripePayoutPreviewPanel() {
     await loadPreview(preview.payout.payoutId)
   }
 
+  const payoutPage = payouts ? pageOf(payouts, page) : null
   const r = preview?.reconciliation
   const normalRefunds = preview?.normalRefunds ?? []
   const uncertain = preview?.uncertainComponents ?? []
@@ -878,9 +905,10 @@ export function StripePayoutPreviewPanel() {
         and only while posting is enabled on the server.
       </p>
       <div className="stripe-clearing__filters">
-        <button type="button" className="btn btn--primary" onClick={() => void loadPayouts()} disabled={listing}>
-          {listing ? 'Loading…' : payouts ? 'Reload payouts' : 'Load recent payouts'}
+        <button type="button" className="btn btn--primary" onClick={() => void reloadPayouts()} disabled={refreshing || listing}>
+          {refreshing ? 'Reloading from Stripe…' : 'Reload payouts'}
         </button>
+        {refreshedAt && <span className="stripe-page__note">Last reloaded from Stripe {formatWhen(refreshedAt)}</span>}
       </div>
       {listError && (
         <p className="stripe-page__banner stripe-page__banner--error" role="alert">
@@ -888,7 +916,12 @@ export function StripePayoutPreviewPanel() {
         </p>
       )}
 
-      {payouts && (
+      {listing && <p className="stripe-page__note">Loading saved payouts…</p>}
+      {!listing && payouts && payouts.length === 0 && (
+        <p className="stripe-page__note">No payouts saved yet. Use Reload payouts to load the latest 30 from Stripe.</p>
+      )}
+
+      {payoutPage && payoutPage.total > 0 && (
         <div className="stripe-clearing__scroll">
           <table className="stripe-page__table">
             <thead>
@@ -905,7 +938,7 @@ export function StripePayoutPreviewPanel() {
               </tr>
             </thead>
             <tbody>
-              {payouts.map((p) => (
+              {payoutPage.rows.map((p) => (
                 <tr key={p.payoutId}>
                   <td className="stripe-clearing__mono">{p.payoutId}</td>
                   <td>{p.status}</td>
@@ -924,6 +957,27 @@ export function StripePayoutPreviewPanel() {
               ))}
             </tbody>
           </table>
+          <nav className="stripe-payout__pager" aria-label="Payout pages">
+            <span>
+              Showing {payoutPage.from}–{payoutPage.to} of {payoutPage.total}
+            </span>
+            <span className="stripe-payout__pager-controls">
+              <button type="button" className="btn btn--ghost" disabled={payoutPage.page <= 1} onClick={() => setPage(payoutPage.page - 1)}>
+                Previous
+              </button>
+              <span>
+                Page {payoutPage.page} of {payoutPage.pageCount}
+              </span>
+              <button
+                type="button"
+                className="btn btn--ghost"
+                disabled={payoutPage.page >= payoutPage.pageCount}
+                onClick={() => setPage(payoutPage.page + 1)}
+              >
+                Next
+              </button>
+            </span>
+          </nav>
         </div>
       )}
 

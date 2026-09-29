@@ -8,6 +8,7 @@ import type {
   StripePayoutGroup,
   StripePayoutLine,
   StripePayoutPreview,
+  StripePayoutSummary,
   StripeUncertainComponent,
 } from '../../../api/stripe'
 import {
@@ -18,6 +19,7 @@ import {
   feeJournalTone,
   groupTone,
   normalRefundTone,
+  pageOf,
   payoutTone,
   postingSteps,
   recoveryLabel,
@@ -26,6 +28,7 @@ import {
 
 const api = vi.hoisted(() => ({
   getStripePayouts: vi.fn(),
+  refreshStripePayouts: vi.fn(),
   getStripePayoutPreview: vi.fn(),
   confirmStripeCustomerAdvance: vi.fn(),
   postStripePayoutGroup: vi.fn(),
@@ -216,7 +219,6 @@ async function openPreview(p: StripePayoutPreview) {
   })
   api.getStripePayoutPreview.mockResolvedValue(p)
   render(<StripePayoutPreviewPanel />)
-  fireEvent.click(screen.getByRole('button', { name: 'Load recent payouts' }))
   fireEvent.click(await screen.findByRole('button', { name: 'Preview' }))
   await screen.findByText('Burjman Shop - Web & App')
 }
@@ -435,7 +437,6 @@ describe('StripePayoutPreviewPanel', () => {
     api.confirmStripeCustomerAdvance.mockResolvedValue({ alreadyConfirmed: false, zohoWrites: 0 })
 
     render(<StripePayoutPreviewPanel />)
-    fireEvent.click(screen.getByRole('button', { name: 'Load recent payouts' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Preview' }))
 
     expect(await screen.findByText('CUSTOMER OVERPAYMENT')).toBeTruthy()
@@ -487,7 +488,6 @@ describe('StripePayoutPreviewPanel', () => {
     api.getStripePayoutPreview.mockResolvedValueOnce(refunded)
 
     render(<StripePayoutPreviewPanel />)
-    fireEvent.click(screen.getByRole('button', { name: 'Load recent payouts' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Preview' }))
 
     expect(await screen.findByText('CUSTOMER OVERPAYMENT')).toBeTruthy()
@@ -532,7 +532,6 @@ describe('StripePayoutPreviewPanel', () => {
     api.getStripePayoutPreview.mockResolvedValueOnce(later)
 
     render(<StripePayoutPreviewPanel />)
-    fireEvent.click(screen.getByRole('button', { name: 'Load recent payouts' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Preview' }))
 
     expect(await screen.findByText(/Original advance journal .*MISSING/)).toBeTruthy()
@@ -656,7 +655,6 @@ async function openRefundPreview(p: StripePayoutPreview) {
   })
   api.getStripePayoutPreview.mockResolvedValue(p)
   render(<StripePayoutPreviewPanel />)
-  fireEvent.click(screen.getByRole('button', { name: 'Load recent payouts' }))
   fireEvent.click(await screen.findByRole('button', { name: 'Preview' }))
   return screen.findByRole('region', { name: 'Refunds' })
 }
@@ -809,7 +807,6 @@ describe('StripePayoutPreviewPanel signed payout fee journal', () => {
     })
     api.getStripePayoutPreview.mockResolvedValue(p)
     render(<StripePayoutPreviewPanel />)
-    fireEvent.click(screen.getByRole('button', { name: 'Load recent payouts' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Preview' }))
 
     const card = await screen.findByRole('region', { name: 'Payout fee journal' })
@@ -991,7 +988,183 @@ async function openPreviewNoGroups(p: StripePayoutPreview) {
   })
   api.getStripePayoutPreview.mockResolvedValue(p)
   render(<StripePayoutPreviewPanel />)
-  fireEvent.click(screen.getByRole('button', { name: 'Load recent payouts' }))
   fireEvent.click(await screen.findByRole('button', { name: 'Preview' }))
   await screen.findByRole('region', { name: 'Uncertain Zoho writes' })
 }
+
+/** `count` payouts newest first: po_list_001 is the newest. The first one is in transit. */
+function payoutRows(count: number, prefix = 'po_list_'): StripePayoutSummary[] {
+  return Array.from({ length: count }, (_, i) => {
+    const n = String(i + 1).padStart(3, '0')
+    const day = new Date(Date.UTC(2026, 8, 29 - i)).toISOString()
+    return {
+      payoutId: `${prefix}${n}`,
+      status: i === 0 ? 'in_transit' : 'paid',
+      amount: 1000 + i,
+      currency: 'AED',
+      arrivalDate: day,
+      createdAt: day,
+      composition: { chargeCount: 3, chargeGross: 1030 + i, chargeFee: 30, chargeNet: 1000 + i, otherCount: 0, otherNet: 0, contentNet: 1000 + i, payoutAmount: 1000 + i, reconciles: true },
+    }
+  })
+}
+
+function cachedList(rows: StripePayoutSummary[], refreshedAt: string | null = '2026-09-29T07:00:00.000Z') {
+  return { rows, refreshedAt, count: rows.length, maxRows: 30, source: 'cache' as const }
+}
+
+function visiblePayoutIds() {
+  return screen.getAllByText(/^po_(list|new)_\d{3}$/).map((el) => el.textContent)
+}
+
+function expectNoPostingCalls() {
+  expect(api.postStripePayoutGroup).not.toHaveBeenCalled()
+  expect(api.postStripePayoutFeeJournal).not.toHaveBeenCalled()
+  expect(api.postStripePayoutRefund).not.toHaveBeenCalled()
+  expect(api.recheckStripeUncertainComponent).not.toHaveBeenCalled()
+  expect(api.confirmStripeUncertainNotCreated).not.toHaveBeenCalled()
+  expect(api.confirmStripeCustomerAdvance).not.toHaveBeenCalled()
+}
+
+describe('pageOf', () => {
+  it('splits 30 rows into three pages of 10, newest first', () => {
+    const rows = payoutRows(30)
+    expect(pageOf(rows, 1).rows.map((r) => r.payoutId)).toEqual(rows.slice(0, 10).map((r) => r.payoutId))
+    expect(pageOf(rows, 2)).toMatchObject({ page: 2, pageCount: 3, from: 11, to: 20, total: 30 })
+    expect(pageOf(rows, 3).rows[9].payoutId).toBe('po_list_030')
+    expect(pageOf(rows, 9).page).toBe(3)
+    expect(pageOf(rows, 0).page).toBe(1)
+  })
+
+  it('handles fewer than 30 rows and an empty list', () => {
+    expect(pageOf(payoutRows(7), 1)).toMatchObject({ page: 1, pageCount: 1, from: 1, to: 7, total: 7 })
+    expect(pageOf([], 1)).toMatchObject({ page: 1, pageCount: 1, from: 0, to: 0, total: 0 })
+  })
+})
+
+describe('StripePayoutPreviewPanel payout list', () => {
+  it('shows the cached list on open without asking Stripe, 10 per page', async () => {
+    api.getStripePayouts.mockResolvedValue(cachedList(payoutRows(30)))
+    render(<StripePayoutPreviewPanel />)
+
+    expect(await screen.findByText('po_list_001')).toBeTruthy()
+    expect(visiblePayoutIds()).toEqual(payoutRows(10).map((r) => r.payoutId))
+    expect(screen.getByText('Showing 1–10 of 30')).toBeTruthy()
+    expect(screen.getByText('Page 1 of 3')).toBeTruthy()
+    expect(screen.getByText('in_transit')).toBeTruthy()
+    expect((screen.getByRole('button', { name: 'Previous' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(api.getStripePayouts).toHaveBeenCalledTimes(1)
+    expect(api.refreshStripePayouts).not.toHaveBeenCalled()
+    expect(api.getStripePayoutPreview).not.toHaveBeenCalled()
+    expectNoPostingCalls()
+  })
+
+  it('pages through the cached rows without any server call', async () => {
+    const rows = payoutRows(30)
+    api.getStripePayouts.mockResolvedValue(cachedList(rows))
+    render(<StripePayoutPreviewPanel />)
+    await screen.findByText('po_list_001')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    expect(screen.getByText('Page 2 of 3')).toBeTruthy()
+    expect(screen.getByText('Showing 11–20 of 30')).toBeTruthy()
+    expect(visiblePayoutIds()).toEqual(rows.slice(10, 20).map((r) => r.payoutId))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    expect(screen.getByText('Page 3 of 3')).toBeTruthy()
+    expect(visiblePayoutIds()).toEqual(rows.slice(20, 30).map((r) => r.payoutId))
+    expect((screen.getByRole('button', { name: 'Next' }) as HTMLButtonElement).disabled).toBe(true)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Previous' }))
+    expect(screen.getByText('Page 2 of 3')).toBeTruthy()
+
+    expect(api.getStripePayouts).toHaveBeenCalledTimes(1)
+    expect(api.refreshStripePayouts).not.toHaveBeenCalled()
+    expect(api.getStripePayoutPreview).not.toHaveBeenCalled()
+  })
+
+  it('reopening the page reads the saved list again and never refreshes from Stripe', async () => {
+    api.getStripePayouts.mockResolvedValue(cachedList(payoutRows(30)))
+    const first = render(<StripePayoutPreviewPanel />)
+    await screen.findByText('po_list_001')
+    first.unmount()
+
+    render(<StripePayoutPreviewPanel />)
+    expect(await screen.findByText('po_list_001')).toBeTruthy()
+    expect(api.getStripePayouts).toHaveBeenCalledTimes(2)
+    expect(api.refreshStripePayouts).not.toHaveBeenCalled()
+  })
+
+  it('Reload payouts refreshes from Stripe, keeps the old list visible meanwhile and returns to page 1', async () => {
+    api.getStripePayouts.mockResolvedValue(cachedList(payoutRows(30)))
+    let resolveRefresh: (value: ReturnType<typeof cachedList>) => void = () => {}
+    api.refreshStripePayouts.mockReturnValue(new Promise((resolve) => { resolveRefresh = resolve }))
+    render(<StripePayoutPreviewPanel />)
+    await screen.findByText('po_list_001')
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    expect(screen.getByText('Page 3 of 3')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reload payouts' }))
+    const busy = screen.getByRole('button', { name: 'Reloading from Stripe…' }) as HTMLButtonElement
+    expect(busy.disabled).toBe(true)
+    expect(screen.getByText('po_list_030')).toBeTruthy()
+
+    resolveRefresh({ ...cachedList(payoutRows(30, 'po_new_'), '2026-09-29T08:00:00.000Z'), source: 'stripe' as never })
+    expect(await screen.findByText('po_new_001')).toBeTruthy()
+    expect(screen.getByText('Page 1 of 3')).toBeTruthy()
+    expect(screen.queryByText('po_list_001')).toBeNull()
+    expect(api.refreshStripePayouts).toHaveBeenCalledTimes(1)
+    expect(api.getStripePayouts).toHaveBeenCalledTimes(1)
+    expectNoPostingCalls()
+  })
+
+  it('keeps the cached list and shows the error when the refresh fails', async () => {
+    api.getStripePayouts.mockResolvedValue(cachedList(payoutRows(30)))
+    api.refreshStripePayouts.mockRejectedValue(new Error('Stripe is unavailable.'))
+    render(<StripePayoutPreviewPanel />)
+    await screen.findByText('po_list_001')
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reload payouts' }))
+    expect(await screen.findByText('Stripe is unavailable.')).toBeTruthy()
+    expect(screen.getByText('po_list_011')).toBeTruthy()
+    expect(screen.getByText('Page 2 of 3')).toBeTruthy()
+    expect((screen.getByRole('button', { name: 'Reload payouts' }) as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('shows fewer than 30 payouts on a single page', async () => {
+    api.getStripePayouts.mockResolvedValue(cachedList(payoutRows(7)))
+    render(<StripePayoutPreviewPanel />)
+    await screen.findByText('po_list_001')
+    expect(visiblePayoutIds()).toHaveLength(7)
+    expect(screen.getByText('Showing 1–7 of 7')).toBeTruthy()
+    expect(screen.getByText('Page 1 of 1')).toBeTruthy()
+    expect((screen.getByRole('button', { name: 'Next' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('shows an empty state until Reload payouts fills the cache', async () => {
+    api.getStripePayouts.mockResolvedValue(cachedList([], null))
+    api.refreshStripePayouts.mockResolvedValue(cachedList(payoutRows(12)))
+    render(<StripePayoutPreviewPanel />)
+    expect(await screen.findByText(/No payouts saved yet/)).toBeTruthy()
+    expect(screen.queryByRole('table')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reload payouts' }))
+    expect(await screen.findByText('po_list_001')).toBeTruthy()
+    expect(screen.getByText('Page 1 of 2')).toBeTruthy()
+  })
+
+  it('Preview still loads the detailed preview for one payout only', async () => {
+    api.getStripePayouts.mockResolvedValue(cachedList(payoutRows(30)))
+    api.getStripePayoutPreview.mockResolvedValue(currentPayout(false))
+    render(<StripePayoutPreviewPanel />)
+    await screen.findByText('po_list_001')
+    fireEvent.click(screen.getAllByRole('button', { name: 'Preview' })[2])
+    await screen.findByText('Burjman Shop - Web & App')
+    expect(api.getStripePayoutPreview).toHaveBeenCalledTimes(1)
+    expect(api.getStripePayoutPreview).toHaveBeenCalledWith('po_list_003')
+    expect(api.refreshStripePayouts).not.toHaveBeenCalled()
+    expectNoPostingCalls()
+  })
+})

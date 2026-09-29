@@ -562,8 +562,22 @@ export interface StripeAdvanceConfirmResult {
   zohoWrites: 0
 }
 
-export function getStripePayouts(limit = 10) {
-  return api.get(`/api/stripe/payouts?limit=${limit}`) as Promise<{ rows: StripePayoutSummary[] }>
+export interface StripePayoutList {
+  rows: StripePayoutSummary[]
+  refreshedAt: string | null
+  count: number
+  maxRows: number
+  source: 'cache' | 'stripe'
+}
+
+/** Cached payout list from the server database; does not call Stripe. */
+export function getStripePayouts() {
+  return api.get('/api/stripe/payouts') as Promise<StripePayoutList>
+}
+
+/** Re-reads the latest payouts from Stripe (read-only) and replaces the server cache. */
+export function refreshStripePayouts() {
+  return api.post('/api/stripe/payouts/refresh', {}) as Promise<StripePayoutList>
 }
 
 export function getStripePayoutPreview(payoutId: string) {

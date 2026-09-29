@@ -1506,30 +1506,6 @@ function reconcile(groups, payout, chargeTxns, advanceRefunds, normalRefundTxns 
 }
 
 /**
- * Recent payouts with their Stripe-side composition only (no Zoho calls).
- * @param {{ limit?: number|string }} params
- */
-async function listPayoutSummaries(params = {}, overrides = {}) {
-  const { sources } = { ...defaultDeps(), ...overrides }
-  const limit = Math.min(Math.max(parseInt(params.limit, 10) || 10, 1), 30)
-  const payouts = await sources.listStripePayouts({ limit })
-  const rows = []
-  for (const payout of payouts) {
-    const txns = await sources.listPayoutBalanceTransactions(payout.payoutId)
-    rows.push({
-      payoutId: payout.payoutId,
-      status: payout.status,
-      amount: toMajor(payout.amountMinor),
-      currency: payout.currency,
-      arrivalDate: payout.arrivalDate,
-      createdAt: payout.createdAt,
-      composition: summarizeComposition(payout, txns),
-    })
-  }
-  return { rows }
-}
-
-/**
  * Full read-only preview of one payout.
  * @param {string} payoutId
  */
@@ -1697,7 +1673,7 @@ module.exports = {
   NORMAL_REFUND_STATUS,
   netReference: model.netReference,
   feeReference: model.feeReference,
-  listPayoutSummaries,
+  summarizeComposition,
   previewPayout,
   componentZohoState,
 }

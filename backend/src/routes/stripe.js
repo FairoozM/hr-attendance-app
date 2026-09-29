@@ -12,8 +12,10 @@ router.post('/connection-test', auth.requireAuth, auth.requireAdmin, ctrl.testCo
 router.get('/clearing/dry-run', auth.requireAuth, auth.requireAdmin, ctrl.clearingDryRun)
 router.get('/clearing/:paymentIntentId', auth.requireAuth, auth.requireAdmin, ctrl.clearingRecord)
 router.get('/clearing/:paymentIntentId/preview', auth.requireAuth, auth.requireAdmin, ctrl.clearingPreview)
-// Read-only payout clearing preview (NET → 1019, FEE → 1013, advances → 1123 per customer).
+// Cached payout list (database only). Refresh reads Stripe (read-only) and replaces the cache.
 router.get('/payouts', auth.requireAuth, auth.requireAdmin, ctrl.payoutList)
+router.post('/payouts/refresh', auth.requireAuth, auth.requireAdmin, ctrl.payoutListRefresh)
+// Read-only payout clearing preview (NET → 1019, FEE → 1013, advances → 1123 per customer).
 router.get('/payouts/:payoutId/preview', auth.requireAuth, auth.requireAdmin, ctrl.payoutPreview)
 // Local status only (no Zoho): admin confirms a detected overpayment as a customer advance.
 router.post('/payouts/:payoutId/customer-advance-cases/confirm', auth.requireAuth, auth.requireAdmin, ctrl.confirmCustomerAdvance)

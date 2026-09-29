@@ -187,10 +187,15 @@ async function listChargeRefunds(chargeId) {
   return out
 }
 
+/** The latest `limit` payouts of every status, newest first (auto-paginates past 100). */
 async function listStripePayouts({ limit }) {
   const client = requireStripeClient()
-  const page = await client.payouts.list({ limit })
-  return page.data.map(mapPayout)
+  const out = []
+  for await (const po of client.payouts.list({ limit: Math.min(limit, 100) })) {
+    out.push(mapPayout(po))
+    if (out.length >= limit) break
+  }
+  return out
 }
 
 async function retrieveStripePayout(payoutId) {

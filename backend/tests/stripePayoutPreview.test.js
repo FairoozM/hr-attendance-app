@@ -10,7 +10,8 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 
 const { getStripeClearingConfig } = require('../src/config/stripeClearing')
-const { previewPayout, listPayoutSummaries, LINE_STATE } = require('../src/services/stripeClearing/stripePayoutPreviewService')
+const { previewPayout, LINE_STATE } = require('../src/services/stripeClearing/stripePayoutPreviewService')
+const { refreshPayoutList } = require('../src/services/stripeClearing/stripePayoutListService')
 const { GROUP_STATUS, PAYOUT_STATUS, RECOVERY_ACTION, ZOHO_STATE, FEE_JOURNAL_STATUS } = require('../src/services/stripeClearing/stripePayoutClearingModel')
 
 const config = getStripeClearingConfig()
@@ -1047,10 +1048,11 @@ test('rejects anything that is not a payout ID', async () => {
   await assert.rejects(previewPayout('po_DOESNOTEXIST1', deps), (err) => err.status === 404)
 })
 
-test('payout summaries show Stripe composition without Zoho calls', async () => {
+test('payout list refresh shows Stripe composition without Zoho calls', async () => {
   const { deps } = world(CURRENT)
   deps.sources.findZohoInvoicesByReference = async () => { throw new Error('Zoho must not be called') }
-  const { rows } = await listPayoutSummaries({ limit: 5 }, deps)
+  const store = { list: async () => [], replace: async () => {} }
+  const { rows } = await refreshPayoutList({ sources: deps.sources, store })
   assert.equal(rows[0].composition.chargeCount, 11)
   assert.equal(rows[0].composition.chargeGross, 4699.25)
   assert.equal(rows[0].composition.chargeFee, 147.28)

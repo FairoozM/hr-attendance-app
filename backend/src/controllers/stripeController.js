@@ -179,12 +179,21 @@ async function payoutConfirmUncertainNotCreated(req, res) {
   }
 }
 
-async function payoutList(req, res) {
+async function payoutList(_req, res) {
   try {
-    const { listPayoutSummaries } = require('../services/stripeClearing/stripePayoutPreviewService')
-    return res.json(await listPayoutSummaries({ limit: req.query.limit }))
+    const { getCachedPayoutList } = require('../services/stripeClearing/stripePayoutListService')
+    return res.json(await getCachedPayoutList())
   } catch (err) {
     return clearingError(res, err, 'payout list')
+  }
+}
+
+async function payoutListRefresh(_req, res) {
+  try {
+    const { refreshPayoutList } = require('../services/stripeClearing/stripePayoutListService')
+    return res.json(await refreshPayoutList())
+  } catch (err) {
+    return clearingError(res, err, 'payout list refresh')
   }
 }
 
@@ -206,6 +215,7 @@ module.exports = {
   clearingPostRetired,
   clearingReversedExternally,
   payoutList,
+  payoutListRefresh,
   payoutPreview,
   payoutPostCustomerGroup,
   payoutPostFeeJournal,

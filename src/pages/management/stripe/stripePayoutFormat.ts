@@ -178,3 +178,24 @@ export function formatDay(value: string | null | undefined): string {
   if (!value) return '—'
   return value.slice(0, 10)
 }
+
+export const PAYOUTS_PER_PAGE = 10
+
+export interface Page<T> {
+  rows: T[]
+  page: number
+  pageCount: number
+  from: number
+  to: number
+  total: number
+}
+
+/** One page of already-loaded rows (1-based page, clamped to the available pages). */
+export function pageOf<T>(rows: readonly T[], page: number, size = PAYOUTS_PER_PAGE): Page<T> {
+  const total = rows.length
+  const pageCount = Math.max(1, Math.ceil(total / size))
+  const current = Math.min(Math.max(1, Math.floor(page) || 1), pageCount)
+  const start = (current - 1) * size
+  const slice = rows.slice(start, start + size)
+  return { rows: slice, page: current, pageCount, from: total === 0 ? 0 : start + 1, to: start + slice.length, total }
+}
