@@ -22,8 +22,9 @@ export function ForceRepostModal({
       <div className="apc-modal">
         <h2 className="ainv-page__title" style={{ fontSize: '1.15rem' }}>Force repost to Zoho</h2>
         <div className="apc-alert apc-alert--error">
-          This batch was already posted to Zoho. Reposting may duplicate payments unless previous Zoho entries were
-          reversed manually.
+          This batch was already posted to Zoho. Force repost keeps the posting history: every recorded entry is
+          re-checked in Zoho first, and only entries that are missing are posted. Entries that cannot be confirmed are
+          marked &quot;verification required&quot; and are not resent.
         </div>
         {previousIds.length ? (
           <div className="apc-modal__ids">

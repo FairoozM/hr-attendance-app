@@ -42,6 +42,12 @@ const {
 const { isSettlementReturnRow } = require('./amazonPaymentClearingOrderBreakdownService')
 const { buildPaymentPreviewFromBatch } = require('./amazonPaymentClearingPaymentPreviewService')
 const { postApprovedBatch, postReturnFeeJournalsForBatch, isReturnFeePostComplete } = require('./amazonPaymentClearingPostingService')
+const {
+  buildPostingStatus,
+  reverifyPosting,
+  linkPosting,
+  releasePosting,
+} = require('./amazonPaymentClearingPostingRecoveryService')
 const { buildSettlementReference } = require('./amazonPaymentClearingReferenceService')
 const { getAccountDiagnostics, listZohoChartAccounts } = require('./amazonPaymentClearingZohoPaymentService')
 const store = require('./amazonPaymentClearingStore')
@@ -657,6 +663,7 @@ function savedBatchToPreview(batch) {
         batch.report?.currency,
         getPaymentClearingMarketplaceConfig(batch.marketplace || MARKETPLACE).currency
       ),
+      marketplace: normalizeMarketplaceCode(batch.marketplace || batch.report?.marketplace || MARKETPLACE),
     },
     totals: batch.totals || {},
     pivot: batch.pivot || [],
@@ -856,6 +863,7 @@ async function refreshBatchPreviewFromStoredRows(batchId, batch = null) {
     report: {
       ...report,
       currency: settlementCurrencyForCustomer(customerName, report.currency),
+      marketplace: normalizeMarketplaceCode(resolvedBatch.marketplace || report.marketplace || MARKETPLACE),
     },
     rows,
     invoices: invoicesFromMatchedOrders(resolvedBatch.matchedOrders),
@@ -1020,7 +1028,7 @@ async function maybeRematchZohoForDraftBatch(batch, storedRows, preview, feeJour
  * persisted rows table, without ever calling Amazon SP-API.
  */
 async function hydrateSavedBatch(batch) {
-  const preview = savedBatchToPreview(batch)
+  let preview = savedBatchToPreview(batch)
   if (!preview) return null
   let feeJournalMappingRules = []
   try {
@@ -1272,10 +1280,9 @@ async function postBatchToZoho(id, options = {}) {
 }
 
 /**
- * Admin-only force repost of an already-posted batch. Requires an explicit
- * reason, records an audit entry with the previous Zoho payment IDs, and (for a
- * real post) clears prior posting rows so new payments can be created. Only the
- * already-posted guard is bypassed; reconciliation guards still apply. Return credit notes and return fee journals are separate steps after sales post.
+ * Admin-only force repost of an already-posted batch. Requires an explicit reason and
+ * records an audit entry. Posting history is never cleared: every recorded entry is
+ * re-verified in Zoho and only entries that are provably missing are posted.
  */
 async function forceRepostBatch(id, options = {}) {
   const dryRun = options.dryRun !== false
@@ -1300,29 +1307,20 @@ async function forceRepostBatch(id, options = {}) {
     throw err
   }
   const previousPostings = await store.listPostingsForBatch(id)
-  const previousZohoPaymentIds = previousPostings
-    .map((row) => row.zohoPaymentId)
-    .filter(Boolean)
   await store.insertClearingAudit({
     batchId: batch.batchId,
     action: dryRun ? 'force_repost_dry_run' : 'force_repost',
     reason,
     actorUserId: options.postedBy,
-    previousZohoPaymentIds,
-    details: { dryRun },
+    previousZohoPaymentIds: previousPostings.map((row) => row.zohoPaymentId).filter(Boolean),
+    details: { dryRun, resumeOnly: true },
   })
-  if (dryRun) {
-    return store.withBatchPostingLock(id, async () =>
-      postApprovedBatch({ batch: await batchWithCurrentFeeJournalMappings(batch), store, dryRun: true, allowPosted: true })
-    )
-  }
   return store.withBatchPostingLock(id, async () => {
-    await store.clearPostingsForBatch(id)
     const current = await batchWithCurrentFeeJournalMappings(await store.getBatchById(id))
     return postApprovedBatch({
       batch: current,
       store,
-      dryRun: false,
+      dryRun,
       allowPosted: true,
       postedBy: options.postedBy,
       createPayment: options.createPayment,
@@ -1338,7 +1336,7 @@ async function batchForCreditNoteApply(id) {
   return {
     ...enriched,
     batchId: raw.batchId,
-    marketplace: raw.marketplace || MARKETPLACE,
+    marketplace: raw.marketplace,
     status: raw.status,
     postedToZoho: raw.postedToZoho,
     report: hydrated?.report || enriched.report || raw.report,
@@ -1382,9 +1380,25 @@ async function applyCreditNotesForBatchId(id, options = {}) {
     err.status = 422
     throw err
   }
-  return applyCreditNotesForBatch(batch, {
-    dryRun: options.dryRun !== false,
-    postedBy: options.postedBy,
+  if (options.dryRun !== false) {
+    return applyCreditNotesForBatch(batch, { dryRun: true, postedBy: options.postedBy })
+  }
+  return store.withBatchPostingLock(id, async () => {
+    const current = await batchForCreditNoteApply(id)
+    const status = await buildPostingStatus({
+      batch: await batchWithCurrentFeeJournalMappings(await store.getBatchById(id)),
+      creditNoteBatch: current,
+      store,
+    })
+    if (!status.salesComplete) {
+      const err = new Error(
+        'Credit notes wait until every sales payment and fee journal is verified in Zoho. Resolve step 9 first.'
+      )
+      err.code = 'AMAZON_PAYMENT_CLEARING_SALES_NOT_POSTED'
+      err.status = 422
+      throw err
+    }
+    return applyCreditNotesForBatch(current, { dryRun: false, postedBy: options.postedBy })
   })
 }
 
@@ -1420,6 +1434,53 @@ async function postReturnFeeJournalsForBatchId(id, options = {}) {
       dryRun: options.dryRun !== false,
       postedBy: options.postedBy,
     })
+  })
+}
+
+async function loadBatchesForPostingStatus(id) {
+  const raw = await store.getBatchById(id)
+  if (!raw) {
+    const err = new Error('Payment clearing batch not found.')
+    err.code = 'AMAZON_PAYMENT_CLEARING_BATCH_NOT_FOUND'
+    err.status = 404
+    throw err
+  }
+  const batch = await batchWithCurrentFeeJournalMappings(raw)
+  const creditNoteBatch = await batchForCreditNoteApply(id)
+  return { batch, creditNoteBatch }
+}
+
+async function getPostingStatusForBatch(id) {
+  const { batch, creditNoteBatch } = await loadBatchesForPostingStatus(id)
+  return buildPostingStatus({ batch, creditNoteBatch, store })
+}
+
+async function reverifyPostingForBatch(id, postingId, options = {}) {
+  return store.withBatchPostingLock(id, async () => {
+    const { batch } = await loadBatchesForPostingStatus(id)
+    return reverifyPosting({ batch, store, postingId, actorUserId: options.actorUserId })
+  })
+}
+
+async function linkPostingForBatch(id, input = {}, options = {}) {
+  return store.withBatchPostingLock(id, async () => {
+    const { batch } = await loadBatchesForPostingStatus(id)
+    return linkPosting({
+      batch,
+      store,
+      postingId: input.postingId || null,
+      paymentType: input.paymentType || '',
+      zohoId: input.zohoId,
+      reason: input.reason,
+      actorUserId: options.actorUserId,
+    })
+  })
+}
+
+async function releasePostingForBatch(id, postingId, input = {}, options = {}) {
+  return store.withBatchPostingLock(id, async () => {
+    const { batch } = await loadBatchesForPostingStatus(id)
+    return releasePosting({ batch, store, postingId, reason: input.reason, actorUserId: options.actorUserId })
   })
 }
 
@@ -1502,6 +1563,10 @@ module.exports = {
   postBatchToZoho,
   postReturnFeeJournalsForBatchId,
   forceRepostBatch,
+  getPostingStatusForBatch,
+  reverifyPostingForBatch,
+  linkPostingForBatch,
+  releasePostingForBatch,
   getCreditNoteApplyPlanForBatch,
   applyCreditNotesForBatchId,
   getReturnFeePlanForBatch,
@@ -1524,5 +1589,6 @@ module.exports = {
     clampSettlementListDaysBack,
     resolveSettlementListCreatedSince,
     marketplaceConfigFromOptions,
+    savedBatchToPreview,
   },
 }

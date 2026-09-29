@@ -577,6 +577,7 @@ export interface CreditNoteApplyPlan {
     createAndApply?: number
     blocked: number
     completed: number
+    verificationRequired?: number
     isComplete?: boolean
   }
 }
@@ -591,6 +592,7 @@ export interface CreditNoteApplyResult {
     applied: number
     refunded?: number
     skipped: number
+    verificationRequired?: number
     errors: number
   }
   rows: CreditNoteApplyPlanRow[]
@@ -655,8 +657,10 @@ export interface PaymentPostingResult {
     paymentsSkipped: number
     journalsCreated?: number
     journalsSkipped?: number
+    verificationRequired?: number
     errors: number
   }
+  warnings?: string[]
   payments?: Array<{
     paymentType: string
     paymentLabel: string
@@ -719,6 +723,112 @@ export interface PaymentPostingResult {
     error: string
     code: string
   }>
+}
+
+export type PostingEntryStatus = 'posted' | 'failed' | 'verification_required' | 'not_started' | 'partially_posted'
+
+export type PostingGroupKey = 'sales_payment' | 'fee_journal' | 'credit_note' | 'return_fee_journal'
+
+export type PostingGroupStatus = PostingEntryStatus | 'not_required'
+
+export type PostingOverallStatus =
+  | 'not_started'
+  | 'partially_posted'
+  | 'failed'
+  | 'verification_required'
+  | 'sales_posted'
+  | 'completed'
+
+export type PostingRecoveryActionKind = 'resume' | 'link' | 'reverify' | 'release'
+
+export interface PostingRecoveryAction {
+  action: PostingRecoveryActionKind
+  label: string
+  description: string
+}
+
+export interface PostingVerificationCandidate {
+  zohoId: string
+  zohoNumber?: string
+  date?: string
+  diffs?: Array<{ field: string; expected: unknown; actual: unknown }>
+  unverified?: string[]
+}
+
+export type PostingLookupOutcome = 'exact' | 'none' | 'conflict' | 'multiple' | 'missing'
+
+export interface PostingVerification {
+  reason?: string
+  outcome?: PostingLookupOutcome
+  message?: string
+  candidates?: PostingVerificationCandidate[]
+  checkedAt?: string
+}
+
+export interface PostingSubStep {
+  postingId: number | null
+  status: PostingEntryStatus | 'existing'
+  zohoId: string
+  error: string
+}
+
+export interface PostingStatusEntry {
+  group: PostingGroupKey
+  paymentType: string
+  label: string
+  amount: number
+  referenceNumber?: string
+  orderId?: string
+  status: PostingEntryStatus
+  postingId: number | null
+  zohoId?: string
+  zohoNumber?: string
+  error: string
+  verification: PostingVerification | null
+  legacyPaymentType?: string
+  creditNote?: PostingSubStep | null
+  refund?: PostingSubStep | null
+  actions: PostingRecoveryAction[]
+}
+
+export interface PostingStatusGroup {
+  key: PostingGroupKey
+  label: string
+  status: PostingGroupStatus
+  entries: PostingStatusEntry[]
+}
+
+export interface PostingStatusBlocker {
+  step: string
+  message: string
+}
+
+export interface PostingStatus {
+  success: boolean
+  batchId: number
+  marketplace: PaymentClearingMarketplace
+  batchStatus: string
+  overall: PostingOverallStatus
+  salesComplete: boolean
+  creditNotesComplete: boolean
+  returnFeesComplete: boolean
+  settlementComplete: boolean
+  groups: PostingStatusGroup[]
+  unmappedLegacyPostings: Array<{
+    postingId: number
+    paymentType: string
+    zohoId: string
+    amount: number
+    referenceNumber?: string
+    status: string
+  }>
+  blockers: PostingStatusBlocker[]
+}
+
+export interface PostingRecoveryResult {
+  success: boolean
+  posting: ClearingPosting | null
+  verification?: PostingVerification
 }
 
 const longOpts = { timeoutMs: 480_000 }
@@ -998,6 +1108,50 @@ export async function postReturnFeeJournals(
     { dryRun },
     longOpts
   ) as Promise<PaymentPostingResult>
+}
+
+export async function fetchPostingStatus(marketplace: PaymentClearingMarketplace, batchId: number | string) {
+  return api.get(
+    `${paymentClearingBase(marketplace)}/batches/${encodeURIComponent(String(batchId))}/posting-status`,
+    longOpts
+  ) as Promise<PostingStatus>
+}
+
+export async function reverifyPosting(
+  marketplace: PaymentClearingMarketplace,
+  batchId: number | string,
+  postingId: number
+) {
+  return api.post(
+    `${paymentClearingBase(marketplace)}/batches/${encodeURIComponent(String(batchId))}/postings/${encodeURIComponent(String(postingId))}/reverify`,
+    {},
+    longOpts
+  ) as Promise<PostingRecoveryResult>
+}
+
+export async function linkPosting(
+  marketplace: PaymentClearingMarketplace,
+  batchId: number | string,
+  body: { postingId?: number | null; paymentType?: string; zohoId: string; reason: string }
+) {
+  return api.post(
+    `${paymentClearingBase(marketplace)}/batches/${encodeURIComponent(String(batchId))}/postings/link`,
+    body,
+    longOpts
+  ) as Promise<PostingRecoveryResult>
+}
+
+export async function releasePosting(
+  marketplace: PaymentClearingMarketplace,
+  batchId: number | string,
+  postingId: number,
+  reason: string
+) {
+  return api.post(
+    `${paymentClearingBase(marketplace)}/batches/${encodeURIComponent(String(batchId))}/postings/${encodeURIComponent(String(postingId))}/release`,
+    { reason },
+    longOpts
+  ) as Promise<PostingRecoveryResult>
 }
 
 export async function postKsaReturnFeeJournals(batchId: number | string, dryRun = true) {

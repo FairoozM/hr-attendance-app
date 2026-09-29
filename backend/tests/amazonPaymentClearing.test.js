@@ -23,7 +23,8 @@ const {
   isSettlementReconciliationAcceptable,
   paymentPlanStatusForCustomer,
 } = require('../src/services/amazonPaymentClearingCurrencyService')
-const { postApprovedBatch, ensureCanPostBatch } = require('../src/services/amazonPaymentClearingPostingService')
+const { postApprovedBatch: postApprovedBatchRaw, ensureCanPostBatch } = require('../src/services/amazonPaymentClearingPostingService')
+const { createFakeZoho, createFakePostingStore, KSA_TEST_ENV } = require('./helpers/amazonClearingFakeZoho')
 const {
   buildSettlementReference,
   buildEntryReference,
@@ -1486,6 +1487,7 @@ test('payment preview includes mapped account-level fee journals on posted settl
 function postingBatch(overrides = {}) {
   return {
     batchId: 90,
+    marketplace: 'KSA',
     status: 'approved',
     reconciliationSummary: { reconciliationStatus: 'reconciled', reconciliationDifference: 0 },
     unmatchedOrders: [],
@@ -1510,35 +1512,50 @@ function postingBatch(overrides = {}) {
 }
 
 function fakePostingStore(existing = [], previewBatch = postingBatch()) {
-  const postings = [...existing]
-  return {
-    postedBy: null,
-    async getLatestPaymentPreviewForBatch(batchId) {
-      return buildPaymentPreviewFromBatch({ ...previewBatch, batchId })
-    },
-    async findPosting(batchId, invoiceId, paymentType) {
-      return postings.find((row) => row.batchId === batchId && row.invoiceId === invoiceId && row.paymentType === paymentType) || null
-    },
-    async findGroupedPosting(batchId, paymentType) {
-      return postings.find((row) => row.batchId === batchId && row.paymentType === paymentType && row.postingGroupKey) || null
-    },
-    async insertPosting(row) {
-      const existingRow = await this.findPosting(row.batchId, row.invoiceId, row.paymentType)
-      if (existingRow) return existingRow
-      const next = { id: postings.length + 1, ...row }
-      postings.push(next)
-      return next
-    },
-    async markBatchPosted(_batchId, postedBy) {
-      this.postedBy = postedBy
-      return postingBatch({ status: 'posted', postedBy })
-    },
-    async markFeeJournalMappingsUsed(ids) {
-      this.usedMappingIds = ids
-      return Array.isArray(ids) ? ids.length : 0
-    },
-    postings,
+  return createFakePostingStore({
+    existing,
+    previewFor: (batchId) => buildPaymentPreviewFromBatch({ ...previewBatch, batchId }),
+  })
+}
+
+async function ampleInvoiceBalances(ids) {
+  return new Map(ids.map((id) => [id, { invoice_id: id, invoice_number: `INV-${id}`, balance: 1000000 }]))
+}
+
+const KSA_TEST_ACCOUNT_BY_CODE = { 1024: 'acct-1024', 1026: 'acct-1026', 1028: 'acct-1028' }
+
+/** Existing posted rows in a fixture exist in Zoho exactly as they would have been posted. */
+async function seedZohoForPostedRows(zoho, args) {
+  const posted = (args.store.postings || []).filter((row) => row.status === 'posted' && row.zohoPaymentId)
+  if (!posted.length) return
+  let dry
+  try {
+    dry = await postApprovedBatchRaw({ ...args, store: createFakePostingStore(), dryRun: true })
+  } catch {
+    return
   }
+  for (const row of posted) {
+    const planned = dry.payments.find((p) => p.paymentType === row.paymentType)
+    if (!planned || zoho.payments.has(row.zohoPaymentId)) continue
+    const request = { ...planned.zohoPaymentRequest, depositToAccountId: KSA_TEST_ACCOUNT_BY_CODE[planned.accountCode] }
+    zoho.payments.set(row.zohoPaymentId, zoho.paymentFromRequest(request, row.zohoPaymentId))
+  }
+}
+
+/** postApprovedBatch with a Zoho double, KSA test accounts, and healthy invoice balances. */
+async function postApprovedBatch(args) {
+  const zoho = args.zoho || createFakeZoho()
+  const full = {
+    env: KSA_TEST_ENV,
+    zohoLookup: zoho.lookup,
+    fetchInvoicesByIds: ampleInvoiceBalances,
+    ...args,
+    createPayment: args.createPayment ? zoho.recordPayments(args.createPayment) : zoho.createPayment(),
+    createManualJournal: args.createManualJournal ? zoho.recordJournals(args.createManualJournal) : zoho.createManualJournal(),
+  }
+  delete full.zoho
+  await seedZohoForPostedRows(zoho, full)
+  return postApprovedBatchRaw(full)
 }
 
 function fakePayloadPreview(payment) {
@@ -1631,7 +1648,7 @@ test('payment posting dry run validates without creating Zoho payments or postin
 
 test('payment posting prevents duplicates by batch invoice and payment type', async () => {
   const store = fakePostingStore([
-    { batchId: 90, paymentType: 'net_balance', postingGroupKey: 'APC-90-net_balance', zohoPaymentId: 'pay-existing' },
+    { batchId: 90, paymentType: 'net_balance', postingGroupKey: 'APC-90-net_balance', zohoPaymentId: 'pay-existing', status: 'posted' },
   ])
   const created = []
   const result = await postApprovedBatch({
@@ -2023,8 +2040,8 @@ test('Zoho OAuth scopes include customer payment create for posting', () => {
 
 test('payment posting supports partial rerun recovery', async () => {
   const store = fakePostingStore([
-    { batchId: 90, paymentType: 'net_balance', postingGroupKey: 'APC-90-net_balance', zohoPaymentId: 'pay-net' },
-    { batchId: 90, paymentType: 'commission', postingGroupKey: 'APC-90-commission', zohoPaymentId: 'pay-commission' },
+    { batchId: 90, paymentType: 'net_balance', postingGroupKey: 'APC-90-net_balance', zohoPaymentId: 'pay-net', status: 'posted' },
+    { batchId: 90, paymentType: 'commission', postingGroupKey: 'APC-90-commission', zohoPaymentId: 'pay-commission', status: 'posted' },
   ])
   const result = await postApprovedBatch({
     batch: postingBatch(),
@@ -2107,6 +2124,7 @@ test('payment posting reports Zoho API failures without marking batch posted', a
       if (payment.depositToAccountCode === '1026') {
         const err = new Error('Zoho rejected commission payment')
         err.code = 'ZOHO_API_ERROR'
+        err.httpStatus = 400
         throw err
       }
       return { zohoPaymentId: `pay-${payment.depositToAccountCode}` }
@@ -2116,8 +2134,11 @@ test('payment posting reports Zoho API failures without marking batch posted', a
 
   assert.equal(result.summary.paymentsCreated, 2)
   assert.equal(result.summary.errors, 1)
+  assert.equal(result.success, false)
+  assert.equal(result.status, 'partially_posted')
   assert.equal(store.postedBy, null)
-  assert.equal(store.postings.length, 2)
+  assert.equal(store.postings.length, 3)
+  assert.equal(store.postings.find((row) => row.paymentType === 'commission').status, 'failed')
   assert.ok(result.errors[0].error.includes('Zoho rejected commission payment'))
 })
 
@@ -2571,7 +2592,9 @@ test('payment clearing marketplace config distinguishes KSA and UAE', () => {
   assert.equal(ksa.defaultZohoCustomerName, 'KSA-Amazon')
   assert.equal(uae.defaultZohoCustomerName, 'Amazon')
   assert.equal(ksa.undepositedAccountName, 'KSA-Amazon Undeposited Funds')
-  assert.equal(uae.undepositedAccountName, 'Amazon Undeposited Funds')
+  assert.equal(uae.undepositedAccountName, 'Amazon Undeposided Funds')
+  assert.equal(uae.undepositedAccountCode, '1016')
+  assert.equal(ksa.undepositedAccountCode, '1024')
   assert.equal(ksa.supportsLegacySarToAed, true)
   assert.equal(uae.supportsLegacySarToAed, false)
   assert.equal(uae.feeJournalAccountSuggestions.ADVERTISING.debitAccountName, 'Amazon Advertising Exp')
@@ -2604,8 +2627,10 @@ test('UAE payment preview uses Amazon undeposited account names', () => {
     'Amazon',
     'UAE'
   )
-  assert.equal(plan.netBalancePayment.depositToAccountName, 'Amazon Undeposited Funds')
-  assert.equal(plan.commissionPayment.depositToAccountName, 'Amazon Uncleared Commission Exp')
+  assert.equal(plan.netBalancePayment.depositToAccountName, 'Amazon Undeposided Funds')
+  assert.equal(plan.netBalancePayment.depositToAccountCode, '1016')
+  assert.equal(plan.commissionPayment.depositToAccountName, 'Amazon Uncleared Commission')
+  assert.equal(plan.commissionPayment.depositToAccountCode, '1021')
 })
 
 const UAE_SETTLEMENT_TSV = [
@@ -2750,14 +2775,109 @@ test('UAE sample settlement classifies, matches, and reconciles in AED', () => {
   )
 
   const paymentPlan = buildInvoicePaymentPlan(preview.matchedOrders[0], 'Amazon', 'UAE')
-  assert.equal(paymentPlan.netBalancePayment.depositToAccountName, 'Amazon Undeposited Funds')
-  assert.equal(paymentPlan.commissionPayment.depositToAccountName, 'Amazon Uncleared Commission Exp')
-  assert.equal(paymentPlan.shippingFbaPayment.depositToAccountName, 'Amazon Uncleared Shipping Exp')
+  assert.equal(paymentPlan.netBalancePayment.depositToAccountName, 'Amazon Undeposided Funds')
+  assert.equal(paymentPlan.commissionPayment.depositToAccountName, 'Amazon Uncleared Commission')
+  assert.equal(paymentPlan.shippingFbaPayment.depositToAccountName, 'Amazon Uncleared Shipping Expense')
+  assert.equal(paymentPlan.shippingFbaPayment.depositToAccountCode, '1025')
 
   const reference = buildSettlementReference({
     report: preview.report,
     marketplace: 'UAE',
   })
   assert.match(reference.referenceBase, /^AMZ-UAE-/)
+})
+
+test('UAE SAFE-T reimbursements become one simple journal, not invoice payments', () => {
+  const header = 'settlement-id\tsettlement-start-date\tsettlement-end-date\tdeposit-date\ttotal-amount\tcurrency\ttransaction-type\torder-id\tmerchant-order-id\tamount-type\tamount-description\tamount\tsku\tquantity-purchased\tmarketplace-name'
+  const base = '27758265792\t03.09.2026\t17.09.2026\t18.09.2026\t924.18\tAED'
+  const tsv = [
+    header,
+    `${base}\tOrder\t404-1111111-1111111\tM-1\tItemPrice\tPrincipal\t200.00\tSKU-1\t1\tAmazon.ae`,
+    `${base}\tSAFE-T Reimbursement\t403-7899568-4465903\tamzn1.DMSReimbursement.1\tOther Transaction\tSAFE-T reimbursement\t37.73\tFK-10G-1900-CREAM\t\tAmazon.ae`,
+    `${base}\tSAFE-T Reimbursement\t403-3282003-4189922\tamzn1.DMSReimbursement.2\tOther Transaction\tSAFE-T reimbursement\t662.90\tSPHM-S-MIX-21-1-BEIGE\t\tAmazon.ae`,
+    `${base}\tSAFE-T Reimbursement\t407-3586917-0392359\tamzn1.DMSReimbursement.3\tOther Transaction\tSAFE-T reimbursement\t23.55\tLIFEP17-MIX-8-1-BLACK\t\tAmazon.ae`,
+  ].join('\n')
+  const parsed = parseAmazonSettlementReport(tsv, { defaultCurrency: 'AED' })
+  const safeTRows = parsed.rows.filter((row) => row.transactionType === 'SAFE-T Reimbursement')
+  assert.equal(safeTRows.length, 3)
+  assert.ok(safeTRows.every((row) => isNonOrderLinkedAmazonFee(row)))
+  assert.ok(safeTRows.every((row) => classifySettlementRow(row) === ROW_CLASS.NON_ORDER_LINKED_AMAZON_FEE))
+
+  const invoices = [
+    { invoice_id: 'inv-1', invoice_number: 'INV-1', reference_number: '404-1111111-1111111', customer_id: 'c', total: 200, status: 'sent' },
+    { invoice_id: 'inv-old', invoice_number: 'INV-042787', reference_number: '403-3282003-4189922', customer_id: 'c', total: 662.9, status: 'paid' },
+  ]
+  const preview = buildPreview({
+    report: {
+      marketplace: 'UAE',
+      settlementId: parsed.metadata.settlementId,
+      settlementStartDate: parsed.metadata.settlementStartDate,
+      settlementEndDate: parsed.metadata.settlementEndDate,
+      currency: 'AED',
+    },
+    rows: parsed.rows,
+    invoices,
+  })
+
+  const orderIds = [...preview.matchedOrders, ...preview.unmatchedOrders].map((order) => order.orderId)
+  assert.deepEqual(orderIds, ['404-1111111-1111111'])
+  assert.equal(preview.reconciliationSummary.reconciliationStatus, 'reconciled')
+  assert.ok(!preview.blockingIssues.some((issue) => issue.code === 'UNKNOWN_ROWS'))
+
+  const group = preview.nonOrderLinkedAmazonFeeMappings.find((row) => row.normalizedFeeType === 'SAFET_REIMBURSEMENT')
+  assert.ok(group)
+  assert.equal(preview.nonOrderLinkedAmazonFeeMappings.filter((row) => row.normalizedFeeType === 'SAFET_REIMBURSEMENT').length, 1)
+  assert.equal(group.totalAmount, 724.18)
+  assert.equal(group.rowCount, 3)
+  assert.equal(group.debitAccountName, 'Amazon Undeposided Funds')
+  assert.equal(group.creditAccountName, 'Amazon Safe-T Damage Claim')
+  assert.equal(group.journalPreview.referenceNumber, 'SAFE-T Reimbursement 3 Orders 03.09.2026-17.09.2026')
+  assert.equal(group.journalPreview.lineDescription, 'SAFE-T Reimbursement 3 Orders 03.09.2026-17.09.2026')
+  assert.equal(
+    group.journalPreview.notes,
+    'SAFE-T Reimbursement 3 Orders 03.09.2026-17.09.2026\n403-7899568-4465903, 403-3282003-4189922, 407-3586917-0392359'
+  )
+  assert.doesNotMatch(group.journalPreview.notes, /HR|hr-attendance|Generated|Purchase Planning/)
+})
+
+test('reopened UAE batch applies saved UAE fee journal mappings', () => {
+  const { savedBatchToPreview } = require('../src/services/amazonPaymentClearingService')._internals
+  const { buildNonOrderLinkedAmazonFeeMappings } = require('../src/services/amazonPaymentClearingPreviewService')
+  const parsed = parseAmazonSettlementReport(UAE_SETTLEMENT_TSV, { defaultCurrency: 'AED' })
+  const fresh = buildPreview({
+    report: { marketplace: 'UAE', settlementId: parsed.metadata.settlementId, currency: 'AED' },
+    rows: parsed.rows,
+    invoices: [],
+  })
+  const rules = fresh.nonOrderLinkedAmazonFeeMappings.map((row, idx) => ({
+    id: idx + 1,
+    marketplace: 'UAE',
+    normalizedFeeType: row.normalizedFeeType,
+    rawTransactionType: row.rawTransactionType,
+    descriptionPattern: row.description,
+    debitAccountId: `debit-${idx}`,
+    debitAccountName: 'Debit',
+    creditAccountId: `credit-${idx}`,
+    creditAccountName: 'Credit',
+    isActive: true,
+    priority: 100,
+  }))
+  assert.ok(rules.length > 0)
+
+  const reopened = savedBatchToPreview({
+    batchId: 1,
+    status: 'draft',
+    marketplace: 'UAE',
+    report: { settlementId: parsed.metadata.settlementId, currency: 'AED' },
+    allRows: fresh.allRows,
+  })
+  assert.equal(reopened.report.marketplace, 'UAE')
+
+  const mappings = buildNonOrderLinkedAmazonFeeMappings(reopened.allRows, reopened.report, rules)
+  assert.equal(mappings.length, rules.length)
+  for (const row of mappings) {
+    assert.equal(row.marketplace, 'UAE')
+    assert.notEqual(row.mappingStatus, 'needs_mapping')
+  }
 })
 

@@ -567,10 +567,10 @@ async function updateRowsMatchStatus(batchId, rowNumbers, matchStatus) {
   if (!ids.length) return 0
   const result = await query(
     `UPDATE amazon_payment_clearing_rows
-     SET match_status = $3,
-         row_class = CASE WHEN $3 = 'account_level_fee' THEN 'NON_ORDER_LINKED_AMAZON_FEE' ELSE row_class END,
+     SET match_status = $3::varchar,
+         row_class = CASE WHEN $3::varchar = 'account_level_fee' THEN 'NON_ORDER_LINKED_AMAZON_FEE' ELSE row_class END,
          blocking_reason = CASE
-           WHEN $3 = 'account_level_fee' THEN 'Order ID not required for this Amazon fee.'
+           WHEN $3::varchar = 'account_level_fee' THEN 'Order ID not required for this Amazon fee.'
            ELSE blocking_reason
          END
      WHERE batch_id = $1 AND row_number = ANY($2::int[])`,
@@ -1017,6 +1017,100 @@ async function insertPosting(row) {
   return findPosting(row.batchId, row.invoiceId, row.paymentType)
 }
 
+/**
+ * Posting row for a stable key: grouped rows by (batch, payment_type), per-invoice rows
+ * by (batch, invoice, payment_type).
+ */
+async function findPostingByKey(batchId, { paymentType, invoiceId = null }) {
+  if (invoiceId) return findPosting(batchId, invoiceId, paymentType)
+  return findGroupedPosting(batchId, paymentType)
+}
+
+/**
+ * Write-ahead record before an accounting POST. Creates a `pending` row, or re-arms a
+ * `failed` row. Any other existing row means another run owns (or finished) this entry.
+ */
+async function beginPosting(row) {
+  const snapshot = JSON.stringify(row.mappingSnapshot || {})
+  const inserted = await query(
+    `INSERT INTO amazon_payment_clearing_postings (
+      batch_id, invoice_id, order_id, payment_type, posting_group_key, zoho_payment_id,
+      amount, account_code, invoice_allocations, reference_number, description,
+      zoho_journal_number, notes, mapping_snapshot, status, error_message, created_at
+    ) VALUES ($1,$2,$3,$4,$5,NULL,$6,$7,$8::jsonb,$9,$10,NULL,$11,$12::jsonb,'pending',NULL,NOW())
+    ON CONFLICT DO NOTHING
+    RETURNING *`,
+    [
+      Number(row.batchId),
+      row.invoiceId ? String(row.invoiceId) : null,
+      row.orderId || null,
+      String(row.paymentType),
+      row.postingGroupKey || null,
+      num(row.amount),
+      row.accountCode || null,
+      JSON.stringify(row.invoiceAllocations || []),
+      row.referenceNumber || null,
+      row.description || null,
+      row.notes || null,
+      snapshot,
+    ]
+  )
+  if (inserted.rows[0]) return mapPosting(inserted.rows[0])
+  const existing = await findPostingByKey(row.batchId, row)
+  if (existing && existing.status === 'failed') {
+    const rearmed = await query(
+      `UPDATE amazon_payment_clearing_postings
+       SET status = 'pending', error_message = NULL, zoho_payment_id = NULL,
+           amount = $2, account_code = $3, invoice_allocations = $4::jsonb,
+           reference_number = $5, description = $6, notes = $7,
+           mapping_snapshot = $8::jsonb
+       WHERE id = $1 AND status = 'failed'
+       RETURNING *`,
+      [
+        Number(existing.id),
+        num(row.amount),
+        row.accountCode || null,
+        JSON.stringify(row.invoiceAllocations || []),
+        row.referenceNumber || null,
+        row.description || null,
+        row.notes || null,
+        snapshot,
+      ]
+    )
+    if (rearmed.rows[0]) return mapPosting(rearmed.rows[0])
+  }
+  const err = new Error(`Posting ${row.paymentType} is already ${existing?.status || 'in progress'} for this batch.`)
+  err.code = 'AMAZON_PAYMENT_CLEARING_POSTING_CONFLICT'
+  err.status = 409
+  throw err
+}
+
+/**
+ * Record the outcome of an accounting write. `snapshotPatch` is merged into
+ * mapping_snapshot so the request and verification evidence are preserved.
+ */
+async function updatePostingOutcome(postingId, outcome = {}) {
+  const result = await query(
+    `UPDATE amazon_payment_clearing_postings
+     SET status = $2,
+         zoho_payment_id = COALESCE($3, zoho_payment_id),
+         zoho_journal_number = COALESCE($4, zoho_journal_number),
+         error_message = $5,
+         mapping_snapshot = COALESCE(mapping_snapshot, '{}'::jsonb) || $6::jsonb
+     WHERE id = $1
+     RETURNING *`,
+    [
+      Number(postingId),
+      String(outcome.status),
+      outcome.zohoPaymentId || null,
+      outcome.zohoJournalNumber || null,
+      outcome.errorMessage || null,
+      JSON.stringify(outcome.snapshotPatch || {}),
+    ]
+  )
+  return mapPosting(result.rows[0])
+}
+
 async function markBatchPosted(batchId, postedBy, postingSummary = null) {
   const result = await query(
     `UPDATE amazon_payment_clearing_batches
@@ -1037,11 +1131,26 @@ async function markBatchPosted(batchId, postedBy, postingSummary = null) {
   return mapBatch(result.rows[0])
 }
 
+const POSTING_LOCK_NAMESPACE = 1095779121
+
+/**
+ * Exclusive per-batch lock for every Zoho accounting write (payments, journals, credit
+ * notes, refunds). A second caller gets 409 instead of queueing behind the first run.
+ */
 async function withBatchPostingLock(batchId, fn) {
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
-    await client.query(`SELECT pg_advisory_xact_lock($1)`, [Number(batchId)])
+    const lock = await client.query(`SELECT pg_try_advisory_xact_lock($1, $2) AS locked`, [
+      POSTING_LOCK_NAMESPACE,
+      Number(batchId),
+    ])
+    if (!lock.rows[0]?.locked) {
+      const err = new Error('Zoho posting is already running for this settlement. Wait for it to finish, then refresh.')
+      err.code = 'AMAZON_PAYMENT_CLEARING_POSTING_IN_PROGRESS'
+      err.status = 409
+      throw err
+    }
     const result = await fn()
     await client.query('COMMIT')
     return result
@@ -1080,6 +1189,9 @@ module.exports = {
   findPosting,
   findGroupedPosting,
   insertPosting,
+  findPostingByKey,
+  beginPosting,
+  updatePostingOutcome,
   markBatchPosted,
   withBatchPostingLock,
 }

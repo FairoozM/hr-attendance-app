@@ -12,6 +12,12 @@ import type {
   AmazonFeeJournalLine,
 } from '../../../api/amazonPaymentClearing'
 import { LIFECYCLE_LABEL } from './clearingSteps'
+import {
+  commissionAccountLabel,
+  shippingAccountLabel,
+  undepositedFundsLabel,
+  type ClearingMarketplace,
+} from './marketplaceConfig'
 
 export function safeError(err: unknown) {
   return err instanceof Error ? err.message : 'Request failed'
@@ -717,7 +723,15 @@ export function NetNegativeReturnOrdersTable({ preview }: { preview: PaymentClea
   )
 }
 
-export function PaymentClearingPreviewTable({ paymentPreview, currency = 'SAR' }: { paymentPreview: PaymentClearingPaymentPreview; currency?: string }) {
+export function PaymentClearingPreviewTable({
+  paymentPreview,
+  currency = 'SAR',
+  marketplace = 'KSA',
+}: {
+  paymentPreview: PaymentClearingPaymentPreview
+  currency?: string
+  marketplace?: ClearingMarketplace
+}) {
   const fmt = (value: number | null | undefined) => money(value, currency)
   return (
     <div className="apc-table-wrap apc-table-wrap--wide">
@@ -729,9 +743,9 @@ export function PaymentClearingPreviewTable({ paymentPreview, currency = 'SAR' }
             <th>Zoho P.O.#</th>
             <th className="apc-money">Invoice Total</th>
             <th className="apc-money">Shipping Offset</th>
-            <th className="apc-money">Net Balance Payment<br /><span>Undeposited Funds (1024)</span></th>
-            <th className="apc-money">Commission Payment<br /><span>Uncleared Commission Exp (1026)</span></th>
-            <th className="apc-money">Shipping/FBA Payment<br /><span>Uncleared Shipping Exp (1028)</span></th>
+            <th className="apc-money">Net Balance Payment<br /><span>{undepositedFundsLabel(marketplace)}</span></th>
+            <th className="apc-money">Commission Payment<br /><span>{commissionAccountLabel(marketplace)}</span></th>
+            <th className="apc-money">Shipping/FBA Payment<br /><span>{shippingAccountLabel(marketplace)}</span></th>
             <th className="apc-money">Total Clearing</th>
             <th className="apc-money">Difference</th>
             <th>Status</th>

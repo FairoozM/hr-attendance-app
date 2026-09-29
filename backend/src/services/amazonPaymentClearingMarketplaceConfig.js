@@ -76,39 +76,48 @@ function readEnvNumber(key, suffix, fallback) {
 }
 
 /**
+ * Clearing accounts per marketplace, keyed by the real Zoho account code.
+ * UAE ids are the verified Zoho Books account ids; KSA ids come from env only.
+ * @param {MarketplaceKey} key
+ */
+function clearingAccountDefs(key) {
+  if (key === 'uae') {
+    return Object.freeze({
+      UNDEPOSITED: { accountCode: '1016', defaultName: 'Amazon Undeposided Funds', verifiedAccountId: '4265011000000781161' },
+      COMMISSION: { accountCode: '1021', defaultName: 'Amazon Uncleared Commission', verifiedAccountId: '4265011000002206949' },
+      SHIPPING_FBA: { accountCode: '1025', defaultName: 'Amazon Uncleared Shipping Expense', verifiedAccountId: '4265011000002230152' },
+    })
+  }
+  return Object.freeze({
+    UNDEPOSITED: { accountCode: '1024', defaultName: 'KSA-Amazon Undeposited Funds', verifiedAccountId: '' },
+    COMMISSION: { accountCode: '1026', defaultName: 'KSA-Amazon Uncleared Commission Exp', verifiedAccountId: '' },
+    SHIPPING_FBA: { accountCode: '1028', defaultName: 'KSA-Amazon Uncleared Shipping Exp', verifiedAccountId: '' },
+  })
+}
+
+const ACCOUNT_ROLE_ENV_SUFFIX = Object.freeze({
+  UNDEPOSITED: 'UNDEPOSITED_FUNDS',
+  COMMISSION: 'COMMISSION',
+  SHIPPING_FBA: 'SHIPPING_FBA',
+})
+
+/**
  * @param {MarketplaceKey} key
  */
 function paymentAccountEnvDefs(key) {
   const prefix = envPrefix(key)
-  const names =
-    key === 'uae'
-      ? {
-          undeposited: 'Amazon Undeposited Funds',
-          commission: 'Amazon Uncleared Commission Exp',
-          shipping: 'Amazon Uncleared Shipping Exp',
-        }
-      : {
-          undeposited: 'KSA-Amazon Undeposited Funds',
-          commission: 'KSA-Amazon Uncleared Commission Exp',
-          shipping: 'KSA-Amazon Uncleared Shipping Exp',
-        }
-  return Object.freeze({
-    1024: {
-      id: `${prefix}_ZOHO_UNDEPOSITED_FUNDS_ACCOUNT_ID`,
-      name: `${prefix}_ZOHO_UNDEPOSITED_FUNDS_ACCOUNT_NAME`,
-      defaultName: names.undeposited,
-    },
-    1026: {
-      id: `${prefix}_ZOHO_COMMISSION_ACCOUNT_ID`,
-      name: `${prefix}_ZOHO_COMMISSION_ACCOUNT_NAME`,
-      defaultName: names.commission,
-    },
-    1028: {
-      id: `${prefix}_ZOHO_SHIPPING_FBA_ACCOUNT_ID`,
-      name: `${prefix}_ZOHO_SHIPPING_FBA_ACCOUNT_NAME`,
-      defaultName: names.shipping,
-    },
-  })
+  const defs = clearingAccountDefs(key)
+  const out = {}
+  for (const [role, def] of Object.entries(defs)) {
+    out[def.accountCode] = {
+      role,
+      id: `${prefix}_ZOHO_${ACCOUNT_ROLE_ENV_SUFFIX[role]}_ACCOUNT_ID`,
+      name: `${prefix}_ZOHO_${ACCOUNT_ROLE_ENV_SUFFIX[role]}_ACCOUNT_NAME`,
+      defaultName: def.defaultName,
+      verifiedAccountId: def.verifiedAccountId,
+    }
+  }
+  return Object.freeze(out)
 }
 
 /**
@@ -120,31 +129,35 @@ function feeJournalAccountSuggestions(key) {
     return Object.freeze({
       STORAGE: {
         debitAccountName: 'Amazon Storage Exp',
-        creditAccountName: 'Amazon Undeposited Funds',
+        creditAccountName: 'Amazon Undeposided Funds',
       },
       ADVERTISING: {
         debitAccountName: 'Amazon Advertising Exp',
-        creditAccountName: 'Amazon Undeposited Funds',
+        creditAccountName: 'Amazon Undeposided Funds',
       },
       ADVERTISING_CREDIT: {
-        debitAccountName: 'Amazon Undeposited Funds',
+        debitAccountName: 'Amazon Undeposided Funds',
         creditAccountName: 'Amazon Advertising Exp',
       },
       PREMIUM_SERVICES: {
         debitAccountName: 'Amazon Commission Exp',
-        creditAccountName: 'Amazon Uncleared Commission Exp',
+        creditAccountName: 'Amazon Uncleared Commission',
       },
       COMMISSION: {
         debitAccountName: 'Amazon Commission Exp',
-        creditAccountName: 'Amazon Uncleared Commission Exp',
+        creditAccountName: 'Amazon Uncleared Commission',
       },
       SHIPPING_FBA: {
         debitAccountName: 'Amazon Shipping Exp',
-        creditAccountName: 'Amazon Uncleared Shipping Exp',
+        creditAccountName: 'Amazon Uncleared Shipping Expense',
       },
       SUBSCRIPTION: {
         debitAccountName: 'Amazon Commission Exp',
-        creditAccountName: 'Amazon Uncleared Commission Exp',
+        creditAccountName: 'Amazon Uncleared Commission',
+      },
+      SAFET_REIMBURSEMENT: {
+        debitAccountName: 'Amazon Undeposided Funds',
+        creditAccountName: 'Amazon Safe-T Damage Claim',
       },
       OTHER_ACCOUNT_LEVEL_FEE: {
         debitAccountName: '',
@@ -181,6 +194,10 @@ function feeJournalAccountSuggestions(key) {
       debitAccountName: 'KSA Amazon Commission Exp',
       creditAccountName: 'KSA-Amazon Uncleared Commission Exp',
     },
+    SAFET_REIMBURSEMENT: {
+      debitAccountName: 'KSA-Amazon Undeposited Funds',
+      creditAccountName: 'KSA-Amazon Safe-T Damage Claim',
+    },
     OTHER_ACCOUNT_LEVEL_FEE: {
       debitAccountName: '',
       creditAccountName: '',
@@ -208,9 +225,10 @@ function getPaymentClearingMarketplaceConfig(marketplace) {
   const key = marketplaceKeyFromCodeOrKey(marketplace)
   const code = key === 'uae' ? 'UAE' : 'KSA'
   const paymentAccounts = paymentAccountEnvDefs(key)
-  const undeposited = paymentAccounts['1024']
-  const commission = paymentAccounts['1026']
-  const shipping = paymentAccounts['1028']
+  const clearingAccounts = clearingAccountDefs(key)
+  const undeposited = clearingAccounts.UNDEPOSITED
+  const commission = clearingAccounts.COMMISSION
+  const shipping = clearingAccounts.SHIPPING_FBA
 
   return {
     key,
@@ -231,22 +249,23 @@ function getPaymentClearingMarketplaceConfig(marketplace) {
     paymentAccountMapEnv: `${envPrefix(key)}_ZOHO_PAYMENT_ACCOUNT_MAP`,
     returnVarianceAccountIdEnv: `${envPrefix(key)}_ZOHO_RETURN_VARIANCE_ACCOUNT_ID`,
     returnVarianceAccountId: readEnv(key, 'ZOHO_RETURN_VARIANCE_ACCOUNT_ID', ''),
+    clearingAccounts,
     returnFeeAccounts: Object.freeze({
-      UNDEPOSITED: { accountCode: '1024', accountName: undeposited.defaultName },
-      COMMISSION: { accountCode: '1026', accountName: commission.defaultName },
-      SHIPPING_FBA: { accountCode: '1028', accountName: shipping.defaultName },
+      UNDEPOSITED: { accountCode: undeposited.accountCode, accountName: undeposited.defaultName },
+      COMMISSION: { accountCode: commission.accountCode, accountName: commission.defaultName },
+      SHIPPING_FBA: { accountCode: shipping.accountCode, accountName: shipping.defaultName },
     }),
     paymentPreviewAccounts: Object.freeze({
       NET_BALANCE: {
-        depositToAccountCode: '1024',
+        depositToAccountCode: undeposited.accountCode,
         depositToAccountName: undeposited.defaultName,
       },
       COMMISSION: {
-        depositToAccountCode: '1026',
+        depositToAccountCode: commission.accountCode,
         depositToAccountName: commission.defaultName,
       },
       SHIPPING_FBA: {
-        depositToAccountCode: '1028',
+        depositToAccountCode: shipping.accountCode,
         depositToAccountName: shipping.defaultName,
       },
       REFUND_RETURN: {
@@ -258,7 +277,7 @@ function getPaymentClearingMarketplaceConfig(marketplace) {
         depositToAccountName: 'Amazon Adjustment Clearing',
       },
     }),
-    undepositedAccountCode: '1024',
+    undepositedAccountCode: undeposited.accountCode,
     undepositedAccountName: undeposited.defaultName,
     feeJournalAccountSuggestions: feeJournalAccountSuggestions(key),
     journalNotesLabel: key === 'uae' ? 'Amazon UAE' : 'Amazon KSA',
@@ -304,6 +323,7 @@ module.exports = {
   getPaymentClearingMarketplaceConfig,
   assertBatchMarketplace,
   paymentAccountEnvDefs,
+  clearingAccountDefs,
   feeJournalAccountSuggestions,
   zohoCustomerOptions,
 }

@@ -5,6 +5,7 @@ import {
   type CreditNoteApplyPlan,
 } from '../../../../api/amazonPaymentClearing'
 import { money, SummaryCard } from '../clearingShared'
+import { PostingStatusPanel } from '../components/PostingStatusPanel'
 import { undepositedFundsLabel } from '../marketplaceConfig'
 import type { ClearingContext } from './clearingContext'
 
@@ -94,10 +95,14 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
       if (errorRows.length) {
         setLocalError(errorRows.map((row) => `${row.orderId}: ${row.error || row.blockingReason}`).join(' | '))
       }
+      const created = json.summary?.created ?? 0
+      const refunded = json.summary?.refunded ?? json.summary?.applied ?? 0
+      const uncertain = json.summary?.verificationRequired ?? 0
+      const failed = json.summary?.errors ?? 0
       ctx.setNotice(
-        json.success
-          ? `Credit note refunds posted. Created: ${json.summary?.created ?? 0}, refunded: ${json.summary?.refunded ?? json.summary?.applied ?? 0}.`
-          : 'Credit note refund finished with errors.'
+        json.success && uncertain === 0 && failed === 0
+          ? `Credit note refunds posted. Created: ${created}, refunded: ${refunded}.`
+          : `Credit note refunds partially posted. Created: ${created}, refunded: ${refunded}, verification required: ${uncertain}, failed: ${failed}. Uncertain entries are not resent automatically — review the status below.`
       )
     } catch (e) {
       setLocalError(e instanceof Error ? e.message : 'Refund failed')
@@ -136,6 +141,7 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
           label="Already Refunded"
           value={plan?.summary?.skippedAlreadyRefunded ?? plan?.summary?.skippedAlreadyApplied ?? '-'}
         />
+        <SummaryCard label="Verification Required" value={plan?.summary?.verificationRequired ?? 0} />
       </section>
 
       <div className="apc-button-row">
@@ -146,7 +152,7 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
           className="ainv-btn"
           type="button"
           onClick={() => void onPreviewApply()}
-          disabled={!ctx.isPosted || applying || readyCount === 0}
+          disabled={!ctx.salesComplete || applying || readyCount === 0}
         >
           Preview refund
         </button>
@@ -154,7 +160,7 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
           className="ainv-btn ainv-btn--danger"
           type="button"
           onClick={() => void onApply()}
-          disabled={!ctx.isPosted || applying || readyCount === 0}
+          disabled={!ctx.salesComplete || applying || readyCount === 0}
         >
           {applying ? 'Refunding...' : 'Refund credit notes to undeposited funds'}
         </button>
@@ -165,10 +171,27 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
         ) : null}
       </div>
 
-      {!ctx.isPosted ? (
+      {!ctx.salesComplete ? (
         <p className="apc-muted">
-          Post sales payments in step 9 first. You can review the Zoho credit note refund plan below while waiting.
+          Every sales payment and fee journal in step 9 must be posted and verified first. You can review the Zoho credit
+          note refund plan below while waiting.
         </p>
+      ) : null}
+
+      {batchId != null && ctx.salesComplete ? (
+        <PostingStatusPanel
+          marketplace={ctx.marketplace}
+          batchId={batchId}
+          status={ctx.postingStatus}
+          currency={ctx.currency}
+          loading={ctx.postingStatusLoading}
+          groups={['credit_note']}
+          onChanged={async (message) => {
+            await ctx.refreshPostingStatus(batchId, message)
+            await loadPlan()
+          }}
+          onResume={ctx.goToStep}
+        />
       ) : null}
 
       <div className="apc-table-wrap apc-table-wrap--wide">

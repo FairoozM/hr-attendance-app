@@ -59,9 +59,10 @@ async function fetchCustomers() {
  * @param {string} fromDate   YYYY-MM-DD
  * @param {string} toDate     YYYY-MM-DD
  * @param {string|null} customerId
+ * @param {{ filterBy?: string }} [opts]
  * @returns {Promise<{ rows: object[], truncated: boolean, pages: number }>}
  */
-async function fetchInvoices(fromDate, toDate, customerId = null) {
+async function fetchInvoices(fromDate, toDate, customerId = null, { filterBy = 'Status.All' } = {}) {
   const t0 = Date.now()
 
   function pageParams(page) {
@@ -69,7 +70,7 @@ async function fetchInvoices(fromDate, toDate, customerId = null) {
     if (fromDate)    p.set('date_start',  fromDate)
     if (toDate)      p.set('date_end',    toDate)
     if (customerId)  p.set('customer_id', String(customerId))
-    p.set('filter_by', 'Status.All')
+    p.set('filter_by', filterBy)
     p.set('page',      String(page))
     p.set('per_page',  '200')
     return p
@@ -176,13 +177,39 @@ async function listCreditNoteInvoiceApplications(creditNoteId) {
   return []
 }
 
-async function listCreditNoteRefunds(creditNoteId) {
+async function listCreditNoteRefunds(creditNoteId, meta = undefined) {
   const id = String(creditNoteId || '').trim()
   if (!id) return []
-  const json = await zohoApiRequest(`${BOOKS_V3}/creditnotes/${encodeURIComponent(id)}/refunds`, new URLSearchParams())
+  const json = await zohoApiRequest(
+    `${BOOKS_V3}/creditnotes/${encodeURIComponent(id)}/refunds`,
+    new URLSearchParams(),
+    'GET',
+    undefined,
+    meta
+  )
   if (Array.isArray(json?.creditnote_refunds)) return json.creditnote_refunds
   if (Array.isArray(json?.creditnote?.creditnote_refunds)) return json.creditnote.creditnote_refunds
   return []
+}
+
+/** GET one credit note refund (includes from_account_id); null when not found. */
+async function getCreditNoteRefund(creditNoteId, refundId) {
+  const cn = String(creditNoteId || '').trim()
+  const id = String(refundId || '').trim()
+  if (!cn || !id) return null
+  try {
+    const json = await zohoApiRequest(
+      `${BOOKS_V3}/creditnotes/${encodeURIComponent(cn)}/refunds/${encodeURIComponent(id)}`,
+      new URLSearchParams(),
+      'GET',
+      undefined,
+      { source: 'amazon_payment_clearing_verify', skipCache: true }
+    )
+    return json?.creditnote_refund || null
+  } catch (err) {
+    if (Number(err?.httpStatus) === 404) return null
+    throw err
+  }
 }
 
 /**
@@ -190,7 +217,7 @@ async function listCreditNoteRefunds(creditNoteId) {
  * @param {string} creditNoteId
  * @param {object} payload
  */
-async function refundCreditNote(creditNoteId, payload) {
+async function refundCreditNote(creditNoteId, payload, meta = {}) {
   const id = String(creditNoteId || '').trim()
   const body = {
     date: payload.date,
@@ -205,7 +232,7 @@ async function refundCreditNote(creditNoteId, payload) {
     new URLSearchParams(),
     'POST',
     buildZohoJsonStringBody(body),
-    { source: 'amazon_payment_clearing_cn_refund', skipCache: true, critical: true }
+    { source: 'amazon_payment_clearing_cn_refund', skipCache: true, critical: true, ...meta }
   )
   const refund = json?.creditnote_refund || json?.creditnote?.creditnote_refund || json || {}
   return {
@@ -277,14 +304,17 @@ async function fetchInvoiceById(invoiceId) {
   return json?.invoice || json || null
 }
 
-async function fetchInvoiceByIdWithRetry(invoiceId, retries = 2) {
+async function fetchInvoiceByIdWithRetry(invoiceId, retries = 2, strict = false) {
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       return await fetchInvoiceById(invoiceId)
     } catch (err) {
       const status = Number(err?.status || err?.statusCode || 0)
       const retryable = !status || status === 408 || status === 429 || status >= 500
-      if (!retryable || attempt >= retries) return null
+      if (!retryable || attempt >= retries) {
+        if (strict) throw err
+        return null
+      }
       await new Promise((resolve) => setTimeout(resolve, 400 * (attempt + 1)))
     }
   }
@@ -294,7 +324,7 @@ async function fetchInvoiceByIdWithRetry(invoiceId, retries = 2) {
 /**
  * Fetch multiple invoices by id in parallel for payment balance checks.
  * @param {string[]} invoiceIds
- * @param {{ concurrency?: number, retries?: number }} [options]
+ * @param {{ concurrency?: number, retries?: number, strict?: boolean }} [options] strict: throw instead of skipping invoices that fail to load
  * @returns {Promise<Map<string, object>>}
  */
 async function fetchInvoicesByIds(invoiceIds, options = {}) {
@@ -304,7 +334,7 @@ async function fetchInvoicesByIds(invoiceIds, options = {}) {
   const out = new Map()
   for (let i = 0; i < ids.length; i += concurrency) {
     const chunk = ids.slice(i, i + concurrency)
-    const rows = await Promise.all(chunk.map((id) => fetchInvoiceByIdWithRetry(id, retries)))
+    const rows = await Promise.all(chunk.map((id) => fetchInvoiceByIdWithRetry(id, retries, options.strict === true)))
     for (let j = 0; j < chunk.length; j++) {
       const invoice = rows[j]
       if (!invoice) continue
@@ -317,13 +347,13 @@ async function fetchInvoicesByIds(invoiceIds, options = {}) {
   return out
 }
 
-async function createCreditNote(payload) {
+async function createCreditNote(payload, meta = {}) {
   const json = await zohoApiRequest(
     `${BOOKS_V3}/creditnotes`,
     new URLSearchParams(),
     'POST',
     buildZohoJsonStringBody(payload),
-    { source: 'amazon_payment_clearing_cn_create', skipCache: true, critical: true }
+    { source: 'amazon_payment_clearing_cn_create', skipCache: true, critical: true, ...meta }
   )
   const body = json?.creditnote || json || {}
   return {
@@ -331,6 +361,26 @@ async function createCreditNote(payload) {
     creditNoteNumber: body.creditnote_number || body.credit_note_number || body.number || '',
     raw: json,
   }
+}
+
+/** GET /creditnotes list with arbitrary filters (read-only recovery lookups). */
+async function listCreditNotes(params = {}) {
+  const rows = []
+  for (let page = 1; page <= 10; page += 1) {
+    const sp = new URLSearchParams()
+    for (const [k, v] of Object.entries({ per_page: '200', ...params, page: String(page) })) {
+      if (v != null && v !== '') sp.set(k, String(v))
+    }
+    const json = await zohoApiRequest(`${BOOKS_V3}/creditnotes`, sp, 'GET', undefined, {
+      source: 'amazon_payment_clearing_verify',
+      skipCache: true,
+    })
+    rows.push(...(Array.isArray(json?.creditnotes) ? json.creditnotes : []))
+    if (!json?.page_context?.has_more_page) return rows
+  }
+  const err = new Error('Zoho credit note lookup returned more than 10 pages; narrow the search before posting.')
+  err.code = 'AMAZON_PAYMENT_CLEARING_LOOKUP_TOO_BROAD'
+  throw err
 }
 
 /**
@@ -361,6 +411,8 @@ module.exports = {
   fetchCreditNotesByCustomer,
   listCreditNoteInvoiceApplications,
   listCreditNoteRefunds,
+  getCreditNoteRefund,
+  listCreditNotes,
   applyCreditNoteToInvoice,
   refundCreditNote,
   createCreditNote,

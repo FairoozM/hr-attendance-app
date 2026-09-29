@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { fetchReturnFeePlan, type ReturnFeePlan } from '../../../../api/amazonPaymentClearing'
 import { money, PostingResultTable, SummaryCard } from '../clearingShared'
+import { PostingStatusPanel } from '../components/PostingStatusPanel'
 import type { ClearingContext } from './clearingContext'
 
 export function Step9ReturnFeeClearing({ ctx }: { ctx: ClearingContext }) {
@@ -12,7 +13,7 @@ export function Step9ReturnFeeClearing({ ctx }: { ctx: ClearingContext }) {
   const batchId = preview?.batch?.batchId
   const creditNotesDone = ctx.creditNoteApplyComplete || plan?.creditNoteApplyComplete === true
   const varianceBlockers = plan?.summary?.varianceBlockerCount ?? ctx.returnFeeBlockerCount
-  const canPostJournals = Boolean(ctx.isPosted && creditNotesDone && varianceBlockers === 0)
+  const canPostJournals = Boolean(ctx.salesComplete && creditNotesDone && varianceBlockers === 0)
 
   const loadPlan = useCallback(async () => {
     if (!batchId) return
@@ -42,7 +43,7 @@ export function Step9ReturnFeeClearing({ ctx }: { ctx: ClearingContext }) {
         retained) and post the clearing journals here.
       </div>
 
-      {!ctx.isPosted ? (
+      {!ctx.salesComplete ? (
         <p className="apc-muted">Complete step 9 (post sales payments) and step 10 (apply credit notes) before posting return fee journals.</p>
       ) : !creditNotesDone ? (
         <p className="apc-muted">Apply all return credit notes in step 10 before posting return fee journals.</p>
@@ -55,6 +56,25 @@ export function Step9ReturnFeeClearing({ ctx }: { ctx: ClearingContext }) {
       ) : null}
 
       {localError ? <div className="apc-alert apc-alert--error" role="alert">{localError}</div> : null}
+
+      {batchId != null && ctx.salesComplete ? (
+        <PostingStatusPanel
+          marketplace={ctx.marketplace}
+          batchId={batchId}
+          status={ctx.postingStatus}
+          currency={ctx.currency}
+          loading={ctx.postingStatusLoading}
+          groups={['return_fee_journal']}
+          onChanged={(message) => ctx.refreshPostingStatus(batchId, message)}
+          onResume={ctx.goToStep}
+        />
+      ) : null}
+      {ctx.postingStatus?.settlementComplete ? (
+        <div className="apc-alert apc-approved-panel" role="status">
+          <strong>Settlement complete.</strong> Sales payments, fee journals, credit note refunds and return fee journals
+          are all posted and recorded.
+        </div>
+      ) : null}
       {(plan?.warnings || []).map((warning) => (
         <div key={warning} className="apc-alert apc-alert--error" role="alert">{warning}</div>
       ))}

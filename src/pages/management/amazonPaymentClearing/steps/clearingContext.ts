@@ -2,6 +2,7 @@ import type {
   PaymentClearingPaymentPreview,
   PaymentClearingPreview,
   PaymentPostingResult,
+  PostingStatus,
   SavedBatchSummary,
   SettlementReport,
   KsaZohoCustomerOption,
@@ -42,6 +43,12 @@ export interface ClearingContext {
   canPostReturnFeeJournals: boolean
   creditNoteApplyComplete: boolean
   returnFeePostComplete: boolean
+  returnFeeBlockerCount: number
+  /** Every sales payment and fee journal is posted and verified (not the whole settlement). */
+  salesComplete: boolean
+  postingStatus: PostingStatus | null
+  postingStatusLoading: boolean
+  refreshPostingStatus: (batchId?: string | number, message?: string) => Promise<void>
 
   setReportId: (value: string) => void
   setReportDocumentId: (value: string) => void

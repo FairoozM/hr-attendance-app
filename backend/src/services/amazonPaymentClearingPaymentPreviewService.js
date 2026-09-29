@@ -188,6 +188,7 @@ function buildPaymentPreviewFromBatch(batch) {
       },
       referenceNumber: row.journalPreview?.referenceNumber || '',
       notes: row.journalPreview?.notes || '',
+      lineDescription: row.journalPreview?.lineDescription || '',
       mappingRuleId: row.mappingRuleId || null,
       mappingRuleUsed: row.mappingRuleUsed || null,
       lastUsedAt: row.lastUsedAt || null,

@@ -3,6 +3,7 @@ const { readZohoConfig } = require('../integrations/zoho/zohoConfig')
 const { getZohoTokenDiagnostics } = require('../integrations/zoho/zohoOAuth')
 const store = require('./amazonPaymentClearingStore')
 const { getPaymentClearingMarketplaceConfig } = require('./amazonPaymentClearingMarketplaceConfig')
+const { requireMarketplaceCode, requireClearingAccountByCode } = require('./amazonPaymentClearingAccountGuard')
 
 const BOOKS_V3 = '/books/v3'
 const CHART_OF_ACCOUNTS_ENDPOINT = `${BOOKS_V3}/chartofaccounts`
@@ -128,13 +129,14 @@ function configuredPaymentAccountMap(marketplace = 'KSA') {
     }
   }
   for (const [code, env] of Object.entries(paymentAccountEnv)) {
-    const accountId = clean(process.env[env.id])
+    const envAccountId = clean(process.env[env.id])
+    const accountId = envAccountId || (out.has(code) ? '' : clean(env.verifiedAccountId))
     if (!accountId) continue
     out.set(code, {
       accountCode: code,
       accountId,
       accountName: clean(process.env[env.name]) || env.defaultName,
-      source: env.id,
+      source: envAccountId ? env.id : 'verified_default',
     })
   }
   return out
@@ -238,7 +240,26 @@ function missingConfiguredAccountError(accountCode, marketplace = 'KSA') {
   return err
 }
 
+/**
+ * Amazon clearing posts pass `strictMarketplace: true`: the marketplace must be explicit
+ * and only configured/verified account ids are accepted (no cached or chart guessing).
+ */
+function resolveStrictDepositAccount(payment, opts = {}) {
+  const marketplace = requireMarketplaceCode(opts.marketplace || payment.marketplace)
+  const explicitId = clean(payment.depositToAccountId)
+  if (explicitId) {
+    return { accountId: explicitId, accountName: payment.depositToAccountName || '', source: 'payload' }
+  }
+  const account = requireClearingAccountByCode(marketplace, payment.depositToAccountCode, { env: opts.env })
+  return {
+    accountId: account.accountId,
+    accountName: payment.depositToAccountName || account.accountName,
+    source: account.source,
+  }
+}
+
 async function resolveConfiguredDepositAccount(payment, opts = {}) {
+  if (opts.strictMarketplace === true) return resolveStrictDepositAccount(payment, opts)
   const marketplace = marketplaceFromPaymentOrOpts(payment, opts)
   const configuredAccount = payment.depositToAccountId
     ? null
@@ -417,15 +438,16 @@ async function createZohoManualJournal(journal, opts = {}) {
     'POST',
     buildZohoJsonStringBody(payload),
     {
-      source: 'amazon_payment_clearing_fee_journal_post',
+      source: opts.source || 'amazon_payment_clearing_fee_journal_post',
       skipCache: true,
       critical: true,
+      retryTransport: opts.retryTransport,
     }
   )
   const body = json?.journal || json || {}
   return {
     zohoJournalId: body.journal_id || body.journalId || body.id || '',
-    zohoJournalNumber: body.journal_number || body.journalNumber || body.number || '',
+    zohoJournalNumber: body.entry_number || body.journal_number || body.journalNumber || body.number || '',
     raw: json,
   }
 }
@@ -472,6 +494,55 @@ async function createZohoCustomerPayment(payment, opts = {}) {
     zohoPaymentId: body.payment_id || body.customerpayment_id || body.paymentId || body.id || '',
     payment_id: body.payment_id || body.customerpayment_id || body.paymentId || body.id || '',
     raw: json,
+  }
+}
+
+function booksGet(path, params = {}, source = 'amazon_payment_clearing_verify') {
+  const sp = new URLSearchParams()
+  for (const [k, v] of Object.entries(params)) {
+    if (v != null && v !== '') sp.set(k, String(v))
+  }
+  return zohoBooksJsonRequest(`${BOOKS_V3}${path}`, sp, 'GET', null, { source, skipCache: true })
+}
+
+const LIST_PAGE_LIMIT = 10
+
+/**
+ * Every page of a Books list GET. Throws rather than returning a partial list, so a
+ * recovery lookup can never conclude "not found" from truncated results.
+ */
+async function booksListAll(path, key, params = {}, getter = booksGet) {
+  const rows = []
+  for (let page = 1; page <= LIST_PAGE_LIMIT; page += 1) {
+    const json = await getter(path, { per_page: '200', ...params, page: String(page) })
+    const batch = Array.isArray(json?.[key]) ? json[key] : []
+    rows.push(...batch)
+    if (!json?.page_context?.has_more_page) return rows
+  }
+  const err = new Error(`Zoho ${path} lookup returned more than ${LIST_PAGE_LIMIT} pages; narrow the search before posting.`)
+  err.code = 'AMAZON_PAYMENT_CLEARING_LOOKUP_TOO_BROAD'
+  throw err
+}
+
+/** GET /customerpayments list (read-only recovery lookups). */
+async function listZohoCustomerPayments(params = {}) {
+  return booksListAll('/customerpayments', 'customerpayments', params)
+}
+
+/** GET /journals list (read-only recovery lookups). */
+async function listZohoManualJournals(params = {}) {
+  return booksListAll('/journals', 'journals', params)
+}
+
+async function getZohoManualJournal(journalId) {
+  const id = clean(journalId)
+  if (!id) return null
+  try {
+    const json = await booksGet(`/journals/${encodeURIComponent(id)}`)
+    return json?.journal || null
+  } catch (err) {
+    if (Number(err?.httpStatus) === 404) return null
+    throw err
   }
 }
 
@@ -597,6 +668,9 @@ module.exports = {
   createZohoCustomerPayment,
   getZohoCustomerPayment,
   createZohoManualJournal,
+  listZohoCustomerPayments,
+  listZohoManualJournals,
+  getZohoManualJournal,
   configuredAccountByCode,
   configuredAccountMappings,
   getAccountDiagnostics,

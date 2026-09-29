@@ -223,7 +223,7 @@ async function postFeeJournalMapping(req, res) {
   try {
     const cfg = marketplaceFromReq(req)
     const json = await service.saveFeeJournalMapping(
-      { ...(req.body || {}), marketplace: req.body?.marketplace || cfg.code },
+      { ...(req.body || {}), marketplace: cfg.code },
       req.user?.userId
     )
     res.json(json)
@@ -380,6 +380,55 @@ async function postForceRepost(req, res) {
   }
 }
 
+async function getPostingStatus(req, res) {
+  try {
+    await assertBatchMarketplaceForReq(req)
+    res.json(await service.getPostingStatusForBatch(req.params.id))
+  } catch (err) {
+    sendError(res, err)
+  }
+}
+
+async function postReverifyPosting(req, res) {
+  try {
+    await assertBatchMarketplaceForReq(req)
+    res.json(await service.reverifyPostingForBatch(req.params.id, req.params.postingId, { actorUserId: req.user?.userId }))
+  } catch (err) {
+    sendError(res, err)
+  }
+}
+
+async function postLinkPosting(req, res) {
+  try {
+    await assertBatchMarketplaceForReq(req)
+    res.json(
+      await service.linkPostingForBatch(
+        req.params.id,
+        {
+          postingId: req.body?.postingId,
+          paymentType: req.body?.paymentType,
+          zohoId: req.body?.zohoId,
+          reason: req.body?.reason,
+        },
+        { actorUserId: req.user?.userId }
+      )
+    )
+  } catch (err) {
+    sendError(res, err)
+  }
+}
+
+async function postReleasePosting(req, res) {
+  try {
+    await assertBatchMarketplaceForReq(req)
+    res.json(
+      await service.releasePostingForBatch(req.params.id, req.params.postingId, { reason: req.body?.reason }, { actorUserId: req.user?.userId })
+    )
+  } catch (err) {
+    sendError(res, err)
+  }
+}
+
 async function postReclassifyAccountLevelFees(req, res) {
   try {
     await assertBatchMarketplaceForReq(req)
@@ -434,6 +483,10 @@ module.exports = {
   postReturnFeeJournals,
   postForceRepost,
   postReclassifyAccountLevelFees,
+  getPostingStatus,
+  postReverifyPosting,
+  postLinkPosting,
+  postReleasePosting,
   getKsaSettlementReports,
   postKsaPreview,
   postKsaPreviewUpload,

@@ -7,6 +7,7 @@ import {
   PostingResultTable,
   SummaryCard,
 } from '../clearingShared'
+import { PostingStatusPanel } from '../components/PostingStatusPanel'
 import type { ClearingContext } from './clearingContext'
 
 export function Step8Post({ ctx }: { ctx: ClearingContext }) {
@@ -22,12 +23,21 @@ export function Step8Post({ ctx }: { ctx: ClearingContext }) {
   const storedPostings = Array.isArray(preview.postings) ? preview.postings : []
   const storedJournalCount = storedPostings.filter((row) => isFeeJournalPostingType(row.paymentType)).length
   const journalLines = paymentPreview?.amazonFeeJournalLines || []
+  const batchId = preview.batch?.batchId
+  const salesGroups = (ctx.postingStatus?.groups || []).filter((g) => g.key === 'sales_payment' || g.key === 'fee_journal')
+  const salesStarted = salesGroups.some((g) => g.entries.some((e) => e.status !== 'not_started'))
+  const salesNeedsVerification = salesGroups.some((g) => g.status === 'verification_required')
 
   return (
     <div className="apc-step-stack">
       {ctx.isPosted ? (
         <div className="apc-alert apc-approved-panel" role="status">
-          <strong>Posted to Zoho.</strong>
+          <strong>
+            Sales payments and fee journals posted to Zoho.
+            {ctx.postingStatus && !ctx.postingStatus.settlementComplete
+              ? ' The settlement is not complete until credit notes, refunds and return fee journals (steps 10–11) are posted.'
+              : ''}
+          </strong>
           {postingReference ? (
             <span> Payment reference: <code className="apc-ref">{postingReference}</code>.</span>
           ) : null}
@@ -60,9 +70,16 @@ export function Step8Post({ ctx }: { ctx: ClearingContext }) {
             reference (for example, 29-Apr-2026 to 13-May-2026), so search Zoho Journals by that range if needed.
           </p>
           <p className="apc-muted">
-            This batch is view-only. Dry run is still available. To repost, an admin must use Force Repost and provide a
-            reason.
+            This batch is view-only. Dry run is still available. Force Repost (admin, with a reason) re-checks every entry
+            in Zoho and only posts entries that are missing — it never clears history or resends recorded entries.
           </p>
+        </div>
+      ) : salesStarted ? (
+        <div className={`apc-alert ${salesNeedsVerification ? 'apc-alert--error' : ''}`} role="status">
+          <strong>{salesNeedsVerification ? 'Verification required.' : 'Partially posted.'}</strong>{' '}
+          {salesNeedsVerification
+            ? 'Some entries may exist in Zoho but could not be confirmed. Automatic reposting is blocked for them — re-check or link them below.'
+            : 'Some entries are posted. Resume posting sends only the missing entries; recorded entries are re-checked in Zoho, never resent.'}
         </div>
       ) : (
         <div className="apc-alert">
@@ -70,6 +87,19 @@ export function Step8Post({ ctx }: { ctx: ClearingContext }) {
           preview. Return refunds and return fee journals are handled in steps 10–11 after payments land.
         </div>
       )}
+
+      {batchId != null ? (
+        <PostingStatusPanel
+          marketplace={ctx.marketplace}
+          batchId={batchId}
+          status={ctx.postingStatus}
+          currency={ctx.currency}
+          loading={ctx.postingStatusLoading}
+          groups={['sales_payment', 'fee_journal']}
+          onChanged={(message) => ctx.refreshPostingStatus(batchId, message)}
+          onResume={ctx.goToStep}
+        />
+      ) : null}
 
       <div className="apc-button-row">
         <button
@@ -91,7 +121,7 @@ export function Step8Post({ ctx }: { ctx: ClearingContext }) {
             onClick={() => ctx.onRunPosting(false)}
             disabled={!ctx.canPostToZoho || ctx.posting}
           >
-            POST TO ZOHO
+            {salesStarted ? 'RESUME POSTING (missing entries only)' : 'POST TO ZOHO'}
           </button>
         )}
       </div>
@@ -119,8 +149,16 @@ export function Step8Post({ ctx }: { ctx: ClearingContext }) {
             <SummaryCard label="Payments Skipped" value={postingResult.summary.paymentsSkipped} />
             <SummaryCard label="Journals Created" value={postingResult.summary.journalsCreated || 0} />
             <SummaryCard label="Journals Skipped" value={postingResult.summary.journalsSkipped || 0} />
+            <SummaryCard label="Verification Required" value={postingResult.summary.verificationRequired || 0} />
             <SummaryCard label="Errors" value={postingResult.summary.errors} />
           </section>
+          {postingResult.warnings?.length ? (
+            <div className="apc-alert">
+              {postingResult.warnings.map((warning) => (
+                <div key={warning}>{warning}</div>
+              ))}
+            </div>
+          ) : null}
           <PostingResultTable result={postingResult} />
         </>
       ) : null}

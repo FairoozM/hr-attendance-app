@@ -13,6 +13,8 @@ function serializeJob(job) {
     startedAt: job.startedAt,
     completedAt: job.completedAt,
     error: job.error,
+    outcome: job.status === 'completed' ? job.result?.status || 'posted' : job.status === 'failed' ? 'failed' : null,
+    errorCode: job.errorCode || null,
     result: job.status === 'completed' ? job.result : undefined,
   }
 }
@@ -64,16 +66,21 @@ function startPostToZohoJob(batchId, options = {}) {
         dryRun: false,
         postedBy: options.postedBy,
       })
+      const summary = job.result?.summary || {}
+      const done =
+        (summary.paymentsCreated || 0) + (summary.paymentsSkipped || 0) + (summary.journalsCreated || 0) + (summary.journalsSkipped || 0)
+      const total = done + (summary.errors || 0) + (summary.verificationRequired || 0)
       job.progress = {
-        step: 'Posting completed',
-        current: job.result?.summary?.paymentsCreated || 0,
-        total: job.result?.summary?.paymentsCreated || 0,
+        step: job.result?.success ? 'All sales entries verified in Zoho' : 'Posting stopped with entries still open',
+        current: done,
+        total,
       }
       job.status = 'completed'
       job.completedAt = new Date().toISOString()
     } catch (err) {
       job.status = 'failed'
       job.error = safeError(err)
+      job.errorCode = err?.code || null
       job.completedAt = new Date().toISOString()
       console.error('[amazon-payment-clearing-post]', id, err?.message || err)
     } finally {

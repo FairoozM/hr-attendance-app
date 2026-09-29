@@ -41,6 +41,7 @@ const NORMALIZED_FEE_TYPE = Object.freeze({
   COMMISSION: 'COMMISSION',
   SHIPPING_FBA: 'SHIPPING_FBA',
   SUBSCRIPTION: 'SUBSCRIPTION',
+  SAFET_REIMBURSEMENT: 'SAFET_REIMBURSEMENT',
   OTHER_ACCOUNT_LEVEL_FEE: 'OTHER_ACCOUNT_LEVEL_FEE',
 })
 
@@ -164,6 +165,13 @@ function categorizeSettlementRow(row) {
   return CATEGORY.OTHER
 }
 
+// Amazon pays SAFE-T damage claims against the original order ID, but the
+// money is a claim settlement, not invoice revenue: post it as a journal.
+function isSafeTReimbursementRow(row) {
+  const hay = text(row)
+  return /safe[\s-]*t\b/.test(hay) && hay.includes('reimburs')
+}
+
 function isAdvertisingCreditRow(row) {
   const orderId = field(row, 'orderId')
   if (orderId && isAmazonOrderIdFormat(orderId)) return false
@@ -175,7 +183,7 @@ function isAdvertisingCreditRow(row) {
 }
 
 function isCustomerRefundOrReturnRow(row) {
-  if (isAdvertisingCreditRow(row)) return false
+  if (isAdvertisingCreditRow(row) || isSafeTReimbursementRow(row)) return false
   const hay = text(row)
   const tx = field(row, 'transactionType').toLowerCase()
   const amountType = field(row, 'amountType').toLowerCase()
@@ -203,6 +211,7 @@ function classifySettlementRow(row) {
   const hay = text(row)
   const tx = field(row, 'transactionType').toLowerCase()
 
+  if (isSafeTReimbursementRow(row)) return ROW_CLASS.NON_ORDER_LINKED_AMAZON_FEE
   if (isPseudoOrderAccountLevelFee(row)) return ROW_CLASS.NON_ORDER_LINKED_AMAZON_FEE
   if (isAdvertisingCreditRow(row)) return ROW_CLASS.NON_ORDER_LINKED_AMAZON_FEE
   if (!hasOrderId(row) && (isFeeCategory(category) || category === CATEGORY.OTHER)) return ROW_CLASS.NON_ORDER_LINKED_AMAZON_FEE
@@ -283,6 +292,7 @@ function isPseudoOrderAccountLevelFee(row) {
 
 function isNonOrderLinkedAmazonFee(row) {
   if (String(row?.matchStatus || '').toLowerCase() === 'account_level_fee') return true
+  if (isSafeTReimbursementRow(row)) return true
   if (isAdvertisingCreditRow(row)) return true
   if (isPseudoOrderAccountLevelFee(row)) return true
   const category = row?.category || categorizeSettlementRow(row)
@@ -296,6 +306,7 @@ function normalizeAmazonFeeType(row) {
   const amountType = field(row, 'amountType').toLowerCase()
   const amountDescription = field(row, 'amountDescription').toLowerCase()
 
+  if (isSafeTReimbursementRow(row)) return NORMALIZED_FEE_TYPE.SAFET_REIMBURSEMENT
   if (
     isAdvertisingCreditRow(row) ||
     hay.includes('refund for advertiser') ||
@@ -370,6 +381,7 @@ module.exports = {
   hasOrderId,
   isAmazonOrderIdFormat,
   isAdvertisingCreditRow,
+  isSafeTReimbursementRow,
   isPseudoOrderAccountLevelFee,
   isNonOrderLinkedAmazonFee,
   normalizeAmazonFeeType,

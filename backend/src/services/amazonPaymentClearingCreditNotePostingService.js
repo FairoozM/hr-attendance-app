@@ -14,9 +14,14 @@ const { buildReturnFeeBreakdown } = require('./amazonPaymentClearingReturnFeeSer
 const zohoPaymentService = require('./amazonPaymentClearingZohoPaymentService')
 const store = require('./amazonPaymentClearingStore')
 const { getPaymentClearingMarketplaceConfig } = require('./amazonPaymentClearingMarketplaceConfig')
+const { requireMarketplaceCode, requireClearingAccountByCode } = require('./amazonPaymentClearingAccountGuard')
+const { runSafeWrite, STATUS } = require('./amazonPaymentClearingSafeWrite')
+const recovery = require('./amazonPaymentClearingZohoRecovery')
+const { settlementCurrencyForCustomer } = require('./amazonPaymentClearingCurrencyService')
 
 const TOLERANCE = 0.01
 const PAYMENT_TYPE = 'credit_note_refund'
+const CREATE_PAYMENT_TYPE = 'credit_note_create'
 const LEGACY_PAYMENT_TYPE = 'credit_note_apply'
 const UNDEPOSITED_ACCOUNT_CODE = '1024'
 /** @deprecated Prefer marketplace undeposited account name from config */
@@ -241,17 +246,20 @@ function resolveCreditNoteRefundAmount(row) {
 }
 
 async function resolveUndepositedRefundAccount(opts = {}) {
-  const marketplace = opts.marketplace || 'KSA'
+  const marketplace = requireMarketplaceCode(opts.marketplace)
   const undeposited = undepositedAccountFor(marketplace)
-  const resolver = opts.resolveDepositAccount || zohoPaymentService.resolveConfiguredDepositAccount
-  return resolver(
-    {
-      depositToAccountCode: undeposited.accountCode,
-      depositToAccountName: undeposited.accountName,
-      marketplace,
-    },
-    { marketplace }
-  )
+  if (opts.resolveDepositAccount) {
+    return opts.resolveDepositAccount(
+      {
+        depositToAccountCode: undeposited.accountCode,
+        depositToAccountName: undeposited.accountName,
+        marketplace,
+      },
+      { marketplace, strictMarketplace: true }
+    )
+  }
+  const account = requireClearingAccountByCode(marketplace, undeposited.accountCode, { env: opts.env })
+  return { accountId: account.accountId, accountName: account.accountName, source: account.source }
 }
 
 async function creditNoteRefundTotal(creditNoteId, referenceNumber = '', listRefunds = listCreditNoteRefunds) {
@@ -267,7 +275,7 @@ async function creditNoteRefundTotal(creditNoteId, referenceNumber = '', listRef
 }
 
 async function buildRefundCreditNoteRequest(row, batch, opts = {}) {
-  const marketplace = opts.marketplace || batch?.marketplace || 'KSA'
+  const marketplace = requireMarketplaceCode(opts.marketplace || batch?.marketplace)
   const undeposited = undepositedAccountFor(marketplace)
   const paymentDate = opts.paymentDate || zohoPaymentService.todayLocalDate()
   const settlementReference = buildSettlementReference(batch)
@@ -314,9 +322,9 @@ function buildCreateCreditNotePayload(row, customerId, paymentDate, marketplace 
 }
 
 async function resolvePlanRowAction(row, batch, opts = {}) {
-  const marketplace = opts.marketplace || batch?.marketplace || 'KSA'
+  const marketplace = requireMarketplaceCode(opts.marketplace || batch?.marketplace)
   const undeposited = undepositedAccountFor(marketplace)
-  const listRefunds = opts.listRefunds || listCreditNoteRefunds
+  const listRefunds = opts.listRefunds || uncachedRefunds
   const invoiceId = clean(row.zohoInvoiceId)
   const creditNoteId = clean(row.zohoCreditNoteId)
   const refundAmount = creditNoteId ? resolveCreditNoteRefundAmount(row) : positiveAmount(row.amazonRefundAmount)
@@ -413,6 +421,36 @@ async function resolvePlanRowAction(row, batch, opts = {}) {
   }
 }
 
+function uncachedRefunds(creditNoteId) {
+  return listCreditNoteRefunds(creditNoteId, { source: 'amazon_payment_clearing_verify', skipCache: true })
+}
+
+function postingSummary(posting) {
+  return {
+    postingId: posting.id,
+    paymentType: posting.paymentType,
+    status: posting.status,
+    zohoId: posting.zohoPaymentId || '',
+    errorMessage: posting.errorMessage || '',
+  }
+}
+
+/** Local create/refund posting rows per return order (legacy credit_note_apply counts as refund). */
+function localCreditNotePostingsByOrder(postings) {
+  const out = new Map()
+  for (const posting of Array.isArray(postings) ? postings : []) {
+    const type = posting.paymentType
+    if (type !== PAYMENT_TYPE && type !== LEGACY_PAYMENT_TYPE && type !== CREATE_PAYMENT_TYPE) continue
+    const orderId = clean(posting.orderId)
+    if (!orderId) continue
+    const entry = out.get(orderId) || { create: null, refund: null }
+    if (type === CREATE_PAYMENT_TYPE) entry.create = posting
+    else if (!entry.refund || type === PAYMENT_TYPE) entry.refund = posting
+    out.set(orderId, entry)
+  }
+  return out
+}
+
 function isCreditNotePlanRowComplete(row) {
   return (
     row.action === 'skipped_already_refunded' ||
@@ -424,7 +462,7 @@ function isCreditNotePlanRowComplete(row) {
 }
 
 async function buildCreditNoteApplyPlan(batch, opts = {}) {
-  const marketplace = opts.marketplace || batch?.marketplace || 'KSA'
+  const marketplace = requireMarketplaceCode(opts.marketplace || batch?.marketplace)
   const matchOpts = {
     ...opts,
     marketplace,
@@ -461,19 +499,27 @@ async function buildCreditNoteApplyPlan(batch, opts = {}) {
       completed: 0,
     }
   )
-  const existingPostings = await store.listPostingsForBatch(batch.batchId).catch(() => [])
-  const postedOrders = new Set(
-    existingPostings
-      .filter((row) => (row.paymentType === PAYMENT_TYPE || row.paymentType === LEGACY_PAYMENT_TYPE) && row.status === 'posted')
-      .map((row) => clean(row.orderId))
-      .filter(Boolean)
-  )
+  const existingPostings = await (opts.store || store).listPostingsForBatch(batch.batchId)
+  const localByOrder = localCreditNotePostingsByOrder(existingPostings)
   for (const row of planRows) {
-    if (postedOrders.has(clean(row.orderId))) {
+    const local = localByOrder.get(clean(row.orderId))
+    if (!local) continue
+    row.localCreate = local.create ? postingSummary(local.create) : null
+    row.localRefund = local.refund ? postingSummary(local.refund) : null
+    if (local.refund?.status === STATUS.POSTED) {
       row.action = 'skipped_already_posted'
       row.status = 'completed'
+      continue
+    }
+    const uncertain = [local.create, local.refund].find(
+      (posting) => posting && (posting.status === STATUS.PENDING || posting.status === STATUS.VERIFICATION_REQUIRED)
+    )
+    if (uncertain) {
+      row.status = 'verification_required'
+      row.verificationMessage = uncertain.errorMessage || 'An earlier Zoho write for this return has an unconfirmed outcome.'
     }
   }
+  summary.verificationRequired = planRows.filter((row) => row.status === 'verification_required').length
   summary.blocked = planRows.filter((row) => row.action === 'blocked').length
   summary.completed = planRows.filter((row) => isCreditNotePlanRowComplete(row)).length
   summary.skippedAlreadyApplied = summary.skippedAlreadyRefunded
@@ -481,7 +527,10 @@ async function buildCreditNoteApplyPlan(batch, opts = {}) {
   summary.createAndApply = summary.createAndRefund
   summary.isComplete =
     !settlementHasReturnApplyWork(batch) ||
-    (planRows.length > 0 && summary.blocked === 0 && planRows.every((row) => isCreditNotePlanRowComplete(row)))
+    (planRows.length > 0 &&
+      summary.blocked === 0 &&
+      summary.verificationRequired === 0 &&
+      planRows.every((row) => isCreditNotePlanRowComplete(row)))
 
   return {
     batchId: batch.batchId,
@@ -499,24 +548,57 @@ async function isCreditNoteApplyComplete(batchId, batchOverride = null) {
   return Boolean(plan.summary?.isComplete)
 }
 
+function requestDateOf(localRow) {
+  return clean(localRow?.mappingSnapshot?.request?.date) || null
+}
+
+function creditNoteTotal(payload) {
+  return round2(
+    (Array.isArray(payload?.line_items) ? payload.line_items : []).reduce(
+      (sum, line) => sum + num(line.rate) * (num(line.quantity) || 1),
+      0
+    )
+  )
+}
+
+function rowOutcomeStatus(outcome) {
+  if (outcome.status === STATUS.POSTED) return outcome.alreadyPosted && !outcome.created ? 'skipped' : 'posted'
+  if (outcome.status === STATUS.VERIFICATION_REQUIRED) return 'verification_required'
+  return 'error'
+}
+
+/**
+ * Create (when needed) and refund each return credit note. Each Zoho write goes
+ * through the safe-write state machine, so a timeout or restart never re-sends a
+ * create or refund whose outcome is unknown.
+ */
 async function applyCreditNotesForBatch(batch, options = {}) {
   const dryRun = options.dryRun !== false
+  const marketplace = requireMarketplaceCode(batch?.marketplace)
+  const postingStore = options.store || store
+  const paymentDate = options.paymentDate || zohoPaymentService.todayLocalDate()
   const plan = await buildCreditNoteApplyPlan(batch, {
-    paymentDate: options.paymentDate || zohoPaymentService.todayLocalDate(),
+    marketplace,
+    paymentDate,
     listRefunds: options.listRefunds,
     resolveDepositAccount: options.resolveDepositAccount,
+    env: options.env,
+    store: postingStore,
+    ...(options.refreshZoho === false ? { refreshZoho: false } : {}),
   })
 
   const result = {
     success: true,
     dryRun,
     batchId: batch.batchId,
+    marketplace,
     plan,
     summary: {
       created: 0,
       applied: 0,
       refunded: 0,
       skipped: 0,
+      verificationRequired: 0,
       errors: 0,
     },
     rows: [],
@@ -525,6 +607,27 @@ async function applyCreditNotesForBatch(batch, options = {}) {
 
   if (dryRun) {
     return result
+  }
+
+  const lookupDeps = options.zohoLookup || recovery.defaultZohoLookupDeps()
+  const createCn = options.createCreditNote || createCreditNote
+  const refundCn = options.refundCreditNote || refundCreditNote
+  const currencyCode = settlementCurrencyForCustomer(
+    batch.zohoCustomerName,
+    batch.report?.currency,
+    getPaymentClearingMarketplaceConfig(marketplace).currency
+  )
+  const undeposited = undepositedAccountFor(marketplace)
+
+  const record = (row, status, extra = {}) => {
+    const out = { ...row, ...extra, status }
+    if (status === 'error') {
+      result.summary.errors += 1
+      result.errors.push(out)
+    } else if (status === 'verification_required') {
+      result.summary.verificationRequired += 1
+    }
+    result.rows.push(out)
   }
 
   for (const row of plan.rows) {
@@ -538,95 +641,158 @@ async function applyCreditNotesForBatch(batch, options = {}) {
       continue
     }
     if (row.action === 'blocked') {
-      result.summary.errors += 1
-      result.errors.push(row)
-      result.rows.push({ ...row, status: 'error' })
+      record(row, 'error', { error: row.blockingReason || 'Credit note apply is blocked for this return row.' })
+      continue
+    }
+    if (!clean(row.zohoInvoiceId)) {
+      record(row, 'error', { error: 'Return row has no Zoho invoice id.' })
       continue
     }
 
     try {
-      const existingPosting =
-        (row.zohoInvoiceId &&
-          (await store.findPosting(batch.batchId, row.zohoInvoiceId, PAYMENT_TYPE))) ||
-        (row.zohoInvoiceId &&
-          (await store.findPosting(batch.batchId, row.zohoInvoiceId, LEGACY_PAYMENT_TYPE)))
-      if (existingPosting?.status === 'posted') {
-        result.summary.skipped += 1
-        result.rows.push({ ...row, status: 'skipped', postingId: existingPosting.postingId })
-        continue
-      }
-
       let creditNoteId = clean(row.zohoCreditNoteId)
       let creditNoteNumber = row.zohoCreditNoteNumber || ''
 
       if (row.action === 'create_and_refund' || row.action === 'create_and_apply') {
-        const created = await (options.createCreditNote || createCreditNote)(row.zohoCreateRequest)
-        creditNoteId = clean(created.creditNoteId)
-        creditNoteNumber = created.creditNoteNumber || ''
-        result.summary.created += 1
+        const createPayload = row.zohoCreateRequest || {}
+        const total = creditNoteTotal(createPayload)
+        const expected = (localRow) => ({
+          customerId: clean(createPayload.customer_id),
+          referenceNumber: clean(createPayload.reference_number),
+          date: requestDateOf(localRow),
+          total,
+          currencyCode,
+        })
+        const created = await runSafeWrite({
+          store: postingStore,
+          label: `Credit note for order ${row.orderId}`,
+          row: {
+            batchId: batch.batchId,
+            invoiceId: row.zohoInvoiceId,
+            orderId: row.orderId,
+            paymentType: CREATE_PAYMENT_TYPE,
+            amount: total,
+            accountCode: '',
+            invoiceAllocations: [],
+            referenceNumber: clean(createPayload.reference_number),
+            description: row.description,
+            mappingSnapshot: {
+              marketplace,
+              request: {
+                date: createPayload.date,
+                customerId: clean(createPayload.customer_id),
+                total,
+                referenceNumber: clean(createPayload.reference_number),
+                currencyCode,
+              },
+            },
+          },
+          lookup: (localRow) => recovery.lookupCreditNote(expected(localRow), lookupDeps),
+          create: async () => {
+            const cn = await createCn(createPayload, { retryTransport: false })
+            return { zohoId: cn?.creditNoteId || '', zohoNumber: cn?.creditNoteNumber || '' }
+          },
+        })
+        if (created.status !== STATUS.POSTED) {
+          record(row, rowOutcomeStatus(created), {
+            step: 'create_credit_note',
+            error: created.message,
+            verification: created.verification || null,
+          })
+          continue
+        }
+        if (created.created) result.summary.created += 1
+        creditNoteId = created.zohoId
+        creditNoteNumber = created.zohoNumber || creditNoteNumber
       }
 
       const refundPayload = row.zohoRefundRequest || {
-        date: options.paymentDate || zohoPaymentService.todayLocalDate(),
+        date: paymentDate,
         amount: row.refundAmount ?? row.applyAmount,
         reference_number: row.referenceNumber,
         description: row.description,
         from_account_id: row.refundAccountId,
       }
-
-      const refunded = await (options.refundCreditNote || refundCreditNote)(creditNoteId, refundPayload)
-      result.summary.refunded += 1
-      result.summary.applied += 1
-
-      const posting = await store.insertPosting({
-        batchId: batch.batchId,
-        invoiceId: row.zohoInvoiceId,
-        orderId: row.orderId,
-        paymentType: PAYMENT_TYPE,
-        zohoPaymentId: refunded.creditNoteRefundId || creditNoteId,
-        amount: row.refundAmount ?? row.applyAmount,
-        accountCode: row.refundAccountCode || undepositedAccountFor(batch.marketplace || 'KSA').accountCode,
-        invoiceAllocations: [],
-        referenceNumber: row.referenceNumber,
-        description: row.description,
-        mappingSnapshot: {
-          action: row.action,
-          zohoCreditNoteId: creditNoteId,
-          zohoCreditNoteNumber: creditNoteNumber,
-          zohoCreditNoteRefundId: refunded.creditNoteRefundId || '',
-          refundAccountId: refundPayload.from_account_id || row.refundAccountId || '',
-          refundAccountName: row.refundAccountName || undepositedAccountFor(batch.marketplace || 'KSA').accountName,
-        },
-        status: 'posted',
+      const fromAccountId = clean(refundPayload.from_account_id)
+      if (!creditNoteId || !fromAccountId) {
+        record(row, 'error', {
+          step: 'refund_credit_note',
+          error: !creditNoteId ? 'No Zoho credit note to refund.' : `No ${marketplace} undeposited funds account for the refund.`,
+        })
+        continue
+      }
+      const refundAmount = round2(num(refundPayload.amount))
+      const expectedRefund = (localRow) => ({
+        referenceNumber: clean(refundPayload.reference_number),
+        date: requestDateOf(localRow),
+        amount: refundAmount,
+        fromAccountId,
       })
-
-      result.rows.push({
-        ...row,
-        status: 'posted',
+      const refunded = await runSafeWrite({
+        store: postingStore,
+        label: `Credit note refund for order ${row.orderId}`,
+        row: {
+          batchId: batch.batchId,
+          invoiceId: row.zohoInvoiceId,
+          orderId: row.orderId,
+          paymentType: PAYMENT_TYPE,
+          amount: refundAmount,
+          accountCode: row.refundAccountCode || undeposited.accountCode,
+          invoiceAllocations: [],
+          referenceNumber: clean(refundPayload.reference_number),
+          description: row.description,
+          mappingSnapshot: {
+            action: row.action,
+            marketplace,
+            zohoCreditNoteId: creditNoteId,
+            zohoCreditNoteNumber: creditNoteNumber,
+            refundAccountId: fromAccountId,
+            refundAccountName: row.refundAccountName || undeposited.accountName,
+            request: {
+              date: refundPayload.date,
+              amount: refundAmount,
+              referenceNumber: clean(refundPayload.reference_number),
+              fromAccountId,
+            },
+          },
+        },
+        lookup: (localRow) => recovery.lookupCreditNoteRefund(creditNoteId, expectedRefund(localRow), lookupDeps),
+        create: async () => {
+          const out = await refundCn(creditNoteId, refundPayload, { retryTransport: false })
+          return { zohoId: out?.creditNoteRefundId || '', extra: { zohoCreditNoteRefundId: out?.creditNoteRefundId || '' } }
+        },
+      })
+      const status = rowOutcomeStatus(refunded)
+      if (status === 'posted') {
+        result.summary.refunded += 1
+        result.summary.applied += 1
+      } else if (status === 'skipped') {
+        result.summary.skipped += 1
+      }
+      record(row, status, {
+        step: 'refund_credit_note',
         zohoCreditNoteId: creditNoteId,
         zohoCreditNoteNumber: creditNoteNumber,
-        zohoCreditNoteRefundId: refunded.creditNoteRefundId || '',
-        postingId: posting?.postingId,
+        zohoCreditNoteRefundId: refunded.zohoId,
+        postingId: refunded.posting?.id,
+        error: status === 'error' || status === 'verification_required' ? refunded.message : undefined,
+        verification: refunded.verification || null,
       })
     } catch (err) {
-      result.summary.errors += 1
-      const errorRow = {
-        ...row,
-        status: 'error',
+      record(row, 'error', {
         error: err?.message || 'Credit note refund failed',
         code: err?.code || 'CREDIT_NOTE_REFUND_FAILED',
-      }
-      result.errors.push(errorRow)
-      result.rows.push(errorRow)
+      })
     }
   }
 
-  result.success = result.summary.errors === 0
+  result.success = result.summary.errors === 0 && result.summary.verificationRequired === 0
   return result
 }
 
 module.exports = {
   PAYMENT_TYPE,
+  CREATE_PAYMENT_TYPE,
   LEGACY_PAYMENT_TYPE,
   UNDEPOSITED_ACCOUNT_CODE,
   UNDEPOSITED_ACCOUNT_NAME,
@@ -646,4 +812,5 @@ module.exports = {
   resolveCreditNoteRefundAmount,
   principalRefundAmountForOrder,
   creditNoteRefundTotal,
+  localCreditNotePostingsByOrder,
 }

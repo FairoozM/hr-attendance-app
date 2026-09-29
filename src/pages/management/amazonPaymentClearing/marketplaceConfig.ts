@@ -20,20 +20,21 @@ export function defaultZohoCustomerName(marketplace: ClearingMarketplace): strin
   return marketplace === 'UAE' ? 'Amazon' : 'KSA-Amazon'
 }
 
+// UAE names match the Zoho chart of accounts exactly (including Zoho's "Undeposided" spelling).
 export function undepositedFundsLabel(marketplace: ClearingMarketplace): string {
-  return marketplace === 'UAE' ? 'Amazon Undeposited Funds' : 'KSA-Amazon Undeposited Funds'
+  return marketplace === 'UAE' ? 'Amazon Undeposided Funds (1016)' : 'KSA-Amazon Undeposited Funds (1024)'
 }
 
 export function commissionAccountLabel(marketplace: ClearingMarketplace): string {
   return marketplace === 'UAE'
-    ? 'Amazon Uncleared Commission Exp'
-    : 'KSA-Amazon Uncleared Commission Exp'
+    ? 'Amazon Uncleared Commission (1021)'
+    : 'KSA-Amazon Uncleared Commission Exp (1026)'
 }
 
 export function shippingAccountLabel(marketplace: ClearingMarketplace): string {
   return marketplace === 'UAE'
-    ? 'Amazon Uncleared Shipping Exp'
-    : 'KSA-Amazon Uncleared Shipping Exp'
+    ? 'Amazon Uncleared Shipping Expense (1025)'
+    : 'KSA-Amazon Uncleared Shipping Exp (1028)'
 }
 
 export function defaultCurrency(marketplace: ClearingMarketplace): 'AED' | 'SAR' {
