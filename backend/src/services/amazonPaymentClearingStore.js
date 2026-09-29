@@ -567,10 +567,10 @@ async function updateRowsMatchStatus(batchId, rowNumbers, matchStatus) {
   if (!ids.length) return 0
   const result = await query(
     `UPDATE amazon_payment_clearing_rows
-     SET match_status = $3,
-         row_class = CASE WHEN $3 = 'account_level_fee' THEN 'NON_ORDER_LINKED_AMAZON_FEE' ELSE row_class END,
+     SET match_status = $3::varchar,
+         row_class = CASE WHEN $3::varchar = 'account_level_fee' THEN 'NON_ORDER_LINKED_AMAZON_FEE' ELSE row_class END,
          blocking_reason = CASE
-           WHEN $3 = 'account_level_fee' THEN 'Order ID not required for this Amazon fee.'
+           WHEN $3::varchar = 'account_level_fee' THEN 'Order ID not required for this Amazon fee.'
            ELSE blocking_reason
          END
      WHERE batch_id = $1 AND row_number = ANY($2::int[])`,

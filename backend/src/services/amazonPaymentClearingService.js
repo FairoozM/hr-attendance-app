@@ -1022,7 +1022,7 @@ async function maybeRematchZohoForDraftBatch(batch, storedRows, preview, feeJour
  * persisted rows table, without ever calling Amazon SP-API.
  */
 async function hydrateSavedBatch(batch) {
-  const preview = savedBatchToPreview(batch)
+  let preview = savedBatchToPreview(batch)
   if (!preview) return null
   let feeJournalMappingRules = []
   try {
