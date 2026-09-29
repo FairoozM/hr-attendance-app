@@ -6,13 +6,20 @@
  * - REASSIGNED_PAYMENT: the charge paid a website order that was later cancelled without a
  *   refund, and the same funds were reused for a replacement invoice. The original order and
  *   invoice are kept as audit evidence only.
+ * - MANUAL_INVOICE_MAPPING: the permanent fallback for any other charge the matcher could not
+ *   resolve (missing/wrong PaymentIntent, replacement or migrated order, status mismatch, …).
+ *   The matcher's status and reason before the override are kept for audit.
  *
  * One ACTIVE mapping per PaymentIntent, per charge and per Zoho invoice. A mapping is never
  * edited: it is released (kept for audit) and a new one confirmed, and only while no accounting
  * exists for its payout customer. Nothing here talks to Zoho or Stripe.
  */
 
-const MAPPING_TYPE = Object.freeze({ DIRECT_PAYMENT: 'DIRECT_PAYMENT', REASSIGNED_PAYMENT: 'REASSIGNED_PAYMENT' })
+const MAPPING_TYPE = Object.freeze({
+  DIRECT_PAYMENT: 'DIRECT_PAYMENT',
+  REASSIGNED_PAYMENT: 'REASSIGNED_PAYMENT',
+  MANUAL_INVOICE_MAPPING: 'MANUAL_INVOICE_MAPPING',
+})
 const MAPPING_STATUS = Object.freeze({ ACTIVE: 'ACTIVE', RELEASED: 'RELEASED' })
 const CUSTOMER_KEY = Object.freeze({ WEBSITE: 'WEBSITE', SHOP: 'SHOP' })
 
@@ -46,6 +53,40 @@ const REASSIGNED_SCHEMA_SQL = [
        ALTER TABLE stripe_direct_payment_mappings
          ADD CONSTRAINT ck_stripe_direct_payment_original_order
          CHECK ((mapping_type = 'REASSIGNED_PAYMENT') = (original_order_number IS NOT NULL AND btrim(original_order_number) <> ''));
+     END IF;
+   END $$`,
+]
+
+// 056: manual invoice mappings (same statements as migrations/056_stripe_manual_invoice_mapping.sql).
+// The original-order check keeps its 055 name so the 055 statements above stay no-ops.
+const MANUAL_SCHEMA_SQL = [
+  `ALTER TABLE stripe_direct_payment_mappings
+     ADD COLUMN IF NOT EXISTS matcher_status TEXT,
+     ADD COLUMN IF NOT EXISTS matcher_reason TEXT`,
+  `DO $$
+   BEGIN
+     IF NOT EXISTS (
+       SELECT 1 FROM pg_constraint
+       WHERE conrelid = 'stripe_direct_payment_mappings'::regclass
+         AND conname = 'stripe_direct_payment_mappings_mapping_type_check'
+         AND pg_get_constraintdef(oid) LIKE '%MANUAL_INVOICE_MAPPING%'
+     ) THEN
+       ALTER TABLE stripe_direct_payment_mappings DROP CONSTRAINT IF EXISTS stripe_direct_payment_mappings_mapping_type_check;
+       ALTER TABLE stripe_direct_payment_mappings
+         ADD CONSTRAINT stripe_direct_payment_mappings_mapping_type_check
+         CHECK (mapping_type IN ('DIRECT_PAYMENT', 'REASSIGNED_PAYMENT', 'MANUAL_INVOICE_MAPPING'));
+     END IF;
+     IF NOT EXISTS (
+       SELECT 1 FROM pg_constraint
+       WHERE conrelid = 'stripe_direct_payment_mappings'::regclass
+         AND conname = 'ck_stripe_direct_payment_original_order'
+         AND pg_get_constraintdef(oid) LIKE '%DIRECT_PAYMENT%'
+     ) THEN
+       ALTER TABLE stripe_direct_payment_mappings DROP CONSTRAINT IF EXISTS ck_stripe_direct_payment_original_order;
+       ALTER TABLE stripe_direct_payment_mappings
+         ADD CONSTRAINT ck_stripe_direct_payment_original_order
+         CHECK ((mapping_type <> 'REASSIGNED_PAYMENT' OR (original_order_number IS NOT NULL AND btrim(original_order_number) <> ''))
+           AND (mapping_type <> 'DIRECT_PAYMENT' OR original_order_number IS NULL));
      END IF;
    END $$`,
 ]
@@ -86,6 +127,7 @@ const SCHEMA_SQL = [
   `CREATE INDEX IF NOT EXISTS idx_stripe_direct_payment_payout
      ON stripe_direct_payment_mappings (payout_id)`,
   ...REASSIGNED_SCHEMA_SQL,
+  ...MANUAL_SCHEMA_SQL,
 ]
 
 async function ensureStripeDirectPaymentTables(query) {
@@ -125,6 +167,8 @@ function mapMapping(row) {
     originalOrderStatus: row.original_order_status || null,
     originalInvoiceId: row.original_invoice_id || null,
     originalInvoiceNumber: row.original_invoice_number || null,
+    matcherStatus: row.matcher_status || null,
+    matcherReason: row.matcher_reason || null,
     reason: row.reason,
     mappedBy: row.mapped_by,
     mappedAt: iso(row.mapped_at),
@@ -201,12 +245,13 @@ async function insertMapping(db, m) {
     const { rows } = await db.query(
       `INSERT INTO stripe_direct_payment_mappings (stripe_payment_intent_id, stripe_charge_id, zoho_invoice_id, zoho_invoice_number,
          zoho_customer_id, customer_key, payout_id, mapping_type, currency, stripe_gross, invoice_reference, evidence, reason, mapped_by,
-         original_order_id, original_order_number, original_order_status, original_invoice_id, original_invoice_number)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+         original_order_id, original_order_number, original_order_status, original_invoice_id, original_invoice_number, matcher_status, matcher_reason)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
        RETURNING *`,
       [m.paymentIntentId, m.chargeId || null, m.zohoInvoiceId, m.zohoInvoiceNumber, m.zohoCustomerId, m.customerKey, m.payoutId,
         m.mappingType || MAPPING_TYPE.DIRECT_PAYMENT, m.currency, m.stripeGross, m.invoiceReference || null, m.evidence || null, m.reason, m.mappedBy,
-        m.originalOrderId || null, m.originalOrderNumber || null, m.originalOrderStatus || null, m.originalInvoiceId || null, m.originalInvoiceNumber || null],
+        m.originalOrderId || null, m.originalOrderNumber || null, m.originalOrderStatus || null, m.originalInvoiceId || null, m.originalInvoiceNumber || null,
+        m.matcherStatus || null, m.matcherReason || null],
     )
     return mapMapping(rows[0])
   } catch (err) {

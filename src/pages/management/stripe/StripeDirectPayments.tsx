@@ -11,6 +11,7 @@ import {
   type StripeDirectMapping,
   type StripeDirectSearchBy,
   type StripeDirectValidation,
+  type StripeLineSource,
   type StripeOriginalInvoice,
   type StripePayoutLine,
   type StripePaymentEvidence,
@@ -21,10 +22,26 @@ import { aed, amount, formatDay, formatWhen, statusLabel } from './stripePayoutF
 const MIN_REASON = 10
 const MAPPING_REASON_PLACEHOLDER = 'e.g. Payment Link "Matjar meem #20901" paid invoice INV-043544 (P.O.# 20901); no website order exists.'
 const REASSIGN_REASON_PLACEHOLDER = 'e.g. Customer cancelled original order and same Stripe funds were reused for replacement order.'
+const MANUAL_REASON_PLACEHOLDER = 'e.g. Stripe payment for order 20901; the website status is wrong, verified with the customer and Zoho INV-043544.'
 
 /** Label for a charge cleared through an admin mapping, by mapping type. */
 export function mappedPaymentLabel(m: Pick<StripeDirectMapping, 'mappingType'> | null | undefined): string {
-  return m?.mappingType === 'REASSIGNED_PAYMENT' ? 'REASSIGNED STRIPE PAYMENT' : 'DIRECT STRIPE PAYMENT'
+  if (m?.mappingType === 'REASSIGNED_PAYMENT') return 'REASSIGNED STRIPE PAYMENT'
+  if (m?.mappingType === 'MANUAL_INVOICE_MAPPING') return 'MANUAL INVOICE MAPPING'
+  return 'DIRECT STRIPE PAYMENT'
+}
+
+/** Allocation label for a mapped charge (it has no website order number). */
+export function allocationSourceLabel(source: StripeLineSource | null | undefined): string {
+  if (source === 'REASSIGNED_STRIPE_PAYMENT') return 'REASSIGNED STRIPE PAYMENT'
+  if (source === 'MANUAL_INVOICE_MAPPING') return 'MANUAL INVOICE MAPPING'
+  return 'DIRECT STRIPE PAYMENT'
+}
+
+function cardTitle(line: StripeUnassignedLine): string {
+  if (line.mappingType === 'REASSIGNED_PAYMENT') return 'UNRESOLVED CHARGE · CANCELLED ORDER, NOT REFUNDED'
+  if (line.mappingType === 'MANUAL_INVOICE_MAPPING') return 'UNRESOLVED CHARGE · MATCHER NEEDS HELP'
+  return 'UNRESOLVED CHARGE'
 }
 
 function originalInvoicesText(invoices: StripeOriginalInvoice[] | null | undefined): string {
@@ -116,32 +133,50 @@ function Suggestion({ line }: { line: StripeUnassignedLine }) {
 
 function UnresolvedChargeCard({ line, onAssign }: { line: StripeUnassignedLine; onAssign: (line: StripeUnassignedLine) => void }) {
   const origin = line.originalOrder
+  const refunded = line.stripeRefunded ?? origin?.refundedThroughStripe ?? 0
   return (
     <div className="stripe-direct__card" data-testid="unresolved-charge">
       <div className="stripe-payout__advance-head">
-        <strong>{origin ? 'UNRESOLVED CHARGE · CANCELLED ORDER, NOT REFUNDED' : 'UNRESOLVED CHARGE'}</strong>
-        <span className="stripe-payout__badge stripe-payout__badge--warn">{statusLabel(line.state)}</span>
+        <strong>{cardTitle(line)}</strong>
+        <span className="stripe-payout__badge stripe-payout__badge--warn">{statusLabel(line.matcherStatus || line.state)}</span>
       </div>
+      <p className="stripe-page__note" data-testid="matcher-reason">
+        <strong>Reason:</strong> {line.matcherReason || line.reason}
+      </p>
       <dl>
-        {origin && (
-          <>
-            <div>
-              <dt>ORIGINAL ORDER</dt>
-              <dd>
+        <div>
+          <dt>ORIGINAL ORDER</dt>
+          <dd>
+            {origin ? (
+              <>
                 <strong>{origin.orderNumber}</strong> · {origin.orderStatus} · payment {origin.paymentStatus}
                 {origin.paymentMethod ? ` · ${origin.paymentMethod}` : ''} · {aed(origin.finalAmount)}
-              </dd>
-            </div>
-            <div>
-              <dt>Original invoice</dt>
-              <dd>{originalInvoicesText(line.originalInvoices)}</dd>
-            </div>
-            <div>
-              <dt>Refunded through Stripe</dt>
-              <dd>{aed(origin.refundedThroughStripe)}</dd>
-            </div>
-          </>
-        )}
+              </>
+            ) : (
+              'No website order carries this PaymentIntent'
+            )}
+          </dd>
+        </div>
+        <div>
+          <dt>Original invoice</dt>
+          <dd>
+            {line.originalInvoices?.length
+              ? originalInvoicesText(line.originalInvoices)
+              : line.invoice
+                ? `${line.invoice.invoiceNumber} (${line.invoice.status}, balance ${aed(line.invoice.balance)})`
+                : origin
+                  ? 'None in Zoho'
+                  : '—'}
+          </dd>
+        </div>
+        <div>
+          <dt>Stripe refunded</dt>
+          <dd>{aed(refunded)}</dd>
+        </div>
+        <div>
+          <dt>Dispute</dt>
+          <dd>{line.stripeDisputed ? 'Disputed' : 'Not disputed'}</dd>
+        </div>
         <div>
           <dt>PaymentIntent</dt>
           <dd className="stripe-clearing__mono">{line.paymentIntentId || '—'}</dd>
@@ -168,7 +203,6 @@ function UnresolvedChargeCard({ line, onAssign }: { line: StripeUnassignedLine; 
         </div>
         <StripeEvidence evidence={line.stripeEvidence} description={line.description} />
       </dl>
-      <p className="stripe-page__note">{line.reason}</p>
       <Suggestion line={line} />
       <div className="stripe-clearing__actions">
         <button
@@ -206,11 +240,14 @@ interface AssignState {
 
 function freshAssign(line: StripeUnassignedLine): AssignState {
   const origin = line.originalOrder
+  const reassigned = line.mappingType === 'REASSIGNED_PAYMENT' && origin
+  const manualWithOrder = line.mappingType === 'MANUAL_INVOICE_MAPPING' && origin
   return {
-    // A replacement invoice is found by the same amount under the original order's customer.
-    by: origin ? 'amount' : 'auto',
+    // A replacement invoice is found by the same amount under the original order's customer; a
+    // manual mapping starts from the website order's own P.O.#.
+    by: reassigned ? 'amount' : manualWithOrder ? 'reference' : 'auto',
     customer: origin ? (origin.shopOrder ? 'shop' : 'website') : 'all',
-    q: origin ? line.gross.toFixed(2) : initialQuery(line),
+    q: reassigned ? line.gross.toFixed(2) : manualWithOrder ? origin.orderNumber : initialQuery(line),
     searching: false,
     searchError: '',
     results: null,
@@ -228,12 +265,31 @@ function freshAssign(line: StripeUnassignedLine): AssignState {
 
 function ValidationPanel({ v }: { v: StripeDirectValidation }) {
   const inv = v.invoice
+  const blocking = v.checks.filter((c) => c.blocking)
   return (
     <div className="stripe-direct__validation" aria-label="Mapping checks">
+      {blocking.length > 0 && (
+        <div className="stripe-page__banner stripe-page__banner--error" role="alert" data-testid="mapping-blocked">
+          {blocking.map((c) => (
+            <div key={c.key}>❌ {c.detail || c.label}</div>
+          ))}
+        </div>
+      )}
       {v.mappingType === 'REASSIGNED_PAYMENT' && v.originalOrder && (
         <p className="stripe-page__note">
           Reassigned payment: cancelled order <strong>{v.originalOrder.orderNumber}</strong> (original invoice {originalInvoicesText(v.originalInvoices)}) stays
           unchanged as evidence; its Stripe funds clear the replacement invoice instead.
+        </p>
+      )}
+      {v.mappingType === 'MANUAL_INVOICE_MAPPING' && (
+        <p className="stripe-page__note">
+          Manual invoice mapping: the matcher could not prove this relationship ({statusLabel(v.matcherStatus || 'NEEDS_REVIEW')}: {v.matcherReason || '—'}).
+          {v.originalOrder ? (
+            <>
+              {' '}
+              Website order <strong>{v.originalOrder.orderNumber}</strong> ({v.originalOrder.orderStatus}) stays unchanged as evidence.
+            </>
+          ) : null}
         </p>
       )}
       {inv && (
@@ -330,6 +386,8 @@ function AssignInvoiceModal({
   const [s, setS] = useState<AssignState>(() => freshAssign(line))
   const pi = line.paymentIntentId || ''
   const origin = line.originalOrder
+  const manual = line.mappingType === 'MANUAL_INVOICE_MAPPING'
+  const reassigned = line.mappingType === 'REASSIGNED_PAYMENT' || (!line.mappingType && Boolean(origin))
   const v = s.validation
   const typedOk = !v?.requiresTypedInvoiceNumber || s.typedInvoiceNumber.trim().toUpperCase() === v.invoice?.invoiceNumber.toUpperCase()
   const canConfirm = Boolean(v && v.invoice && !v.blocking) && s.reason.trim().length >= MIN_REASON && s.acknowledged && typedOk && !s.saving
@@ -380,10 +438,17 @@ function AssignInvoiceModal({
       <p>
         <span className="stripe-clearing__mono">{pi}</span> · {aed(line.gross)} · fee {aed(line.fee)} · net {aed(line.net)}
       </p>
-      {origin && (
+      {reassigned && origin && (
         <p className="stripe-page__note">
           Original order <strong>{origin.orderNumber}</strong> ({origin.orderStatus}) · refunded through Stripe {aed(origin.refundedThroughStripe)}. Select the
           replacement invoice the same funds paid.
+        </p>
+      )}
+      {manual && (
+        <p className="stripe-page__note">
+          {statusLabel(line.matcherStatus || line.state)} · Reason: {line.matcherReason || line.reason}
+          {origin ? ` · website order ${origin.orderNumber} (${origin.orderStatus})` : ''}. Search by invoice number, P.O.#, amount or customer and select the Zoho
+          invoice this payment belongs to; every check runs again before anything is saved.
         </p>
       )}
       <form
@@ -495,16 +560,18 @@ function AssignInvoiceModal({
             <textarea
               rows={3}
               value={s.reason}
-              placeholder={origin ? REASSIGN_REASON_PLACEHOLDER : MAPPING_REASON_PLACEHOLDER}
+              placeholder={manual ? MANUAL_REASON_PLACEHOLDER : reassigned ? REASSIGN_REASON_PLACEHOLDER : MAPPING_REASON_PLACEHOLDER}
               disabled={s.saving}
               onChange={(e) => setS({ ...s, reason: e.target.value })}
             />
           </label>
           <label className="stripe-clearing__check">
             <input type="checkbox" checked={s.acknowledged} disabled={s.saving} onChange={(e) => setS({ ...s, acknowledged: e.target.checked })} />
-            {origin
-              ? `I verified order ${origin.orderNumber} was cancelled without a refund and the same Stripe funds paid the selected Zoho invoice.`
-              : 'I verified this Stripe payment belongs to the selected Zoho invoice.'}
+            {manual
+              ? 'I verified this Stripe payment belongs to the selected Zoho invoice although the automatic matcher could not prove it.'
+              : reassigned && origin
+                ? `I verified order ${origin.orderNumber} was cancelled without a refund and the same Stripe funds paid the selected Zoho invoice.`
+                : 'I verified this Stripe payment belongs to the selected Zoho invoice.'}
           </label>
           <p className="stripe-page__note">
             {aed(v.stripe.gross)} → {v.invoice.invoiceNumber} ({v.invoice.customerName}). Saves a local mapping only; nothing is sent to Zoho or Stripe. The
@@ -534,7 +601,7 @@ function AssignInvoiceModal({
   )
 }
 
-/** Charges that belong to no customer group yet, each with the direct-payment mapping action. */
+/** Every charge the matcher did not resolve, each with the "Assign to Zoho Invoice" action. */
 export function UnresolvedCharges({ payoutId, lines, onChanged }: { payoutId: string; lines: StripeUnassignedLine[]; onChanged: () => void }) {
   const [assigning, setAssigning] = useState<StripeUnassignedLine | null>(null)
   if (lines.length === 0) return null
@@ -544,9 +611,9 @@ export function UnresolvedCharges({ payoutId, lines, onChanged }: { payoutId: st
         <h3>Unresolved charges ({lines.length})</h3>
       </header>
       <p className="stripe-page__note">
-        These charges belong to no customer group. A direct Stripe payment (e.g. a Payment Link, no website order) can be assigned to its existing Zoho
-        invoice; a payment whose website order was cancelled without a refund can be reassigned to the replacement invoice the same funds paid. Nothing is
-        mapped automatically, and the cancelled order is never changed.
+        The matcher could not clear these charges. Any of them can be assigned to an existing Zoho invoice: a direct Stripe payment (no website order), a
+        cancelled order&apos;s unrefunded funds reused for a replacement invoice, or any other case by manual mapping. Every check runs again on the server
+        before a mapping is saved; nothing is mapped automatically and website orders are never changed.
       </p>
       {lines.map((l) => (
         <UnresolvedChargeCard key={l.balanceTransactionId} line={l} onAssign={setAssigning} />
@@ -569,7 +636,7 @@ export function UnresolvedCharges({ payoutId, lines, onChanged }: { payoutId: st
   )
 }
 
-/** A charge cleared through an admin-confirmed direct or reassigned payment mapping. */
+/** A charge cleared through an admin-confirmed direct, reassigned or manual invoice mapping. */
 export function DirectPaymentCard({
   payoutId,
   line,
@@ -585,6 +652,8 @@ export function DirectPaymentCard({
   const m = line.direct
   if (!m) return null
   const reassigned = m.mappingType === 'REASSIGNED_PAYMENT'
+  const manual = m.mappingType === 'MANUAL_INVOICE_MAPPING'
+  const withOrigin = reassigned || (manual && Boolean(m.originalOrderNumber))
 
   async function submitRelease() {
     if (!release || !m) return
@@ -604,16 +673,26 @@ export function DirectPaymentCard({
         <strong>{mappedPaymentLabel(m)}</strong>
         <span className="stripe-payout__badge stripe-payout__badge--ok">MANUALLY VERIFIED</span>
       </div>
-      {reassigned ? (
-        <dl className="stripe-direct__summary" data-testid="reassigned-summary">
-          <div>
-            <dt>Original order</dt>
-            <dd>
-              <strong>{m.originalOrderNumber}</strong>
-              {m.originalOrderStatus ? ` · ${m.originalOrderStatus}` : ''}
-              {m.originalInvoiceNumber ? ` · original invoice ${m.originalInvoiceNumber}` : ''}
-            </dd>
-          </div>
+      {reassigned || manual ? (
+        <dl className="stripe-direct__summary" data-testid={reassigned ? 'reassigned-summary' : 'manual-summary'}>
+          {withOrigin && (
+            <div>
+              <dt>Original order</dt>
+              <dd>
+                <strong>{m.originalOrderNumber}</strong>
+                {m.originalOrderStatus ? ` · ${m.originalOrderStatus}` : ''}
+                {m.originalInvoiceNumber ? ` · original invoice ${m.originalInvoiceNumber}` : ''}
+              </dd>
+            </div>
+          )}
+          {manual && (
+            <div>
+              <dt>Matcher before override</dt>
+              <dd>
+                {statusLabel(m.matcherStatus || 'NEEDS_REVIEW')} · {m.matcherReason || '—'}
+              </dd>
+            </div>
+          )}
           <div>
             <dt>Clearing invoice</dt>
             <dd>
@@ -635,6 +714,11 @@ export function DirectPaymentCard({
         </p>
       )}
       {line.state === 'NEEDS_REVIEW' && <p className="stripe-page__banner stripe-page__banner--error">{line.reason}</p>}
+      {!m.removable && (
+        <p className="stripe-page__note" data-testid="mapping-locked">
+          {m.lockedReason || 'This mapping can no longer be changed here.'}
+        </p>
+      )}
       <details className="stripe-payout__details">
         <summary>Mapping details</summary>
         <dl>
@@ -644,7 +728,15 @@ export function DirectPaymentCard({
               #{m.mappingId} · {m.mappingType} · {statusLabel(m.status)}
             </dd>
           </div>
-          {reassigned && (
+          {manual && (
+            <div>
+              <dt>Matcher status / reason before override</dt>
+              <dd>
+                {m.matcherStatus || '—'} · {m.matcherReason || '—'}
+              </dd>
+            </div>
+          )}
+          {withOrigin && (
             <>
               <div>
                 <dt>Original website order</dt>
@@ -722,9 +814,7 @@ export function DirectPaymentCard({
               </button>
             </div>
           )
-        ) : (
-          <p className="stripe-page__note">{m.lockedReason || 'This mapping can no longer be changed here.'}</p>
-        )}
+        ) : null}
       </details>
     </div>
   )

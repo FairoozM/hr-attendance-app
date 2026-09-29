@@ -48,7 +48,7 @@ import {
   zohoPostingDate,
   type Tone,
 } from './stripePayoutFormat'
-import { DirectPaymentCard, UnresolvedCharges, mappedPaymentLabel } from './StripeDirectPayments'
+import { DirectPaymentCard, UnresolvedCharges, allocationSourceLabel, mappedPaymentLabel } from './StripeDirectPayments'
 
 const REASON_PLACEHOLDER = 'e.g. Paid product removed after payment before invoicing. No refund was issued.'
 const REFUNDED_REASON_PLACEHOLDER = 'e.g. Customer overpaid; the difference was refunded in Stripe after this payout.'
@@ -1103,7 +1103,7 @@ export function StripePayoutPreviewPanel() {
 
           <UnresolvedCharges
             payoutId={preview.payout.payoutId}
-            lines={preview.unassigned}
+            lines={[...preview.unassigned, ...(preview.reviewCharges ?? [])]}
             onChanged={() => void loadPreview(preview.payout.payoutId)}
           />
 
@@ -1311,7 +1311,7 @@ export function StripePayoutPreviewPanel() {
                         {c.allocations.map((a) => (
                           <tr key={a.invoiceId}>
                             <td>{a.invoiceNumber}</td>
-                            <td>{a.orderNumber || (a.source === 'REASSIGNED_STRIPE_PAYMENT' ? 'REASSIGNED STRIPE PAYMENT' : 'DIRECT STRIPE PAYMENT')}</td>
+                            <td>{a.orderNumber || allocationSourceLabel(a.source)}</td>
                             <td className="stripe-payout__num">{amount(a.amount)}</td>
                           </tr>
                         ))}

@@ -2,9 +2,10 @@
 
 /**
  * Pure rules for Stripe charges mapped by an admin to an existing Zoho invoice: direct payments
- * (Payment Links, no website order) and reassigned payments (the website order was cancelled
- * without a refund and the same funds were reused for a replacement invoice). No I/O. Stripe text
- * is supporting evidence only; a mapping always needs an admin.
+ * (Payment Links, no website order), reassigned payments (the website order was cancelled without
+ * a refund and the same funds were reused for a replacement invoice) and manual invoice mappings
+ * (any other charge the matcher could not resolve). No I/O. Stripe text is supporting evidence
+ * only; a mapping always needs an admin.
  */
 
 const { MAPPING_TYPE } = require('./stripeDirectPaymentStore')
@@ -25,6 +26,7 @@ const SOURCE = Object.freeze({
   WEBSITE_ORDER: 'WEBSITE_ORDER',
   DIRECT_STRIPE_PAYMENT: 'DIRECT_STRIPE_PAYMENT',
   REASSIGNED_STRIPE_PAYMENT: 'REASSIGNED_STRIPE_PAYMENT',
+  MANUAL_INVOICE_MAPPING: 'MANUAL_INVOICE_MAPPING',
 })
 // Stripe refunds in these states returned (or will return) money to the customer.
 const LIVE_REFUND_STATUSES = new Set(['succeeded', 'pending', 'requires_action'])
@@ -173,11 +175,17 @@ function originCustomerId(originalOrder, originalInvoices, config) {
   return originalOrder ? expectedZohoCustomerId(originalOrder, config) : null
 }
 
+function noStripeRefundCheck(chargeRefunds) {
+  const liveRefunds = (chargeRefunds || []).filter((r) => LIVE_REFUND_STATUSES.has(r.status))
+  return check('no_stripe_refund', 'No Stripe refund exists for the charge', Array.isArray(chargeRefunds) && liveRefunds.length === 0,
+    !Array.isArray(chargeRefunds) ? 'Stripe refunds could not be read.'
+      : liveRefunds.length > 0 ? `Refund(s) ${liveRefunds.map((r) => `${r.refundId} ${r.status} AED ${((Number(r.amountMinor) || 0) / 100).toFixed(2)}`).join(', ')}.` : 'None.')
+}
+
 function reassignedChecks(i, invoice) {
   const { config, originalOrder, originalInvoices, chargeRefunds, evidence, allocatingOriginal } = i
   const orders = i.websiteOrdersForIntent || []
   const origin = orders.length === 1 ? reassignableOrigin(orders[0], evidence) : null
-  const liveRefunds = (chargeRefunds || []).filter((r) => LIVE_REFUND_STATUSES.has(r.status))
   const liveOriginals = (originalInvoices || []).filter((inv) => !BLOCKED_INVOICE_STATUS.has(inv.status))
   const consumed = liveOriginals.filter((inv) => toMinor(inv.balance) < toMinor(inv.total))
   const checks = [
@@ -185,9 +193,7 @@ function reassignedChecks(i, invoice) {
       Boolean(originalOrder) && orders.length === 1 && orders[0].orderNumber === originalOrder.orderNumber && origin && origin.ok,
       orders.length > 1 ? `Website orders ${orders.map((o) => o.orderNumber).join(', ')} all carry this PaymentIntent.`
         : origin ? origin.reason : 'No website order carries this PaymentIntent.'),
-    check('no_stripe_refund', 'No Stripe refund exists for the charge', Array.isArray(chargeRefunds) && liveRefunds.length === 0,
-      !Array.isArray(chargeRefunds) ? 'Stripe refunds could not be read.'
-        : liveRefunds.length > 0 ? `Refund(s) ${liveRefunds.map((r) => `${r.refundId} ${r.status} ${(Number(r.amountMinor) || 0) / 100}`).join(', ')}.` : 'None.'),
+    noStripeRefundCheck(chargeRefunds),
     check('original_not_consumed', 'Original invoice has not consumed this payment',
       Array.isArray(originalInvoices) && consumed.length === 0 && (allocatingOriginal || []).length === 0,
       !Array.isArray(originalInvoices) ? 'Original Zoho invoices could not be read.'
@@ -213,12 +219,53 @@ function reassignedChecks(i, invoice) {
   return checks
 }
 
-/** Stripe references to the original order are expected on a reassigned payment; they are not evidence either way. */
-function referencesExcludingOrigin(references, originalOrder, originalInvoices) {
-  if (!originalOrder) return references
-  const values = new Set([clean(originalOrder.orderNumber)])
+/**
+ * Manual invoice mapping: the matcher could not resolve the charge, so only the facts that keep
+ * the money safe are checked. The target may be the original order's own invoice (e.g. a wrong
+ * operational order status); a customer different from the website order's is blocked.
+ */
+function manualChecks(i, invoice) {
+  const { config, chargeRefunds } = i
+  const orders = i.websiteOrdersForIntent || []
+  const checks = [
+    noStripeRefundCheck(chargeRefunds),
+    check('single_order', 'At most one website order carries this PaymentIntent', orders.length <= 1,
+      orders.length <= 1 ? (orders.length === 1 ? `Website order ${orders[0].orderNumber}.` : 'None.')
+        : `Website orders ${orders.map((o) => o.orderNumber).join(', ')} all carry this PaymentIntent; duplicate accounting risk.`),
+  ]
+  const reversed = orders.filter((o) => (Number(o.refundAmount) || 0) > 0 || o.paymentStatus === 'refunded')
+  checks.push(check('no_website_refund', 'Website records no refund of this payment', reversed.length === 0,
+    reversed.length > 0 ? `Website order ${reversed.map((o) => `${o.orderNumber} (${o.paymentStatus}${Number(o.refundAmount) > 0 ? `, refunded AED ${Number(o.refundAmount).toFixed(2)}` : ''})`).join(', ')} already reversed this payment.` : 'None.'))
+  if (!invoice) return checks
+  const expected = [...new Set(orders.map((o) => expectedZohoCustomerId(o, config)))]
+  const ok = expected.length === 0 || (expected.length === 1 && expected[0] === invoice.customerId)
+  checks.push(check('same_customer', 'Invoice customer matches the website order’s customer', ok,
+    expected.length === 0 ? 'No website order carries this PaymentIntent.'
+      : ok ? customerNameOf(invoice.customerId, config)
+        : `Website order(s) ${orders.map((o) => o.orderNumber).join(', ')} belong to ${expected.map((c) => customerNameOf(c, config)).join(' / ')}, the invoice to ${customerNameOf(invoice.customerId, config)}; blocked.`))
+  return checks
+}
+
+/** Stripe references to the original order are expected on a reassigned or manual mapping; they are not evidence either way. */
+function referencesExcludingOrigin(references, originalOrders, originalInvoices) {
+  const orders = (originalOrders || []).filter(Boolean)
+  if (orders.length === 0) return references
+  const values = new Set(orders.map((o) => clean(o.orderNumber)))
   for (const inv of originalInvoices || []) values.add(clean(inv.invoiceNumber).toUpperCase())
   return (references || []).filter((r) => !values.has(r.value))
+}
+
+function chargeStateDetail(evidence) {
+  if (!evidence) return 'Stripe evidence could not be read.'
+  const parts = []
+  if (evidence.status !== 'succeeded') parts.push(`PaymentIntent is ${evidence.status}.`)
+  const refunded = Number(evidence.refundedMinor) || 0
+  if (refunded > 0) {
+    const full = Number(evidence.amountReceivedMinor) > 0 && refunded >= Number(evidence.amountReceivedMinor)
+    parts.push(`Stripe charge has already been ${full ? '' : 'partially '}refunded AED ${(refunded / 100).toFixed(2)}.`)
+  }
+  if (evidence.disputed) parts.push('Stripe charge is disputed.')
+  return parts.length > 0 ? parts.join(' ') : 'PaymentIntent succeeded; nothing refunded; not disputed.'
 }
 
 /**
@@ -229,26 +276,33 @@ function referencesExcludingOrigin(references, originalOrder, originalInvoices) 
 function validateDirectMapping(i) {
   const { line, invoice, config, evidence, intentMapping, invoiceMapping, allocatingComponents,
     competingOrders, zohoIntentPayments, localClearing, websiteOrdersForIntent } = i
-  const reassigned = i.mappingType === MAPPING_TYPE.REASSIGNED_PAYMENT
-  const references = reassigned ? referencesExcludingOrigin(i.references, i.originalOrder, i.originalInvoices) : i.references
+  const mappingType = i.mappingType || MAPPING_TYPE.DIRECT_PAYMENT
+  const reassigned = mappingType === MAPPING_TYPE.REASSIGNED_PAYMENT
+  const manual = mappingType === MAPPING_TYPE.MANUAL_INVOICE_MAPPING
+  const references = reassigned ? referencesExcludingOrigin(i.references, [i.originalOrder], i.originalInvoices)
+    : manual ? referencesExcludingOrigin(i.references, websiteOrdersForIntent, i.originalInvoices)
+      : i.references
   const grossMinor = toMinor(line.gross)
   const customerKey = invoice ? customerKeyOf(invoice.customerId, config) : null
   const ev = assessEvidence(references, invoice)
   const checks = [
-    reassigned ? null : check('charge_unassigned', 'Charge has no website order', !line.website && (websiteOrdersForIntent || []).length === 0,
+    mappingType !== MAPPING_TYPE.DIRECT_PAYMENT ? null : check('charge_unassigned', 'Charge has no website order', !line.website && (websiteOrdersForIntent || []).length === 0,
       (websiteOrdersForIntent || []).length > 0 ? `Website order(s) ${websiteOrdersForIntent.map((o) => o.orderNumber).join(', ')} carry this PaymentIntent; it clears as a website order.` : 'No website order carries this PaymentIntent.'),
     check('charge_state', 'Stripe charge is settled, not refunded or disputed',
       evidence && evidence.status === 'succeeded' && !evidence.refundedMinor && !evidence.disputed,
-      !evidence ? 'Stripe evidence could not be read.' : `PaymentIntent ${evidence.status}; refunded ${(evidence.refundedMinor || 0) / 100}; ${evidence.disputed ? 'disputed' : 'not disputed'}.`),
+      chargeStateDetail(evidence)),
     check('stripe_payment', 'Stripe charge exists and received exactly the gross in AED',
       Boolean(evidence && evidence.chargeId) && (!line.chargeId || evidence.chargeId === line.chargeId)
         && clean(evidence.currency).toUpperCase() === config.websiteCurrency && Number(evidence.amountReceivedMinor) === grossMinor,
       !evidence ? 'Stripe evidence could not be read.'
         : `Charge ${evidence.chargeId || 'missing'}${line.chargeId && evidence.chargeId !== line.chargeId ? ` (payout has ${line.chargeId})` : ''}; received ${(Number(evidence.amountReceivedMinor) || 0) / 100} ${clean(evidence.currency).toUpperCase() || '—'} for gross ${line.gross}.`),
     check('invoice_found', 'Zoho invoice exists', Boolean(invoice), invoice ? `${invoice.invoiceNumber}` : 'Zoho has no such invoice.'),
+    check('no_advance_case', 'Charge has no customer advance case', !line.advance && !line.advanceCaseId,
+      line.advance || line.advanceCaseId ? `A customer advance case${line.advanceCaseId ? ` (${line.advanceCaseId})` : ''} exists for this charge; resolve it through the advance workflow.` : 'None.'),
   ].filter(Boolean)
   if (reassigned) checks.push(...reassignedChecks({ ...i, evidence }, invoice))
-  if (!invoice) return { checks, blocking: true, customerKey: null, evidence: ev, mappingType: i.mappingType || MAPPING_TYPE.DIRECT_PAYMENT }
+  if (manual) checks.push(...manualChecks(i, invoice))
+  if (!invoice) return { checks, blocking: true, customerKey: null, evidence: ev, mappingType }
   checks.push(
     check('customer_supported', 'Invoice customer is a Stripe-clearing customer', Boolean(customerKey),
       customerKey ? `${customerNameOf(invoice.customerId, config)}` : `Customer ${invoice.customerId} is not Website or Burjman Shop - Web & App.`),
@@ -269,17 +323,19 @@ function validateDirectMapping(i) {
       localClearing ? `Local clearing record ${localClearing.status} exists.` : (zohoIntentPayments || []).length > 0 ? `Zoho payment(s) ${zohoIntentPayments.map((p) => p.paymentId).join(', ')} carry this PaymentIntent.` : 'None.'),
     check('no_competing_order', 'No website order clears this invoice through another Stripe payment', (competingOrders || []).length === 0,
       (competingOrders || []).length > 0 ? `Website order ${competingOrders.map((o) => `${o.orderNumber} (${o.stripePaymentIntentId})`).join(', ')} is paid through another PaymentIntent.` : 'None.'),
+    // A manual override exists precisely because Stripe/website data disagree, so a contradicting
+    // reference is shown but does not block; the admin's typed confirmation carries the decision.
     check('evidence', 'Stripe reference does not contradict the invoice', ev.status !== EVIDENCE.CONFLICT,
       ev.status === EVIDENCE.MATCH ? `Stripe ${ev.matched.map((r) => `"${r.sources[0].text}"`).join(', ')} ↔ ${invoice.invoiceNumber} P.O.# ${invoice.referenceNumber || '—'}.`
         : ev.status === EVIDENCE.CONFLICT ? `Stripe names ${ev.others.map((r) => r.value).join(', ')}, not ${invoice.invoiceNumber} / P.O.# ${invoice.referenceNumber || '—'}.`
-          : 'Stripe carries no reference; the admin must re-type the invoice number.'),
+          : 'Stripe carries no reference; the admin must re-type the invoice number.', !manual),
   )
-  return { checks, blocking: checks.some((c) => c.blocking), customerKey, evidence: ev, mappingType: i.mappingType || MAPPING_TYPE.DIRECT_PAYMENT }
+  return { checks, blocking: checks.some((c) => c.blocking), customerKey, evidence: ev, mappingType }
 }
 
-/** Amount-only mappings (no Stripe reference) need the admin to re-type the invoice number. */
-function evidenceNeedsTypedConfirmation(evidenceStatus) {
-  return evidenceStatus !== EVIDENCE.MATCH
+/** Amount-only mappings (no Stripe reference) and every manual override need the admin to re-type the invoice number. */
+function evidenceNeedsTypedConfirmation(evidenceStatus, mappingType) {
+  return mappingType === MAPPING_TYPE.MANUAL_INVOICE_MAPPING || evidenceStatus !== EVIDENCE.MATCH
 }
 
 module.exports = {

@@ -2,9 +2,10 @@
 
 /**
  * Admin actions for mapping a Stripe charge to an existing Zoho invoice — a direct payment
- * (Payment Link, no website order) or a reassigned payment (cancelled website order, no refund,
- * funds reused for a replacement invoice): invoice search, read-only validation, confirmation and
- * release of the local mapping. The preview decides which kind a charge is.
+ * (Payment Link, no website order), a reassigned payment (cancelled website order, no refund,
+ * funds reused for a replacement invoice) or a manual invoice mapping (any other charge the
+ * matcher left unresolved): invoice search, read-only validation, confirmation and release of the
+ * local mapping. The preview decides which kind a charge is.
  *
  * Nothing here creates, changes or deletes anything in Zoho, Stripe or the website database;
  * they are only read. Confirmation and release hold the payout posting lock so they never race
@@ -125,14 +126,19 @@ async function searchInvoices(input = {}, overrides = {}) {
   return { mode, query: clean(input.q), invoices, zohoWrites: 0 }
 }
 
+/**
+ * The preview's view of one charge. Unassigned charges and charges the matcher left in review
+ * (`reviewCharges`) may be mapped; the latter also sit in their customer group.
+ */
 function findLine(result, pi) {
   const unassigned = (result.unassigned || []).find((l) => l.paymentIntentId === pi)
-  if (unassigned) return { line: unassigned, group: null }
+  if (unassigned) return { line: unassigned, group: null, assignable: true }
+  const review = (result.reviewCharges || []).find((l) => l.paymentIntentId === pi)
   for (const group of result.groups || []) {
     const line = group.lines.find((l) => l.paymentIntentId === pi)
-    if (line) return { line, group }
+    if (line) return { line: review || line, group, assignable: Boolean(review) }
   }
-  return null
+  return review ? { line: review, group: null, assignable: true } : null
 }
 
 function evidenceText(assessment, invoice, evidence) {
@@ -200,11 +206,8 @@ async function runValidation(po, pi, invoiceId, deps) {
   const result = await deps.previewPayout(po)
   const found = findLine(result, pi)
   if (!found) throw fail(404, 'CHARGE_NOT_IN_PAYOUT', `PaymentIntent ${pi} has no charge in payout ${po}.`)
-  const { line, group } = found
-  if (group) {
-    if (!line.direct && line.website && line.state === 'NEEDS_REVIEW') {
-      throw fail(409, 'CHARGE_NOT_REASSIGNABLE', `PaymentIntent ${pi} belongs to website order ${line.website.orderNumber} and cannot be reassigned: ${line.reason}`)
-    }
+  const { line } = found
+  if (!found.assignable) {
     const how = line.direct ? `mapped to ${line.direct.invoiceNumber}` : line.website ? `website order ${line.website.orderNumber}` : 'its customer group'
     throw fail(409, 'CHARGE_ALREADY_ASSIGNED', `PaymentIntent ${pi} already clears through ${how}.`)
   }
@@ -228,7 +231,7 @@ async function runValidation(po, pi, invoiceId, deps) {
   const ordersWithReference = invoice && invoice.referenceNumber ? await deps.sources.loadWebsiteOrdersByNumbers([invoice.referenceNumber], currency) : []
   const competingOrders = ordersWithReference.filter((o) => !o.deleted && clean(o.stripePaymentIntentId) && o.stripePaymentIntentId !== pi)
   const mappingType = line.mappingType || directModel.MAPPING_TYPE.DIRECT_PAYMENT
-  const original = mappingType === directModel.MAPPING_TYPE.REASSIGNED_PAYMENT
+  const original = mappingType !== directModel.MAPPING_TYPE.DIRECT_PAYMENT
     ? await loadOriginal(line, websiteOrdersForIntent, deps)
     : {}
   const v = directModel.validateDirectMapping({
@@ -240,6 +243,8 @@ async function runValidation(po, pi, invoiceId, deps) {
     paymentIntentId: pi,
     chargeId: line.chargeId,
     mappingType,
+    matcherStatus: line.matcherStatus || line.state || null,
+    matcherReason: line.matcherReason || line.reason || null,
     originalOrder: original.originalOrder ? publicOrder(original.originalOrder) : null,
     originalInvoices: (original.originalInvoices || []).map(publicInvoice(deps.config)),
     stripe: { gross: line.gross, fee: line.fee, net: line.net, currency, createdAt: line.chargeCreatedAt, description: line.description },
@@ -266,7 +271,7 @@ async function runValidation(po, pi, invoiceId, deps) {
     blocking: v.blocking,
     evidenceStatus: v.evidence.status,
     evidenceSummary: invoice ? evidenceText(v.evidence, invoice, evidence) : null,
-    requiresTypedInvoiceNumber: directModel.evidenceNeedsTypedConfirmation(v.evidence.status),
+    requiresTypedInvoiceNumber: directModel.evidenceNeedsTypedConfirmation(v.evidence.status, mappingType),
     _assessment: v,
   }
 }
@@ -291,10 +296,11 @@ async function validateDirectPayment(payoutId, paymentIntentId, invoiceId, overr
 }
 
 /**
- * Admin confirms a direct or reassigned Stripe payment for one Zoho invoice. Re-validates under
- * the payout lock; every blocking check must pass. Without a Stripe reference to the invoice the
- * admin must re-type the invoice number (amount alone is never enough). Writes one local row only;
- * a reassigned mapping records the cancelled order and its invoice as evidence and changes neither.
+ * Admin confirms a direct, reassigned or manual Stripe payment mapping for one Zoho invoice.
+ * Re-validates under the payout lock; every blocking check must pass. Without a Stripe reference to
+ * the invoice, and for every manual mapping, the admin must re-type the invoice number (amount
+ * alone is never enough). Writes one local row only; the original order and invoice, if any, are
+ * recorded as evidence and changed nowhere.
  */
 async function confirmDirectPayment(payoutId, paymentIntentId, opts = {}, overrides = {}) {
   const deps = { ...defaultDeps(), ...overrides }
@@ -309,7 +315,9 @@ async function confirmDirectPayment(payoutId, paymentIntentId, opts = {}, overri
       throw fail(409, 'DIRECT_MAPPING_BLOCKED', `Mapping blocked: ${v.checks.filter((c) => c.blocking).map((c) => `${c.label} — ${c.detail}`).join(' ')}`, { reasons: v.checks.filter((c) => c.blocking).map((c) => c.detail) })
     }
     if (v.requiresTypedInvoiceNumber && clean(opts.confirmInvoiceNumber).toUpperCase() !== v.invoice.invoiceNumber.toUpperCase()) {
-      throw fail(400, 'EVIDENCE_REQUIRED', `Stripe does not reference ${v.invoice.invoiceNumber}. Re-type the invoice number to confirm this mapping by hand.`)
+      throw fail(400, 'EVIDENCE_REQUIRED', v.mappingType === directModel.MAPPING_TYPE.MANUAL_INVOICE_MAPPING
+        ? `A manual invoice mapping needs the invoice number re-typed exactly (${v.invoice.invoiceNumber}).`
+        : `Stripe does not reference ${v.invoice.invoiceNumber}. Re-type the invoice number to confirm this mapping by hand.`)
     }
     const originalInvoice = pickOriginalInvoice(v.originalInvoices)
     const mapping = await deps.store.insertMapping(lock.db, {
@@ -319,6 +327,8 @@ async function confirmDirectPayment(payoutId, paymentIntentId, opts = {}, overri
       originalOrderStatus: v.originalOrder ? v.originalOrder.orderStatus : null,
       originalInvoiceId: originalInvoice ? originalInvoice.invoiceId : null,
       originalInvoiceNumber: originalInvoice ? originalInvoice.invoiceNumber : null,
+      matcherStatus: v.matcherStatus,
+      matcherReason: v.matcherReason,
       paymentIntentId: pi,
       chargeId: v.chargeId,
       zohoInvoiceId: v.invoice.invoiceId,

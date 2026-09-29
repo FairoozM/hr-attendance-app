@@ -1,5 +1,5 @@
 /**
- * Real PostgreSQL checks for direct and reassigned Stripe payment mappings.
+ * Real PostgreSQL checks for direct, reassigned and manual Stripe payment mappings.
  * Runs only against a disposable database, in its own schema:
  *   STRIPE_CLEARING_TEST_DATABASE_URL=postgres://…/scratch node --test tests/stripeDirectPaymentStore.pg.test.js
  */
@@ -16,6 +16,7 @@ const skip = url ? false : 'STRIPE_CLEARING_TEST_DATABASE_URL not set'
 const SCHEMA = 'stripe_direct_payment_test'
 const MIGRATION = path.join(__dirname, '../migrations/054_stripe_direct_payment_mapping.sql')
 const MIGRATION_055 = path.join(__dirname, '../migrations/055_stripe_reassigned_payment_mapping.sql')
+const MIGRATION_056 = path.join(__dirname, '../migrations/056_stripe_manual_invoice_mapping.sql')
 
 const PAYOUT = 'po_1UDDZ3DJogiiRoKPj4uB4mEL'
 const PI = 'pi_3UB7cxDJogiiRoKP2ddNSqC5'
@@ -53,12 +54,14 @@ test.before(async () => {
   pool = newPool()
   await payoutStore.ensureStripePayoutClearingTables((sql, params) => pool.query(sql, params))
   // The reference migrations and the boot-time ensure must agree and all be re-runnable; 054
-  // alone leaves the DIRECT_PAYMENT-only check that 055 replaces.
+  // alone leaves the DIRECT_PAYMENT-only check that 055 replaces, and 055 the checks 056 replaces.
   await pool.query(fs.readFileSync(MIGRATION, 'utf8'))
   await pool.query(fs.readFileSync(MIGRATION_055, 'utf8'))
   await directStore.ensureStripeDirectPaymentTables((sql, params) => pool.query(sql, params))
+  await pool.query(fs.readFileSync(MIGRATION_056, 'utf8'))
   await pool.query(fs.readFileSync(MIGRATION_055, 'utf8'))
   await pool.query(fs.readFileSync(MIGRATION, 'utf8'))
+  await directStore.ensureStripeDirectPaymentTables((sql, params) => pool.query(sql, params))
 })
 
 test.after(async () => {
@@ -159,6 +162,33 @@ test('mapping type and original order must agree; unknown types are refused', { 
   await assert.rejects(insert('REASSIGNED_PAYMENT', ' '), /ck_stripe_direct_payment_original_order/)
   await assert.rejects(insert('DIRECT_PAYMENT', '20890'), /ck_stripe_direct_payment_original_order/)
   await assert.rejects(insert('REFUND', null), /stripe_direct_payment_mappings_mapping_type_check/)
+  // A manual mapping may record the website order or have none.
+  for (const originalOrderNumber of ['20901', null]) {
+    await insert('MANUAL_INVOICE_MAPPING', originalOrderNumber)
+    await pool.query("DELETE FROM stripe_direct_payment_mappings WHERE stripe_payment_intent_id = 'pi_3TYPE000000000000000'")
+  }
+})
+
+const PI_MANUAL = 'pi_3UD1maDJogiiRoKP00manual'
+
+test('a manual invoice mapping persists the matcher status and reason before the override', { skip }, async () => {
+  const m = await directStore.insertMapping(pool, mapping({
+    mappingType: 'MANUAL_INVOICE_MAPPING', paymentIntentId: PI_MANUAL, chargeId: 'ch_3UD1maDJogiiRoKP00manual', zohoInvoiceId: 'ZID-INV-043700', zohoInvoiceNumber: 'INV-043700',
+    originalOrderId: '19911', originalOrderNumber: '20901', originalOrderStatus: 'cancelled', originalInvoiceId: 'ZID-INV-043544', originalInvoiceNumber: 'INV-043544',
+    matcherStatus: 'NEEDS_REVIEW', matcherReason: 'Website order status is cancelled.', reason: 'Website status wrong; verified with the customer.',
+  }))
+  const restarted = newPool()
+  try {
+    const [again] = await directStore.listActiveByIntents(restarted, [PI_MANUAL])
+    assert.deepEqual(
+      [again.id, again.mappingType, again.matcherStatus, again.matcherReason, again.originalOrderNumber, again.originalInvoiceNumber, again.zohoInvoiceNumber],
+      [m.id, 'MANUAL_INVOICE_MAPPING', 'NEEDS_REVIEW', 'Website order status is cancelled.', '20901', 'INV-043544', 'INV-043700'],
+    )
+  } finally {
+    await restarted.end()
+  }
+  const [direct] = await directStore.listActiveByIntents(pool, [PI])
+  assert.deepEqual([direct.matcherStatus, direct.matcherReason], [null, null])
 })
 
 test('an allocation lookup by invoice alone matches only that invoice', { skip }, async () => {
@@ -176,15 +206,23 @@ test('an allocation lookup by invoice alone matches only that invoice', { skip }
   }
 })
 
-test('054 + 055 hold mapping columns plus original-order evidence only, and re-running them keeps the rows', { skip }, async () => {
+test('054 + 055 + 056 hold mapping columns plus original-order and matcher evidence only, and re-running them keeps the rows', { skip }, async () => {
   await pool.query(fs.readFileSync(MIGRATION, 'utf8'))
   await pool.query(fs.readFileSync(MIGRATION_055, 'utf8'))
+  await pool.query(fs.readFileSync(MIGRATION_056, 'utf8'))
   const { rows: cols } = await pool.query(
     `SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = 'stripe_direct_payment_mappings' ORDER BY ordinal_position`,
     [SCHEMA],
   )
   const names = cols.map((c) => c.column_name)
   assert.deepEqual(names.filter((n) => /order|original/.test(n)), ['original_order_id', 'original_order_number', 'original_order_status', 'original_invoice_id', 'original_invoice_number'])
+  assert.deepEqual(names.filter((n) => /matcher/.test(n)), ['matcher_status', 'matcher_reason'])
   assert.equal((await directStore.listHistoryByIntent(pool, PI)).length, 2)
   assert.equal((await directStore.listHistoryByIntent(pool, PI_REASSIGNED)).length, 1)
+  assert.equal((await directStore.listHistoryByIntent(pool, PI_MANUAL)).length, 1)
+  const { rows: defs } = await pool.query(
+    `SELECT conname FROM pg_constraint WHERE conrelid = 'stripe_direct_payment_mappings'::regclass AND contype = 'c' AND conname IN
+       ('stripe_direct_payment_mappings_mapping_type_check', 'ck_stripe_direct_payment_original_order') ORDER BY conname`,
+  )
+  assert.deepEqual(defs.map((d) => d.conname), ['ck_stripe_direct_payment_original_order', 'stripe_direct_payment_mappings_mapping_type_check'])
 })

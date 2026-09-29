@@ -211,10 +211,13 @@ export interface StripePayoutLine {
   source?: StripeLineSource | null
   website: { orderId: string; orderNumber: string; finalAmount: number; shopOrder: boolean; orderStatus: string; paymentStatus: string } | null
   direct?: StripeDirectMapping | null
-  /** Set on an unassigned charge whose website order was cancelled without any refund. */
+  /** The website order carrying the charge's PaymentIntent, when one does (evidence only). */
   originalOrder?: StripeReassignOrigin | null
   chargeCreatedAt?: string | null
   description?: string | null
+  /** What Stripe has refunded on the charge so far, and whether it is disputed. */
+  stripeRefunded?: number
+  stripeDisputed?: boolean
   invoice: {
     invoiceId: string
     invoiceNumber: string
@@ -230,11 +233,11 @@ export interface StripePayoutLine {
   /** Set when the order was physically returned but no money has moved back yet. */
   returnWarning?: StripeReturnWarning | null
   state: StripePayoutLineState
-  matchStatus: StripeMatchStatus | 'DIRECT_PAYMENT_MAPPED' | 'REASSIGNED_PAYMENT_MAPPED' | null
+  matchStatus: StripeMatchStatus | 'DIRECT_PAYMENT_MAPPED' | 'REASSIGNED_PAYMENT_MAPPED' | 'MANUAL_INVOICE_MAPPED' | null
   reason: string
 }
 
-/** The cancelled website order a reassignable charge originally paid; evidence only, never changed. */
+/** The website order a charge originally paid (cancelled or otherwise); evidence only, never changed. */
 export interface StripeReassignOrigin {
   orderId: string
   orderNumber: string
@@ -279,24 +282,28 @@ export interface StripeReturnWarning {
   message: string
 }
 
-export type StripeLineSource = 'WEBSITE_ORDER' | 'DIRECT_STRIPE_PAYMENT' | 'REASSIGNED_STRIPE_PAYMENT'
+export type StripeLineSource = 'WEBSITE_ORDER' | 'DIRECT_STRIPE_PAYMENT' | 'REASSIGNED_STRIPE_PAYMENT' | 'MANUAL_INVOICE_MAPPING'
 
 /**
  * DIRECT_PAYMENT: the charge never had a website order (Payment Link).
  * REASSIGNED_PAYMENT: the charge paid a cancelled website order and was reused for a replacement invoice.
+ * MANUAL_INVOICE_MAPPING: any other charge the matcher could not resolve, mapped by hand.
  */
-export type StripeDirectMappingType = 'DIRECT_PAYMENT' | 'REASSIGNED_PAYMENT'
+export type StripeDirectMappingType = 'DIRECT_PAYMENT' | 'REASSIGNED_PAYMENT' | 'MANUAL_INVOICE_MAPPING'
 
-/** Admin-confirmed mapping of a Stripe charge (direct or reassigned payment) to an existing Zoho invoice. */
+/** Admin-confirmed mapping of a Stripe charge to an existing Zoho invoice. */
 export interface StripeDirectMapping {
   mappingId: number
   mappingType: StripeDirectMappingType
-  /** Reassigned payments only: the cancelled order and its invoice, kept as audit evidence. */
+  /** Reassigned and manual mappings: the original order and its invoice, kept as audit evidence. */
   originalOrderId?: string | null
   originalOrderNumber?: string | null
   originalOrderStatus?: string | null
   originalInvoiceId?: string | null
   originalInvoiceNumber?: string | null
+  /** The matcher's status and reason before the admin's override. */
+  matcherStatus?: string | null
+  matcherReason?: string | null
   status: 'ACTIVE' | 'RELEASED'
   paymentIntentId: string
   chargeId: string | null
@@ -364,10 +371,14 @@ export interface StripeDirectSuggestion {
   candidates: StripeDirectCandidate[]
 }
 
-/** A charge that belongs to no customer group yet. */
+/** A charge that belongs to no customer group yet, or that the matcher left in review. */
 export interface StripeUnassignedLine extends StripePayoutLine {
-  /** Which mapping "Assign to Zoho Invoice" would create; null when none is allowed. */
+  /** Which mapping "Assign to Zoho Invoice" would create. */
   mappingType?: StripeDirectMappingType | null
+  /** The matcher's status and reason; shown on the card and stored with the mapping. */
+  matcherStatus?: string | null
+  matcherReason?: string | null
+  advanceCaseId?: string | number | null
   directEligible?: boolean
   directIneligibleReason?: string | null
   originalInvoices?: StripeOriginalInvoice[]
@@ -720,6 +731,8 @@ export interface StripePayoutPreview {
   /** Absent only from previews produced before the fee journal step existed. */
   feeJournal?: StripePayoutFeeJournal
   unassigned: StripeUnassignedLine[]
+  /** Charges in a customer group that the matcher left in review; they may be mapped by hand. */
+  reviewCharges?: StripeUnassignedLine[]
   directMappings?: StripeDirectMapping[]
   advanceCaseEvents: StripeAdvanceCaseEvent[]
   advanceRefunds: StripeAdvanceRefund[]
@@ -806,6 +819,8 @@ export interface StripeDirectValidation {
   paymentIntentId: string
   chargeId: string | null
   mappingType?: StripeDirectMappingType
+  matcherStatus?: string | null
+  matcherReason?: string | null
   originalOrder?: Omit<StripeReassignOrigin, 'zohoCustomerId' | 'refundedThroughStripe'> | null
   originalInvoices?: StripeOriginalInvoice[]
   stripe: { gross: number; fee: number; net: number; currency: string; createdAt: string | null; description: string | null }

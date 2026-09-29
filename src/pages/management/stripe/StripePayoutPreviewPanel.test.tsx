@@ -1586,7 +1586,7 @@ describe('StripePayoutPreviewPanel direct Stripe payments', () => {
       blocking: true,
       checks: [{ key: 'no_intent_mapping', label: 'PaymentIntent not mapped elsewhere', ok: false, blocking: true, detail: 'Already mapped to INV-043000.' }],
     }))
-    expect(screen.getByText(/Already mapped to INV-043000/)).toBeTruthy()
+    expect(screen.getByTestId('mapping-blocked').textContent).toBe('❌ Already mapped to INV-043000.')
     expect(screen.queryByLabelText('Reason')).toBeNull()
     expect(confirmButton().disabled).toBe(true)
     expect(api.confirmStripeDirectPayment).not.toHaveBeenCalled()
@@ -1705,7 +1705,8 @@ describe('StripePayoutPreviewPanel reassigned Stripe payments', () => {
     expect(card.textContent).toContain('ORIGINAL ORDER')
     expect(card.textContent).toContain('20890 · cancelled · payment completed · stripe · AED 1,261.00')
     expect(card.textContent).toContain('INV-043530 (void, balance AED 0.00)')
-    expect(card.textContent).toContain('Refunded through StripeAED 0.00')
+    expect(card.textContent).toContain('Stripe refundedAED 0.00')
+    expect(card.textContent).toContain('DisputeNot disputed')
     expect(card.textContent).toContain('AED 1,261.00')
     expect(card.textContent).toContain('AED 50.18')
     expect(card.textContent).toContain('AED 1,210.82')
@@ -1772,5 +1773,150 @@ describe('StripePayoutPreviewPanel reassigned Stripe payments', () => {
     expect(mapped.textContent).toContain(REASSIGN_REASON)
     expect(screen.getAllByText('REASSIGNED STRIPE PAYMENT').length).toBeGreaterThan(1)
     expect(screen.queryByText('DIRECT STRIPE PAYMENT')).toBeNull()
+  })
+})
+
+const MANUAL_REASON = 'Stripe payment for order 20901; website status is wrong, verified with the customer.'
+
+function manualLine(patch: Partial<StripeUnassignedLine> = {}): StripeUnassignedLine {
+  return unresolvedLine({
+    mappingType: 'MANUAL_INVOICE_MAPPING',
+    matcherStatus: 'NEEDS_REVIEW',
+    matcherReason: 'Website order is cancelled.',
+    originalOrder: {
+      orderId: '19911', orderNumber: '20901', orderStatus: 'cancelled', paymentStatus: 'pending', paymentMethod: 'stripe', finalAmount: 1261,
+      shopOrder: false, createdAt: '2026-09-01T09:00:00.000Z', zohoCustomerId: 'WEB', refundedThroughStripe: 0,
+    },
+    originalInvoices: [{ invoiceId: 'ZID-INV-043544', invoiceNumber: 'INV-043544', referenceNumber: '20901', total: 1261, balance: 1261, status: 'sent', customerId: 'WEB' }],
+    stripeRefunded: 0,
+    stripeDisputed: false,
+    suggestion: null,
+    references: [],
+    state: 'NEEDS_REVIEW',
+    reason: 'Website order is cancelled.',
+    ...patch,
+  })
+}
+
+function manualMapping(patch: Partial<StripeDirectMapping> = {}): StripeDirectMapping {
+  return mapping({
+    mappingType: 'MANUAL_INVOICE_MAPPING',
+    originalOrderId: '19911',
+    originalOrderNumber: '20901',
+    originalOrderStatus: 'cancelled',
+    originalInvoiceId: 'ZID-INV-043544',
+    originalInvoiceNumber: 'INV-043544',
+    matcherStatus: 'NEEDS_REVIEW',
+    matcherReason: 'Website order is cancelled.',
+    evidence: 'No Stripe reference; invoice number re-typed by the admin.',
+    reason: MANUAL_REASON,
+    ...patch,
+  })
+}
+
+/** A website charge the matcher left in review inside the Website group (no unassigned charges). */
+function manualPreview(mapped: StripeDirectMapping | null, line: StripeUnassignedLine = manualLine()): StripePayoutPreview {
+  const p = directPreview(mapped)
+  if (!mapped) {
+    p.unassigned = []
+    p.reviewCharges = [line]
+    return p
+  }
+  const group = p.groups[0]
+  group.lines = group.lines.map((l) => (l.direct ? { ...l, source: 'MANUAL_INVOICE_MAPPING', matchStatus: 'MANUAL_INVOICE_MAPPED', reason: 'Manual invoice mapping (website order 20901) for Zoho INV-043544.' } : l))
+  for (const c of group.components) c.allocations = c.allocations.map((a) => (a.orderNumber ? a : { ...a, source: 'MANUAL_INVOICE_MAPPING' }))
+  return p
+}
+
+function manualValidation(patch: Partial<StripeDirectValidation> = {}): StripeDirectValidation {
+  return validation({
+    mappingType: 'MANUAL_INVOICE_MAPPING',
+    matcherStatus: 'NEEDS_REVIEW',
+    matcherReason: 'Website order is cancelled.',
+    originalOrder: { orderId: '19911', orderNumber: '20901', orderStatus: 'cancelled', paymentStatus: 'pending', paymentMethod: 'stripe', finalAmount: 1261, shopOrder: false, createdAt: null },
+    references: [],
+    evidenceStatus: 'NONE',
+    requiresTypedInvoiceNumber: true,
+    evidenceSummary: 'No Stripe reference; invoice number re-typed by the admin.',
+    ...patch,
+  })
+}
+
+describe('StripePayoutPreviewPanel manual invoice mappings', () => {
+  it('a charge left in review shows every card field and the permanent "Assign to Zoho Invoice" option', async () => {
+    await openDirectPreview(manualPreview(null))
+    const card = screen.getByTestId('unresolved-charge')
+    expect(card.textContent).toContain('NEEDS REVIEW')
+    expect(screen.getByTestId('matcher-reason').textContent).toBe('Reason: Website order is cancelled.')
+    expect(card.textContent).toContain('20901 · cancelled · payment pending')
+    expect(card.textContent).toContain('Original invoiceINV-043544 (sent, balance AED 1,261.00)')
+    expect(card.textContent).toContain(DIRECT_PI)
+    expect(card.textContent).toContain(DIRECT_CH)
+    expect(card.textContent).toContain('AED 1,261.00')
+    expect(card.textContent).toContain('AED 50.18')
+    expect(card.textContent).toContain('AED 1,210.82')
+    expect(card.textContent).toContain('Stripe refundedAED 0.00')
+    expect(card.textContent).toContain('DisputeNot disputed')
+    const button = screen.getByRole('button', { name: 'Assign to Zoho Invoice' }) as HTMLButtonElement
+    expect(button.disabled).toBe(false)
+    fireEvent.click(button)
+    expect((screen.getByLabelText('Invoice number, P.O.# or amount') as HTMLInputElement).value).toBe('20901')
+    expect((screen.getByLabelText('Search by') as HTMLSelectElement).value).toBe('reference')
+    expect(api.validateStripeDirectPayment).not.toHaveBeenCalled()
+    expectNoPostingCalls()
+  })
+
+  it('a partially refunded charge keeps the option visible but Confirm stays disabled with the reason', async () => {
+    await openDirectPreview(manualPreview(null, manualLine({ stripeRefunded: 100 })))
+    expect(screen.getByTestId('unresolved-charge').textContent).toContain('Stripe refundedAED 100.00')
+    await chooseInvoice(manualValidation({
+      blocking: true,
+      checks: [{ key: 'charge_state', label: 'Stripe charge is settled, not refunded or disputed', ok: false, blocking: true, detail: 'Stripe charge has already been partially refunded AED 100.00.' }],
+    }))
+    expect(screen.getByTestId('mapping-blocked').textContent).toBe('❌ Stripe charge has already been partially refunded AED 100.00.')
+    expect(screen.queryByLabelText('Reason')).toBeNull()
+    expect(confirmButton().disabled).toBe(true)
+    expect(api.confirmStripeDirectPayment).not.toHaveBeenCalled()
+  })
+
+  it('maps only after invoice selection, the re-typed number, a reason and the acknowledgement', async () => {
+    await openDirectPreview(manualPreview(null))
+    await chooseInvoice(manualValidation())
+    const checks = screen.getByLabelText('Mapping checks')
+    expect(checks.textContent).toContain('Manual invoice mapping: the matcher could not prove this relationship')
+    expect(checks.textContent).toContain('Website order is cancelled.')
+    const ack = 'I verified this Stripe payment belongs to the selected Zoho invoice although the automatic matcher could not prove it.'
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'too short' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: ack }))
+    fireEvent.change(screen.getByLabelText('Re-type invoice number'), { target: { value: 'INV-043544' } })
+    expect(confirmButton().disabled).toBe(true)
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: MANUAL_REASON } })
+    expect(confirmButton().disabled).toBe(false)
+
+    api.confirmStripeDirectPayment.mockResolvedValue({ mapping: { id: 1, zohoInvoiceNumber: 'INV-043544', status: 'ACTIVE' }, zohoWrites: 0, stripeWrites: 0 })
+    api.getStripePayoutPreview.mockResolvedValue(manualPreview(manualMapping()))
+    fireEvent.click(confirmButton())
+    const mapped = await screen.findByTestId('direct-payment')
+    expect(api.confirmStripeDirectPayment).toHaveBeenCalledWith(DIRECT_PAYOUT, DIRECT_PI, { invoiceId: 'ZID-INV-043544', reason: MANUAL_REASON, confirmInvoiceNumber: 'INV-043544' })
+    expect(mapped.textContent).toContain('MANUAL INVOICE MAPPING')
+    const summary = screen.getByTestId('manual-summary')
+    expect(summary.textContent).toContain('Original order20901 · cancelled')
+    expect(summary.textContent).toContain('Matcher before overrideNEEDS REVIEW · Website order is cancelled.')
+    expect(screen.getAllByText('MANUAL INVOICE MAPPING').length).toBeGreaterThan(1)
+    expect(screen.queryByTestId('unresolved-charge')).toBeNull()
+    expectNoPostingCalls()
+  })
+
+  it('a mapping whose accounting is posted shows it is locked', async () => {
+    await openDirectPreview(manualPreview(manualMapping({ removable: false, lockedReason: 'Mapping locked because accounting has already been posted (NET POSTED).' })))
+    expect(screen.getByTestId('mapping-locked').textContent).toBe('Mapping locked because accounting has already been posted (NET POSTED).')
+    expect(screen.queryByRole('button', { name: 'Release mapping…' })).toBeNull()
+  })
+
+  it('a charge that cannot be mapped still shows the button, disabled with the reason', async () => {
+    await openDirectPreview(manualPreview(null, manualLine({ directEligible: false, directIneligibleReason: 'Payout accounting already includes this PaymentIntent (NET PLANNED).' })))
+    const button = screen.getByRole('button', { name: 'Assign to Zoho Invoice' }) as HTMLButtonElement
+    expect(button.disabled).toBe(true)
+    expect(screen.getByTestId('unresolved-charge').textContent).toContain('Payout accounting already includes this PaymentIntent (NET PLANNED).')
   })
 })
