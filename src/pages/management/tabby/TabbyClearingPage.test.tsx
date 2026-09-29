@@ -148,6 +148,18 @@ describe('TabbyClearingPage', () => {
     expect(api.getTabbyPreview).toHaveBeenCalledWith('7', { deep: false })
   })
 
+  it('refreshes the saved statements list after a preview so its status is not stale', async () => {
+    api.listTabbyBatches
+      .mockResolvedValueOnce({ batches: [{ ...BATCH, status: 'BLOCKED' }], postingEnabled: true })
+      .mockResolvedValue({ batches: [{ ...BATCH, status: 'READY' }], postingEnabled: true })
+    api.getTabbyPreview.mockResolvedValue({ preview: preview() })
+    renderAt('/management/tabby-clearing/batch/7')
+
+    await waitFor(() => expect(api.listTabbyBatches).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(screen.queryByText('Blocked')).toBeNull())
+    expect(screen.getAllByText('Ready').length).toBeGreaterThan(0)
+  })
+
   it('posts only after confirmation and sends the reviewed fingerprint', async () => {
     api.getTabbyPreview.mockResolvedValue({ preview: preview() })
     const confirm = vi.spyOn(window, 'confirm')

@@ -54,12 +54,13 @@ export function TabbyClearingPage() {
     try {
       const res = await getTabbyPreview(id, { deep })
       setPreview(res.preview)
+      void loadBatches()
     } catch (err) {
       setNotice({ tone: 'error', text: errorMessage(err, 'Could not build the preview.') })
     } finally {
       setLoadingPreview(false)
     }
-  }, [])
+  }, [loadBatches])
 
   useEffect(() => {
     void loadBatches()
