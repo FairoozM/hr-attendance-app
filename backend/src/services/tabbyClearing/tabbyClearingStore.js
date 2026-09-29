@@ -95,6 +95,7 @@ const SCHEMA_SQL = [
    )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS uq_tabby_settlement_batches_bank_txn
      ON tabby_settlement_batches (bank_transaction_id) WHERE bank_transaction_id IS NOT NULL`,
+  `ALTER TABLE tabby_settlement_batches ADD COLUMN IF NOT EXISTS posting_job JSONB`,
   `CREATE TABLE IF NOT EXISTS tabby_settlement_rows (
      id BIGSERIAL PRIMARY KEY,
      batch_id BIGINT NOT NULL REFERENCES tabby_settlement_batches(id) ON DELETE CASCADE,
@@ -227,6 +228,7 @@ function mapBatch(row) {
     bankTransactionId: row.bank_transaction_id || null,
     bankEvidence: row.bank_evidence || null,
     postingFingerprint: row.posting_fingerprint || null,
+    postingJob: row.posting_job || null,
     importedBy: row.imported_by || null,
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
@@ -420,10 +422,11 @@ function createPgTabbyStore(db) {
            status = COALESCE($2, status),
            review = COALESCE($3::jsonb, review),
            posting_fingerprint = COALESCE($4, posting_fingerprint),
-           posted_at = COALESCE($5, posted_at),
+           posted_at = COALESCE($5::timestamptz, posted_at),
+           posting_job = COALESCE($6::jsonb, posting_job),
            updated_at = NOW()
          WHERE id = $1 RETURNING *`,
-        [id, patch.status || null, patch.review == null ? null : JSON.stringify(patch.review), patch.postingFingerprint || null, patch.postedAt || null],
+        [id, patch.status || null, patch.review == null ? null : JSON.stringify(patch.review), patch.postingFingerprint || null, patch.postedAt || null, patch.postingJob == null ? null : JSON.stringify(patch.postingJob)],
       )
       return mapBatch(rows[0])
     },

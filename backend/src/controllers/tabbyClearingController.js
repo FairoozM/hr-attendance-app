@@ -11,7 +11,7 @@ const model = require('../services/tabbyClearing/tabbyClearingModel')
 const { createPgTabbyStore, IMPORT_RESULT } = require('../services/tabbyClearing/tabbyClearingStore')
 const { createTabbySources } = require('../services/tabbyClearing/tabbyClearingSources')
 const { buildTabbyPreview, publicPreview } = require('../services/tabbyClearing/tabbyClearingPreviewService')
-const { postTabbyBatch } = require('../services/tabbyClearing/tabbyClearingPostingService')
+const { startPostingJob, getPostingJob } = require('../services/tabbyClearing/tabbyClearingJobService')
 const zohoChecks = require('../services/tabbyClearing/tabbyClearingZoho')
 
 let deps = null
@@ -102,10 +102,11 @@ async function getPreview(req, res) {
   }
 }
 
+/** Starts posting in the background (202); the page polls GET /batches/:id/post-job. */
 async function post(req, res) {
   try {
     const { store, sources, writer } = getDeps()
-    const result = await postTabbyBatch({
+    const job = await startPostingJob({
       batchId: req.params.id,
       store,
       sources,
@@ -114,9 +115,19 @@ async function post(req, res) {
       actor: actorOf(req),
       fingerprint: req.body && req.body.fingerprint,
     })
-    return res.json(result)
+    return res.status(202).json({ job })
   } catch (err) {
+    if (err && err.code === 'POSTING_IN_PROGRESS') return res.status(409).json({ error: err.message, code: err.code, job: err.job })
     return sendError(res, err, 'posting')
+  }
+}
+
+async function getPostJob(req, res) {
+  try {
+    const { store } = getDeps()
+    return res.json({ job: await getPostingJob({ batchId: req.params.id, store }) })
+  } catch (err) {
+    return sendError(res, err, 'posting status')
   }
 }
 
@@ -193,4 +204,4 @@ async function postBankMatch(req, res) {
   }
 }
 
-module.exports = { listBatches, upload, getPreview, post, getActivity, getAccounts, putAccount, deleteAccount, postBankMatch, setDeps }
+module.exports = { listBatches, upload, getPreview, post, getPostJob, getActivity, getAccounts, putAccount, deleteAccount, postBankMatch, setDeps }

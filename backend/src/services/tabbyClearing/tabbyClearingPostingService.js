@@ -83,11 +83,22 @@ function fail(status, code, message, extra = {}) {
   return err
 }
 
+/** Progress is informational; a failing reporter must never interrupt posting. */
+async function report(onProgress, progress) {
+  if (typeof onProgress !== 'function') return
+  try {
+    await onProgress(progress)
+  } catch (err) {
+    console.error('[tabby-clearing] progress report failed:', err && err.message)
+  }
+}
+
 /**
  * @param {{ batchId: string, store: object, sources: object, writer: object, config: object,
- *   actor: string, fingerprint: string, now?: () => Date }} input
+ *   actor: string, fingerprint: string, now?: () => Date,
+ *   onProgress?: (p: { phase: string, done: number, total: number | null, current: string | null }) => unknown }} input
  */
-async function postTabbyBatch({ batchId, store, sources, writer, config, actor, fingerprint, now = () => new Date() }) {
+async function postTabbyBatch({ batchId, store, sources, writer, config, actor, fingerprint, now = () => new Date(), onProgress }) {
   if (config.postingEnabled !== true) throw fail(403, 'POSTING_DISABLED', 'Tabby posting is disabled on this server (TABBY_CLEARING_POSTING_ENABLED is not true).')
   if (!actor) throw fail(401, 'ACTOR_REQUIRED', 'An authenticated admin is required to post.')
   if (!fingerprint) throw fail(400, 'FINGERPRINT_REQUIRED', 'Preview the statement and post the reviewed preview.')
@@ -99,6 +110,7 @@ async function postTabbyBatch({ batchId, store, sources, writer, config, actor, 
   let stoppedAt = null
   let stopReason = null
   try {
+    await report(onProgress, { phase: 'CHECKING', done: 0, total: null, current: null })
     const preview = await buildTabbyPreview({ batchId, store, sources, config, now: now(), persist: false })
     if (preview.fingerprint !== fingerprint) {
       throw fail(409, 'PREVIEW_CHANGED', 'The statement, Zoho or the posting date changed since this preview. Review the new preview before posting.', { preview: publicPreview(preview) })
@@ -110,7 +122,9 @@ async function postTabbyBatch({ batchId, store, sources, writer, config, actor, 
     await store.updateBatch(batchId, { status: BATCH_STATUS.POSTING, postingFingerprint: fingerprint })
     const settleMs = config.uncertainSettleMinutes * 60000
 
-    for (const c of preview._plan) {
+    const total = preview._plan.length
+    for (const [i, c] of preview._plan.entries()) {
+      await report(onProgress, { phase: 'POSTING', done: i, total, current: c.reference })
       const outcome = await postOne({ c, batchId, store, sources, writer, actor, now, settleMs })
       log.push({ key: c.key, component: c.component, reference: c.reference, amount: c.amount, ...outcome })
       if (outcome.status !== S.VERIFIED) {
@@ -119,6 +133,7 @@ async function postTabbyBatch({ batchId, store, sources, writer, config, actor, 
         break
       }
     }
+    await report(onProgress, { phase: 'FINISHING', done: stoppedAt ? log.length - 1 : total, total, current: null })
 
     const bank = preview._bank
     if (!stoppedAt && bank.status === BANK_STATUS.BANK_MATCHED && bank.matched && batch.bankTransactionId !== bank.matched.transactionId) {

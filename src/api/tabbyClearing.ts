@@ -1,8 +1,7 @@
 import { api } from './client'
 
-/** Zoho reads for a whole statement can take a while; posting writes one record at a time. */
+/** Zoho reads for a whole statement can take a while. Posting itself runs as a background job. */
 export const TABBY_LONG_TIMEOUT_MS = 180_000
-export const TABBY_POST_TIMEOUT_MS = 480_000
 
 export type TabbyBatchStatus =
   | 'IMPORTED'
@@ -64,6 +63,7 @@ export interface TabbyBatch {
   review: TabbyBatchReview | null
   bankStatus: TabbyBankStatus | null
   bankTransactionId: string | null
+  postingJob: TabbyPostJob | null
   importedBy: string | null
   createdAt: string | null
   updatedAt: string | null
@@ -318,13 +318,20 @@ export interface TabbyPostLogEntry {
   message?: string
 }
 
-export interface TabbyPostResult {
-  batchId: string
-  status: TabbyBatchStatus
-  stoppedAt: string | null
-  stopReason: string | null
-  log: TabbyPostLogEntry[]
-  preview: TabbyPreview
+export type TabbyPostJobStatus = 'RUNNING' | 'SUCCEEDED' | 'STOPPED' | 'FAILED' | 'INTERRUPTED'
+
+/** Background "Post to Zoho" run; the page polls it until it leaves RUNNING. */
+export interface TabbyPostJob {
+  id: string
+  status: TabbyPostJobStatus
+  statementNumber: string
+  actor: string
+  startedAt: string
+  heartbeatAt: string
+  finishedAt: string | null
+  progress: { phase: 'QUEUED' | 'CHECKING' | 'POSTING' | 'FINISHING'; done: number; total: number | null; current: string | null }
+  result: { status: TabbyBatchStatus; stoppedAt: string | null; stopReason: string | null; log: TabbyPostLogEntry[] } | null
+  error: { status: number; code: string; message: string } | null
 }
 
 export interface TabbyUploadResult {
@@ -340,6 +347,7 @@ export interface TabbyApiErrorBody {
   problems?: TabbyIssue[]
   existing?: { batchId: string; fileName: string | null; fileHash: string; uploadedHash: string }
   preview?: TabbyPreview
+  job?: TabbyPostJob
 }
 
 export function tabbyErrorBody(err: unknown): TabbyApiErrorBody | null {
@@ -364,8 +372,13 @@ export function getTabbyPreview(batchId: string, opts: { deep?: boolean } = {}):
   return api.get(`${BASE}/batches/${encodeURIComponent(batchId)}/preview${q}`, { timeoutMs: TABBY_LONG_TIMEOUT_MS })
 }
 
-export function postTabbyBatch(batchId: string, fingerprint: string): Promise<TabbyPostResult> {
-  return api.post(`${BASE}/batches/${encodeURIComponent(batchId)}/post`, { fingerprint }, { timeoutMs: TABBY_POST_TIMEOUT_MS })
+/** Starts posting in the background; returns immediately with the RUNNING job. */
+export function postTabbyBatch(batchId: string, fingerprint: string): Promise<{ job: TabbyPostJob }> {
+  return api.post(`${BASE}/batches/${encodeURIComponent(batchId)}/post`, { fingerprint })
+}
+
+export function getTabbyPostJob(batchId: string): Promise<{ job: TabbyPostJob | null }> {
+  return api.get(`${BASE}/batches/${encodeURIComponent(batchId)}/post-job`)
 }
 
 export function getTabbyActivity(batchId: string): Promise<{ events: TabbyEvent[] }> {

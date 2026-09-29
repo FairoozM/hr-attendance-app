@@ -56,6 +56,7 @@ function createMemoryTabbyStore() {
         bankTransactionId: null,
         bankEvidence: null,
         postingFingerprint: null,
+        postingJob: null,
         importedBy: actor || null,
         createdAt: now(),
         updatedAt: now(),
@@ -104,6 +105,7 @@ function createMemoryTabbyStore() {
       if (patch.review != null) b.review = clone(patch.review)
       if (patch.postingFingerprint) b.postingFingerprint = patch.postingFingerprint
       if (patch.postedAt) b.postedAt = patch.postedAt
+      if (patch.postingJob != null) b.postingJob = clone(patch.postingJob)
       b.updatedAt = now()
       return clone(b)
     },

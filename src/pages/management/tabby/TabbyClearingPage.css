@@ -263,6 +263,14 @@
   font-weight: 600;
 }
 
+.tabby-page__progress {
+  display: block;
+  width: min(24rem, 100%);
+  height: 0.5rem;
+  margin: 0.4rem 0 0.2rem;
+  accent-color: var(--accent, #0284c7);
+}
+
 .tabby-page__picker {
   display: flex;
   flex-direction: column;

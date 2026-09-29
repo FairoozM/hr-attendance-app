@@ -2,13 +2,14 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   chooseTabbyBankMatch,
+  getTabbyPostJob,
   getTabbyPreview,
   listTabbyBatches,
   postTabbyBatch,
   tabbyErrorBody,
   uploadTabbyStatement,
   type TabbyBatch,
-  type TabbyPostResult,
+  type TabbyPostJob,
   type TabbyPreview,
 } from '../../../api/tabbyClearing'
 import { TabbyAccountMapping } from './TabbyAccountMapping'
@@ -18,11 +19,26 @@ import './TabbyClearingPage.css'
 
 const BASE_PATH = '/management/tabby-clearing'
 
+const POLL_FAILURES_BEFORE_WARNING = 3
+
 function errorMessage(err: unknown, fallback: string): string {
   return err instanceof Error && err.message ? err.message : fallback
 }
 
-export function TabbyClearingPage() {
+function jobProgressText(job: TabbyPostJob): string {
+  const p = job.progress
+  if (p.phase === 'POSTING' && p.total) return `Posting ${Math.min(p.done + 1, p.total)} of ${p.total}${p.current ? ` · ${p.current}` : ''}`
+  if (p.phase === 'FINISHING') return 'Re-checking Zoho after posting…'
+  return 'Checking the statement against Zoho before posting…'
+}
+
+function jobOutcomeNotice(job: TabbyPostJob): { tone: 'info' | 'warning' | 'error'; text: string } {
+  if (job.status === 'SUCCEEDED') return { tone: 'info', text: `${job.statementNumber} is ${humanize(job.result?.status)}.` }
+  if (job.status === 'STOPPED') return { tone: 'warning', text: `Posting stopped: ${job.result?.stopReason || 'see the posting result below.'}` }
+  return { tone: 'error', text: job.error?.message || 'Posting failed.' }
+}
+
+export function TabbyClearingPage({ pollMs = 2000 }: { pollMs?: number } = {}) {
   const { batchId } = useParams<{ batchId?: string }>()
   const navigate = useNavigate()
   const fileInput = useRef<HTMLInputElement>(null)
@@ -35,8 +51,11 @@ export function TabbyClearingPage() {
   const [preview, setPreview] = useState<TabbyPreview | null>(null)
   const [loadingPreview, setLoadingPreview] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [postResult, setPostResult] = useState<TabbyPostResult | null>(null)
+  const [job, setJob] = useState<TabbyPostJob | null>(null)
+  const [pollTick, setPollTick] = useState(0)
+  const [pollFailures, setPollFailures] = useState(0)
   const [showAccounts, setShowAccounts] = useState(false)
+  const jobRunning = job?.status === 'RUNNING'
 
   const loadBatches = useCallback(async () => {
     try {
@@ -67,15 +86,53 @@ export function TabbyClearingPage() {
   }, [loadBatches])
 
   useEffect(() => {
-    setPostResult(null)
+    setJob(null)
+    setPollFailures(0)
     if (!batchId) {
       setPreview(null)
       return
     }
-    if (preview?.batchId === batchId) return
-    setPreview(null)
-    void loadPreview(batchId)
+    let alive = true
+    getTabbyPostJob(batchId)
+      .then((res) => {
+        if (alive) setJob(res.job)
+      })
+      .catch(() => {})
+    if (preview?.batchId !== batchId) {
+      setPreview(null)
+      void loadPreview(batchId)
+    }
+    return () => {
+      alive = false
+    }
   }, [batchId])
+
+  useEffect(() => {
+    if (!batchId || !jobRunning) return
+    let alive = true
+    const timer = window.setTimeout(async () => {
+      try {
+        const res = await getTabbyPostJob(batchId)
+        if (!alive) return
+        setPollFailures(0)
+        setJob(res.job)
+        if (res.job && res.job.status !== 'RUNNING') {
+          setNotice(jobOutcomeNotice(res.job))
+          await loadPreview(batchId)
+        } else {
+          setPollTick((n) => n + 1)
+        }
+      } catch {
+        if (!alive) return
+        setPollFailures((n) => n + 1)
+        setPollTick((n) => n + 1)
+      }
+    }, pollMs)
+    return () => {
+      alive = false
+      window.clearTimeout(timer)
+    }
+  }, [batchId, jobRunning, pollTick, pollMs, loadPreview])
 
   async function upload() {
     if (!file) return
@@ -135,20 +192,20 @@ export function TabbyClearingPage() {
     setNotice(null)
     try {
       const res = await postTabbyBatch(preview.batchId, preview.fingerprint)
-      setPostResult(res)
-      setPreview(res.preview)
-      setNotice(
-        res.stopReason
-          ? { tone: 'warning', text: `Posting stopped: ${res.stopReason}` }
-          : { tone: 'info', text: `${preview.statementNumber} is ${humanize(res.status)}.` }
-      )
+      setPollFailures(0)
+      setJob(res.job)
     } catch (err) {
       const body = tabbyErrorBody(err)
-      if (body?.preview) setPreview(body.preview)
-      setNotice({ tone: 'error', text: errorMessage(err, 'Posting failed.') })
+      if (body?.job) {
+        setJob(body.job)
+        setNotice({ tone: 'info', text: 'This statement is already being posted; showing its progress.' })
+      } else {
+        if (body?.preview) setPreview(body.preview)
+        setNotice({ tone: 'error', text: errorMessage(err, 'Posting could not start.') })
+      }
     } finally {
       setBusy(false)
-      await loadBatches()
+      void loadBatches()
     }
   }
 
@@ -270,16 +327,34 @@ export function TabbyClearingPage() {
         <>
           <section className="tabby-page__card tabby-page__postbar">
             <div>
-              <strong>{preview.canPost ? 'Ready to post' : 'Not ready to post'}</strong>
-              <div className="tabby-page__sub">
-                {postDisabledReason || `${preview.counts.toPost} Zoho record(s) will be created dated ${preview.date}.`}
-              </div>
+              {jobRunning && job ? (
+                <>
+                  <strong>Posting to Zoho…</strong>
+                  <div className="tabby-page__sub">{jobProgressText(job)}</div>
+                  {job.progress.total ? (
+                    <progress className="tabby-page__progress" max={job.progress.total} value={job.progress.done} />
+                  ) : null}
+                  <div className="tabby-page__sub">
+                    Runs on the server; you can leave or reload this page and come back.
+                  </div>
+                  {pollFailures >= POLL_FAILURES_BEFORE_WARNING ? (
+                    <div className="tabby-page__issue">Can't reach the server to check progress; still retrying.</div>
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  <strong>{preview.canPost ? 'Ready to post' : 'Not ready to post'}</strong>
+                  <div className="tabby-page__sub">
+                    {postDisabledReason || `${preview.counts.toPost} Zoho record(s) will be created dated ${preview.date}.`}
+                  </div>
+                </>
+              )}
             </div>
             <div className="tabby-page__actions">
               <button
                 type="button"
                 className="ainv-btn ainv-btn--ghost"
-                disabled={busy || loadingPreview}
+                disabled={busy || loadingPreview || jobRunning}
                 onClick={() => void loadPreview(preview.batchId)}
               >
                 {loadingPreview ? 'Refreshing…' : 'Refresh preview'}
@@ -287,7 +362,7 @@ export function TabbyClearingPage() {
               <button
                 type="button"
                 className="ainv-btn ainv-btn--ghost"
-                disabled={busy || loadingPreview}
+                disabled={busy || loadingPreview || jobRunning}
                 onClick={() => void loadPreview(preview.batchId, true)}
                 title="Also reads every invoice payment and journal in Zoho, not just by reference"
               >
@@ -296,18 +371,31 @@ export function TabbyClearingPage() {
               <button
                 type="button"
                 className="ainv-btn ainv-btn--primary-emerald"
-                disabled={!preview.canPost || busy || loadingPreview}
+                disabled={!preview.canPost || busy || loadingPreview || jobRunning}
                 onClick={post}
               >
-                {busy ? 'Posting…' : 'Post to Zoho'}
+                {jobRunning ? 'Posting…' : busy ? 'Starting…' : 'Post to Zoho'}
               </button>
             </div>
           </section>
 
-          {postResult ? (
+          {job && !jobRunning && (job.status === 'FAILED' || job.status === 'INTERRUPTED') ? (
             <section className="tabby-page__card">
-              <h2>Posting result: {humanize(postResult.status)}</h2>
-              {postResult.stopReason ? <p className="tabby-page__issue">{postResult.stopReason}</p> : null}
+              <h2>Last posting run: {humanize(job.status)}</h2>
+              <p className="tabby-page__issue">{job.error?.message}</p>
+              <p className="tabby-page__sub">
+                Started {formatDateTime(job.startedAt)} by {job.actor} · ended {formatDateTime(job.finishedAt)}
+              </p>
+            </section>
+          ) : null}
+
+          {job && !jobRunning && job.result ? (
+            <section className="tabby-page__card">
+              <h2>Posting result: {humanize(job.result.status)}</h2>
+              <p className="tabby-page__sub">
+                Started {formatDateTime(job.startedAt)} by {job.actor} · finished {formatDateTime(job.finishedAt)}
+              </p>
+              {job.result.stopReason ? <p className="tabby-page__issue">{job.result.stopReason}</p> : null}
               <div className="tabby-page__scroll">
                 <table className="tabby-page__table">
                   <thead>
@@ -320,7 +408,7 @@ export function TabbyClearingPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {postResult.log.map((l) => (
+                    {job.result.log.map((l) => (
                       <tr key={l.key}>
                         <td>{humanize(l.component)}</td>
                         <td className="tabby-page__mono">{l.reference || '—'}</td>

@@ -34,6 +34,7 @@ test.before(async () => {
   await admin.end()
   pool = new Pool({ connectionString: url, max: 6, options: `-c search_path=${SCHEMA}` })
   await pool.query(fs.readFileSync(path.join(__dirname, '../migrations/057_tabby_settlement_clearing.sql'), 'utf8'))
+  await pool.query(fs.readFileSync(path.join(__dirname, '../migrations/058_tabby_posting_job.sql'), 'utf8'))
   await tabbyStore.ensureTabbyClearingTables((sql, params) => pool.query(sql, params))
   await tabbyStore.ensureTabbyClearingTables((sql, params) => pool.query(sql, params))
   store = tabbyStore.createPgTabbyStore(pool)
@@ -58,6 +59,16 @@ test('import is idempotent by statement # + SHA-256 and refuses changed content'
   assert.equal((await store.importStatement({ ...changed, fileName: 'b.xlsx' })).result, 'STATEMENT_VERSION_CONFLICT')
   const { rows } = await pool.query('SELECT event_type FROM tabby_clearing_events WHERE batch_id = $1 ORDER BY id', [first.batch.id])
   assert.deepEqual(rows.map((r) => r.event_type), ['IMPORTED', 'ALREADY_IMPORTED', 'STATEMENT_VERSION_CONFLICT'])
+})
+
+test('posting job state round-trips and survives unrelated batch updates', { skip }, async () => {
+  const batch = await store.getBatchByStatement('Tabby20260928AED')
+  assert.equal(batch.postingJob, null)
+  const job = { id: 'j1', status: 'RUNNING', progress: { phase: 'POSTING', done: 2, total: 14, current: 'x' } }
+  assert.deepEqual((await store.updateBatch(batch.id, { postingJob: job })).postingJob, job)
+  const after = await store.updateBatch(batch.id, { status: 'READY', postedAt: '2026-09-29T16:21:18.869Z' })
+  assert.deepEqual(after.postingJob, job)
+  assert.equal(after.postedAt, '2026-09-29T16:21:18.869Z')
 })
 
 test('components: unique key, guarded transitions, VERIFIED needs a record id, uncertain needs timestamps', { skip }, async () => {

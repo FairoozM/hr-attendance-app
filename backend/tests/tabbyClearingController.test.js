@@ -13,6 +13,7 @@ const F = require('./fixtures/tabbyFakeZoho')
 const { parseTabbyStatement } = require('../src/services/tabbyClearing/tabbyStatementParser')
 const model = require('../src/services/tabbyClearing/tabbyClearingModel')
 const { getTabbyClearingConfig } = require('../src/config/tabbyClearing')
+const { waitForPostingJob } = require('../src/services/tabbyClearing/tabbyClearingJobService')
 
 const SEP28 = fs.readFileSync(path.join(__dirname, 'fixtures', 'tabby', 'Tabby20260928AED.xlsx'))
 const ADMIN = { userId: 7, role: 'admin' }
@@ -39,6 +40,7 @@ test('every Tabby clearing route is behind requireAuth + requireAdmin', () => {
   const routes = router.stack.filter((l) => l.route).map((l) => `${Object.keys(l.route.methods)[0].toUpperCase()} ${l.route.path}`)
   assert.ok(routes.includes('POST /upload'))
   assert.ok(routes.includes('POST /batches/:id/post'))
+  assert.ok(routes.includes('GET /batches/:id/post-job'))
   assert.ok(routes.includes('PUT /accounts/:role'))
 })
 
@@ -81,6 +83,35 @@ test('account mapping: validates type against the role and saves locally only', 
   const roles = await call(ctrl.getAccounts, { user: ADMIN })
   assert.equal(roles.body.roles.find((r) => r.role === 'FEES_EXPENSE').resolved.source, 'MAPPING')
   assert.equal(fake.writer.calls.length, 0)
+})
+
+test('post runs in the background: 202 at once, 409 while running, then the job shows every record verified', async () => {
+  const { fake } = wire()
+  const prev = process.env.TABBY_CLEARING_POSTING_ENABLED
+  process.env.TABBY_CLEARING_POSTING_ENABLED = 'true'
+  try {
+    await call(ctrl.putAccount, { user: ADMIN, params: { role: 'FEES_EXPENSE' }, body: { accountId: F.IDS.PAYOUT_FEE } })
+    const up = await call(ctrl.upload, { user: ADMIN, file: { buffer: SEP28, originalname: 'a.xlsx' } })
+    assert.deepEqual(up.body.preview.blockers, [])
+    const started = await call(ctrl.post, { user: ADMIN, params: { id: up.body.batchId }, body: { fingerprint: up.body.preview.fingerprint } })
+    assert.equal(started.statusCode, 202)
+    assert.equal(started.body.job.status, 'RUNNING')
+    const again = await call(ctrl.post, { user: ADMIN, params: { id: up.body.batchId }, body: { fingerprint: up.body.preview.fingerprint } })
+    assert.equal(again.statusCode, 409)
+    assert.equal(again.body.code, 'POSTING_IN_PROGRESS')
+
+    await waitForPostingJob(up.body.batchId)
+    const status = await call(ctrl.getPostJob, { user: ADMIN, params: { id: up.body.batchId } })
+    assert.equal(status.body.job.status, 'SUCCEEDED')
+    assert.equal(status.body.job.result.status, 'POSTED')
+    const verified = status.body.job.result.log.filter((l) => l.status === 'VERIFIED')
+    assert.equal(verified.length, 15)
+    assert.equal(verified.filter((l) => l.component === 'BANK_SETTLEMENT').length, 1)
+    assert.equal(fake.writer.calls.length, 15)
+  } finally {
+    if (prev === undefined) delete process.env.TABBY_CLEARING_POSTING_ENABLED
+    else process.env.TABBY_CLEARING_POSTING_ENABLED = prev
+  }
 })
 
 test('post endpoint enforces the server posting gate', async () => {

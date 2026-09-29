@@ -1,13 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import type { TabbyBatch, TabbyPreview } from '../../../api/tabbyClearing'
+import type { TabbyBatch, TabbyPostJob, TabbyPreview } from '../../../api/tabbyClearing'
 
 const api = vi.hoisted(() => ({
   listTabbyBatches: vi.fn(),
   uploadTabbyStatement: vi.fn(),
   getTabbyPreview: vi.fn(),
   postTabbyBatch: vi.fn(),
+  getTabbyPostJob: vi.fn(),
   getTabbyActivity: vi.fn(),
   chooseTabbyBankMatch: vi.fn(),
   getTabbyAccounts: vi.fn(),
@@ -100,18 +101,47 @@ const BATCH: TabbyBatch = {
   review: null,
   bankStatus: null,
   bankTransactionId: null,
+  postingJob: null,
   importedBy: 'user:1',
   createdAt: '2026-09-29T08:00:00.000Z',
   updatedAt: '2026-09-29T08:00:00.000Z',
   postedAt: null,
 }
 
+function job(overrides: Partial<TabbyPostJob> = {}): TabbyPostJob {
+  return {
+    id: 'job-1',
+    status: 'RUNNING',
+    statementNumber: STATEMENT,
+    actor: 'user:1',
+    startedAt: '2026-09-29T16:20:00.000Z',
+    heartbeatAt: '2026-09-29T16:20:05.000Z',
+    finishedAt: null,
+    progress: { phase: 'POSTING', done: 3, total: 14, current: `${STATEMENT}/21141/SALE_NET` },
+    result: null,
+    error: null,
+    ...overrides,
+  }
+}
+
+const SUCCEEDED = job({
+  status: 'SUCCEEDED',
+  finishedAt: '2026-09-29T16:21:18.000Z',
+  progress: { phase: 'FINISHING', done: 14, total: 14, current: null },
+  result: {
+    status: 'POSTED',
+    stoppedAt: null,
+    stopReason: null,
+    log: [{ key: `${STATEMENT}|PAYOUT_FEE|STATEMENT`, component: 'PAYOUT_FEE', reference: `${STATEMENT}/PAYOUT_FEE`, amount: 6.3, status: 'VERIFIED', zohoRecordId: 'J-1' }],
+  },
+})
+
 function renderAt(path: string) {
   return render(
     <MemoryRouter initialEntries={[path]}>
       <Routes>
-        <Route path="/management/tabby-clearing" element={<TabbyClearingPage />} />
-        <Route path="/management/tabby-clearing/batch/:batchId" element={<TabbyClearingPage />} />
+        <Route path="/management/tabby-clearing" element={<TabbyClearingPage pollMs={5} />} />
+        <Route path="/management/tabby-clearing/batch/:batchId" element={<TabbyClearingPage pollMs={5} />} />
       </Routes>
     </MemoryRouter>
   )
@@ -120,6 +150,7 @@ function renderAt(path: string) {
 beforeEach(() => {
   api.listTabbyBatches.mockResolvedValue({ batches: [BATCH], postingEnabled: true })
   api.getTabbyActivity.mockResolvedValue({ events: [] })
+  api.getTabbyPostJob.mockResolvedValue({ job: null })
 })
 
 afterEach(() => {
@@ -160,18 +191,16 @@ describe('TabbyClearingPage', () => {
     expect(screen.getAllByText('Ready').length).toBeGreaterThan(0)
   })
 
-  it('posts only after confirmation and sends the reviewed fingerprint', async () => {
-    api.getTabbyPreview.mockResolvedValue({ preview: preview() })
+  it('posts in the background after confirmation, shows progress, then the result', async () => {
+    const posted = preview({ status: 'POSTED', canPost: false, counts: { components: 14, verified: 14, toPost: 0, uncertain: 0, review: 0 } })
+    api.getTabbyPreview.mockResolvedValueOnce({ preview: preview() }).mockResolvedValue({ preview: posted })
     const confirm = vi.spyOn(window, 'confirm')
     confirm.mockReturnValueOnce(false).mockReturnValueOnce(true)
-    api.postTabbyBatch.mockResolvedValue({
-      batchId: '7',
-      status: 'POSTED',
-      stoppedAt: null,
-      stopReason: null,
-      log: [{ key: `${STATEMENT}|PAYOUT_FEE|STATEMENT`, component: 'PAYOUT_FEE', reference: `${STATEMENT}/PAYOUT_FEE`, amount: 6.3, status: 'VERIFIED', zohoRecordId: 'J-1' }],
-      preview: preview({ status: 'POSTED', canPost: false, counts: { components: 14, verified: 14, toPost: 0, uncertain: 0, review: 0 } }),
-    })
+    api.postTabbyBatch.mockResolvedValue({ job: job({ progress: { phase: 'QUEUED', done: 0, total: null, current: null } }) })
+    api.getTabbyPostJob
+      .mockResolvedValueOnce({ job: null })
+      .mockResolvedValueOnce({ job: job() })
+      .mockResolvedValue({ job: SUCCEEDED })
     renderAt('/management/tabby-clearing/batch/7')
 
     const button = await screen.findByRole('button', { name: 'Post to Zoho' })
@@ -181,23 +210,57 @@ describe('TabbyClearingPage', () => {
 
     fireEvent.click(button)
     await waitFor(() => expect(api.postTabbyBatch).toHaveBeenCalledWith('7', 'fp-1'))
+    expect(await screen.findByText(`Posting 4 of 14 · ${STATEMENT}/21141/SALE_NET`)).toBeTruthy()
+    expect((screen.getByRole('button', { name: 'Posting…' }) as HTMLButtonElement).disabled).toBe(true)
+
     expect(await screen.findByText('Posting result: Posted')).toBeTruthy()
     expect(screen.getByText('J-1')).toBeTruthy()
+    expect(screen.getByText(`${STATEMENT} is Posted.`)).toBeTruthy()
+    await waitFor(() => expect(api.getTabbyPreview).toHaveBeenCalledTimes(2))
   })
 
-  it('replaces a stale preview when the server reports it changed', async () => {
-    api.getTabbyPreview.mockResolvedValue({ preview: preview() })
+  it('shows why a background run failed and loads the new preview', async () => {
+    api.getTabbyPreview
+      .mockResolvedValueOnce({ preview: preview() })
+      .mockResolvedValue({ preview: preview({ fingerprint: 'fp-2', date: '2026-09-30' }) })
     vi.spyOn(window, 'confirm').mockReturnValue(true)
-    const changed = Object.assign(new Error('The statement, Zoho or the posting date changed since this preview.'), {
-      status: 409,
-      body: { code: 'PREVIEW_CHANGED', preview: preview({ fingerprint: 'fp-2', date: '2026-09-30' }) },
+    api.postTabbyBatch.mockResolvedValue({ job: job() })
+    api.getTabbyPostJob.mockResolvedValueOnce({ job: null }).mockResolvedValue({
+      job: job({
+        status: 'FAILED',
+        finishedAt: '2026-09-29T16:20:09.000Z',
+        error: { status: 409, code: 'PREVIEW_CHANGED', message: 'The statement, Zoho or the posting date changed since this preview.' },
+      }),
     })
-    api.postTabbyBatch.mockRejectedValue(changed)
     renderAt('/management/tabby-clearing/batch/7')
 
     fireEvent.click(await screen.findByRole('button', { name: 'Post to Zoho' }))
-    expect(await screen.findByText(/changed since this preview/)).toBeTruthy()
-    expect(screen.getByText(/posting date 2026-09-30/)).toBeTruthy()
+    expect(await screen.findByText('Last posting run: Failed')).toBeTruthy()
+    expect(await screen.findByText(/posting date 2026-09-30/)).toBeTruthy()
+  })
+
+  it('picks up a run that is already in progress when the page is reopened', async () => {
+    api.getTabbyPreview.mockResolvedValue({ preview: preview() })
+    api.getTabbyPostJob.mockResolvedValueOnce({ job: job() }).mockResolvedValueOnce({ job: job() }).mockResolvedValue({ job: SUCCEEDED })
+    renderAt('/management/tabby-clearing/batch/7')
+
+    expect(await screen.findByText(/Posting 4 of 14/)).toBeTruthy()
+    expect(await screen.findByText('Posting result: Posted')).toBeTruthy()
+    expect(api.postTabbyBatch).not.toHaveBeenCalled()
+  })
+
+  it('a second click while a run is going shows that run instead of starting another', async () => {
+    api.getTabbyPreview.mockResolvedValue({ preview: preview() })
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    api.postTabbyBatch.mockRejectedValue(
+      Object.assign(new Error(`${STATEMENT} is already being posted.`), { status: 409, body: { code: 'POSTING_IN_PROGRESS', job: job() } })
+    )
+    api.getTabbyPostJob.mockResolvedValueOnce({ job: null }).mockResolvedValue({ job: job() })
+    renderAt('/management/tabby-clearing/batch/7')
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Post to Zoho' }))
+    expect(await screen.findByText(/already being posted; showing its progress/)).toBeTruthy()
+    expect(screen.getByText(/Posting 4 of 14/)).toBeTruthy()
   })
 
   it('reopens an already-imported statement on re-upload', async () => {
