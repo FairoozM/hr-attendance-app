@@ -25,6 +25,7 @@ const model = require('./stripePayoutClearingModel')
 const payoutStore = require('./stripePayoutClearingStore')
 const directStore = require('./stripeDirectPaymentStore')
 const directModel = require('./stripeDirectPaymentModel')
+const { dubaiDateOf, getDubaiPostingDate } = require('./stripePostingDate')
 
 const { GROUP_STATUS, PAYOUT_STATUS, COMPONENT, ZOHO_STATE, RECOVERY_ACTION, POSTABLE_GROUP, NORMAL_REFUND_STATUS } = model
 const { CASE_STATUS, REFUND_STATUS, ENTITY, COMPONENT_STATUS } = payoutStore
@@ -40,7 +41,6 @@ const REVIEW_REFUND = new Set([NORMAL_REFUND_STATUS.NEEDS_REVIEW, NORMAL_REFUND_
 function isRefundTxn(t) {
   return t.type === 'refund' || t.reportingCategory === 'refund'
 }
-const DUBAI_OFFSET_MS = 4 * 60 * 60 * 1000
 // Case statuses whose advance belongs in the payout's clearing.
 const CONFIRMED_CASE = new Set([CASE_STATUS.CONFIRMED, CASE_STATUS.ADVANCE_POSTED, CASE_STATUS.REFUNDED])
 // Case statuses a later Stripe refund may be linked to.
@@ -84,12 +84,6 @@ function toMajor(minor) {
 
 function toMinor(major) {
   return Math.round((Number(major) || 0) * 100)
-}
-
-function dubaiDate(iso) {
-  const t = Date.parse(iso)
-  if (!Number.isFinite(t)) return null
-  return new Date(t + DUBAI_OFFSET_MS).toISOString().slice(0, 10)
 }
 
 function fail(status, code, message) {
@@ -716,32 +710,42 @@ async function invoicePaymentEvidence(component, known, ctx) {
   return out
 }
 
-function componentDate(component) {
-  const p = component.payload || {}
-  return clean(component.date || p.journal_date || p.date)
+/**
+ * Zoho date sent by a local component's own POST attempt; '' when it never sent one. Attempts
+ * from before request snapshots were all dated on the payout arrival day.
+ */
+function recordedDate(local, arrivalDate) {
+  if (!local) return ''
+  if (local.requestSnapshot) return model.proposedDate(local.requestSnapshot)
+  return local.attemptCount > 0 ? clean(arrivalDate) : ''
+}
+
+/** Days a record of this component can carry: the proposed posting date and any recorded attempt date. */
+function componentDates(component) {
+  return [...new Set([model.proposedDate(component), model.matchDate(component)].filter(Boolean))].sort()
 }
 
 /**
- * Journals under this exact reference. Recovery (`ctx.deep`) also lists that day's journals, so
- * a journal the reference search does not show (yet) is still found.
+ * Journals under this exact reference. Recovery (`ctx.deep`) also lists the journals of every
+ * day the component can carry, so a journal the reference search does not show (yet) is still found.
  */
-async function journalsByReference(reference, date, ctx) {
+async function journalsByReference(reference, dates, ctx) {
   const found = await ctx.sources.findZohoJournalsByReference(reference, PREVIEW)
   if (!ctx.deep) return found
-  if (!date || typeof ctx.sources.listZohoJournalsInRange !== 'function') {
+  if (!dates || dates.length === 0 || typeof ctx.sources.listZohoJournalsInRange !== 'function') {
     throw incompleteRecovery(`The journal date listing for "${reference}" is unavailable; the recovery lookup is incomplete.`)
   }
   const byId = new Map(found.map((j) => [j.journalId, j]))
-  for (const j of await ctx.sources.listZohoJournalsInRange(date, date, PREVIEW)) {
+  for (const j of await ctx.sources.listZohoJournalsInRange(dates[0], dates[dates.length - 1], PREVIEW)) {
     if (clean(j.referenceNumber) === reference && !byId.has(j.journalId)) byId.set(j.journalId, j)
   }
   return [...byId.values()]
 }
 
 /** Journals with this reference, each with the customer tagged on its 1123 line. */
-async function taggedJournals(reference, ctx, date) {
+async function taggedJournals(reference, ctx, dates) {
   return cached(ctx.cache, `jr:${reference}`, async () => {
-    const found = await journalsByReference(reference, date, ctx)
+    const found = await journalsByReference(reference, dates, ctx)
     const out = []
     for (const j of found) {
       const detail = await ctx.sources.getZohoJournal(j.journalId, { source: 'stripe_payout_preview' })
@@ -757,7 +761,7 @@ function advanceJournals(payoutId, ctx) {
 }
 
 async function zohoJournalState(component, customerId, ctx, payoutId) {
-  const journals = component.reference ? await taggedJournals(component.reference, ctx, componentDate(component)) : await advanceJournals(payoutId, ctx)
+  const journals = component.reference ? await taggedJournals(component.reference, ctx, componentDates(component)) : await advanceJournals(payoutId, ctx)
   const untagged = journals.filter((j) => !j.customerId)
   const mine = journals.filter((j) => j.customerId === customerId)
   const records = mine.map((j) => ({ recordId: j.journalId, date: j.detail ? j.detail.journalDate : null }))
@@ -775,12 +779,12 @@ async function zohoJournalState(component, customerId, ctx, payoutId) {
 
 /** The payout fee journal under its deterministic reference; any other shape is a conflict. */
 async function feeJournalZohoState(component, ctx) {
-  const found = await journalsByReference(component.reference, componentDate(component), ctx)
+  const found = await journalsByReference(component.reference, componentDates(component), ctx)
   const records = found.map((j) => ({ recordId: j.journalId }))
   if (found.length === 0) return { state: ZOHO_STATE.MISSING, recordId: null, records, differences: [] }
   if (found.length > 1) return { state: ZOHO_STATE.CONFLICT, recordId: null, records, differences: [], reason: `${found.length} Zoho journals have the reference "${component.reference}".` }
   const detail = await ctx.sources.getZohoJournal(found[0].journalId, { source: 'stripe_payout_preview' })
-  const differences = model.compareFeeJournal(detail, component, component.date, model.payoutFeeJournalLabels(component.direction))
+  const differences = model.compareFeeJournal(detail, component, model.matchDate(component), model.payoutFeeJournalLabels(component.direction))
   if (differences.length > 0) {
     return { state: ZOHO_STATE.CONFLICT, recordId: found[0].journalId, records, differences, reason: `Zoho journal ${found[0].journalId} differs: ${differences.join(' ')}` }
   }
@@ -812,7 +816,7 @@ async function creditNoteRefundZohoState(component, ctx) {
 
 /** The refund fee journal under its deterministic reference; any other shape is a conflict. */
 async function refundFeeJournalZohoState(component, ctx) {
-  const found = await journalsByReference(component.reference, componentDate(component), ctx)
+  const found = await journalsByReference(component.reference, componentDates(component), ctx)
   const records = found.map((j) => ({ recordId: j.journalId }))
   if (found.length === 0) return { state: ZOHO_STATE.MISSING, recordId: null, records, differences: [] }
   if (found.length > 1) return { state: ZOHO_STATE.CONFLICT, recordId: null, records, differences: [], reason: `${found.length} Zoho journals have the reference "${component.reference}".` }
@@ -850,10 +854,10 @@ function shiftDate(ymd, days) {
  * fee - 50 Invoices") that provably carry this payout's fees. Only published journals that
  * mention Stripe, dated around the payout, and not written by this workflow are inspected.
  */
-async function findLegacyFeeJournal(payout, date, expected, ctx) {
+async function findLegacyFeeJournal(payout, arrivalDate, expected, ctx) {
   const { LEGACY_STATE } = model
-  const start = shiftDate(dubaiDate(payout.createdAt) || date, -ctx.config.legacyFeeJournalDaysBefore)
-  const end = shiftDate(date, ctx.config.legacyFeeJournalDaysAfter)
+  const start = shiftDate(dubaiDateOf(payout.createdAt) || arrivalDate, -ctx.config.legacyFeeJournalDaysBefore)
+  const end = shiftDate(arrivalDate, ctx.config.legacyFeeJournalDaysAfter)
   const window = { start, end }
   if (typeof ctx.sources.listZohoJournalsInRange !== 'function') {
     return { state: LEGACY_STATE.ERROR, window, journals: [], candidatesChecked: 0, reason: 'Legacy fee journals cannot be listed; confirm manually.' }
@@ -899,7 +903,7 @@ function feeJournalFingerprint(payout, component, feeComponents, refundAdjustmen
     payoutId: payout.payoutId,
     payoutAmountMinor: payout.amountMinor,
     arrivalDate: payout.arrivalDate,
-    date: component.date,
+    zohoPostingDate: component.date,
     amountMinor: toMinor(component.amount),
     signedFeeMinor: component.signedFeeMinor,
     direction: component.direction,
@@ -918,7 +922,7 @@ function feeJournalFingerprint(payout, component, feeComponents, refundAdjustmen
  * transactions sum positive, Dr 1013 / Cr Stripe Fees for the absolute amount when they sum
  * negative, none when they sum to zero. Never tagged to a customer and never split by customer.
  */
-async function buildFeeJournal({ payout, txns, groups, payoutBlockers, accounts, config, date, local, ctx, normalRefunds = [] }) {
+async function buildFeeJournal({ payout, txns, groups, payoutBlockers, accounts, config, date, arrivalDate, local, ctx, normalRefunds = [] }) {
   const stripeFeeMinor = txns.filter((t) => t.type !== 'payout').reduce((s, t) => s + (Number(t.feeMinor) || 0), 0)
   // A refund's fee reaches 1013 only through its own adjustment journal; zero-fee refunds need none.
   const refundAdjustments = normalRefunds.filter((r) => r.feeMinor !== 0).map((r) => {
@@ -961,6 +965,7 @@ async function buildFeeJournal({ payout, txns, groups, payoutBlockers, accounts,
     currency: payout.currency,
     reference: model.payoutFeeReference(payout.payoutId),
     date,
+    matchDate: recordedDate(local, arrivalDate),
     debitAccountId: side ? side.debitAccountId : null,
     creditAccountId: side ? side.creditAccountId : null,
     depositAccountId: null,
@@ -981,7 +986,7 @@ async function buildFeeJournal({ payout, txns, groups, payoutBlockers, accounts,
   let derived = model.deriveFeeJournalStatus(input)
   let legacy = null
   if (derived.needsLegacyCheck) {
-    legacy = await findLegacyFeeJournal(payout, date, {
+    legacy = await findLegacyFeeJournal(payout, arrivalDate, {
       feeExpenseAccountId: config.feeExpenseAccountId,
       clearingAccountId: config.feeAccountId,
       totalMinor: Math.abs(stripeFeeMinor),
@@ -1014,16 +1019,17 @@ async function buildFeeJournal({ payout, txns, groups, payoutBlockers, accounts,
 }
 
 /**
- * Hash of everything the admin approves when posting a group: payout, customer, date and
- * each component's amount, reference, accounts, allocations and advance cases. Zoho and
- * local status are excluded so a partly posted group keeps the same fingerprint.
+ * Hash of everything the admin approves when posting a group: payout, customer, Zoho posting
+ * date and each component's amount, reference, accounts, allocations and advance cases. Zoho
+ * and local status are excluded so a partly posted group keeps the same fingerprint within a
+ * Dubai day; a preview approved before Dubai midnight no longer matches after it.
  */
 function postingFingerprint(payout, customerId, date, components) {
   const plan = {
     payoutId: payout.payoutId,
     payoutAmountMinor: payout.amountMinor,
     arrivalDate: payout.arrivalDate,
-    date,
+    zohoPostingDate: date,
     customerId,
     components: components.map((c) => ({
       component: c.component,
@@ -1080,9 +1086,10 @@ async function buildGroup(customerId, lines, ctx) {
 
   const proposed = proposeComponents(customerId, allocatable, payout, accounts, config, date)
   const components = []
-  for (const c of proposed) {
+  for (const proposal of proposed) {
+    const local = localByKey.get(`${customerId}|${proposal.component}`) || null
+    const c = { ...proposal, matchDate: recordedDate(local, ctx.arrivalDate) }
     const zoho = c.zohoRecordType === 'journal' ? await zohoJournalState(c, customerId, ctx, payoutId) : await zohoPaymentState(c, customerId, ctx)
-    const local = localByKey.get(`${customerId}|${c.component}`) || null
     components.push({ ...c, zoho, local: publicLocal(local), localStatus: local ? local.status : null, recovery: model.planRecovery(zoho, local) })
   }
 
@@ -1196,6 +1203,7 @@ async function linkRefunds(refundTxns, casesByCharge, ctx) {
       debitAccountId: config.advanceAccountId,
       creditAccountId: accounts.net ? accounts.net.accountId : null,
       date,
+      matchDate: '',
     }
     const originalAdvance = {
       component: COMPONENT.CUSTOMER_ADVANCE,
@@ -1550,9 +1558,10 @@ async function planNormalRefund(t, ctx) {
   if (stray.length > 0) return stop('LOCAL_RECORD_CONFLICT', `Local ${stray.map((row) => `${row.component} (${row.status})`).join(', ')} exists that this refund no longer proposes.`)
 
   const components = []
-  for (const c of proposed) {
+  for (const proposal of proposed) {
+    const row = local.find((x) => x.component === proposal.component) || null
+    const c = { ...proposal, matchDate: recordedDate(row, ctx.arrivalDate) }
     const zoho = c.component === COMPONENT.REFUND_CREDIT_NOTE_REFUND ? await creditNoteRefundZohoState(c, ctx) : await refundFeeJournalZohoState(c, ctx)
-    const row = local.find((x) => x.component === c.component) || null
     const identity = row && (row.creditNoteId !== c.creditNoteId || row.invoiceId !== invoice.invoiceId || row.zohoCustomerId !== customerId)
     const recovery = identity
       ? { action: RECOVERY_ACTION.NEEDS_REVIEW, reason: `Local record points to credit note ${row.creditNoteId} / invoice ${row.invoiceId} / customer ${row.zohoCustomerId}.` }
@@ -1670,7 +1679,9 @@ async function previewPayout(payoutId, overrides = {}) {
   const composition = summarizeComposition(payout, txns)
   const chargeTxns = txns.filter((t) => CHARGE_TYPES.has(t.type))
   const otherTxns = txns.filter((t) => t.type !== 'payout' && !CHARGE_TYPES.has(t.type))
-  const date = dubaiDate(payout.arrivalDate)
+  // The arrival day only describes the source payout; every Zoho record is dated on the day it is posted.
+  const arrivalDate = dubaiDateOf(payout.arrivalDate)
+  const date = getDubaiPostingDate(typeof deps.now === 'function' ? deps.now() : new Date())
   const refundTxns = otherTxns.filter(isRefundTxn)
 
   const intentIds = [...new Set([...chargeTxns, ...refundTxns].map((t) => t.paymentIntentId).filter(Boolean))]
@@ -1722,7 +1733,7 @@ async function previewPayout(payoutId, overrides = {}) {
     byCustomer.set(line.customerId, list)
   }
 
-  const ctx = { sources, zohoPayments, config, payout, accounts, date, localByKey, payoutId: id, cache: new Map() }
+  const ctx = { sources, zohoPayments, config, payout, accounts, date, arrivalDate, localByKey, payoutId: id, cache: new Map() }
   const unassigned = []
   for (const line of unassignedLines) {
     unassigned.push({ ...publicLine(line), ...await describeUnassigned(line, { ...ctx, ordersByIntent, stripeCache }) })
@@ -1770,7 +1781,7 @@ async function previewPayout(payoutId, overrides = {}) {
     }
     g.postable = POSTABLE_GROUP.has(g.status)
   }
-  const feeJournal = await buildFeeJournal({ payout, txns, groups, payoutBlockers, accounts, config, date, local: localFeeJournal, ctx, normalRefunds })
+  const feeJournal = await buildFeeJournal({ payout, txns, groups, payoutBlockers, accounts, config, date, arrivalDate, local: localFeeJournal, ctx, normalRefunds })
 
   const caseIds = cases.filter((c) => c.payoutId === id).map((c) => c.id)
   const caseEvents = caseIds.length > 0 ? await records.loadCaseEvents(caseIds) : []
@@ -1799,12 +1810,14 @@ async function previewPayout(payoutId, overrides = {}) {
       amount: toMajor(payout.amountMinor),
       currency: payout.currency,
       arrivalDate: payout.arrivalDate,
+      arrivalDay: arrivalDate,
       createdAt: payout.createdAt,
     },
     status,
     blockers: payoutBlockers,
     uncertainComponents,
     refundBlockers,
+    zohoPostingDate: date,
     proposedPaymentDate: date,
     accounts: {
       net: accounts.net,

@@ -19,6 +19,9 @@
  * - holds a per-payout advisory lock;
  * - re-runs the live preview and refuses unless the group is still postable and its
  *   accounting plan equals the one the admin reviewed (posting fingerprint);
+ * - dates every new Zoho record with the current Asia/Dubai day on the server (never the payout
+ *   arrival day); the date is part of the fingerprint, so a preview from before Dubai midnight
+ *   is refused;
  * - searches Zoho right before each POST; an exact existing record is recorded, not recreated;
  * - never retries an uncertain POST: it searches Zoho for the deterministic record instead.
  */
@@ -31,6 +34,7 @@ const model = require('./stripePayoutClearingModel')
 const payoutStore = require('./stripePayoutClearingStore')
 const preview = require('./stripePayoutPreviewService')
 const writer = require('./stripePayoutZohoWriter')
+const { getDubaiPostingDate } = require('./stripePostingDate')
 
 const { GROUP_STATUS, COMPONENT, ZOHO_STATE, RECOVERY_ACTION } = model
 const { COMPONENT_STATUS, CASE_STATUS, EVENT } = payoutStore
@@ -96,11 +100,19 @@ const VERIFIED_FIELDS = {
   [COMPONENT.REFUND_FEE_ADJUSTMENT]: 'reference, date, accounts and amount match; no customer tag',
 }
 
+/** The live preview must be dated today (Asia/Dubai, server clock); Dubai midnight in between refuses. */
+function assertPostingDate(result, ctx) {
+  const today = getDubaiPostingDate(ctx.now())
+  if (result.zohoPostingDate !== today) {
+    throw fail(409, 'POSTING_DATE_CHANGED', `The Zoho posting date is now ${today} (Asia/Dubai), not ${result.zohoPostingDate}. Reload the preview and review it again. Nothing was posted.`)
+  }
+}
+
 /** Everything checked against the live preview before any Zoho record is created. */
 function assertPostable(result, group, fingerprint, config) {
   const needsReview = (code, message, reasons) => fail(409, code, message, { reasons, groupStatus: GROUP_STATUS.NEEDS_REVIEW })
   if (group.postingFingerprint !== fingerprint) {
-    throw needsReview('PREVIEW_CHANGED', 'The payout, invoices, accounts or customer advance changed since this preview. Reload the preview and review it again. Nothing was posted.')
+    throw needsReview('PREVIEW_CHANGED', 'The payout, invoices, accounts, customer advance or Zoho posting date changed since this preview. Reload the preview and review it again. Nothing was posted.')
   }
   if (result.payout.status !== 'paid') throw needsReview('PAYOUT_NOT_PAID', `Payout status is ${result.payout.status}. Nothing was posted.`)
   if (result.blockers.length > 0) throw needsReview('PAYOUT_NEEDS_REVIEW', 'The payout does not reconcile. Nothing was posted.', result.blockers)
@@ -121,6 +133,9 @@ function assertPostable(result, group, fingerprint, config) {
   if (!accounts.fee || fee.depositAccountId !== accounts.fee.accountId || fee.payload.account_id !== accounts.fee.accountId) problems.push('FEE is not deposited to the verified Stripe Processing Chg Un-Cleared account.')
   for (const c of [net, fee]) {
     if (c.payload.customer_id !== group.customerId) problems.push(`${c.component} is not for customer ${group.customerName}.`)
+  }
+  for (const c of [net, fee, adv].filter(Boolean)) {
+    if (model.proposedDate(c) !== result.zohoPostingDate) problems.push(`${c.component} is not dated with the Zoho posting date ${result.zohoPostingDate}.`)
   }
 
   const advanceLines = group.lines.filter((l) => l.customerAdvance > 0)
@@ -318,6 +333,12 @@ async function postComponent(c, row, ctx) {
     return outcomeOf(c, local, { reason: plan.reason })
   }
 
+  const postingDate = getDubaiPostingDate(ctx.now())
+  if (model.proposedDate(c) !== postingDate) {
+    return outcomeOf(c, local, { reason: `The Zoho posting date changed to ${postingDate} (Asia/Dubai) before ${c.component} was sent. Reload the preview and review it again; nothing was sent.` })
+  }
+  // What is sent now is what the read-back and any recovery must find.
+  c = { ...c, matchDate: postingDate }
   const retry = local.attemptCount > 0
   local = await store.transitionComponent(
     db, local.id, [COMPONENT_STATUS.PLANNED, COMPONENT_STATUS.FAILED], COMPONENT_STATUS.POSTING,
@@ -371,6 +392,7 @@ async function postLocked(payoutId, customerId, fingerprint, ctx) {
     }
   }
   const components = assertPostable(result, group, fingerprint, ctx.config)
+  assertPostingDate(result, ctx)
 
   const outcomes = []
   for (const c of components) {
@@ -410,7 +432,7 @@ function assertFeeJournalPostable(result, fingerprint, config) {
   const needsReview = (code, message, reasons) => fail(409, code, message, { reasons, feeJournalStatus: S.NEEDS_REVIEW })
   if (!fj) throw needsReview('FEE_JOURNAL_MISSING', 'The preview has no payout fee journal. Nothing was posted.')
   if (fj.postingFingerprint !== fingerprint) {
-    throw needsReview('PREVIEW_CHANGED', 'The payout, its fees or the verified FEE payments changed since this preview. Reload the preview and review it again. Nothing was posted.')
+    throw needsReview('PREVIEW_CHANGED', 'The payout, its fees, the verified FEE payments or the Zoho posting date changed since this preview. Reload the preview and review it again. Nothing was posted.')
   }
   if (result.payout.status !== 'paid') throw needsReview('PAYOUT_NOT_PAID', `Payout status is ${result.payout.status}. Nothing was posted.`)
   if (result.blockers.length > 0) throw needsReview('PAYOUT_NEEDS_REVIEW', 'The payout does not reconcile. Nothing was posted.', result.blockers)
@@ -461,7 +483,7 @@ function assertFeeJournalPostable(result, fingerprint, config) {
   }
   if (fj.reference !== model.payoutFeeReference(result.payout.payoutId)) problems.push('The journal reference is not the payout fee reference.')
   const payload = fj.payload || {}
-  if (fj.date !== result.proposedPaymentDate || payload.journal_date !== fj.date) problems.push('The journal date is not the payout arrival date.')
+  if (fj.date !== result.zohoPostingDate || payload.journal_date !== fj.date) problems.push(`The journal date is not the Zoho posting date ${result.zohoPostingDate}.`)
   const lines = payload.line_items || []
   const shapeOk = Boolean(side) && lines.length === 2
     && lines[0].account_id === side.debitAccountId && lines[0].debit_or_credit === 'debit' && minor(lines[0].amount) === minor(fj.amount)
@@ -487,6 +509,7 @@ async function postFeeJournalLocked(payoutId, fingerprint, ctx) {
     return { outcome: S.VERIFIED, alreadyPosted: true, ...summary, component: { component: fj.component, amount: fj.amount, reference: fj.reference, status: fj.local.status, zohoRecordId: fj.zoho.recordId, requestSent: false }, zohoRequests: 0 }
   }
   const c = assertFeeJournalPostable(result, fingerprint, ctx.config)
+  assertPostingDate(result, ctx)
   const out = await postComponent(c, componentRow(c, payoutId, null, result.payout.currency), ctx)
   const outcome = out.status === COMPONENT_STATUS.VERIFIED ? S.VERIFIED
     : out.status === COMPONENT_STATUS.POSTING_UNCERTAIN ? S.POSTING_UNCERTAIN
@@ -507,7 +530,7 @@ function assertRefundPostable(result, r, fingerprint, config) {
     throw fail(409, 'REFUND_NOT_POSTABLE', `Refund ${r.refundId} is ${r.status}. Nothing was posted.`, { reasons: r.reasons, refundStatus: r.status })
   }
   if (r.postingFingerprint !== fingerprint) {
-    throw needsReview('PREVIEW_CHANGED', 'The refund, its invoice, credit note or accounts changed since this preview. Reload the preview and review it again. Nothing was posted.')
+    throw needsReview('PREVIEW_CHANGED', 'The refund, its invoice, credit note, accounts or Zoho posting date changed since this preview. Reload the preview and review it again. Nothing was posted.')
   }
   if (result.payout.status !== 'paid') throw needsReview('PAYOUT_NOT_PAID', `Payout status is ${result.payout.status}. Nothing was posted.`)
   if (result.blockers.length > 0) throw needsReview('PAYOUT_NEEDS_REVIEW', 'The payout does not reconcile. Nothing was posted.', result.blockers)
@@ -537,7 +560,7 @@ function assertRefundPostable(result, r, fingerprint, config) {
     }
     if (cn.reference !== model.normalRefundReference(r.refundId) || p.reference_number !== cn.reference) problems.push('The credit note refund reference is not the Stripe refund reference.')
     if (!r.creditNote || cn.creditNoteId !== r.creditNote.creditNoteId) problems.push('The credit note refund is not for the matched credit note.')
-    if (p.date !== result.proposedPaymentDate) problems.push('The credit note refund date is not the payout arrival date.')
+    if (cn.date !== result.zohoPostingDate || p.date !== cn.date) problems.push(`The credit note refund date is not the Zoho posting date ${result.zohoPostingDate}.`)
     if (p.refund_mode !== config.paymentMode) problems.push(`The refund mode is not ${config.paymentMode}.`)
     if (p.description || p.notes) problems.push('The credit note refund must not carry a description or notes.')
   }
@@ -553,6 +576,7 @@ function assertRefundPostable(result, r, fingerprint, config) {
       if (adj.debitAccountId !== dr || adj.creditAccountId !== cr) problems.push('The refund fee journal accounts do not follow the sign of Stripe\'s fee.')
       if (minor(adj.amount) !== Math.abs(feeMinor)) problems.push('The refund fee journal amount does not equal Stripe\'s fee on the refund.')
       if (adj.reference !== model.refundFeeReference(r.refundId) || adj.payload.reference_number !== adj.reference) problems.push('The refund fee journal reference is not the refund fee reference.')
+      if (adj.date !== result.zohoPostingDate || adj.payload.journal_date !== adj.date) problems.push(`The refund fee journal date is not the Zoho posting date ${result.zohoPostingDate}.`)
       const lines = adj.payload.line_items || []
       const shapeOk = lines.length === 2
         && lines[0].account_id === dr && lines[0].debit_or_credit === 'debit' && minor(lines[0].amount) === Math.abs(feeMinor)
@@ -606,6 +630,7 @@ async function postRefundLocked(payoutId, refundId, fingerprint, ctx) {
     }
   }
   const components = assertRefundPostable(result, r, fingerprint, ctx.config)
+  assertPostingDate(result, ctx)
   // Same posting rules as the payout components, on the refund component table.
   const refundCtx = {
     ...ctx,
@@ -645,7 +670,7 @@ async function underPostingLock(payoutId, opts, overrides, customerKey, run) {
   const fingerprint = clean(opts.fingerprint)
   if (!fingerprint) throw fail(400, 'FINGERPRINT_REQUIRED', 'Post from a loaded preview (posting fingerprint missing).')
 
-  const previewDeps = { ...deps.previewDeps, config: deps.config, stripeConfig: deps.stripeConfig }
+  const previewDeps = { ...deps.previewDeps, now: deps.now, config: deps.config, stripeConfig: deps.stripeConfig }
   const lock = await deps.store.acquirePayoutLock(deps.pool, id)
   try {
     return await run(id, customerId, fingerprint, {
@@ -752,7 +777,7 @@ async function underRecoveryLock(payoutId, scope, componentId, opts, overrides, 
   if (!/^\d{1,18}$/.test(clean(componentId))) throw fail(400, 'INVALID_COMPONENT_ID', 'A component ID is required.')
   if (!opts.actor) throw fail(401, 'ACTOR_REQUIRED', 'The admin could not be identified.')
   const target = recoveryTarget(scope, deps.store)
-  const previewDeps = { ...deps.previewDeps, config: deps.config, stripeConfig: deps.stripeConfig }
+  const previewDeps = { ...deps.previewDeps, now: deps.now, config: deps.config, stripeConfig: deps.stripeConfig }
   const lock = await deps.store.acquirePayoutLock(deps.pool, id)
   try {
     const row = await target.get(lock.db, clean(componentId))

@@ -236,8 +236,8 @@ test('1/14: MATCHED_READY_TO_CLEAR posts once with the exact payload and records
     customer_id: 'WEB',
     payment_mode: 'Stripe',
     amount: 664.99,
-    // Charge succeeded 21:30 UTC = 01:30 next day in Dubai.
-    date: '2026-09-26',
+    // Dated on the server's Asia/Dubai posting day (12:00 UTC = 16:00 Dubai), not the charge day.
+    date: '2026-09-27',
     reference_number: PI,
     account_id: 'ACC-1019',
     invoices: [{ invoice_id: 'Z1', amount_applied: 664.99 }],

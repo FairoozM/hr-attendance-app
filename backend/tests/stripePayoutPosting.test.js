@@ -32,6 +32,9 @@ const ACCOUNTS = [
 ]
 
 const PO = 'po_1UJNObDJogiiRoKPHtPAr3KE'
+// Server clock for previews and posts: 18:00 Asia/Dubai on 2026-09-28.
+const POSTING_NOW = '2026-09-28T14:00:00.000Z'
+const POSTING_DAY = '2026-09-28'
 const ADVANCE_CHARGE = 'ch_3UIA7CDJogiiRoKP07RCqZKw'
 const ADVANCE_PI = 'pi_3UIA7CDJogiiRoKP0Qy1oodM'
 const REFUND_ID = 're_3UIA7CDJogiiRoKP0noUu0UZ'
@@ -277,8 +280,8 @@ function world(opts = {}) {
     loadComponents: async (id) => state.components.filter((c) => c.payoutId === id),
     loadCaseEvents: async () => [],
   }
-  const previewDeps = { sources, zohoPayments, records }
-  const deps = (patch = {}) => ({ config: CFG, stripeConfig: LIVE, store, writer, pool: {}, previewDeps, now: () => new Date('2026-09-28T14:00:00.000Z'), ...patch })
+  const previewDeps = { sources, zohoPayments, records, now: () => new Date(POSTING_NOW) }
+  const deps = (patch = {}) => ({ config: CFG, stripeConfig: LIVE, store, writer, pool: {}, previewDeps, now: () => new Date(POSTING_NOW), ...patch })
   return {
     state,
     script,
@@ -811,12 +814,11 @@ test('fee journal: an exact existing journal is recovered and recorded without p
   assert.equal((await w.preview()).status, PAYOUT_STATUS.FULLY_CLEARED)
 })
 
-test('fee journal: a same-reference journal with other accounts, amount or date is blocked', async () => {
+test('fee journal: a same-reference journal with other accounts or amount is blocked', async () => {
   const variants = [
     exactFeeJournal({ lineItems: [{ accountId: A2270, debitOrCredit: 'debit', amount: 140, customerId: '' }, { accountId: A1013, debitOrCredit: 'credit', amount: 140, customerId: '' }] }),
     exactFeeJournal({ lineItems: [{ accountId: A1019, debitOrCredit: 'debit', amount: 147.28, customerId: '' }, { accountId: A1013, debitOrCredit: 'credit', amount: 147.28, customerId: '' }] }),
     exactFeeJournal({ lineItems: [{ accountId: A2270, debitOrCredit: 'debit', amount: 147.28, customerId: '' }, { accountId: A1123, debitOrCredit: 'credit', amount: 147.28, customerId: '' }] }),
-    exactFeeJournal({ journalDate: '2026-09-27' }),
     exactFeeJournal({ lineItems: [{ accountId: A2270, debitOrCredit: 'debit', amount: 107.22, customerId: '' }, { accountId: A2270, debitOrCredit: 'debit', amount: 40.06, customerId: '' }, { accountId: A1013, debitOrCredit: 'credit', amount: 147.28, customerId: '' }] }),
     exactFeeJournal({ lineItems: [{ accountId: A2270, debitOrCredit: 'debit', amount: 147.28, customerId: WEB }, { accountId: A1013, debitOrCredit: 'credit', amount: 147.28, customerId: '' }] }),
   ]
@@ -1285,8 +1287,8 @@ function refundWorld(opts = {}) {
     loadCaseEvents: (ids) => pgStore.listEvents(opts.pool, pgStore.ENTITY.ADVANCE_CASE, ids),
     loadRefundComponents: (ids) => pgStore.listRefundComponents(opts.pool, ids),
   } : null
-  const previewDeps = { sources, zohoPayments, records: pgRecords || records }
-  const deps = (patch = {}) => ({ config, stripeConfig: LIVE, store: pgStore || store, writer, pool: opts.pool || {}, previewDeps, now: () => new Date('2026-09-28T14:00:00.000Z'), ...patch })
+  const previewDeps = { sources, zohoPayments, records: pgRecords || records, now: () => new Date(POSTING_NOW) }
+  const deps = (patch = {}) => ({ config, stripeConfig: LIVE, store: pgStore || store, writer, pool: opts.pool || {}, previewDeps, now: () => new Date(POSTING_NOW), ...patch })
   const preview = (patch = {}) => previewPayout(RPO, { ...previewDeps, config, stripeConfig: LIVE, ...patch })
   const w = {
     state,
@@ -1346,7 +1348,7 @@ test('partial refund: credit note refund from 1019 for the Stripe gross, then FU
   assert.deepEqual([r.website.orderNumber, r.invoice.invoiceNumber, r.customerId, r.creditNote.creditNoteNumber, r.creditNote.matchedBy], ['20717', 'INV-020717', WEB, '20717', 'CREDIT_NOTE_TOTAL'])
   assert.deepEqual(r.clearingImpact, { stripeUndepositedFunds: -76.7, processingChargesUncleared: 0 })
   assert.deepEqual(r.components.map((c) => c.component), ['REFUND_CREDIT_NOTE_REFUND'])
-  assert.deepEqual(r.components[0].payload, { date: '2026-09-03', refund_mode: 'Stripe', reference_number: `Stripe refund ${REFUND_20717}`, amount: 76.7, from_account_id: A1019 })
+  assert.deepEqual(r.components[0].payload, { date: POSTING_DAY, refund_mode: 'Stripe', reference_number: `Stripe refund ${REFUND_20717}`, amount: 76.7, from_account_id: A1019 })
   assert.equal(r.postable, true)
   assert.equal(p.reconciliation.payoutMatches, true)
   assert.deepEqual([p.reconciliation.normalRefundsGross, p.reconciliation.normalRefundsNetOutOf1019, p.payout.amount], [76.7, 76.7, 408.3])
@@ -1356,7 +1358,7 @@ test('partial refund: credit note refund from 1019 for the Stripe gross, then FU
 
   const out = await w.postRefund(REFUND_20717)
   assert.equal(out.outcome, NR.VERIFIED)
-  assert.deepEqual(w.posts('CN_REFUND').map((x) => x.payload), [{ creditNoteId: 'CN-20717', date: '2026-09-03', refund_mode: 'Stripe', reference_number: `Stripe refund ${REFUND_20717}`, amount: 76.7, from_account_id: A1019 }])
+  assert.deepEqual(w.posts('CN_REFUND').map((x) => x.payload), [{ creditNoteId: 'CN-20717', date: POSTING_DAY, refund_mode: 'Stripe', reference_number: `Stripe refund ${REFUND_20717}`, amount: 76.7, from_account_id: A1019 }])
   assert.deepEqual(w.state.refundComponents.map((c) => [c.refundId, c.component, c.status, c.creditNoteId, c.invoiceId, c.zohoCustomerId, c.payoutId]), [[REFUND_20717, 'REFUND_CREDIT_NOTE_REFUND', 'VERIFIED', 'CN-20717', invoiceId('INV-020717'), WEB, RPO]])
   const mid = await w.preview()
   assert.equal(mid.normalRefunds[0].status, NR.VERIFIED)
@@ -1988,7 +1990,7 @@ test('signed fee: negative net fee is a reversal Dr 1013 / Cr 2270 for the absol
   assert.deepEqual([fj.stripeFeeTotal, fj.signedAmount, fj.amount, fj.direction], [-3, -3, 3, 'FEE_REVERSAL'])
   assert.deepEqual([fj.debitAccountId, fj.creditAccountId, fj.debitAccount.accountId, fj.creditAccount.accountId], [A1013, A2270, A1013, A2270])
   assert.deepEqual(fj.payload, {
-    journal_date: '2026-09-03',
+    journal_date: POSTING_DAY,
     journal_type: 'both',
     reference_number: SIGNED_FEE_REF,
     line_items: [{ account_id: A1013, debit_or_credit: 'debit', amount: 3 }, { account_id: A2270, debit_or_credit: 'credit', amount: 3 }],
@@ -2755,4 +2757,218 @@ test('pg: concurrency — rechecks, posts and confirmations racing on one uncert
     assert.equal(w.posts('CN_REFUND').length, 1)
   }
   assert.ok(lockRefusals > 0, 'the advisory lock refused concurrent requests')
+})
+
+// ---------------------------------------------------------------------------
+// Zoho posting date: every new Stripe accounting record is dated with the current Asia/Dubai
+// day on the server when it is posted — never the payout arrival day, UTC or the browser.
+// ---------------------------------------------------------------------------
+
+// 00:30 Asia/Dubai on 2026-10-03 while UTC is still 2026-10-02; the payout arrived 2026-09-28.
+const LATE_NOW = '2026-10-02T20:30:00.000Z'
+const LATE_DAY = '2026-10-03'
+const clock = (iso) => ({ now: () => new Date(iso) })
+const LATE = clock(LATE_NOW)
+const REFUND_FEE_REF = `Stripe refund fee ${REFUND_20717}`
+const withoutDate = ({ date, journal_date: journalDate, ...rest }) => rest
+
+async function postAllAt(w, patch) {
+  for (const [key, id] of [['burjman', SHOP], ['website', WEB]]) {
+    const out = await w.post(key, group(await w.preview(patch), id).postingFingerprint, patch)
+    assert.equal(out.outcome, GROUP_STATUS.POSTED)
+  }
+  const fee = await w.postFee((await w.preview(patch)).feeJournal.postingFingerprint, patch)
+  assert.equal(fee.outcome, FJ.VERIFIED)
+}
+
+test('posting date: an old payout posted today is dated today in Asia/Dubai, not its arrival day or UTC', async () => {
+  const w = world()
+  const p = await w.preview(LATE)
+  assert.equal(p.payout.arrivalDay, '2026-09-28')
+  assert.equal(p.zohoPostingDate, LATE_DAY)
+  const out = await w.post('burjman', group(p, SHOP).postingFingerprint, LATE)
+  assert.equal(out.outcome, GROUP_STATUS.POSTED)
+  assert.ok(w.state.posts.length > 0)
+  for (const post of w.state.posts) {
+    assert.equal(post.payload.date, LATE_DAY)
+    assert.notEqual(post.payload.date, '2026-09-28')
+    assert.notEqual(post.payload.date, LATE_NOW.slice(0, 10))
+  }
+})
+
+test('posting date: NET customer payment [1019] uses the current Dubai date', async () => {
+  const w = world()
+  await w.post('burjman', group(await w.preview(LATE), SHOP).postingFingerprint, LATE)
+  assert.deepEqual(payload(w, 'NET'), {
+    customer_id: SHOP, payment_mode: 'Stripe', amount: 1203.49, date: LATE_DAY,
+    reference_number: `Stripe funds received ${PO}`, account_id: A1019, invoices: invoicesOf(SHOP_ALLOCATIONS.NET),
+  })
+  assert.equal(w.local(SHOP, 'NET').status, 'VERIFIED')
+})
+
+test('posting date: FEE customer payment [1013] uses the current Dubai date', async () => {
+  const w = world()
+  await w.post('burjman', group(await w.preview(LATE), SHOP).postingFingerprint, LATE)
+  assert.deepEqual(payload(w, 'FEE'), {
+    customer_id: SHOP, payment_mode: 'Stripe', amount: 40.06, date: LATE_DAY,
+    reference_number: `Stripe processing fee ${PO}`, account_id: A1013, invoices: invoicesOf(SHOP_ALLOCATIONS.FEE),
+  })
+  assert.equal(w.local(SHOP, 'FEE').status, 'VERIFIED')
+})
+
+test('posting date: the Customer Advance journal (Dr 1019 / Cr 1123) uses the current Dubai date', async () => {
+  const w = world()
+  const out = await w.post('website', group(await w.preview(LATE), WEB).postingFingerprint, LATE)
+  assert.equal(out.outcome, GROUP_STATUS.POSTED)
+  assert.deepEqual(payload(w, 'JOURNAL'), {
+    journal_date: LATE_DAY,
+    reference_number: `Stripe customer advance ${PO}`,
+    journal_type: 'both',
+    line_items: [
+      { account_id: A1019, debit_or_credit: 'debit', amount: 35 },
+      { account_id: A1123, customer_id: WEB, debit_or_credit: 'credit', amount: 35 },
+    ],
+  })
+})
+
+test('posting date: the payout fee journal (2270 / 1013) uses the current Dubai date', async () => {
+  const w = world()
+  await postAllAt(w, LATE)
+  assert.deepEqual(payload(w, 'FEE_JOURNAL'), {
+    journal_date: LATE_DAY,
+    reference_number: `Stripe processing fees ${PO}`,
+    journal_type: 'both',
+    line_items: [
+      { account_id: BASE.feeExpenseAccountId, debit_or_credit: 'debit', amount: 147.28 },
+      { account_id: A1013, debit_or_credit: 'credit', amount: 147.28 },
+    ],
+  })
+  assert.equal((await w.preview(LATE)).status, PAYOUT_STATUS.FULLY_CLEARED)
+})
+
+test('posting date: a normal refund (credit note refund) uses the current Dubai date', async () => {
+  const w = refundWorld({ sales: [CARRIER(), S20717({ refunds: [refundOf(REFUND_20717, 7670)] })] })
+  const r = (await w.preview(LATE)).normalRefunds.find((x) => x.refundId === REFUND_20717)
+  assert.equal(r.status, NR.READY)
+  const out = await w.postRefund(REFUND_20717, r.postingFingerprint, LATE)
+  assert.equal(out.outcome, NR.VERIFIED)
+  assert.deepEqual(w.posts('CN_REFUND').map((x) => x.payload), [{ creditNoteId: 'CN-20717', date: LATE_DAY, refund_mode: 'Stripe', reference_number: `Stripe refund ${REFUND_20717}`, amount: 76.7, from_account_id: A1019 }])
+})
+
+test('posting date: the refund fee-adjustment journal uses the current Dubai date', async () => {
+  const w = refundWorld({ sales: [CARRIER(), S20717({ refunds: [refundOf(REFUND_20717, 7670, { fee: -230 })] })] })
+  await w.postGroup('website')
+  const r = (await w.preview(LATE)).normalRefunds.find((x) => x.refundId === REFUND_20717)
+  const out = await w.postRefund(REFUND_20717, r.postingFingerprint, LATE)
+  assert.equal(out.outcome, NR.VERIFIED)
+  const adj = w.state.posts.find((p) => p.payload.reference_number === REFUND_FEE_REF)
+  assert.deepEqual(adj.payload, {
+    journal_date: LATE_DAY,
+    reference_number: REFUND_FEE_REF,
+    journal_type: 'both',
+    line_items: [{ account_id: A1019, debit_or_credit: 'debit', amount: 2.3 }, { account_id: A1013, debit_or_credit: 'credit', amount: 2.3 }],
+  })
+  assert.equal(w.posts('CN_REFUND')[0].payload.date, LATE_DAY)
+})
+
+test('posting date: the Stripe arrival date is unchanged in the source data', async () => {
+  const w = world()
+  await postAllAt(w, LATE)
+  assert.equal(w.state.payout.arrivalDate, '2026-09-28T00:00:00.000Z')
+  const after = await w.preview(LATE)
+  assert.equal(after.payout.arrivalDate, '2026-09-28T00:00:00.000Z')
+  assert.equal(after.payout.arrivalDay, '2026-09-28')
+})
+
+test('posting date: the preview shows the arrival date separately from the Zoho posting date', async () => {
+  const p = await world().preview(LATE)
+  assert.deepEqual([p.payout.arrivalDate, p.payout.arrivalDay, p.zohoPostingDate, p.proposedPaymentDate], ['2026-09-28T00:00:00.000Z', '2026-09-28', LATE_DAY, LATE_DAY])
+  const proposed = [...p.groups.flatMap((g) => g.components), p.feeJournal]
+  for (const c of proposed) assert.equal(c.payload.date || c.payload.journal_date, LATE_DAY, c.component)
+  assert.equal(p.feeJournal.date, LATE_DAY)
+})
+
+test('posting date: the fingerprint changes when the Zoho posting date changes', async () => {
+  const w = world()
+  const at = async (iso) => {
+    const p = await w.preview(clock(iso))
+    return [group(p, SHOP).postingFingerprint, group(p, WEB).postingFingerprint, p.feeJournal.postingFingerprint]
+  }
+  const morning = await at('2026-10-02T02:00:00.000Z')
+  const evening = await at('2026-10-02T19:59:00.000Z')
+  const nextDay = await at('2026-10-02T20:01:00.000Z')
+  assert.deepEqual(morning, evening, 'same Dubai day, same fingerprints')
+  for (let i = 0; i < 3; i += 1) assert.notEqual(evening[i], nextDay[i])
+
+  const rw = refundWorld({ sales: [CARRIER(), S20717({ refunds: [refundOf(REFUND_20717, 7670)] })] })
+  const refundAt = async (iso) => (await rw.preview(clock(iso))).normalRefunds.find((x) => x.refundId === REFUND_20717).postingFingerprint
+  assert.notEqual(await refundAt('2026-10-02T19:59:00.000Z'), await refundAt('2026-10-02T20:01:00.000Z'))
+})
+
+test('posting date: a preview approved before Dubai midnight is refused after it; nothing is sent', async () => {
+  const beforeMidnight = clock('2026-10-02T19:59:00.000Z')
+  const afterMidnight = clock('2026-10-02T20:01:00.000Z')
+  const w = world()
+  const stale = await w.preview(beforeMidnight)
+  await assert.rejects(w.post('burjman', group(stale, SHOP).postingFingerprint, afterMidnight), code('PREVIEW_CHANGED'))
+  assert.deepEqual(w.state.posts, [])
+  assert.deepEqual(w.state.components, [])
+
+  // A refreshed preview posts, dated the new Dubai day.
+  const fresh = await w.preview(afterMidnight)
+  await w.post('burjman', group(fresh, SHOP).postingFingerprint, afterMidnight)
+  assert.deepEqual(w.state.posts.map((p) => p.payload.date), [LATE_DAY, LATE_DAY])
+
+  // The fee journal and normal refunds follow the same rule.
+  await w.post('website', group(await w.preview(afterMidnight), WEB).postingFingerprint, afterMidnight)
+  const feeStale = (await w.preview(beforeMidnight)).feeJournal.postingFingerprint
+  await assert.rejects(w.postFee(feeStale, afterMidnight), code('PREVIEW_CHANGED'))
+  assert.equal(w.state.posts.filter((p) => p.kind === 'FEE_JOURNAL').length, 0)
+
+  const rw = refundWorld({ sales: [CARRIER(), S20717({ refunds: [refundOf(REFUND_20717, 7670)] })] })
+  const refundStale = (await rw.preview(beforeMidnight)).normalRefunds.find((x) => x.refundId === REFUND_20717).postingFingerprint
+  await assert.rejects(rw.postRefund(REFUND_20717, refundStale, afterMidnight), code('PREVIEW_CHANGED'))
+  assert.deepEqual(rw.posts('CN_REFUND'), [])
+})
+
+test('posting date: already-posted historical records stay verified and are never re-sent or re-dated', async () => {
+  // Posted on the arrival day under the old rule, then previewed days later.
+  const w = world()
+  await postAllAt(w, {})
+  const posted = JSON.parse(JSON.stringify(w.state.posts))
+  assert.ok(posted.every((p) => (p.payload.date || p.payload.journal_date) === '2026-09-28'))
+
+  const later = await w.preview(LATE)
+  assert.equal(later.status, PAYOUT_STATUS.FULLY_CLEARED)
+  assert.ok(later.groups.every((g) => g.status === GROUP_STATUS.POSTED))
+  assert.ok(later.groups.every((g) => g.components.every((c) => c.zoho.state === 'VERIFIED')))
+  assert.equal(later.feeJournal.status, FJ.VERIFIED)
+  for (const [key, id] of [['burjman', SHOP], ['website', WEB]]) {
+    const again = await w.post(key, group(later, id).postingFingerprint, LATE)
+    assert.equal(again.alreadyPosted, true)
+  }
+  assert.equal((await w.postFee(later.feeJournal.postingFingerprint, LATE)).alreadyPosted, true)
+  assert.deepEqual(w.state.posts, posted)
+  assert.ok(w.state.payments.every((p) => p.detail.date === '2026-09-28'))
+  assert.ok(w.state.journals.every((j) => j.journalDate === '2026-09-28'))
+
+  // Rows from before request snapshots (attempted, no snapshot) are held to the arrival day they were sent on.
+  for (const c of w.state.components) delete c.requestSnapshot
+  const legacy = await w.preview(LATE)
+  assert.equal(legacy.status, PAYOUT_STATUS.FULLY_CLEARED)
+  assert.deepEqual(w.state.posts, posted)
+})
+
+test('posting date: amounts, accounts and references are identical whatever the posting day', async () => {
+  const onArrival = world()
+  await postAllAt(onArrival, {})
+  const later = world()
+  await postAllAt(later, LATE)
+  assert.deepEqual(later.state.posts.map((p) => p.kind), onArrival.state.posts.map((p) => p.kind))
+  assert.deepEqual(later.state.posts.map((p) => withoutDate(p.payload)), onArrival.state.posts.map((p) => withoutDate(p.payload)))
+  assert.ok(later.state.posts.every((p) => (p.payload.date || p.payload.journal_date) === LATE_DAY))
+  assert.deepEqual(
+    later.state.posts.map((p) => p.payload.reference_number),
+    [`Stripe funds received ${PO}`, `Stripe processing fee ${PO}`, `Stripe funds received ${PO}`, `Stripe processing fee ${PO}`, `Stripe customer advance ${PO}`, `Stripe processing fees ${PO}`],
+  )
 })

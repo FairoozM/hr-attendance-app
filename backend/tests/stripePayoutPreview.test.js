@@ -33,6 +33,9 @@ function row(chargeId, paymentIntentId, orderNumber, invoiceNumber, gross, fee, 
   return { chargeId, paymentIntentId, orderNumber, invoiceNumber, gross, fee, customer, ...extra }
 }
 
+// Server clock of the previews: 10:00 Asia/Dubai on 2026-09-30, days after the payouts arrived.
+const PREVIEW_NOW = '2026-09-30T06:00:00.000Z'
+const POSTING_DAY = '2026-09-30'
 const CURRENT_ID = 'po_1UJNObDJogiiRoKPHtPAr3KE'
 const CURRENT = {
   payoutId: CURRENT_ID,
@@ -191,7 +194,9 @@ function world(spec, opts = {}) {
     loadCaseEvents: async (ids) => records.events.filter((e) => ids.includes(e.entityId)),
   }
   const cfg = opts.config || config
-  return { deps: { config: cfg, sources, zohoPayments, records: recordReaders }, writes, refundLookups, journalRanges, records, run: () => previewPayout(spec.payoutId, { config: cfg, sources, zohoPayments, records: recordReaders }) }
+  const now = () => new Date(opts.now || PREVIEW_NOW)
+  const deps = { config: cfg, sources, zohoPayments, records: recordReaders, now }
+  return { deps, writes, refundLookups, journalRanges, records, run: () => previewPayout(spec.payoutId, deps) }
 }
 
 // ── The real AED 35 refund on order 21111 (after the payout, not in it) ────
@@ -410,7 +415,7 @@ test('the advance is not revenue: invoices get exactly their totals, 35.00 goes 
   assert.equal(adv.debitAccountId, A1019)
   assert.equal(adv.reference, advRef(CURRENT_ID))
   assert.deepEqual(adv.payload, {
-    journal_date: '2026-09-28',
+    journal_date: POSTING_DAY,
     reference_number: advRef(CURRENT_ID),
     journal_type: 'both',
     line_items: [
@@ -430,7 +435,7 @@ test('NET and FEE payloads are exact, neutral and carry no notes or description'
     customer_id: WEB,
     payment_mode: 'Stripe',
     amount: 3313.48,
-    date: '2026-09-28',
+    date: POSTING_DAY,
     reference_number: netRef(CURRENT_ID),
     account_id: A1019,
     invoices: [
@@ -661,7 +666,6 @@ test('duplicate NET: a matching payment is verified; reference alone is never en
     ['amount', { amount: 3313.47 }],
     ['account', { account_id: A1013 }],
     ['customer', { customer_id: SHOP }],
-    ['date', { date: '2026-09-27' }],
     ['allocation', { invoices: net.allocations.map((a, i) => ({ invoice_id: a.invoiceId, amount_applied: i === 0 ? 1068.07 : a.amount })) }],
   ]
   for (const [label, patch] of variants) {
@@ -671,6 +675,16 @@ test('duplicate NET: a matching payment is verified; reference alone is never en
     assert.equal(component(g, 'NET').recovery.action, RECOVERY_ACTION.NEEDS_REVIEW, label)
     assert.equal(g.status, GROUP_STATUS.NEEDS_REVIEW, label)
   }
+
+  // New records are dated on their posting day: with no recorded attempt the date is not a
+  // discriminator, but a record must carry the date our own recorded attempt sent.
+  const otherDay = world(CURRENT, { cases: [confirmedCase()], payments: [zohoPaymentFor(net, WEB, 'ZP-NET', { date: '2026-09-27' })], balances: balancesAfter(net) })
+  assert.equal(component(group(await otherDay.run(), WEB), 'NET').zoho.state, ZOHO_STATE.VERIFIED)
+  const attempt = { payoutId: CURRENT_ID, zohoCustomerId: WEB, component: 'NET', status: 'POSTED', zohoRecordId: 'ZP-NET', attemptCount: 1, requestSnapshot: { payload: { ...net.payload, date: '2026-09-29' } } }
+  const sentOtherDay = world(CURRENT, { cases: [confirmedCase()], payments: [zohoPaymentFor(net, WEB, 'ZP-NET', { date: '2026-09-27' })], components: [attempt], balances: balancesAfter(net) })
+  const conflicted = component(group(await sentOtherDay.run(), WEB), 'NET')
+  assert.equal(conflicted.zoho.state, ZOHO_STATE.CONFLICT)
+  assert.ok(conflicted.zoho.differences.some((d) => d.includes('expected 2026-09-29')))
 
   const twice = world(CURRENT, { cases: [confirmedCase()], payments: [zohoPaymentFor(net, WEB, 'ZP-1'), zohoPaymentFor(net, WEB, 'ZP-2')] })
   assert.equal(component(group(await twice.run(), WEB), 'NET').zoho.state, ZOHO_STATE.CONFLICT)
@@ -706,7 +720,6 @@ test('duplicate journal: verified only with reference, customer tag, Dr 1019, Cr
     ['untagged', advanceJournal('ZJ-1', '', 35)],
     ['wrong credit account', advanceJournal('ZJ-1', WEB, 35, { creditAccountId: 'A1260' })],
     ['wrong amount', advanceJournal('ZJ-1', WEB, 30)],
-    ['wrong date', advanceJournal('ZJ-1', WEB, 35, { journalDate: '2026-09-27' })],
     ['extra line', advanceJournal('ZJ-1', WEB, 35, { lineItems: [
       { accountId: A1019, debitOrCredit: 'debit', amount: 35 },
       { accountId: A1123, debitOrCredit: 'credit', amount: 20, customerId: WEB },
@@ -718,6 +731,10 @@ test('duplicate journal: verified only with reference, customer tag, Dr 1019, Cr
     assert.equal(component(g, 'CUSTOMER_ADVANCE').zoho.state, ZOHO_STATE.CONFLICT, label)
     assert.equal(g.status, GROUP_STATUS.NEEDS_REVIEW, label)
   }
+  // A journal dated otherwise than our own recorded attempt is not ours.
+  const attempt = { payoutId: CURRENT_ID, zohoCustomerId: WEB, component: 'CUSTOMER_ADVANCE', status: 'POSTED', zohoRecordId: 'ZJ-1', attemptCount: 1, requestSnapshot: { payload: { journal_date: '2026-09-29' } } }
+  const wrongDay = group(await world(CURRENT, { ...base, journals: [advanceJournal('ZJ-1', WEB, 35, { journalDate: '2026-09-27' })], components: [attempt] }).run(), WEB)
+  assert.equal(component(wrongDay, 'CUSTOMER_ADVANCE').zoho.state, ZOHO_STATE.CONFLICT)
 
   // A journal tagged to Burjman does not satisfy Website, and is unexpected for Burjman.
   const r = await world(CURRENT, { ...base, journals: [advanceJournal('ZJ-SHOP', SHOP, 35)] }).run()
@@ -728,11 +745,14 @@ test('duplicate journal: verified only with reference, customer tag, Dr 1019, Cr
 
 // ── Partial failure recovery ────────────────────────────────────────────────
 
+// Local rows without a request snapshot were posted under the old rule, on the arrival day.
+const ARRIVAL_DAY = { date: '2026-09-28' }
+
 test('partial recovery: verified NET is kept, FEE and journal are retry-eligible', async () => {
   const { net, fee, adv } = await readyComponents()
   const w = world(CURRENT, {
     cases: [confirmedCase()],
-    payments: [zohoPaymentFor(net, WEB, 'ZP-NET')],
+    payments: [zohoPaymentFor(net, WEB, 'ZP-NET', ARRIVAL_DAY)],
     balances: balancesAfter(net),
     components: [
       { payoutId: CURRENT_ID, zohoCustomerId: WEB, component: 'NET', status: 'VERIFIED', zohoRecordId: 'ZP-NET', attemptCount: 1 },
@@ -756,7 +776,7 @@ test('partial recovery: verified NET is kept, FEE and journal are retry-eligible
 
 test('partial recovery: all verified is POSTED, an interrupted POST is uncertain, a removed record needs review', async () => {
   const { net, fee } = await readyComponents()
-  const everything = { cases: [confirmedCase()], payments: [zohoPaymentFor(net, WEB, 'ZP-NET'), zohoPaymentFor(fee, WEB, 'ZP-FEE')], journals: [advanceJournal('ZJ-1', WEB, 35)], balances: balancesAfter(net, fee) }
+  const everything = { cases: [confirmedCase()], payments: [zohoPaymentFor(net, WEB, 'ZP-NET', ARRIVAL_DAY), zohoPaymentFor(fee, WEB, 'ZP-FEE', ARRIVAL_DAY)], journals: [advanceJournal('ZJ-1', WEB, 35)], balances: balancesAfter(net, fee) }
   const tracked = ['NET', 'FEE', 'CUSTOMER_ADVANCE'].map((kind, i) => ({ payoutId: CURRENT_ID, zohoCustomerId: WEB, component: kind, status: 'VERIFIED', zohoRecordId: ['ZP-NET', 'ZP-FEE', 'ZJ-1'][i], attemptCount: 1 }))
   const posted = await world(CURRENT, { ...everything, components: tracked }).run()
   assert.equal(group(posted, WEB).status, GROUP_STATUS.POSTED)
@@ -868,7 +888,10 @@ test('historical po_1UBlP3 still matches the existing Zoho NET and FEE payments 
   assert.equal(result.status, PAYOUT_STATUS.FULLY_CLEARED)
   assert.equal(result.reconciliation.payoutMatches, true)
   assert.equal(result.reconciliation.total1019, 10261.98)
-  assert.equal(result.proposedPaymentDate, '2026-09-07')
+  // The Zoho records keep their 2026-09-07 date; anything new would be dated today.
+  assert.equal(result.payout.arrivalDay, '2026-09-07')
+  assert.equal(result.zohoPostingDate, POSTING_DAY)
+  assert.equal(result.proposedPaymentDate, POSTING_DAY)
   assert.deepEqual(w.writes, [])
 })
 
@@ -924,7 +947,7 @@ test('a later refund of exactly the advance links charge → case and previews D
   assert.equal(r.caseId, '1')
   assert.equal(r.originalPayoutId, CURRENT_ID)
   assert.deepEqual(r.proposedJournal.payload, {
-    journal_date: '2026-10-05',
+    journal_date: POSTING_DAY,
     reference_number: 'Stripe customer advance refund po_REFUNDPAYOUT0001',
     journal_type: 'both',
     line_items: [

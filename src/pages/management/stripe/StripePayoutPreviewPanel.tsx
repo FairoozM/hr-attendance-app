@@ -44,6 +44,7 @@ import {
   refundPayoutLabel,
   statusLabel,
   UNCERTAIN_WARNING,
+  zohoPostingDate,
   type Tone,
 } from './stripePayoutFormat'
 import { DirectPaymentCard, UnresolvedCharges } from './StripeDirectPayments'
@@ -378,7 +379,7 @@ function FeeJournalCard({
           <dd>{aed(fj.amount)}</dd>
         </div>
         <div>
-          <dt>Journal date</dt>
+          <dt>Zoho posting date</dt>
           <dd>{fj.date || '—'}</dd>
         </div>
         <div>
@@ -1003,9 +1004,11 @@ export function StripePayoutPreviewPanel() {
           <header className="stripe-payout__head">
             <div>
               <div className="stripe-clearing__mono">{preview.payout.payoutId}</div>
-              <div className="stripe-page__note">
-                Stripe {preview.payout.status} · arrival {formatDay(preview.payout.arrivalDate)} · Zoho date {preview.proposedPaymentDate || '—'}
+              <div className="stripe-page__note" data-testid="payout-dates">
+                Stripe {preview.payout.status} · Arrival date {preview.payout.arrivalDay || formatDay(preview.payout.arrivalDate)} · Zoho posting date{' '}
+                {zohoPostingDate(preview)}
               </div>
+              <div className="stripe-page__note">New Zoho records are dated on the day they are posted (Asia/Dubai), not the arrival date.</div>
             </div>
             <Badge tone={payoutTone(preview.status)}>{statusLabel(preview.status)}</Badge>
           </header>
@@ -1262,8 +1265,8 @@ export function StripePayoutPreviewPanel() {
         {post && preview && (
           <div className="stripe-clearing__confirm">
             <p>
-              <strong>{post.group.customerName}</strong> · payout <span className="stripe-clearing__mono">{preview.payout.payoutId}</span> · Zoho date{' '}
-              {preview.proposedPaymentDate || '—'}
+              <strong>{post.group.customerName}</strong> · payout <span className="stripe-clearing__mono">{preview.payout.payoutId}</span> · Zoho posting date{' '}
+              {zohoPostingDate(preview)} (today, Asia/Dubai) · Arrival date {preview.payout.arrivalDay || formatDay(preview.payout.arrivalDate)}
             </p>
             <ol className="stripe-payout__post-steps">
               {postingSteps(post.group).map(({ component: c, willCreate }) => (
@@ -1386,8 +1389,8 @@ export function StripePayoutPreviewPanel() {
                 </dd>
               </div>
               <div>
-                <dt>Journal date</dt>
-                <dd>{feePost.feeJournal.date || '—'}</dd>
+                <dt>Zoho posting date</dt>
+                <dd>{feePost.feeJournal.date || '—'} (today, Asia/Dubai)</dd>
               </div>
               <div>
                 <dt>Reference</dt>
@@ -1480,7 +1483,8 @@ export function StripePayoutPreviewPanel() {
             <p>
               {refundKindLabel(refundPost.refund)} <strong>{aed(refundPost.refund.gross)}</strong> ·{' '}
               <span className="stripe-clearing__mono">{refundPost.refund.refundId}</span> · {refundPost.refund.customerName} · order{' '}
-              {refundPost.refund.website?.orderNumber} · invoice {refundPost.refund.invoice?.invoiceNumber}
+              {refundPost.refund.website?.orderNumber} · invoice {refundPost.refund.invoice?.invoiceNumber} · Zoho posting date{' '}
+              {zohoPostingDate(preview)} (today, Asia/Dubai)
             </p>
             <ol className="stripe-payout__post-steps">
               {refundPost.refund.components.map((c) => (

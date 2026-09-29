@@ -300,6 +300,24 @@ describe('StripePayoutPreviewPanel posting', () => {
     await waitFor(() => expect(api.getStripePayoutPreview).toHaveBeenCalledTimes(2))
   })
 
+  it('shows the Stripe arrival date separately from the Zoho posting date', async () => {
+    const p = currentPayout(true)
+    p.payout.arrivalDay = '2026-09-28'
+    p.zohoPostingDate = '2026-10-03'
+    p.proposedPaymentDate = '2026-10-03'
+    await openPreview(p)
+    const dates = screen.getByTestId('payout-dates').textContent || ''
+    expect(dates).toContain('Arrival date 2026-09-28')
+    expect(dates).toContain('Zoho posting date 2026-10-03')
+    expect(screen.getByText(/dated on the day they are posted \(Asia\/Dubai\), not the arrival date/)).toBeTruthy()
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Post Customer Group to Zoho' })[0])
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog.textContent).toContain('Zoho posting date 2026-10-03 (today, Asia/Dubai)')
+    expect(dialog.textContent).toContain('Arrival date 2026-09-28')
+    expect(dialog.textContent).not.toMatch(/Zoho posting date 2026-09-28/)
+  })
+
   it('lists all three Website records and the INV-044122 split in the confirmation', async () => {
     await openPreview(currentPayout(true))
     fireEvent.click(screen.getAllByRole('button', { name: 'Post Customer Group to Zoho' })[1])

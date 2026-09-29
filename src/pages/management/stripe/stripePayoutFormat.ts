@@ -6,6 +6,7 @@ import type {
   StripePayoutGroup,
   StripePayoutGroupStatus,
   StripePayoutLine,
+  StripePayoutPreview,
   StripePayoutStatus,
   StripeRecoveryAction,
   StripeZohoAccount,
@@ -177,6 +178,11 @@ export function formatWhen(value: string | null | undefined): string {
 export function formatDay(value: string | null | undefined): string {
   if (!value) return '—'
   return value.slice(0, 10)
+}
+
+/** The date new Zoho records get: the server's Asia/Dubai day when the preview ran. */
+export function zohoPostingDate(preview: Pick<StripePayoutPreview, 'zohoPostingDate' | 'proposedPaymentDate'>): string {
+  return preview.zohoPostingDate || preview.proposedPaymentDate || '—'
 }
 
 export const PAYOUTS_PER_PAGE = 10

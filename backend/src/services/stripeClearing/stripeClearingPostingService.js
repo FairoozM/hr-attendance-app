@@ -17,10 +17,10 @@ const defaultStore = require('./stripeClearingStore')
 const { MATCH_STATUS, expectedZohoCustomerId } = require('./stripeClearingMatcher')
 const { evaluatePaymentIntent } = require('./stripeClearingDryRunService')
 const { postingGate } = require('./stripeClearingGate')
+const { dubaiDateOf, getDubaiPostingDate } = require('./stripePostingDate')
 
 const { CLEARING_STATUS } = defaultStore
 const PI_PATTERN = /^pi_[A-Za-z0-9]{8,64}$/
-const DUBAI_OFFSET_MS = 4 * 60 * 60 * 1000
 const UNRESOLVED = [CLEARING_STATUS.POSTING, CLEARING_STATUS.FAILED_NEEDS_REVIEW]
 
 // Raised before the request left this server, or Zoho refused it before processing.
@@ -69,12 +69,6 @@ function fail(status, code, message, extra = {}) {
   err.code = code
   Object.assign(err, extra)
   return err
-}
-
-function dubaiDate(iso) {
-  const t = Date.parse(iso)
-  if (!Number.isFinite(t)) return null
-  return new Date(t + DUBAI_OFFSET_MS).toISOString().slice(0, 10)
 }
 
 function customerLabel(order) {
@@ -204,7 +198,7 @@ function outcome(kind, record, extra = {}) {
   return { outcome: kind, clearing: publicClearing(record), ...extra }
 }
 
-function buildFields({ stripe, order, invoice, account, config }) {
+function buildFields({ stripe, order, invoice, account, config, postingDate }) {
   return {
     stripePaymentIntentId: stripe.paymentIntentId,
     stripeChargeId: stripe.chargeId || null,
@@ -217,7 +211,8 @@ function buildFields({ stripe, order, invoice, account, config }) {
     zohoAccountId: account.accountId,
     amount: round2(stripe.amountReceived),
     currency: config.websiteCurrency,
-    paymentDate: dubaiDate(stripe.succeededAt || stripe.date),
+    paymentDate: postingDate,
+    stripePaidDate: dubaiDateOf(stripe.succeededAt || stripe.date),
     stripeCreatedAt: stripe.date,
   }
 }
@@ -255,20 +250,21 @@ async function validateLive(paymentIntentId, account, ctx, existing) {
     throw unavailable(err, stripeConfig)
   }
   const { stripe, order, invoice, match } = evaluation
+  const postingDate = getDubaiPostingDate(typeof ctx.now === 'function' ? ctx.now() : new Date())
   if (!stripe) throw fail(404, 'STRIPE_PAYMENT_INTENT_NOT_FOUND', `Stripe has no PaymentIntent ${paymentIntentId}.`)
   if (stripe.livemode !== true) {
     throw fail(403, 'STRIPE_TEST_MODE_PAYMENT', 'Test-mode Stripe payments can never clear Zoho invoices.')
   }
   if (match.status === MATCH_STATUS.ALREADY_CLEARED && order && invoice) {
-    return { kind: 'ALREADY_CLEARED', evaluation, fields: buildFields({ stripe, order, invoice, account, config }) }
+    return { kind: 'ALREADY_CLEARED', evaluation, fields: buildFields({ stripe, order, invoice, account, config, postingDate }) }
   }
   if (match.status !== MATCH_STATUS.MATCHED_READY_TO_CLEAR) {
     await blockIfTracked(existing, `Not eligible: ${match.status}. ${match.reason}`, ctx)
     throw fail(409, 'NOT_ELIGIBLE', match.reason, { matchStatus: match.status })
   }
 
-  const fields = buildFields({ stripe, order, invoice, account, config })
-  if (!fields.paymentDate) throw fail(409, 'NOT_ELIGIBLE', 'Stripe payment has no usable payment date.', { matchStatus: match.status })
+  const fields = buildFields({ stripe, order, invoice, account, config, postingDate })
+  if (!fields.stripePaidDate) throw fail(409, 'NOT_ELIGIBLE', 'Stripe payment has no usable payment date.', { matchStatus: match.status })
   const liveInvoice = await zohoRead(() => sources.fetchZohoInvoiceById(invoice.invoiceId), stripeConfig)
   const problem = invoiceProblem(
     liveInvoice,
@@ -397,7 +393,7 @@ async function reconcileAlreadyCleared(live, existing, ctx) {
   }
   const recorded = await ctx.store.recordExistingPosted(
     ctx.db,
-    fields,
+    { ...fields, paymentDate: clean(payment.date) || fields.paymentDate },
     refs[0].paymentId,
     clean(payment.date) || ctx.now().toISOString(),
     `Zoho payment ${refs[0].paymentId} already had reference ${pi}; recorded without posting.`,
@@ -569,5 +565,4 @@ module.exports = {
   resolveStripeDepositAccount,
   verifyZohoPayment,
   postErrorKind,
-  dubaiDate,
 }

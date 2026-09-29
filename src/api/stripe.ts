@@ -624,11 +624,23 @@ export interface StripePayoutPreview {
   preview: true
   postingEnabled: boolean
   postingBlockedReasons?: Array<{ code: string; message: string }>
-  payout: { payoutId: string; status: string; amount: number; currency: string; arrivalDate: string | null; createdAt: string | null }
+  payout: {
+    payoutId: string
+    status: string
+    amount: number
+    currency: string
+    arrivalDate: string | null
+    /** Stripe arrival as an Asia/Dubai day; source information only, never a Zoho date. */
+    arrivalDay?: string | null
+    createdAt: string | null
+  }
   status: StripePayoutStatus
   blockers: string[]
   /** Absent from previews produced before uncertain-write recovery existed. */
   uncertainComponents?: StripeUncertainComponent[]
+  /** Date every new Zoho record gets: today in Asia/Dubai on the server when the preview ran. */
+  zohoPostingDate?: string | null
+  /** Same as zohoPostingDate (kept for older clients). */
   proposedPaymentDate: string | null
   accounts: {
     net: StripeZohoAccount | null
