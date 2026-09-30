@@ -1224,6 +1224,12 @@ async function testConnection() {
     console.error('[db] ensureStripeTables skipped/failed (non-fatal):', e.message || e)
   }
   try {
+    const { ensureTabbyClearingTables } = require('../services/tabbyClearing/tabbyClearingStore')
+    await ensureTabbyClearingTables(query)
+  } catch (e) {
+    console.error('[db] ensureTabbyClearingTables skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
     const { ensureZohoAccountWatchlistTable } = require('../services/zohoAccountWatchlistStore')
     await ensureZohoAccountWatchlistTable()
   } catch (e) {

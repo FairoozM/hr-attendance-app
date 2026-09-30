@@ -1706,6 +1706,35 @@ test('payment posting blocks when Zoho invoice balance is below clearing plan', 
   assert.ok(result.payments.every((payment) => payment.code === 'ZOHO_INVOICE_BALANCE_INSUFFICIENT'))
 })
 
+test('balance check uses bulk unpaid list and fetches only missing invoices individually', async () => {
+  const { validateInvoiceBalancesForPosting } = require('../src/services/amazonPaymentClearingPostingService')
+  const unpaidCalls = []
+  const byIdCalls = []
+  const issues = await validateInvoiceBalancesForPosting(
+    {
+      payments: [
+        { zohoInvoiceId: 'open-1', zohoInvoiceNumber: 'INV-1', totalClearingAmount: 50 },
+        { zohoInvoiceId: 'paid-2', zohoInvoiceNumber: 'INV-2', totalClearingAmount: 40 },
+      ],
+    },
+    {
+      customerId: 'cust-1',
+      fetchUnpaidInvoices: async (customerId) => {
+        unpaidCalls.push(customerId)
+        return { rows: [{ invoice_id: 'open-1', balance: 50 }, { invoice_id: 'other', balance: 9 }] }
+      },
+      fetchInvoicesByIds: async (ids) => {
+        byIdCalls.push(...ids)
+        return new Map(ids.map((id) => [id, { invoice_id: id, balance: 0 }]))
+      },
+    },
+  )
+  assert.deepEqual(unpaidCalls, ['cust-1'])
+  assert.deepEqual(byIdCalls, ['paid-2'])
+  assert.equal(issues.length, 1)
+  assert.equal(issues[0].zohoInvoiceId, 'paid-2')
+})
+
 test('grouped posting creates three payments with eleven invoice allocations each', async () => {
   const batch = postingBatchWithInvoiceCount(11)
   const store = fakePostingStore([], batch)
