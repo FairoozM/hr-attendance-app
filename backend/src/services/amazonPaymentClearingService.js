@@ -863,7 +863,11 @@ async function refreshBatchPreviewFromStoredRows(batchId, batch = null) {
   const preview = buildPreview({
     report: {
       ...report,
-      currency: settlementCurrencyForCustomer(customerName, report.currency),
+      currency: settlementCurrencyForCustomer(
+        customerName,
+        report.currency,
+        getPaymentClearingMarketplaceConfig(resolvedBatch.marketplace || report.marketplace || MARKETPLACE).currency
+      ),
       marketplace: normalizeMarketplaceCode(resolvedBatch.marketplace || report.marketplace || MARKETPLACE),
     },
     rows,
@@ -982,7 +986,11 @@ async function maybeRematchZohoForDraftBatch(batch, storedRows, preview, feeJour
   const rematchedPreview = buildPreview({
     report: {
       ...report,
-      currency: settlementCurrencyForCustomer(customerName, report.currency),
+      currency: settlementCurrencyForCustomer(
+        customerName,
+        report.currency,
+        getPaymentClearingMarketplaceConfig(batch.marketplace || report.marketplace || MARKETPLACE).currency
+      ),
     },
     rows,
     invoices: zohoMatch.invoices,

@@ -98,16 +98,16 @@ export function Step4Returns({ ctx }: { ctx: ClearingContext }) {
       </div>
 
       {tab === 'matched' ? (
-        <ReturnCreditNotesTable rows={matchedReturns} emptyText="No matched refund/return credit notes." />
+        <ReturnCreditNotesTable currency={ctx.currency} rows={matchedReturns} emptyText="No matched refund/return credit notes." />
       ) : null}
       {tab === 'ready_to_create' ? (
-        <ReturnCreditNotesTable rows={readyToCreate} emptyText="No returns marked for clearance-time credit note creation." />
+        <ReturnCreditNotesTable currency={ctx.currency} rows={readyToCreate} emptyText="No returns marked for clearance-time credit note creation." />
       ) : null}
       {tab === 'missing' ? (
-        <ReturnCreditNotesTable rows={blockingRows} emptyText="No missing or blocked credit-note rows." />
+        <ReturnCreditNotesTable currency={ctx.currency} rows={blockingRows} emptyText="No missing or blocked credit-note rows." />
       ) : null}
       {tab === 'differences' ? (
-        <ReturnCreditNotesTable rows={diffRows} emptyText="No credit-note amount differences above 0.01." />
+        <ReturnCreditNotesTable currency={ctx.currency} rows={diffRows} emptyText="No credit-note amount differences above 0.01." />
       ) : null}
     </div>
   )

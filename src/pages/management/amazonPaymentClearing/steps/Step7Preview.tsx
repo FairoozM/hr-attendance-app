@@ -46,6 +46,7 @@ export function Step7Preview({ ctx }: { ctx: ClearingContext }) {
           <SettlementReferenceCard
             reference={paymentPreview.settlementReference}
             postingReferences={paymentPreview.postingReferences}
+            currency={currency}
           />
           <PaymentClearingPreviewTable paymentPreview={paymentPreview} currency={currency} marketplace={ctx.marketplace} />
           <h3 className="ainv-page__title" style={{ fontSize: '1rem' }}>Amazon Fee Journal Preview</h3>

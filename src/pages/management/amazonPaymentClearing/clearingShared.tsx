@@ -23,8 +23,8 @@ export function safeError(err: unknown) {
   return err instanceof Error ? err.message : 'Request failed'
 }
 
-export function money(value: number | null | undefined, currency = 'SAR') {
-  const code = String(currency || 'SAR').trim().toUpperCase() || 'SAR'
+export function money(value: number | null | undefined, currency: string) {
+  const code = String(currency || '').trim().toUpperCase() || 'AED'
   return new Intl.NumberFormat('en-AE', {
     style: 'currency',
     currency: code,
@@ -226,11 +226,11 @@ export function SettlementLevelFeesTable({ preview }: { preview: PaymentClearing
 export function AmazonFeeJournalMappingTable({
   rows,
   marketplace = 'KSA',
-  currency = 'SAR',
+  currency,
 }: {
   rows: AmazonFeeJournalMapping[]
   marketplace?: string
-  currency?: string
+  currency: string
 }) {
   if (!rows.length) return <div className="apc-empty">No account-level Amazon fees need manual journal mapping.</div>
   return (
@@ -291,10 +291,10 @@ export function AmazonFeeJournalMappingTable({
 
 export function AmazonFeeJournalPreviewTable({
   rows,
-  currency = 'SAR',
+  currency,
 }: {
   rows: AmazonFeeJournalLine[]
-  currency?: string
+  currency: string
 }) {
   if (!rows.length) return <div className="apc-empty">No Amazon fee journal lines in this preview.</div>
   return (
@@ -416,11 +416,11 @@ export function SettlementReconciliation({ preview }: { preview: PaymentClearing
 export function ReturnCreditNotesTable({
   rows,
   emptyText,
-  currency = 'SAR',
+  currency,
 }: {
   rows: RefundReturnCreditNoteRow[]
   emptyText: string
-  currency?: string
+  currency: string
 }) {
   if (!rows.length) return <div className="apc-empty">{emptyText}</div>
   return (
@@ -530,7 +530,7 @@ export function DifferencesTable({ preview }: { preview: PaymentClearingPreview 
           {rows.map((row) => (
             <tr key={row.label}>
               <td>{row.label}</td>
-              <td className="apc-money">{money(row.difference)}</td>
+              <td className="apc-money">{money(row.difference, previewCurrency(preview))}</td>
               <td>{row.status}</td>
               <td>{row.reason || '-'}</td>
             </tr>
@@ -725,11 +725,11 @@ export function NetNegativeReturnOrdersTable({ preview }: { preview: PaymentClea
 
 export function PaymentClearingPreviewTable({
   paymentPreview,
-  currency = 'SAR',
+  currency,
   marketplace = 'KSA',
 }: {
   paymentPreview: PaymentClearingPaymentPreview
-  currency?: string
+  currency: string
   marketplace?: ClearingMarketplace
 }) {
   const fmt = (value: number | null | undefined) => money(value, currency)
@@ -777,6 +777,7 @@ export function PaymentClearingPreviewTable({
         <>
           <h3 className="ainv-page__title" style={{ fontSize: '1rem' }}>Refund/Return Credit Note Applications</h3>
           <ReturnCreditNotesTable
+            currency={currency}
             rows={paymentPreview.refundReturnCreditNoteApplications.map((row) => ({
               rowClass: 'refund' as const,
               category: 'Refund / Return',
@@ -818,7 +819,7 @@ export function PaymentClearingPreviewTable({
                     <td>{row.orderId || '-'}</td>
                     <td>{row.amountType || '-'}</td>
                     <td>{row.amountDescription || '-'}</td>
-                    <td className="apc-money">{money(row.originalAmount)}</td>
+                    <td className="apc-money">{money(row.originalAmount, currency)}</td>
                     <td>{row.status}</td>
                   </tr>
                 ))}
@@ -835,12 +836,12 @@ export function PostedStoredEntriesTable({
   postings,
   postingSummary,
   marketplace = 'KSA',
-  currency = 'SAR',
+  currency,
 }: {
   postings: ClearingPosting[]
   postingSummary?: PostingSummary
   marketplace?: string
-  currency?: string
+  currency: string
 }) {
   const paymentRows = postings.filter((row) => !isFeeJournalPostingType(row.paymentType))
   const journalRows = postings.filter((row) => isFeeJournalPostingType(row.paymentType))
@@ -901,7 +902,7 @@ export function PostedStoredEntriesTable({
               {journalRows.map((row) => (
                 <tr key={row.id}>
                   <td>{journalFeeTypeLabel(row)}</td>
-                  <td className="apc-money">{money(row.amount)}</td>
+                  <td className="apc-money">{money(row.amount, currency)}</td>
                   <td><code className="apc-ref">{row.referenceNumber || '-'}</code></td>
                   <td>{row.notes || row.description || '-'}</td>
                   <td>{row.zohoJournalNumber || '-'}</td>
@@ -928,7 +929,7 @@ export function PostedStoredEntriesTable({
   )
 }
 
-export function PostingResultTable({ result, currency = 'SAR' }: { result: PaymentPostingResult; currency?: string }) {
+export function PostingResultTable({ result, currency }: { result: PaymentPostingResult; currency: string }) {
   const payments = result.payments || []
   const journals = result.journals || []
 
@@ -1034,9 +1035,11 @@ export function PostingResultTable({ result, currency = 'SAR' }: { result: Payme
 export function SettlementReferenceCard({
   reference,
   postingReferences,
+  currency,
 }: {
   reference?: SettlementReference
   postingReferences?: PostingReference[]
+  currency: string
 }) {
   if (!reference) return null
   return (
@@ -1075,7 +1078,7 @@ export function SettlementReferenceCard({
                 <tr key={row.paymentType}>
                   <td>{row.entryLabel}</td>
                   <td>{row.depositToAccountName} <span className="apc-muted">({row.depositToAccountCode})</span></td>
-                  <td className="apc-money">{money(row.amount)}</td>
+                  <td className="apc-money">{money(row.amount, currency)}</td>
                   <td><code className="apc-ref">{row.referenceNumber}</code></td>
                   <td><pre className="apc-description">{row.description}</pre></td>
                 </tr>

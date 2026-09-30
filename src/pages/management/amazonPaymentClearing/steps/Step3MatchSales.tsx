@@ -75,6 +75,7 @@ export function Step3MatchSales({ ctx }: { ctx: ClearingContext }) {
                 Mark them as account-level fees below if they should not match a Zoho invoice.
               </p>
               <RowTable
+                currency={ctx.currency}
                 rows={(preview.allRows || []).filter((row) => row.status === 'unmatched')}
                 canMarkAccountLevelFee={!ctx.isPosted}
                 onMarkAccountLevelFee={ctx.onMarkAccountLevelFee}
@@ -83,7 +84,7 @@ export function Step3MatchSales({ ctx }: { ctx: ClearingContext }) {
           ) : null}
         </div>
       ) : null}
-      {tab === 'missing' ? <RowTable rows={missingOrderIdRows} /> : null}
+      {tab === 'missing' ? <RowTable rows={missingOrderIdRows} currency={ctx.currency} /> : null}
       {tab === 'differences' ? <AmountDifferencesTable preview={preview} /> : null}
     </div>
   )

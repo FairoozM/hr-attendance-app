@@ -46,13 +46,13 @@ export function RowTable({
   focusedRowNumbers,
   canMarkAccountLevelFee = false,
   onMarkAccountLevelFee,
-  currency = 'SAR',
+  currency,
 }: {
   rows: ParsedSettlementRow[]
   focusedRowNumbers?: number[] | null
   canMarkAccountLevelFee?: boolean
   onMarkAccountLevelFee?: (rowNumber: number) => void | Promise<void>
-  currency?: string
+  currency: string
 }) {
   if (!rows.length) return <div className="apc-empty">No rows match the current filter.</div>
   const focusSet = focusedRowNumbers && focusedRowNumbers.length ? new Set(focusedRowNumbers) : null

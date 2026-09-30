@@ -47,7 +47,7 @@ export function Step6Approve({ ctx }: { ctx: ClearingContext }) {
               <p style={{ marginTop: '0.75rem' }}>
                 Open <strong>Step 4 — Reconcile Returns</strong> and use the <strong>Missing / blocked</strong> tab for details.
               </p>
-              <ReturnCreditNotesTable rows={blockingReturnRows} emptyText="No blocked return rows." />
+              <ReturnCreditNotesTable currency={ctx.currency} rows={blockingReturnRows} emptyText="No blocked return rows." />
             </>
           ) : null}
         </div>
