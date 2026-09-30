@@ -45,6 +45,10 @@ export interface ClearingContext {
   canPostToZoho: boolean
   canPostReturnFeeJournals: boolean
   creditNoteApplyComplete: boolean
+  /** Returns marked "not received" in step 10 (expensed by the step 11 journal). */
+  notReceivedCount: number
+  /** True when nothing is marked not received, or the step 11 journal is posted. */
+  notReceivedComplete: boolean
   returnFeePostComplete: boolean
   returnFeeBlockerCount: number
   /** Every sales payment and fee journal is posted and verified (not the whole settlement). */

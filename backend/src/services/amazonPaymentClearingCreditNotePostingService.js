@@ -241,6 +241,88 @@ async function refreshReturnRowsFromLiveZoho(batch, rows, opts = {}) {
   })
 }
 
+const REFRESHED_CREDIT_NOTE_FIELDS = [
+  'zohoCreditNoteId',
+  'zohoCreditNoteNumber',
+  'creditNoteAmount',
+  'creditNoteStatus',
+  'creditNoteDifference',
+  'creditNoteAction',
+  'status',
+  'blockingReason',
+]
+
+function pickRefreshedCreditNote(fresh) {
+  const out = {}
+  for (const key of REFRESHED_CREDIT_NOTE_FIELDS) {
+    if (fresh[key] !== undefined) out[key] = fresh[key]
+  }
+  if (clean(fresh.zohoInvoiceId)) out.zohoInvoiceId = clean(fresh.zohoInvoiceId)
+  if (clean(fresh.zohoInvoiceNumber)) out.zohoInvoiceNumber = clean(fresh.zohoInvoiceNumber)
+  return out
+}
+
+/**
+ * Fold credit notes found live in Zoho into the stored return-match arrays, so every
+ * screen that reads the saved batch stops treating those returns as missing.
+ * Only orders the batch already knows about are touched.
+ * @param {{ matchedReturns?: any[], missingCreditNotes?: any[], creditNoteBlockingRows?: any[] }} stored
+ * @param {any[]} refreshedRows rows returned by refreshReturnRowsFromLiveZoho
+ */
+function mergeRefreshedReturnMatches(stored, refreshedRows) {
+  const found = new Map()
+  for (const row of Array.isArray(refreshedRows) ? refreshedRows : []) {
+    const orderId = clean(row?.orderId)
+    if (!orderId || !clean(row.zohoCreditNoteId) || row.status !== 'matched') continue
+    found.set(orderId, row)
+  }
+  const missing = Array.isArray(stored?.missingCreditNotes) ? stored.missingCreditNotes : []
+  const blocking = Array.isArray(stored?.creditNoteBlockingRows) ? stored.creditNoteBlockingRows : []
+  const newlyFound = []
+  const matchedReturns = (Array.isArray(stored?.matchedReturns) ? stored.matchedReturns : []).map((row) => {
+    const orderId = clean(row?.orderId)
+    const fresh = found.get(orderId)
+    if (!fresh) return row
+    if (row.status === 'matched' && clean(row.zohoCreditNoteId) === clean(fresh.zohoCreditNoteId)) return row
+    newlyFound.push(orderId)
+    return { ...row, ...pickRefreshedCreditNote(fresh) }
+  })
+  const inMatched = new Set(matchedReturns.map((row) => clean(row?.orderId)))
+  for (const [orderId, fresh] of found) {
+    if (inMatched.has(orderId)) continue
+    const storedRow = [...missing, ...blocking].find((row) => clean(row?.orderId) === orderId)
+    if (!storedRow) continue
+    matchedReturns.push({ ...storedRow, ...pickRefreshedCreditNote(fresh) })
+    inMatched.add(orderId)
+    newlyFound.push(orderId)
+  }
+  const withoutFound = (rows) => rows.filter((row) => !found.has(clean(row?.orderId)))
+  const missingCreditNotes = withoutFound(missing)
+  const creditNoteBlockingRows = withoutFound(blocking)
+  const changed =
+    newlyFound.length > 0 || missingCreditNotes.length !== missing.length || creditNoteBlockingRows.length !== blocking.length
+  return {
+    changed,
+    newlyFound: Array.from(new Set(newlyFound)).map((orderId) => ({
+      orderId,
+      zohoCreditNoteId: clean(found.get(orderId)?.zohoCreditNoteId),
+      zohoCreditNoteNumber: clean(found.get(orderId)?.zohoCreditNoteNumber),
+    })),
+    matchedReturns,
+    missingCreditNotes,
+    creditNoteBlockingRows,
+  }
+}
+
+function notReceivedOrderIds(batch) {
+  return new Set(
+    (Array.isArray(batch?.returnDispositions) ? batch.returnDispositions : [])
+      .filter((row) => row?.disposition === 'not_received')
+      .map((row) => clean(row.orderId))
+      .filter(Boolean)
+  )
+}
+
 function resolveCreditNoteRefundAmount(row) {
   return resolveCreditNoteApplyAmount(row)
 }
@@ -344,6 +426,16 @@ async function resolvePlanRowAction(row, batch, opts = {}) {
     refundAccountName: undeposited.accountName,
     referenceNumber: entry.referenceNumber,
     description: entry.description,
+  }
+
+  if (!creditNoteId && notReceivedOrderIds(batch).has(clean(row.orderId))) {
+    return {
+      ...baseFields,
+      action: 'moved_to_not_received',
+      status: 'completed',
+      applyAmount: 0,
+      refundAmount: 0,
+    }
   }
 
   if (!invoiceId) {
@@ -456,6 +548,7 @@ function isCreditNotePlanRowComplete(row) {
     row.action === 'skipped_already_refunded' ||
     row.action === 'skipped_already_applied' ||
     row.action === 'skipped_already_posted' ||
+    row.action === 'moved_to_not_received' ||
     row.status === 'posted' ||
     row.status === 'completed'
   )
@@ -472,6 +565,7 @@ async function buildCreditNoteApplyPlan(batch, opts = {}) {
   let rows = collectReturnRowsForApply(batch)
   if (matchOpts.refreshZoho !== false && rows.length > 0) {
     rows = await refreshReturnRowsFromLiveZoho(batch, rows, matchOpts)
+    if (typeof opts.onRefreshedRows === 'function') await opts.onRefreshedRows(rows)
   }
   const planRows = []
   for (const row of rows) {
@@ -485,6 +579,7 @@ async function buildCreditNoteApplyPlan(batch, opts = {}) {
       if (row.action === 'refund_existing' || row.action === 'apply_existing') acc.refundExisting += 1
       if (row.action === 'create_and_refund' || row.action === 'create_and_apply') acc.createAndRefund += 1
       if (row.action === 'blocked') acc.blocked += 1
+      if (row.action === 'moved_to_not_received') acc.movedToNotReceived += 1
       if (row.status === 'completed' || row.action === 'skipped_already_refunded' || row.action === 'skipped_already_applied') {
         acc.completed += 1
       }
@@ -496,6 +591,7 @@ async function buildCreditNoteApplyPlan(batch, opts = {}) {
       refundExisting: 0,
       createAndRefund: 0,
       blocked: 0,
+      movedToNotReceived: 0,
       completed: 0,
     }
   )
@@ -634,7 +730,8 @@ async function applyCreditNotesForBatch(batch, options = {}) {
     if (
       row.action === 'skipped_already_refunded' ||
       row.action === 'skipped_already_applied' ||
-      row.action === 'skipped_already_posted'
+      row.action === 'skipped_already_posted' ||
+      row.action === 'moved_to_not_received'
     ) {
       result.summary.skipped += 1
       result.rows.push({ ...row, status: 'skipped' })
@@ -801,6 +898,8 @@ module.exports = {
   collectReturnRowsForApply,
   settlementHasReturnApplyWork,
   refreshReturnRowsFromLiveZoho,
+  mergeRefreshedReturnMatches,
+  notReceivedOrderIds,
   buildCreditNoteApplyPlan,
   applyCreditNotesForBatch,
   isCreditNoteApplyComplete,

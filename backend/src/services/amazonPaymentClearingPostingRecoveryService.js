@@ -14,6 +14,7 @@ const {
   collectReturnRowsForApply,
   settlementHasReturnApplyWork,
   localCreditNotePostingsByOrder,
+  notReceivedOrderIds,
 } = require('./amazonPaymentClearingCreditNotePostingService')
 const recovery = require('./amazonPaymentClearingZohoRecovery')
 const { STATUS } = require('./amazonPaymentClearingSafeWrite')
@@ -22,6 +23,7 @@ const GROUP_LABELS = Object.freeze({
   sales_payment: 'Sales payments',
   fee_journal: 'Fee journals',
   credit_note: 'Credit notes and refunds',
+  return_not_received: 'Returns not received',
   return_fee_journal: 'Return fee journals',
 })
 
@@ -77,7 +79,7 @@ function recoveryActionsFor(entry) {
   if (entry.status === 'posted') return []
   if (entry.status === 'not_started' || entry.status === 'failed') {
     const actions = [{ action: 'resume', label: 'Post missing entry', description: 'Checks Zoho first, then posts only if nothing exists.' }]
-    if (entry.group === 'sales_payment' || entry.group === 'fee_journal' || entry.group === 'return_fee_journal') {
+    if (entry.group !== 'credit_note') {
       actions.push({ action: 'link', label: 'Link existing Zoho record', description: 'Use when the entry already exists in Zoho.' })
     }
     return actions
@@ -124,7 +126,7 @@ async function buildPostingStatus({ batch, creditNoteBatch = null, store, env = 
     return byType.get(row.paymentType) || null
   }
 
-  const groups = { sales_payment: [], fee_journal: [], return_fee_journal: [], credit_note: [] }
+  const groups = { sales_payment: [], fee_journal: [], credit_note: [], return_not_received: [], return_fee_journal: [] }
   for (const row of expected) {
     const view = entryView(row, localFor(row))
     view.actions = recoveryActionsFor(view)
@@ -133,8 +135,10 @@ async function buildPostingStatus({ batch, creditNoteBatch = null, store, env = 
 
   const returnRows = collectReturnRowsForApply(returnsBatch)
   const cnLocal = localCreditNotePostingsByOrder(postings)
+  const movedToNotReceived = notReceivedOrderIds(returnsBatch)
   for (const row of returnRows) {
     const local = cnLocal.get(clean(row.orderId)) || { create: null, refund: null }
+    if (movedToNotReceived.has(clean(row.orderId)) && !local.create && !local.refund && !clean(row.zohoCreditNoteId)) continue
     const refundStatus = entryStatus(local.refund)
     const createStatus = local.create ? entryStatus(local.create) : ''
     const status =
@@ -189,15 +193,23 @@ async function buildPostingStatus({ batch, creditNoteBatch = null, store, env = 
     sales_payment: groupStatus(groups.sales_payment),
     fee_journal: groupStatus(groups.fee_journal),
     credit_note: settlementHasReturnApplyWork(returnsBatch) || groups.credit_note.length ? groupStatus(groups.credit_note) : 'not_required',
+    return_not_received: groupStatus(groups.return_not_received),
     return_fee_journal: groupStatus(groups.return_fee_journal),
   }
   const done = (s) => s === 'posted' || s === 'not_required'
   const salesComplete = done(status.sales_payment) && done(status.fee_journal)
   const creditNotesComplete = done(status.credit_note)
+  const notReceivedComplete = done(status.return_not_received)
   const returnFeesComplete = done(status.return_fee_journal)
-  const settlementComplete = salesComplete && creditNotesComplete && returnFeesComplete
+  const settlementComplete = salesComplete && creditNotesComplete && notReceivedComplete && returnFeesComplete
 
-  const all = [...groups.sales_payment, ...groups.fee_journal, ...groups.credit_note, ...groups.return_fee_journal]
+  const all = [
+    ...groups.sales_payment,
+    ...groups.fee_journal,
+    ...groups.credit_note,
+    ...groups.return_not_received,
+    ...groups.return_fee_journal,
+  ]
   const verificationCount = all.filter((row) => row.status === 'verification_required').length
   const postedCount = all.filter((row) => row.status === 'posted').length
   let overall = 'not_started'
@@ -227,6 +239,12 @@ async function buildPostingStatus({ batch, creditNoteBatch = null, store, env = 
       message: 'Return fee journals wait until every return credit note is created and refunded (step 10).',
     })
   }
+  if (!notReceivedComplete) {
+    blockers.push({
+      step: 'return_fee_journal',
+      message: 'Return fee journals wait until the returns-not-received journal is posted (step 11).',
+    })
+  }
   if (unmappedLegacy.length) {
     blockers.push({
       step: 'verification',
@@ -242,6 +260,7 @@ async function buildPostingStatus({ batch, creditNoteBatch = null, store, env = 
     overall,
     salesComplete,
     creditNotesComplete,
+    notReceivedComplete,
     returnFeesComplete,
     settlementComplete,
     groups: Object.entries(groups).map(([key, entries]) => ({

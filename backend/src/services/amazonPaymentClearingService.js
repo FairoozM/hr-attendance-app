@@ -41,7 +41,25 @@ const {
 } = require('./amazonPaymentClearingCategoryService')
 const { isSettlementReturnRow } = require('./amazonPaymentClearingOrderBreakdownService')
 const { buildPaymentPreviewFromBatch } = require('./amazonPaymentClearingPaymentPreviewService')
-const { postApprovedBatch, postReturnFeeJournalsForBatch, isReturnFeePostComplete } = require('./amazonPaymentClearingPostingService')
+const {
+  postApprovedBatch,
+  postReturnFeeJournalsForBatch,
+  isReturnFeePostComplete,
+  isNotReceivedPostComplete,
+  postNotReceivedReturnsForBatch,
+} = require('./amazonPaymentClearingPostingService')
+const {
+  buildCreditNoteApplyPlan,
+  applyCreditNotesForBatch,
+  isCreditNoteApplyComplete,
+  mergeRefreshedReturnMatches,
+  localCreditNotePostingsByOrder,
+} = require('./amazonPaymentClearingCreditNotePostingService')
+const {
+  NOT_RECEIVED_DISPOSITION,
+  NOT_RECEIVED_JOURNAL_TYPE,
+  buildNotReceivedReturnPlan,
+} = require('./amazonPaymentClearingNotReceivedReturnService')
 const {
   buildPostingStatus,
   reverifyPosting,
@@ -1363,19 +1381,235 @@ async function batchForCreditNoteApply(id) {
     netNegativeReturnOrders: hydrated?.netNegativeReturnOrders || enriched.netNegativeReturnOrders || [],
     refundReturnRows: hydrated?.refundReturnRows || enriched.refundReturnRows || raw.refundReturnRows || [],
     allRows: hydrated?.allRows || enriched.allRows || [],
+    returnDispositions: raw.returnDispositions || [],
   }
+}
+
+function batchNotFoundError() {
+  const err = new Error('Payment clearing batch not found.')
+  err.code = 'AMAZON_PAYMENT_CLEARING_BATCH_NOT_FOUND'
+  err.status = 404
+  return err
+}
+
+function clearingError(message, code, status = 422) {
+  const err = new Error(message)
+  err.code = code
+  err.status = status
+  return err
+}
+
+/** Save credit notes found live in Zoho so every screen stops showing them as missing. */
+async function persistRefreshedReturnMatches(id, rows) {
+  const stored = await store.getBatchById(id)
+  if (!stored) return { changed: false, newlyFound: [] }
+  const merged = mergeRefreshedReturnMatches(stored, rows)
+  if (merged.changed) await store.updateReturnMatches(id, merged)
+  return merged
+}
+
+function stillMissingFromPlan(plan) {
+  return (plan.rows || [])
+    .filter((row) => !String(row.zohoCreditNoteId || '').trim() && row.action !== 'moved_to_not_received')
+    .map((row) => ({ orderId: row.orderId, amazonRefundAmount: row.amazonRefundAmount, zohoInvoiceNumber: row.zohoInvoiceNumber }))
 }
 
 async function getCreditNoteApplyPlanForBatch(id) {
   const batch = await batchForCreditNoteApply(id)
-  if (!batch) {
-    const err = new Error('Payment clearing batch not found.')
-    err.code = 'AMAZON_PAYMENT_CLEARING_BATCH_NOT_FOUND'
-    err.status = 404
-    throw err
+  if (!batch) throw batchNotFoundError()
+  let newlyFoundCreditNotes = []
+  const plan = await buildCreditNoteApplyPlan(batch, {
+    onRefreshedRows: async (rows) => {
+      try {
+        newlyFoundCreditNotes = (await persistRefreshedReturnMatches(id, rows)).newlyFound
+      } catch (err) {
+        console.warn('[amazon-payment-clearing] could not save refreshed credit note matches', err?.message || err)
+      }
+    },
+  })
+  return { success: true, ...plan, newlyFoundCreditNotes, returnDispositions: batch.returnDispositions }
+}
+
+/** Re-read credit notes from Zoho for every return in the settlement and save what was found. */
+async function refreshReturnCreditNotesForBatch(id, options = {}) {
+  const batch = await batchForCreditNoteApply(id)
+  if (!batch) throw batchNotFoundError()
+  let merged = { changed: false, newlyFound: [] }
+  const plan = await buildCreditNoteApplyPlan(batch, {
+    onRefreshedRows: async (rows) => {
+      merged = await persistRefreshedReturnMatches(id, rows)
+    },
+  })
+  const stillMissing = stillMissingFromPlan(plan)
+  await store.insertClearingAudit({
+    batchId: batch.batchId,
+    action: 'refresh_credit_notes',
+    reason: null,
+    actorUserId: options.actorUserId,
+    details: { newlyFound: merged.newlyFound, stillMissing: stillMissing.map((row) => row.orderId) },
+  })
+  return {
+    success: true,
+    ...plan,
+    newlyFoundCreditNotes: merged.newlyFound,
+    stillMissing,
+    returnDispositions: batch.returnDispositions,
   }
-  const plan = await buildCreditNoteApplyPlan(batch)
-  return { success: true, ...plan }
+}
+
+function cleanOrderId(value) {
+  return value == null ? '' : String(value).trim()
+}
+
+/**
+ * Mark a refunded return whose product never came back. It leaves step 10 and is
+ * expensed by the combined step 11 journal. Zoho is re-checked first so a credit note
+ * created in the meantime is never double-counted.
+ */
+async function markReturnNotReceived(id, orderIdInput, input = {}, options = {}) {
+  const orderId = cleanOrderId(orderIdInput)
+  const reason = String(input.reason || '').trim()
+  if (!orderId) throw clearingError('Order id is required.', 'AMAZON_PAYMENT_CLEARING_ORDER_REQUIRED', 400)
+  if (reason.length < 4) {
+    throw clearingError('A reason is required to mark a return as not received.', 'AMAZON_PAYMENT_CLEARING_REASON_REQUIRED')
+  }
+  return store.withBatchPostingLock(id, async () => {
+    const batch = await batchForCreditNoteApply(id)
+    if (!batch) throw batchNotFoundError()
+    const postings = await store.listPostingsForBatch(batch.batchId)
+    const journal = postings.find((row) => row.paymentType === NOT_RECEIVED_JOURNAL_TYPE)
+    if (journal && journal.status !== 'failed') {
+      throw clearingError(
+        'The returns-not-received journal is already in Zoho for this settlement. Marks can no longer change.',
+        'AMAZON_PAYMENT_CLEARING_NOT_RECEIVED_JOURNAL_POSTED',
+        409
+      )
+    }
+    const plan = await buildCreditNoteApplyPlan(batch, {
+      onRefreshedRows: (rows) => persistRefreshedReturnMatches(id, rows),
+    })
+    const row = (plan.rows || []).find((r) => cleanOrderId(r.orderId) === orderId)
+    if (!row) {
+      throw clearingError(`Order ${orderId} is not a return in this settlement.`, 'AMAZON_PAYMENT_CLEARING_RETURN_NOT_FOUND', 404)
+    }
+    if (String(row.zohoCreditNoteId || '').trim()) {
+      throw clearingError(
+        `Order ${orderId} already has credit note ${row.zohoCreditNoteNumber || row.zohoCreditNoteId} in Zoho. Apply it in step 10 instead.`,
+        'AMAZON_PAYMENT_CLEARING_CREDIT_NOTE_EXISTS',
+        409
+      )
+    }
+    const local = localCreditNotePostingsByOrder(postings).get(orderId)
+    if (local?.create || local?.refund) {
+      throw clearingError(
+        `Order ${orderId} already has a credit note posting from step 10. Resolve it there first.`,
+        'AMAZON_PAYMENT_CLEARING_CREDIT_NOTE_EXISTS',
+        409
+      )
+    }
+    const amount = Math.abs(Number(row.amazonRefundAmount) || 0)
+    if (!(amount > 0)) {
+      throw clearingError(`Order ${orderId} has no Amazon refund amount to expense.`, 'AMAZON_PAYMENT_CLEARING_RETURN_AMOUNT_MISSING')
+    }
+    const disposition = {
+      orderId,
+      disposition: NOT_RECEIVED_DISPOSITION,
+      amount,
+      reason,
+      zohoInvoiceNumber: row.zohoInvoiceNumber || '',
+      markedBy: options.actorUserId ?? null,
+      markedAt: new Date().toISOString(),
+    }
+    const others = (batch.returnDispositions || []).filter((d) => cleanOrderId(d.orderId) !== orderId)
+    const saved = await store.updateReturnDispositions(batch.batchId, [...others, disposition])
+    await store.insertClearingAudit({
+      batchId: batch.batchId,
+      action: 'return_not_received_marked',
+      reason,
+      actorUserId: options.actorUserId,
+      details: { orderId, amount },
+    })
+    return { success: true, disposition, returnDispositions: saved?.returnDispositions || [...others, disposition] }
+  })
+}
+
+async function unmarkReturnNotReceived(id, orderIdInput, input = {}, options = {}) {
+  const orderId = cleanOrderId(orderIdInput)
+  if (!orderId) throw clearingError('Order id is required.', 'AMAZON_PAYMENT_CLEARING_ORDER_REQUIRED', 400)
+  return store.withBatchPostingLock(id, async () => {
+    const batch = await store.getBatchById(id)
+    if (!batch) throw batchNotFoundError()
+    const postings = await store.listPostingsForBatch(batch.batchId)
+    const journal = postings.find((row) => row.paymentType === NOT_RECEIVED_JOURNAL_TYPE)
+    if (journal && journal.status !== 'failed') {
+      throw clearingError(
+        'The returns-not-received journal is already in Zoho for this settlement. Undo is no longer possible.',
+        'AMAZON_PAYMENT_CLEARING_NOT_RECEIVED_JOURNAL_POSTED',
+        409
+      )
+    }
+    const current = batch.returnDispositions || []
+    const removed = current.find((d) => cleanOrderId(d.orderId) === orderId)
+    if (!removed) {
+      throw clearingError(`Order ${orderId} is not marked as not received.`, 'AMAZON_PAYMENT_CLEARING_RETURN_NOT_MARKED', 404)
+    }
+    const remaining = current.filter((d) => cleanOrderId(d.orderId) !== orderId)
+    const saved = await store.updateReturnDispositions(batch.batchId, remaining)
+    await store.insertClearingAudit({
+      batchId: batch.batchId,
+      action: 'return_not_received_unmarked',
+      reason: String(input.reason || '').trim() || null,
+      actorUserId: options.actorUserId,
+      details: { orderId, amount: removed.amount },
+    })
+    return { success: true, returnDispositions: saved?.returnDispositions || remaining }
+  })
+}
+
+async function getNotReceivedPlanForBatch(id) {
+  const batch = await store.getBatchById(id)
+  if (!batch) throw batchNotFoundError()
+  const plan = buildNotReceivedReturnPlan(batch, { env: process.env })
+  const postings = await store.listPostingsForBatch(batch.batchId)
+  const local = postings.find((row) => row.paymentType === NOT_RECEIVED_JOURNAL_TYPE) || null
+  return {
+    success: true,
+    ...plan,
+    currency: settlementCurrencyForCustomer(
+      batch.zohoCustomerName,
+      batch.report?.currency,
+      getPaymentClearingMarketplaceConfig(batch.marketplace).currency
+    ),
+    posting: local
+      ? {
+          id: local.id,
+          status: local.status,
+          zohoJournalId: local.zohoPaymentId || '',
+          zohoJournalNumber: local.zohoJournalNumber || '',
+          error: local.errorMessage || '',
+        }
+      : null,
+    notReceivedPostComplete: await isNotReceivedPostComplete(id, batch),
+  }
+}
+
+async function postNotReceivedReturnsForBatchId(id, options = {}) {
+  const dryRun = options.dryRun !== false
+  const run = async () => {
+    const batch = await store.getBatchById(id)
+    if (!batch) throw batchNotFoundError()
+    return postNotReceivedReturnsForBatch({
+      batch,
+      store,
+      dryRun,
+      isSalesComplete: async () => {
+        const { batch: statusBatch, creditNoteBatch } = await loadBatchesForPostingStatus(id)
+        const status = await buildPostingStatus({ batch: statusBatch, creditNoteBatch, store })
+        return status.salesComplete
+      },
+    })
+  }
+  return dryRun ? run() : store.withBatchPostingLock(id, run)
 }
 
 async function applyCreditNotesForBatchId(id, options = {}) {
@@ -1433,6 +1667,7 @@ async function getReturnFeePlanForBatch(id) {
     success: true,
     ...plan,
     creditNoteApplyComplete: await isCreditNoteApplyComplete(id, batch),
+    notReceivedPostComplete: await isNotReceivedPostComplete(id, batch),
     returnFeePostComplete: await isReturnFeePostComplete(id, batch),
   }
 }
@@ -1587,6 +1822,11 @@ module.exports = {
   linkPostingForBatch,
   releasePostingForBatch,
   getCreditNoteApplyPlanForBatch,
+  refreshReturnCreditNotesForBatch,
+  markReturnNotReceived,
+  unmarkReturnNotReceived,
+  getNotReceivedPlanForBatch,
+  postNotReceivedReturnsForBatchId,
   applyCreditNotesForBatchId,
   getReturnFeePlanForBatch,
   getZohoAccountDiagnostics,

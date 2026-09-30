@@ -902,3 +902,232 @@ test('force repost does not resend a recently timed-out create, but does once it
   assert.equal(stale.outcome.zohoId, 'pay-new')
   assert.equal(stale.created, 1)
 })
+
+// 11. Returns: credit notes found later, and refunds whose product never came back
+
+const {
+  mergeRefreshedReturnMatches,
+  buildCreditNoteApplyPlan,
+} = require('../src/services/amazonPaymentClearingCreditNotePostingService')
+const { buildNotReceivedReturnPlan } = require('../src/services/amazonPaymentClearingNotReceivedReturnService')
+const {
+  postNotReceivedReturnsForBatch,
+  isNotReceivedPostComplete,
+} = require('../src/services/amazonPaymentClearingPostingService')
+
+const UAE_RETURN_EXPENSE_ID = '4265011000003287848'
+
+function notReceivedBatch(extra = {}) {
+  return {
+    ...batchFor('UAE', { status: 'posted', postedToZoho: true }),
+    zohoCustomerId: 'cust1',
+    matchedReturns: [
+      { orderId: '404-0828335-0868329', amazonRefundAmount: 85, zohoInvoiceId: 'zi-1', zohoInvoiceNumber: 'INV-1', creditNoteAction: 'ready_to_create', status: 'ready_to_create' },
+      { orderId: '402-3772982-5137166', amazonRefundAmount: 75, zohoInvoiceId: 'zi-2', zohoInvoiceNumber: 'INV-2', creditNoteAction: 'ready_to_create', status: 'ready_to_create' },
+    ],
+    returnDispositions: [
+      { orderId: '404-0828335-0868329', disposition: 'not_received', amount: 85, reason: 'warehouse did not receive', zohoInvoiceNumber: 'INV-1' },
+      { orderId: '402-3772982-5137166', disposition: 'not_received', amount: 75, reason: 'warehouse did not receive', zohoInvoiceNumber: 'INV-2' },
+    ],
+    ...extra,
+  }
+}
+
+function notReceivedOpts(batch, postingStore, zoho, extra = {}) {
+  return {
+    batch,
+    store: postingStore,
+    dryRun: false,
+    env: PROD_LIKE_KSA_ENV,
+    zohoLookup: zoho.lookup,
+    createManualJournal: zoho.createManualJournal(),
+    buildJournalPayloadPreview: async (j) => ({ reference_number: j.referenceNumber, notes: j.notes }),
+    isSalesComplete: async () => true,
+    ...extra,
+  }
+}
+
+test('credit notes found live in Zoho are saved into the batch and leave the missing lists', () => {
+  const stored = {
+    matchedReturns: [
+      { orderId: 'o-1', amazonRefundAmount: 68, zohoInvoiceId: 'zi-1', status: 'ready_to_create', creditNoteAction: 'ready_to_create' },
+      { orderId: 'o-2', amazonRefundAmount: 225, zohoInvoiceId: 'zi-2', status: 'ready_to_create', creditNoteAction: 'ready_to_create' },
+    ],
+    missingCreditNotes: [{ orderId: 'o-3', amazonRefundAmount: 85 }],
+    creditNoteBlockingRows: [{ orderId: 'o-3', amazonRefundAmount: 85, status: 'blocked' }],
+  }
+  const merged = mergeRefreshedReturnMatches(stored, [
+    { orderId: 'o-1', zohoCreditNoteId: 'cn-1', zohoCreditNoteNumber: 'CN-1', creditNoteAmount: 68, status: 'matched', creditNoteAction: 'matched_existing' },
+    { orderId: 'o-2', zohoCreditNoteId: '', status: 'ready_to_create' },
+    { orderId: 'o-3', zohoCreditNoteId: 'cn-3', zohoCreditNoteNumber: 'CN-3', creditNoteAmount: 85, status: 'matched' },
+    { orderId: 'unknown', zohoCreditNoteId: 'cn-x', status: 'matched' },
+  ])
+  assert.equal(merged.changed, true)
+  assert.deepEqual(merged.newlyFound.map((row) => row.orderId).sort(), ['o-1', 'o-3'])
+  const byOrder = new Map(merged.matchedReturns.map((row) => [row.orderId, row]))
+  assert.equal(byOrder.get('o-1').zohoCreditNoteId, 'cn-1')
+  assert.equal(byOrder.get('o-1').status, 'matched')
+  assert.equal(byOrder.get('o-2').status, 'ready_to_create')
+  assert.equal(byOrder.get('o-3').zohoCreditNoteNumber, 'CN-3')
+  assert.equal(byOrder.has('unknown'), false, 'orders outside the settlement are never added')
+  assert.deepEqual(merged.missingCreditNotes, [])
+  assert.deepEqual(merged.creditNoteBlockingRows, [])
+
+  const again = mergeRefreshedReturnMatches(
+    { ...stored, matchedReturns: merged.matchedReturns, missingCreditNotes: [], creditNoteBlockingRows: [] },
+    [{ orderId: 'o-1', zohoCreditNoteId: 'cn-1', status: 'matched' }]
+  )
+  assert.equal(again.changed, false)
+})
+
+test('returns marked not received leave the step 10 plan and count as complete there', async () => {
+  const batch = notReceivedBatch()
+  const zoho = createFakeZoho({ currency: 'AED' })
+  const postingStore = storeFor(batch)
+  const plan = await buildCreditNoteApplyPlan(batch, applyOpts(zoho, postingStore))
+  assert.deepEqual(plan.rows.map((row) => row.action), ['moved_to_not_received', 'moved_to_not_received'])
+  assert.equal(plan.summary.movedToNotReceived, 2)
+  assert.equal(plan.summary.isComplete, true)
+
+  const result = await applyCreditNotesForBatch(batch, applyOpts(zoho, postingStore))
+  assert.equal(zoho.calls.createCreditNote, 0, 'no credit note is created for a return that never came back')
+  assert.equal(zoho.calls.refundCreditNote, 0)
+  assert.equal(result.success, true)
+})
+
+test('a marked order that later gets a Zoho credit note stays in step 10', async () => {
+  const batch = notReceivedBatch()
+  batch.matchedReturns[0] = { ...batch.matchedReturns[0], zohoCreditNoteId: 'cn-late', creditNoteAmount: 85, status: 'matched', creditNoteAction: 'matched_existing' }
+  const zoho = createFakeZoho({ currency: 'AED' })
+  const plan = await buildCreditNoteApplyPlan(batch, applyOpts(zoho, storeFor(batch)))
+  const row = plan.rows.find((r) => r.orderId === '404-0828335-0868329')
+  assert.notEqual(row.action, 'moved_to_not_received')
+})
+
+test('not-received returns post one combined journal: Dr Amazon Return Exp / Cr Undeposited, never twice', async () => {
+  const batch = notReceivedBatch()
+  const plan = buildNotReceivedReturnPlan(batch, { env: PROD_LIKE_KSA_ENV })
+  assert.equal(plan.summary.total, 160)
+  assert.equal(plan.line.status, 'ready')
+  assert.equal(plan.line.referenceNumber, '03-Sep-2026 to 17-Sep-2026 Returns Not Received')
+  assert.match(plan.line.notes, /404-0828335-0868329/)
+  assert.match(plan.line.notes, /402-3772982-5137166/)
+  assert.doesNotMatch(plan.line.notes, /HR|hr-attendance|BI/)
+
+  const zoho = createFakeZoho({ currency: 'AED' })
+  const postingStore = storeFor(batch)
+  assert.equal(await isNotReceivedPostComplete(batch.batchId, batch, postingStore), false)
+
+  const dry = await postNotReceivedReturnsForBatch(notReceivedOpts(batch, postingStore, zoho, { dryRun: true }))
+  assert.equal(dry.journals[0].status, 'dry_run')
+  assert.equal(zoho.calls.createJournal, 0)
+
+  const first = await postNotReceivedReturnsForBatch(notReceivedOpts(batch, postingStore, zoho))
+  assert.equal(first.success, true)
+  assert.equal(zoho.journals.size, 1)
+  const journal = [...zoho.journals.values()][0]
+  assert.equal(journal.total, 160)
+  const debit = journal.line_items.find((l) => l.debit_or_credit === 'debit')
+  const credit = journal.line_items.find((l) => l.debit_or_credit === 'credit')
+  assert.equal(debit.account_id, UAE_RETURN_EXPENSE_ID)
+  assert.equal(credit.account_id, UAE_IDS.UNDEPOSITED)
+  assert.deepEqual(postingStore.postings.map((row) => row.paymentType), ['return_not_received_journal'])
+  assert.equal(await isNotReceivedPostComplete(batch.batchId, batch, postingStore), true)
+
+  const again = await postNotReceivedReturnsForBatch(notReceivedOpts(batch, postingStore, zoho))
+  assert.equal(zoho.calls.createJournal, 1)
+  assert.equal(again.summary.journalsSkipped, 1)
+})
+
+test('not-received journal waits for sales payments and needs something marked', async () => {
+  const zoho = createFakeZoho({ currency: 'AED' })
+  const batch = notReceivedBatch()
+  await assert.rejects(
+    () => postNotReceivedReturnsForBatch(notReceivedOpts(batch, storeFor(batch), zoho, { isSalesComplete: async () => false })),
+    (err) => err.code === 'AMAZON_PAYMENT_CLEARING_SALES_NOT_POSTED'
+  )
+  const empty = notReceivedBatch({ returnDispositions: [] })
+  await assert.rejects(
+    () => postNotReceivedReturnsForBatch(notReceivedOpts(empty, storeFor(empty), zoho)),
+    (err) => err.code === 'AMAZON_PAYMENT_CLEARING_NO_NOT_RECEIVED_RETURNS'
+  )
+  assert.equal(zoho.calls.createJournal, 0)
+})
+
+test('step 12 return fee journals wait for the step 11 journal when returns are marked', async () => {
+  const returnRows = [
+    { orderId: 'r-1', transactionType: 'Refund', amountType: 'ItemPrice', amountDescription: 'Principal', amount: -100 },
+    { orderId: 'r-1', transactionType: 'Refund', amountType: 'ItemFees', amountDescription: 'Commission', amount: 15 },
+  ]
+  const batch = notReceivedBatch({ allRows: returnRows })
+  const zoho = createFakeZoho({ currency: 'AED' })
+  const postingStore = storeFor(batch)
+  const feeOpts = {
+    batch,
+    store: postingStore,
+    dryRun: false,
+    env: PROD_LIKE_KSA_ENV,
+    zohoLookup: zoho.lookup,
+    createManualJournal: zoho.createManualJournal(),
+    buildJournalPayloadPreview: async () => ({}),
+    isCreditNoteApplyComplete: async () => true,
+  }
+  await assert.rejects(
+    () => postReturnFeeJournalsForBatch(feeOpts),
+    (err) => err.code === 'AMAZON_PAYMENT_CLEARING_NOT_RECEIVED_JOURNAL_REQUIRED'
+  )
+  assert.equal(zoho.calls.createJournal, 0)
+
+  await postNotReceivedReturnsForBatch(notReceivedOpts(batch, postingStore, zoho))
+  const fees = await postReturnFeeJournalsForBatch(feeOpts)
+  assert.equal(fees.success, true)
+})
+
+test('posting status shows returns not received as their own group, not as missing credit notes', async () => {
+  const batch = notReceivedBatch()
+  const zoho = createFakeZoho({ currency: 'AED' })
+  const postingStore = storeFor(batch)
+  const before = await buildPostingStatus({ batch, store: postingStore, env: PROD_LIKE_KSA_ENV })
+  assert.equal(before.groups.find((g) => g.key === 'credit_note').entries.length, 0)
+  const group = before.groups.find((g) => g.key === 'return_not_received')
+  assert.equal(group.entries.length, 1)
+  assert.equal(group.entries[0].status, 'not_started')
+  assert.equal(group.entries[0].amount, 160)
+  assert.equal(before.notReceivedComplete, false)
+  assert.ok(before.blockers.some((b) => /step 11/.test(b.message)))
+
+  await postNotReceivedReturnsForBatch(notReceivedOpts(batch, postingStore, zoho))
+  const after = await buildPostingStatus({ batch, store: postingStore, env: PROD_LIKE_KSA_ENV })
+  assert.equal(after.groups.find((g) => g.key === 'return_not_received').status, 'posted')
+  assert.equal(after.notReceivedComplete, true)
+})
+
+test('undo and new marks are refused once the step 11 journal is in Zoho', async () => {
+  const service = require('../src/services/amazonPaymentClearingService')
+  const batch = notReceivedBatch()
+  const original = { getBatchById: store.getBatchById, listPostingsForBatch: store.listPostingsForBatch, updateReturnDispositions: store.updateReturnDispositions }
+  let saved = null
+  store.getBatchById = async () => batch
+  store.listPostingsForBatch = async () => [{ id: 1, batchId: batch.batchId, paymentType: 'return_not_received_journal', status: 'posted', zohoPaymentId: 'zj-1' }]
+  store.updateReturnDispositions = async (_id, rows) => {
+    saved = rows
+    return { ...batch, returnDispositions: rows }
+  }
+  try {
+    await assert.rejects(
+      () => service.unmarkReturnNotReceived(batch.batchId, '404-0828335-0868329', {}, { actorUserId: 1 }),
+      (err) => err.code === 'AMAZON_PAYMENT_CLEARING_NOT_RECEIVED_JOURNAL_POSTED'
+    )
+    await assert.rejects(
+      () => service.markReturnNotReceived(batch.batchId, '407-3586917-0392359', { reason: 'not received' }, { actorUserId: 1 }),
+      (err) => err.code === 'AMAZON_PAYMENT_CLEARING_NOT_RECEIVED_JOURNAL_POSTED'
+    )
+    await assert.rejects(
+      () => service.markReturnNotReceived(batch.batchId, '407-3586917-0392359', { reason: 'no' }, { actorUserId: 1 }),
+      (err) => err.code === 'AMAZON_PAYMENT_CLEARING_REASON_REQUIRED'
+    )
+    assert.equal(saved, null)
+  } finally {
+    Object.assign(store, original)
+  }
+})

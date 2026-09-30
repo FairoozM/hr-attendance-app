@@ -12,8 +12,9 @@ export function Step9ReturnFeeClearing({ ctx }: { ctx: ClearingContext }) {
 
   const batchId = preview?.batch?.batchId
   const creditNotesDone = ctx.creditNoteApplyComplete || plan?.creditNoteApplyComplete === true
+  const notReceivedDone = plan ? plan.notReceivedPostComplete !== false : ctx.notReceivedComplete
   const varianceBlockers = plan?.summary?.varianceBlockerCount ?? ctx.returnFeeBlockerCount
-  const canPostJournals = Boolean(ctx.salesComplete && creditNotesDone && varianceBlockers === 0)
+  const canPostJournals = Boolean(ctx.salesComplete && creditNotesDone && notReceivedDone && varianceBlockers === 0)
 
   const loadPlan = useCallback(async () => {
     if (!batchId) return
@@ -47,6 +48,13 @@ export function Step9ReturnFeeClearing({ ctx }: { ctx: ClearingContext }) {
         <p className="apc-muted">Complete step 9 (post sales payments) and step 10 (apply credit notes) before posting return fee journals.</p>
       ) : !creditNotesDone ? (
         <p className="apc-muted">Apply all return credit notes in step 10 before posting return fee journals.</p>
+      ) : !notReceivedDone ? (
+        <p className="apc-muted">
+          Post the returns-not-received journal in step 11 before posting return fee journals.{' '}
+          <button className="ainv-btn ainv-btn--sm" type="button" onClick={() => ctx.goToStep(11)}>
+            Go to step 11
+          </button>
+        </p>
       ) : varianceBlockers > 0 ? (
         <p className="apc-muted">
           {varianceBlockers} return order(s) have fee residuals that need a variance account or manual review before
@@ -71,8 +79,8 @@ export function Step9ReturnFeeClearing({ ctx }: { ctx: ClearingContext }) {
       ) : null}
       {ctx.postingStatus?.settlementComplete ? (
         <div className="apc-alert apc-approved-panel" role="status">
-          <strong>Settlement complete.</strong> Sales payments, fee journals, credit note refunds and return fee journals
-          are all posted and recorded.
+          <strong>Settlement complete.</strong> Sales payments, fee journals, credit note refunds, returns not received
+          and return fee journals are all posted and recorded.
         </div>
       ) : null}
       {(plan?.warnings || []).map((warning) => (

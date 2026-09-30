@@ -545,6 +545,7 @@ export interface CreditNoteApplyPlanRow {
     | 'create_and_refund'
     | 'create_and_apply'
     | 'blocked'
+    | 'moved_to_not_received'
   status: string
   applyAmount: number
   refundAmount?: number
@@ -576,10 +577,87 @@ export interface CreditNoteApplyPlan {
     createAndRefund?: number
     createAndApply?: number
     blocked: number
+    movedToNotReceived?: number
     completed: number
     verificationRequired?: number
     isComplete?: boolean
   }
+  newlyFoundCreditNotes?: NewlyFoundCreditNote[]
+  returnDispositions?: ReturnDisposition[]
+}
+
+export interface NewlyFoundCreditNote {
+  orderId: string
+  zohoCreditNoteId: string
+  zohoCreditNoteNumber: string
+}
+
+export interface ReturnDisposition {
+  orderId: string
+  disposition: 'not_received'
+  amount: number
+  reason: string
+  zohoInvoiceNumber?: string
+  markedBy?: number | null
+  markedAt?: string | null
+}
+
+export interface RefreshReturnCreditNotesResult extends CreditNoteApplyPlan {
+  stillMissing: { orderId: string; amazonRefundAmount?: number; zohoInvoiceNumber?: string }[]
+}
+
+export interface ReturnDispositionsResult {
+  success: boolean
+  disposition?: ReturnDisposition
+  returnDispositions: ReturnDisposition[]
+}
+
+export interface JournalAccountRef {
+  accountCode?: string
+  accountName?: string
+  accountId?: string
+  amount?: number
+}
+
+export interface NotReceivedReturnOrder {
+  orderId: string
+  amount: number
+  reason: string
+  zohoInvoiceNumber: string
+  markedBy: number | null
+  markedAt: string | null
+}
+
+export interface NotReceivedJournalLine {
+  key: string
+  paymentType: string
+  feeType: string
+  amount: number
+  orderIds: string[]
+  debit: JournalAccountRef
+  credit: JournalAccountRef
+  referenceNumber: string
+  notes: string
+  status: 'ready' | 'needs_mapping'
+  blockingReason: string
+}
+
+export interface NotReceivedPlan {
+  success?: boolean
+  batchId: number
+  marketplace: string
+  currency: string
+  orders: NotReceivedReturnOrder[]
+  line: NotReceivedJournalLine | null
+  summary: { orderCount: number; total: number }
+  posting: {
+    id: number
+    status: string
+    zohoJournalId: string
+    zohoJournalNumber: string
+    error: string
+  } | null
+  notReceivedPostComplete: boolean
 }
 
 export interface CreditNoteApplyResult {
@@ -642,6 +720,7 @@ export interface ReturnFeePlan {
   }
   warnings?: string[]
   creditNoteApplyComplete?: boolean
+  notReceivedPostComplete?: boolean
   returnFeePostComplete?: boolean
 }
 
@@ -727,7 +806,7 @@ export interface PaymentPostingResult {
 
 export type PostingEntryStatus = 'posted' | 'failed' | 'verification_required' | 'not_started' | 'partially_posted'
 
-export type PostingGroupKey = 'sales_payment' | 'fee_journal' | 'credit_note' | 'return_fee_journal'
+export type PostingGroupKey = 'sales_payment' | 'fee_journal' | 'credit_note' | 'return_not_received' | 'return_fee_journal'
 
 export type PostingGroupStatus = PostingEntryStatus | 'not_required'
 
@@ -1026,6 +1105,58 @@ export async function applyCreditNotes(marketplace: PaymentClearingMarketplace, 
 
 export async function applyKsaCreditNotes(batchId: number | string, dryRun = true) {
   return applyCreditNotes('KSA', batchId, dryRun)
+}
+
+function batchPath(marketplace: PaymentClearingMarketplace, batchId: number | string) {
+  return `${paymentClearingBase(marketplace)}/batches/${encodeURIComponent(String(batchId))}`
+}
+
+export async function refreshReturnCreditNotes(marketplace: PaymentClearingMarketplace, batchId: number | string) {
+  return api.post(
+    `${batchPath(marketplace, batchId)}/returns/refresh-credit-notes`,
+    {},
+    longOpts
+  ) as Promise<RefreshReturnCreditNotesResult>
+}
+
+export async function markReturnNotReceived(
+  marketplace: PaymentClearingMarketplace,
+  batchId: number | string,
+  orderId: string,
+  reason: string
+) {
+  return api.post(
+    `${batchPath(marketplace, batchId)}/returns/${encodeURIComponent(orderId)}/not-received`,
+    { reason },
+    longOpts
+  ) as Promise<ReturnDispositionsResult>
+}
+
+export async function unmarkReturnNotReceived(
+  marketplace: PaymentClearingMarketplace,
+  batchId: number | string,
+  orderId: string
+) {
+  return api.delete(
+    `${batchPath(marketplace, batchId)}/returns/${encodeURIComponent(orderId)}/not-received`,
+    longOpts
+  ) as Promise<ReturnDispositionsResult>
+}
+
+export async function fetchNotReceivedPlan(marketplace: PaymentClearingMarketplace, batchId: number | string) {
+  return api.get(`${batchPath(marketplace, batchId)}/not-received-plan`, longOpts) as Promise<NotReceivedPlan>
+}
+
+export async function postNotReceivedReturns(
+  marketplace: PaymentClearingMarketplace,
+  batchId: number | string,
+  dryRun = true
+) {
+  return api.post(
+    `${batchPath(marketplace, batchId)}/post-not-received-returns`,
+    { dryRun },
+    longOpts
+  ) as Promise<PaymentPostingResult>
 }
 
 export async function fetchReturnFeePlan(marketplace: PaymentClearingMarketplace, batchId: number | string) {

@@ -34,7 +34,7 @@ export const CLEARING_STEPS: ClearingStep[] = [
     key: 'returns',
     title: 'Reconcile Returns to Credit Notes',
     description:
-      'Match Amazon refund/return rows to existing Zoho credit notes, or mark returns for create-and-apply in step 10 after sales payments are posted.',
+      'Match Amazon refund/return rows to existing Zoho credit notes, or mark returns for create-and-apply in step 10 after sales payments are posted. Returns never received go to step 11.',
   },
   {
     id: 5,
@@ -69,7 +69,7 @@ export const CLEARING_STEPS: ClearingStep[] = [
     key: 'post',
     title: 'Post Sales Payments to Zoho',
     description:
-      'Dry run, then post grouped Zoho Record Payments and account-level Amazon fee journals. Return refunds are handled in steps 10–11 after payments land.',
+      'Dry run, then post grouped Zoho Record Payments and account-level Amazon fee journals. Return refunds are handled in steps 10–12 after payments land.',
   },
   {
     id: 10,
@@ -80,6 +80,13 @@ export const CLEARING_STEPS: ClearingStep[] = [
   },
   {
     id: 11,
+    key: 'returns-not-received',
+    title: 'Returns Not Received',
+    description:
+      'Returns Amazon refunded but the warehouse never received. Post one combined journal: Dr Amazon Return Exp / Cr Amazon Undeposited Funds.',
+  },
+  {
+    id: 12,
     key: 'return-fees',
     title: 'Return Fee Clearing',
     description:

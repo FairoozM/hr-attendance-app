@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { exportCreditNoteRows } from '../clearingExport'
 import { ReturnCreditNotesTable, SummaryCard } from '../clearingShared'
-import type { RefundReturnCreditNoteRow } from '../../../../api/amazonPaymentClearing'
+import { refreshReturnCreditNotes, type RefundReturnCreditNoteRow } from '../../../../api/amazonPaymentClearing'
 import type { ClearingContext } from './clearingContext'
 
 type Tab = 'matched' | 'ready_to_create' | 'missing' | 'differences'
@@ -43,6 +43,31 @@ export function Step4Returns({ ctx }: { ctx: ClearingContext }) {
     [preview?.matchedReturns],
   )
   const [tab, setTab] = useState<Tab>('matched')
+  const [refreshing, setRefreshing] = useState(false)
+  const [refreshError, setRefreshError] = useState('')
+  const batchId = preview?.batch?.batchId
+
+  const onRefreshFromZoho = async () => {
+    if (batchId == null) return
+    setRefreshing(true)
+    setRefreshError('')
+    try {
+      const json = await refreshReturnCreditNotes(ctx.marketplace, batchId)
+      await ctx.onReloadCurrentBatch()
+      await ctx.refreshPostClearingStepStatus(batchId)
+      const found = json.newlyFoundCreditNotes || []
+      const missing = json.stillMissing || []
+      ctx.setNotice(
+        `${found.length ? `Found in Zoho: ${found.map((row) => row.orderId).join(', ')}.` : 'No new credit notes found in Zoho.'}${
+          missing.length ? ` Still missing: ${missing.map((row) => row.orderId).join(', ')}.` : ''
+        }`
+      )
+    } catch (e) {
+      setRefreshError(e instanceof Error ? e.message : 'Failed to refresh credit notes from Zoho')
+    } finally {
+      setRefreshing(false)
+    }
+  }
 
   useEffect(() => {
     if (!preview) return
@@ -78,6 +103,12 @@ export function Step4Returns({ ctx }: { ctx: ClearingContext }) {
       ) : (
         <div className="apc-alert" role="status">All refund/return rows are matched to clean Zoho credit notes.</div>
       )}
+      {ctx.notReceivedCount > 0 ? (
+        <div className="apc-alert" role="status">
+          {ctx.notReceivedCount} return(s) marked not received — they are expensed to Amazon Return Exp in step 11.
+        </div>
+      ) : null}
+      {refreshError ? <div className="apc-alert apc-alert--error" role="alert">{refreshError}</div> : null}
 
       <div className="apc-tabs">
         {tabs.map((t) => (
@@ -90,6 +121,11 @@ export function Step4Returns({ ctx }: { ctx: ClearingContext }) {
             {t.label} <span className="apc-chip__count">{t.count}</span>
           </button>
         ))}
+        {batchId != null ? (
+          <button className="ainv-btn ainv-btn--sm" type="button" onClick={() => void onRefreshFromZoho()} disabled={refreshing}>
+            {refreshing ? 'Checking Zoho...' : 'Refresh credit notes from Zoho'}
+          </button>
+        ) : null}
         {blockingRows.length ? (
           <button className="ainv-btn ainv-btn--sm" type="button" onClick={() => exportCreditNoteRows(blockingRows, ctx.marketplace)}>
             Export blocked

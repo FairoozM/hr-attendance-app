@@ -249,6 +249,12 @@ function getPaymentClearingMarketplaceConfig(marketplace) {
     paymentAccountMapEnv: `${envPrefix(key)}_ZOHO_PAYMENT_ACCOUNT_MAP`,
     returnVarianceAccountIdEnv: `${envPrefix(key)}_ZOHO_RETURN_VARIANCE_ACCOUNT_ID`,
     returnVarianceAccountId: readEnv(key, 'ZOHO_RETURN_VARIANCE_ACCOUNT_ID', ''),
+    returnExpenseAccountIdEnv: `${envPrefix(key)}_ZOHO_RETURN_EXPENSE_ACCOUNT_ID`,
+    returnExpenseAccount: Object.freeze({
+      accountCode: 'return_expense',
+      accountName: readEnv(key, 'ZOHO_RETURN_EXPENSE_ACCOUNT_NAME', key === 'uae' ? 'Amazon Return Exp' : 'KSA-Amazon Return Exp'),
+      accountId: readEnv(key, 'ZOHO_RETURN_EXPENSE_ACCOUNT_ID', key === 'uae' ? '4265011000003287848' : ''),
+    }),
     clearingAccounts,
     returnFeeAccounts: Object.freeze({
       UNDEPOSITED: { accountCode: undeposited.accountCode, accountName: undeposited.defaultName },

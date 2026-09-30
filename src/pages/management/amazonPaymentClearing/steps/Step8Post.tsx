@@ -36,7 +36,7 @@ export function Step8Post({ ctx }: { ctx: ClearingContext }) {
           <strong>
             Sales payments and fee journals posted to Zoho.
             {ctx.postingStatus && !ctx.postingStatus.settlementComplete
-              ? ' The settlement is not complete until credit notes, refunds and return fee journals (steps 10–11) are posted.'
+              ? ' The settlement is not complete until credit notes, refunds and returns not received and return fee journals (steps 10–12) are posted.'
               : ''}
           </strong>
           {postingReference ? (
@@ -83,7 +83,7 @@ export function Step8Post({ ctx }: { ctx: ClearingContext }) {
       ) : (
         <div className="apc-alert">
           <strong>Posting sales payments to Zoho.</strong> Use Dry Run first, then POST TO ZOHO after confirming the
-          preview. Return refunds and return fee journals are handled in steps 10–11 after payments land.
+          preview. Return refunds, returns not received and return fee journals are handled in steps 10–12 after payments land.
         </div>
       )}
 

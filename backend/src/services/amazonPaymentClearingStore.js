@@ -40,6 +40,7 @@ async function ensureAmazonPaymentClearingTables() {
   await query(`ALTER TABLE amazon_payment_clearing_batches ADD COLUMN IF NOT EXISTS matched_returns JSONB NOT NULL DEFAULT '[]'::jsonb`)
   await query(`ALTER TABLE amazon_payment_clearing_batches ADD COLUMN IF NOT EXISTS missing_credit_notes JSONB NOT NULL DEFAULT '[]'::jsonb`)
   await query(`ALTER TABLE amazon_payment_clearing_batches ADD COLUMN IF NOT EXISTS credit_note_blocking_rows JSONB NOT NULL DEFAULT '[]'::jsonb`)
+  await query(`ALTER TABLE amazon_payment_clearing_batches ADD COLUMN IF NOT EXISTS return_dispositions JSONB NOT NULL DEFAULT '[]'::jsonb`)
   await query(`ALTER TABLE amazon_payment_clearing_batches ADD COLUMN IF NOT EXISTS adjustment_rows JSONB NOT NULL DEFAULT '[]'::jsonb`)
   await query(`ALTER TABLE amazon_payment_clearing_batches ADD COLUMN IF NOT EXISTS reconciliation_summary JSONB NOT NULL DEFAULT '{}'::jsonb`)
   await query(`ALTER TABLE amazon_payment_clearing_batches ADD COLUMN IF NOT EXISTS matched_orders JSONB NOT NULL DEFAULT '[]'::jsonb`)
@@ -316,6 +317,7 @@ function mapBatch(row) {
     matchedReturns: safeJson(row.matched_returns, []),
     missingCreditNotes: safeJson(row.missing_credit_notes, []),
     creditNoteBlockingRows: safeJson(row.credit_note_blocking_rows, []),
+    returnDispositions: safeJson(row.return_dispositions, []),
     adjustmentRows: safeJson(row.adjustment_rows, []),
     reconciliationSummary: safeJson(row.reconciliation_summary, {}),
     matchedOrders: safeJson(row.matched_orders, []),
@@ -620,6 +622,35 @@ async function updateBatchPreviewSnapshot(batchId, preview) {
       JSON.stringify(preview.warnings || []),
       Number(batchId),
     ]
+  )
+  return mapBatch(result.rows[0])
+}
+
+/** Only the return-to-credit-note match fields; safe on approved and posted batches. */
+async function updateReturnMatches(batchId, { matchedReturns, missingCreditNotes, creditNoteBlockingRows }) {
+  const result = await query(
+    `UPDATE amazon_payment_clearing_batches SET
+      matched_returns = $1::jsonb,
+      missing_credit_notes = $2::jsonb,
+      credit_note_blocking_rows = $3::jsonb,
+      updated_at = NOW()
+    WHERE id = $4
+    RETURNING *`,
+    [
+      JSON.stringify(matchedReturns || []),
+      JSON.stringify(missingCreditNotes || []),
+      JSON.stringify(creditNoteBlockingRows || []),
+      Number(batchId),
+    ]
+  )
+  return mapBatch(result.rows[0])
+}
+
+async function updateReturnDispositions(batchId, dispositions) {
+  const result = await query(
+    `UPDATE amazon_payment_clearing_batches SET return_dispositions = $1::jsonb, updated_at = NOW()
+     WHERE id = $2 RETURNING *`,
+    [JSON.stringify(Array.isArray(dispositions) ? dispositions : []), Number(batchId)]
   )
   return mapBatch(result.rows[0])
 }
@@ -1169,6 +1200,8 @@ module.exports = {
   listRowsForBatch,
   updateRowsMatchStatus,
   updateBatchPreviewSnapshot,
+  updateReturnMatches,
+  updateReturnDispositions,
   findBatchByReport,
   findBatchBySettlement,
   dedupeBatches,

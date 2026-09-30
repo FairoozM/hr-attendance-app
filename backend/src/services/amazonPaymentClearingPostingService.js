@@ -4,6 +4,7 @@ const zohoPaymentService = require('./amazonPaymentClearingZohoPaymentService')
 const { buildSettlementReference, buildEntryReference } = require('./amazonPaymentClearingReferenceService')
 const { isCreditNoteApplyComplete } = require('./amazonPaymentClearingCreditNotePostingService')
 const { buildReturnFeePlan, aggregateReturnFeeJournalLines } = require('./amazonPaymentClearingReturnFeeService')
+const { buildNotReceivedReturnPlan } = require('./amazonPaymentClearingNotReceivedReturnService')
 const { fetchInvoices, fetchInvoicesByIds, invoiceBalanceDue } = require('../integrations/zoho/zohoBooksClient')
 const store = require('./amazonPaymentClearingStore')
 const {
@@ -112,9 +113,16 @@ async function ensureCanPostReturnFeeJournals(batch, options = {}) {
       err.status = 422
       throw err
     }
+    const checkNotReceived = options.isNotReceivedPostComplete || isNotReceivedPostComplete
+    if (!(await checkNotReceived(batch.batchId, batch, options.store || store))) {
+      const err = new Error('Return fee journals require the returns-not-received journal to be posted in step 11 first.')
+      err.code = 'AMAZON_PAYMENT_CLEARING_NOT_RECEIVED_JOURNAL_REQUIRED'
+      err.status = 422
+      throw err
+    }
     const returnFeePlan = buildReturnFeePlan(batch, batch.allRows || [])
     if ((returnFeePlan.summary?.varianceBlockerCount || 0) > 0) {
-      const err = new Error('Return fee journals require variance blockers to be resolved in step 11.')
+      const err = new Error('Return fee journals require variance blockers to be resolved in step 12.')
       err.code = 'AMAZON_PAYMENT_CLEARING_RETURN_FEE_BLOCKED'
       err.status = 422
       throw err
@@ -208,6 +216,17 @@ async function isReturnFeePostComplete(batchId, batchOverride = null) {
     const local = resolver.find(row.paymentType)
     return Boolean(local && local.status === STATUS.POSTED && local.zohoPaymentId)
   })
+}
+
+/** True when no return is marked not received, or its combined journal is posted. */
+async function isNotReceivedPostComplete(batchId, batchOverride = null, postingStore = store) {
+  const batch = batchOverride || await postingStore.getBatchById(batchId)
+  if (!batch) return false
+  const { line } = buildNotReceivedReturnPlan(batch)
+  if (!line) return true
+  const postings = await postingStore.listPostingsForBatch(batch.batchId ?? batchId)
+  const local = postings.find((row) => row.paymentType === line.paymentType)
+  return Boolean(local && local.status === STATUS.POSTED && local.zohoPaymentId)
 }
 
 function requestDateOf(localRow) {
@@ -1216,6 +1235,10 @@ function describeExpectedEntries(batch, { env = process.env } = {}) {
   for (const row of lines) {
     entries.set(row.paymentType, journalEntry('return_fee_journal', row, Math.abs(round2(Number(row.amount) || 0))))
   }
+  const notReceived = buildNotReceivedReturnPlan(batch, { env }).line
+  if (notReceived && notReceived.status === 'ready') {
+    entries.set(notReceived.paymentType, journalEntry('return_not_received', notReceived, notReceived.amount))
+  }
   return { marketplace, customerId, currencyCode, entries, configProblem }
 }
 
@@ -1230,7 +1253,7 @@ async function postReturnFeeJournalsForBatch({
   env = process.env,
   isCreditNoteApplyComplete: creditNoteCheck = undefined,
 }) {
-  await ensureCanPostReturnFeeJournals(batch, { dryRun, isCreditNoteApplyComplete: creditNoteCheck })
+  await ensureCanPostReturnFeeJournals(batch, { dryRun, isCreditNoteApplyComplete: creditNoteCheck, store })
   const marketplace = requireMarketplaceCode(batch.marketplace)
   const paymentDate = zohoPaymentService.todayLocalDate()
   const settlementReference = buildSettlementReference(batch)
@@ -1296,11 +1319,158 @@ async function postReturnFeeJournalsForBatch({
   return result
 }
 
+/**
+ * Step 11: one combined journal expensing the Amazon refunds of returns whose product
+ * never came back (Dr Amazon Return Exp / Cr Amazon Undeposited Funds).
+ */
+async function postNotReceivedReturnsForBatch({
+  batch,
+  store,
+  dryRun = true,
+  isSalesComplete = null,
+  createManualJournal = zohoPaymentService.createZohoManualJournal,
+  buildJournalPayloadPreview = zohoPaymentService.buildManualJournalPayloadPreview,
+  zohoLookup = null,
+  env = process.env,
+}) {
+  if (!batch) {
+    const err = new Error('Payment clearing batch not found.')
+    err.code = 'AMAZON_PAYMENT_CLEARING_BATCH_NOT_FOUND'
+    err.status = 404
+    throw err
+  }
+  const marketplace = requireMarketplaceCode(batch.marketplace)
+  const plan = buildNotReceivedReturnPlan(batch, { env })
+  const line = plan.line
+  const result = {
+    success: true,
+    dryRun: Boolean(dryRun),
+    batchId: batch.batchId,
+    marketplace,
+    status: dryRun ? 'dry_run' : 'posted',
+    plan,
+    summary: { journalsCreated: 0, journalsSkipped: 0, verificationRequired: 0, errors: 0 },
+    journals: [],
+    errors: [],
+  }
+  if (!line) {
+    const err = new Error('No returns are marked as not received for this settlement.')
+    err.code = 'AMAZON_PAYMENT_CLEARING_NO_NOT_RECEIVED_RETURNS'
+    err.status = 422
+    throw err
+  }
+  if (line.status !== 'ready') {
+    const err = new Error(line.blockingReason || 'The Amazon Return Exp account is not configured.')
+    err.code = 'AMAZON_PAYMENT_CLEARING_RETURN_EXPENSE_ACCOUNT_MISSING'
+    err.status = 422
+    throw err
+  }
+  if (!dryRun) {
+    if (batch.status !== 'posted' && !batch.postedToZoho) {
+      const err = new Error('Returns not received wait until sales payments are posted (step 9).')
+      err.code = 'AMAZON_PAYMENT_CLEARING_SALES_NOT_POSTED'
+      err.status = 422
+      throw err
+    }
+    if (typeof isSalesComplete === 'function' && !(await isSalesComplete())) {
+      const err = new Error('Returns not received wait until every sales payment and fee journal is verified in Zoho (step 9).')
+      err.code = 'AMAZON_PAYMENT_CLEARING_SALES_NOT_POSTED'
+      err.status = 422
+      throw err
+    }
+  }
+  const shapeProblems = journalShapeProblems([line])
+  if (shapeProblems.length) throw journalShapeError(shapeProblems)
+
+  const paymentDate = zohoPaymentService.todayLocalDate()
+  const journalRequest = {
+    feeType: line.feeType,
+    description: line.notes,
+    amount: line.amount,
+    debit: line.debit,
+    credit: line.credit,
+    referenceNumber: line.referenceNumber,
+    notes: line.notes,
+    date: paymentDate,
+  }
+  let zohoPayloadPreview = null
+  try {
+    zohoPayloadPreview = await buildJournalPayloadPreview(journalRequest, { marketplace, strictMarketplace: true, env })
+  } catch (err) {
+    result.summary.errors += 1
+    const error = {
+      ...line,
+      status: 'error',
+      zohoJournalId: '',
+      error: err?.message || 'Failed to build the returns-not-received journal preview',
+      code: err?.code || 'ZOHO_NOT_RECEIVED_JOURNAL_PREVIEW_FAILED',
+    }
+    result.errors.push(error)
+    result.journals.push(error)
+    result.success = false
+    result.status = overallPostingStatus(result.summary, dryRun)
+    return result
+  }
+
+  const postings = await store.listPostingsForBatch(batch.batchId)
+  const localRow = postings.find((row) => row.paymentType === line.paymentType) || null
+  if (dryRun) {
+    const already = localRow && localRow.status === STATUS.POSTED
+    result.journals.push({
+      ...line,
+      status: already ? 'skipped' : 'dry_run',
+      zohoJournalId: already ? localRow.zohoPaymentId : '',
+      localStatus: localRow?.status || '',
+      zohoPayloadPreview,
+    })
+    return result
+  }
+
+  const mappingSnapshot = {
+    identity: line.paymentType,
+    normalizedFeeType: line.normalizedFeeType,
+    feeType: line.feeType,
+    orderIds: line.orderIds,
+    sourceAmount: line.amount,
+    invoiceAllocations: line.orderIds.map((orderId) => ({ orderId })),
+  }
+  const outcome = await safeWriteJournal({
+    store,
+    batch,
+    marketplace,
+    env,
+    line,
+    journalRequest,
+    mappingSnapshot,
+    localRow,
+    createManualJournal,
+    lookupDeps: zohoLookup || recovery.defaultZohoLookupDeps(),
+    source: 'amazon_payment_clearing_not_received_journal_post',
+  })
+  const status = tally(result, 'journal', outcome)
+  const entry = {
+    ...line,
+    status,
+    zohoJournalId: outcome.zohoId,
+    zohoJournalNumber: outcome.zohoNumber,
+    error: status === 'error' || status === 'verification_required' ? outcome.message : undefined,
+    verification: outcome.verification || null,
+    zohoPayloadPreview,
+  }
+  if (status === 'error') result.errors.push(entry)
+  result.journals.push(entry)
+  result.status = overallPostingStatus(result.summary, dryRun)
+  result.success = result.summary.errors === 0 && result.summary.verificationRequired === 0
+  return result
+}
+
 module.exports = {
   PAYMENT_TYPES,
   ensureCanPostBatch,
   ensureCanPostReturnFeeJournals,
   isReturnFeePostComplete,
+  isNotReceivedPostComplete,
+  postNotReceivedReturnsForBatch,
   mergeInvoiceAllocations,
   validateInvoiceBalancesForPosting,
   validateRemainingInvoiceBalances,

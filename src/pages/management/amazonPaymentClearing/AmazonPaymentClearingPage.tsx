@@ -48,6 +48,7 @@ import { Step6Approve } from './steps/Step6Approve'
 import { Step7AmazonFeeJournalMapping } from './steps/Step7AmazonFeeJournalMapping'
 import { Step8ApplyCreditNotes } from './steps/Step8ApplyCreditNotes'
 import { Step9ReturnFeeClearing } from './steps/Step9ReturnFeeClearing'
+import { StepReturnsNotReceived } from './steps/StepReturnsNotReceived'
 import { Step7Preview as Step10PaymentPreview } from './steps/Step7Preview'
 import { Step8Post as Step11Post } from './steps/Step8Post'
 import './AmazonPaymentClearingPage.css'
@@ -113,6 +114,8 @@ export function AmazonPaymentClearingPage() {
   const [creditNoteApplyComplete, setCreditNoteApplyComplete] = useState(false)
   const [returnFeeBlockerCount, setReturnFeeBlockerCount] = useState(0)
   const [returnFeePostComplete, setReturnFeePostComplete] = useState(false)
+  const [notReceivedCount, setNotReceivedCount] = useState(0)
+  const [notReceivedPostComplete, setNotReceivedPostComplete] = useState(false)
   const [postingStatus, setPostingStatus] = useState<PostingStatus | null>(null)
   const [postingStatusLoading, setPostingStatusLoading] = useState(false)
   const [notice, setNotice] = useState('')
@@ -179,9 +182,11 @@ export function AmazonPaymentClearingPage() {
   )
   const salesPostingStarted = salesGroups.some((group) => group?.status === 'partially_posted' || group?.status === 'posted')
   const creditNotesNeedAttention = postingGroup('credit_note')?.status === 'verification_required'
+  const notReceivedNeedsAttention = ['verification_required', 'failed'].includes(postingGroup('return_not_received')?.status || '')
   const canPostReturnFeeJournals = Boolean(
     salesComplete &&
       creditNoteApplyComplete &&
+      notReceivedPostComplete &&
       returnFeeBlockerCount === 0
   )
 
@@ -215,6 +220,8 @@ export function AmazonPaymentClearingPage() {
       setCreditNoteApplyComplete(false)
       setReturnFeeBlockerCount(0)
       setReturnFeePostComplete(false)
+      setNotReceivedCount(0)
+      setNotReceivedPostComplete(false)
       return
     }
     try {
@@ -223,10 +230,14 @@ export function AmazonPaymentClearingPage() {
         fetchReturnFeePlan(marketplace, id),
       ])
       setCreditNoteApplyComplete(Boolean(cnPlan.summary?.isComplete))
+      setNotReceivedCount((cnPlan.returnDispositions || []).filter((row) => row.disposition === 'not_received').length)
+      setNotReceivedPostComplete(feePlan.notReceivedPostComplete !== false)
       setReturnFeeBlockerCount(feePlan.summary?.varianceBlockerCount || 0)
       setReturnFeePostComplete(Boolean(feePlan.returnFeePostComplete))
     } catch {
       setCreditNoteApplyComplete(false)
+      setNotReceivedCount(0)
+      setNotReceivedPostComplete(false)
       setReturnFeeBlockerCount(0)
       setReturnFeePostComplete(false)
     }
@@ -603,6 +614,8 @@ export function AmazonPaymentClearingPage() {
     canPostToZoho,
     canPostReturnFeeJournals,
     creditNoteApplyComplete,
+    notReceivedCount,
+    notReceivedComplete: notReceivedPostComplete,
     returnFeePostComplete,
     returnFeeBlockerCount,
     salesComplete,
@@ -650,6 +663,7 @@ export function AmazonPaymentClearingPage() {
       9: 'not_started',
       10: 'not_started',
       11: 'not_started',
+      12: 'not_started',
     }
     if (!preview) return statuses
     statuses[2] = 'completed'
@@ -677,15 +691,26 @@ export function AmazonPaymentClearingPage() {
         : salesComplete
           ? 'ready'
           : 'not_started'
-    statuses[11] = returnFeePostComplete
+    statuses[11] = notReceivedCount === 0
+      ? creditNoteApplyComplete
+        ? 'completed'
+        : 'not_started'
+      : notReceivedPostComplete
+        ? 'completed'
+        : notReceivedNeedsAttention
+          ? 'blocked'
+          : salesComplete
+            ? 'ready'
+            : 'not_started'
+    statuses[12] = returnFeePostComplete
       ? 'completed'
       : returnFeeBlockerCount > 0
         ? 'blocked'
-        : salesComplete && creditNoteApplyComplete
+        : salesComplete && creditNoteApplyComplete && notReceivedPostComplete
           ? 'ready'
           : 'not_started'
     return statuses
-  }, [canPostToZoho, creditNoteApplyComplete, creditNoteBlockingRows.length, creditNotesNeedAttention, isApproved, isCleanForApproval, isPosted, paymentPreview, preview, returnFeeBlockerCount, returnFeePostComplete, salesComplete, salesPostingNeedsAttention, salesPostingStarted, unmappedFeeJournalCount])
+  }, [canPostToZoho, creditNoteApplyComplete, creditNoteBlockingRows.length, creditNotesNeedAttention, isApproved, isCleanForApproval, isPosted, notReceivedCount, notReceivedNeedsAttention, notReceivedPostComplete, paymentPreview, preview, returnFeeBlockerCount, returnFeePostComplete, salesComplete, salesPostingNeedsAttention, salesPostingStarted, unmappedFeeJournalCount])
 
   const stepBodies: Record<number, ReactNode> = {
     1: <Step1SelectSettlement ctx={ctx} />,
@@ -698,7 +723,8 @@ export function AmazonPaymentClearingPage() {
     8: <Step10PaymentPreview ctx={ctx} />,
     9: <Step11Post ctx={ctx} />,
     10: <Step8ApplyCreditNotes ctx={ctx} />,
-    11: <Step9ReturnFeeClearing ctx={ctx} />,
+    11: <StepReturnsNotReceived ctx={ctx} />,
+    12: <Step9ReturnFeeClearing ctx={ctx} />,
   }
 
   const stepSummaries: Record<number, string> = {
@@ -724,7 +750,14 @@ export function AmazonPaymentClearingPage() {
         : salesComplete
           ? 'Refund pending'
           : 'After sales post',
-    11: returnFeePostComplete
+    11: notReceivedCount === 0
+      ? 'No returns marked not received'
+      : notReceivedPostComplete
+        ? `${notReceivedCount} not-received return(s) posted`
+        : notReceivedNeedsAttention
+          ? 'Verification required'
+          : `${notReceivedCount} return(s) waiting to post`,
+    12: returnFeePostComplete
       ? postingStatus?.settlementComplete
         ? 'Return fees posted · settlement complete'
         : 'Return fees posted'
@@ -744,7 +777,7 @@ export function AmazonPaymentClearingPage() {
         </p>
         <div className="ainv-callout-emerald">
           <strong>Zoho posting guarded.</strong> Sales payments post in step 9 after reconciliation is clean. Return
-          credit notes and refund journals run in steps 10–11 only after payments land in Zoho.
+          credit notes, returns not received and return fee journals run in steps 10–12 only after payments land in Zoho.
         </div>
       </section>
 
@@ -771,7 +804,7 @@ export function AmazonPaymentClearingPage() {
             collapsed={activeStep !== step.id}
             onExpand={() => goToStep(step.id)}
             summary={stepSummaries[step.id]}
-            blocker={status === 'blocked' ? (step.id === 11 ? 'Resolve return fee variance blockers before posting journals.' : 'Resolve the blocking items before continuing.') : undefined}
+            blocker={status === 'blocked' ? (step.id === 12 ? 'Resolve return fee variance blockers before posting journals.' : step.id === 11 ? 'Re-check the returns-not-received journal in Zoho before continuing.' : 'Resolve the blocking items before continuing.') : undefined}
           >
             {stepBodies[step.id]}
           </StepPanel>

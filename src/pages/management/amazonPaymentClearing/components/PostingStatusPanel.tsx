@@ -48,7 +48,8 @@ const RESUME_STEP: Record<PostingGroupKey, number> = {
   sales_payment: 9,
   fee_journal: 9,
   credit_note: 10,
-  return_fee_journal: 11,
+  return_not_received: 11,
+  return_fee_journal: 12,
 }
 
 export function PostingStatusPill({ status }: { status: PostingGroupStatus | PostingSubStep['status'] | string }) {

@@ -291,6 +291,69 @@ async function postApplyCreditNotes(req, res) {
   }
 }
 
+async function postRefreshReturnCreditNotes(req, res) {
+  try {
+    await assertBatchMarketplaceForReq(req)
+    const json = await service.refreshReturnCreditNotesForBatch(req.params.id, { actorUserId: req.user?.userId })
+    res.json(json)
+  } catch (err) {
+    sendError(res, err)
+  }
+}
+
+async function postMarkReturnNotReceived(req, res) {
+  try {
+    await assertBatchMarketplaceForReq(req)
+    const json = await service.markReturnNotReceived(
+      req.params.id,
+      req.params.orderId,
+      { reason: req.body?.reason },
+      { actorUserId: req.user?.userId }
+    )
+    res.json(json)
+  } catch (err) {
+    sendError(res, err)
+  }
+}
+
+async function deleteReturnNotReceived(req, res) {
+  try {
+    await assertBatchMarketplaceForReq(req)
+    const json = await service.unmarkReturnNotReceived(
+      req.params.id,
+      req.params.orderId,
+      { reason: req.body?.reason },
+      { actorUserId: req.user?.userId }
+    )
+    res.json(json)
+  } catch (err) {
+    sendError(res, err)
+  }
+}
+
+async function getNotReceivedPlan(req, res) {
+  try {
+    await assertBatchMarketplaceForReq(req)
+    const json = await service.getNotReceivedPlanForBatch(req.params.id)
+    res.json(json)
+  } catch (err) {
+    sendError(res, err)
+  }
+}
+
+async function postNotReceivedReturns(req, res) {
+  try {
+    await assertBatchMarketplaceForReq(req)
+    const json = await service.postNotReceivedReturnsForBatchId(req.params.id, {
+      dryRun: req.body?.dryRun !== false,
+      postedBy: req.user?.userId,
+    })
+    res.json(json)
+  } catch (err) {
+    sendError(res, err)
+  }
+}
+
 async function getReturnFeePlan(req, res) {
   try {
     await assertBatchMarketplaceForReq(req)
@@ -482,6 +545,11 @@ module.exports = {
   postApproveBatch,
   getCreditNoteApplyPlan,
   postApplyCreditNotes,
+  postRefreshReturnCreditNotes,
+  postMarkReturnNotReceived,
+  deleteReturnNotReceived,
+  getNotReceivedPlan,
+  postNotReceivedReturns,
   getReturnFeePlan,
   postPaymentPreview,
   postPostToZoho,

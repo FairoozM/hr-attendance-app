@@ -2,7 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   applyCreditNotes,
   fetchCreditNoteApplyPlan,
+  markReturnNotReceived,
+  refreshReturnCreditNotes,
+  unmarkReturnNotReceived,
   type CreditNoteApplyPlan,
+  type CreditNoteApplyPlanRow,
 } from '../../../../api/amazonPaymentClearing'
 import { money, SummaryCard } from '../clearingShared'
 import { PostingStatusPanel } from '../components/PostingStatusPanel'
@@ -18,6 +22,13 @@ const ACTION_LABEL: Record<string, string> = {
   create_and_refund: 'Create credit note and refund',
   create_and_apply: 'Create credit note and refund',
   blocked: 'Blocked',
+  moved_to_not_received: 'Moved to step 11 (not received)',
+}
+
+const NOT_RECEIVED_ELIGIBLE_ACTIONS = new Set(['create_and_refund', 'create_and_apply', 'blocked'])
+
+function canMarkNotReceived(row: CreditNoteApplyPlanRow) {
+  return !row.zohoCreditNoteId && NOT_RECEIVED_ELIGIBLE_ACTIONS.has(row.action)
 }
 
 const READY_ACTIONS = new Set([
@@ -33,8 +44,13 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
   const [loading, setLoading] = useState(false)
   const [applying, setApplying] = useState(false)
   const [localError, setLocalError] = useState('')
+  const [refreshing, setRefreshing] = useState(false)
+  const [markingOrderId, setMarkingOrderId] = useState('')
+  const [markReason, setMarkReason] = useState('')
+  const [savingMark, setSavingMark] = useState(false)
 
   const batchId = preview?.batch?.batchId
+  const marksLocked = ctx.notReceivedCount > 0 && ctx.notReceivedComplete
   const settlementReturnCount = useMemo(() => {
     const refundRows = preview?.refundReturnRows?.length || 0
     const matchedReturns = preview?.matchedReturns?.length || 0
@@ -62,6 +78,69 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
   }, [loadPlan])
 
   if (!preview) return null
+
+  const onRefreshFromZoho = async () => {
+    if (!batchId) return
+    setRefreshing(true)
+    setLocalError('')
+    try {
+      const json = await refreshReturnCreditNotes(ctx.marketplace, batchId)
+      setPlan(json)
+      await ctx.onReloadCurrentBatch()
+      await ctx.refreshPostClearingStepStatus(batchId)
+      const found = json.newlyFoundCreditNotes || []
+      const missing = json.stillMissing || []
+      const foundText = found.length
+        ? `Found in Zoho: ${found.map((row) => `${row.orderId} (${row.zohoCreditNoteNumber || row.zohoCreditNoteId})`).join(', ')}.`
+        : 'No new credit notes found in Zoho.'
+      const missingText = missing.length
+        ? ` Still missing: ${missing.map((row) => row.orderId).join(', ')}. Create them here, or mark them "Not received".`
+        : ''
+      ctx.setNotice(`${foundText}${missingText}`)
+    } catch (e) {
+      setLocalError(e instanceof Error ? e.message : 'Failed to refresh credit notes from Zoho')
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
+  const onConfirmMark = async () => {
+    if (!batchId || !markingOrderId) return
+    const reason = markReason.trim()
+    if (reason.length < 4) {
+      setLocalError('Enter a reason (at least 4 characters) before marking a return as not received.')
+      return
+    }
+    setSavingMark(true)
+    setLocalError('')
+    try {
+      await markReturnNotReceived(ctx.marketplace, batchId, markingOrderId, reason)
+      ctx.setNotice(`Order ${markingOrderId} moved to step 11 (returns not received).`)
+      setMarkingOrderId('')
+      setMarkReason('')
+      await loadPlan()
+    } catch (e) {
+      setLocalError(e instanceof Error ? e.message : 'Could not mark the return as not received')
+    } finally {
+      setSavingMark(false)
+    }
+  }
+
+  const onUndoMark = async (orderId: string) => {
+    if (!batchId) return
+    if (!window.confirm(`Move order ${orderId} back to step 10 credit notes?`)) return
+    setSavingMark(true)
+    setLocalError('')
+    try {
+      await unmarkReturnNotReceived(ctx.marketplace, batchId, orderId)
+      ctx.setNotice(`Order ${orderId} is back in step 10.`)
+      await loadPlan()
+    } catch (e) {
+      setLocalError(e instanceof Error ? e.message : 'Could not undo the not-received mark')
+    } finally {
+      setSavingMark(false)
+    }
+  }
 
   const onPreviewApply = async () => {
     if (!batchId) return
@@ -116,13 +195,17 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
   const existingCnCount = rows.filter((row) => row.zohoCreditNoteId && !row.action.startsWith('create_')).length
   const planLooksEmpty = rows.length === 0 && settlementReturnCount > 0
   const stepComplete = Boolean(plan?.summary?.isComplete || ctx.creditNoteApplyComplete)
+  const movedCount = rows.filter((row) => row.action === 'moved_to_not_received').length
+  const busy = loading || applying || refreshing || savingMark
 
   return (
     <div className="apc-step-stack">
       <div className="apc-alert">
         After sales payments are posted in step 9, refund each warehouse credit note to{' '}
         <strong>{undepositedFundsLabel(ctx.marketplace)}</strong>. Invoices are already paid — do not apply credit notes to them
-        again. Missing credit notes are created first, then refunded.
+        again. Missing credit notes are created first, then refunded. If Amazon refunded an order but the warehouse
+        never received the product, mark it <strong>Not received</strong> — it moves to step 11 and is expensed to
+        Amazon Return Exp instead.
       </div>
 
       {localError ? <div className="apc-alert apc-alert--error" role="alert">{localError}</div> : null}
@@ -142,17 +225,18 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
           value={plan?.summary?.skippedAlreadyRefunded ?? plan?.summary?.skippedAlreadyApplied ?? '-'}
         />
         <SummaryCard label="Verification Required" value={plan?.summary?.verificationRequired ?? 0} />
+        <SummaryCard label="Moved to Step 11" value={movedCount} />
       </section>
 
       <div className="apc-button-row">
-        <button className="ainv-btn ainv-btn--sm" type="button" onClick={() => void loadPlan()} disabled={loading || applying}>
-          {loading ? 'Loading from Zoho...' : 'Refresh plan'}
+        <button className="ainv-btn ainv-btn--sm" type="button" onClick={() => void onRefreshFromZoho()} disabled={busy}>
+          {refreshing || loading ? 'Checking Zoho...' : 'Refresh credit notes from Zoho'}
         </button>
         <button
           className="ainv-btn"
           type="button"
           onClick={() => void onPreviewApply()}
-          disabled={!ctx.salesComplete || applying || readyCount === 0}
+          disabled={!ctx.salesComplete || busy || readyCount === 0}
         >
           Preview refund
         </button>
@@ -160,14 +244,20 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
           className="ainv-btn ainv-btn--danger"
           type="button"
           onClick={() => void onApply()}
-          disabled={!ctx.salesComplete || applying || readyCount === 0}
+          disabled={!ctx.salesComplete || busy || readyCount === 0}
         >
           {applying ? 'Refunding...' : 'Refund credit notes to undeposited funds'}
         </button>
         {stepComplete ? (
-          <button className="ainv-btn" type="button" onClick={() => ctx.goToStep(11)}>
-            Continue to return fee clearing (step 11)
-          </button>
+          movedCount > 0 || ctx.notReceivedCount > 0 ? (
+            <button className="ainv-btn" type="button" onClick={() => ctx.goToStep(11)}>
+              Continue to returns not received (step 11)
+            </button>
+          ) : (
+            <button className="ainv-btn" type="button" onClick={() => ctx.goToStep(12)}>
+              Continue to return fee clearing (step 12)
+            </button>
+          )
         ) : null}
       </div>
 
@@ -208,17 +298,18 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
               <th className="apc-money">Already refunded</th>
               <th>Action</th>
               <th>Status</th>
+              <th />
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={10} className="apc-muted">
+                <td colSpan={11} className="apc-muted">
                   {loading ? 'Loading credit notes from Zoho...' : 'No return orders in this settlement.'}
                 </td>
               </tr>
             ) : (
-              rows.map((row) => (
+              rows.flatMap((row) => [
                 <tr key={row.orderId}>
                   <td>{row.orderId}</td>
                   <td>{row.zohoInvoiceNumber || row.zohoInvoiceId || '-'}</td>
@@ -239,8 +330,69 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
                   </td>
                   <td>{ACTION_LABEL[row.action] || row.action}</td>
                   <td>{row.error || row.blockingReason || row.status || '-'}</td>
-                </tr>
-              ))
+                  <td>
+                    {row.action === 'moved_to_not_received' ? (
+                      <button
+                        className="ainv-btn ainv-btn--sm"
+                        type="button"
+                        onClick={() => void onUndoMark(row.orderId)}
+                        disabled={busy || marksLocked}
+                        title={marksLocked ? 'The step 11 journal is already posted.' : undefined}
+                      >
+                        Undo
+                      </button>
+                    ) : canMarkNotReceived(row) ? (
+                      <button
+                        className="ainv-btn ainv-btn--sm"
+                        type="button"
+                        onClick={() => {
+                          setMarkingOrderId(row.orderId)
+                          setMarkReason('')
+                        }}
+                        disabled={busy || marksLocked}
+                      >
+                        Not received
+                      </button>
+                    ) : null}
+                  </td>
+                </tr>,
+                markingOrderId === row.orderId ? (
+                  <tr key={`${row.orderId}-mark`}>
+                    <td colSpan={11}>
+                      <div className="apc-button-row">
+                        <span>
+                          Not received — post {money(row.amazonRefundAmount ?? 0, ctx.currency)} to Amazon Return Exp (step 11).
+                        </span>
+                        <input
+                          className="ainv-input"
+                          type="text"
+                          value={markReason}
+                          onChange={(e) => setMarkReason(e.target.value)}
+                          placeholder="Reason, e.g. warehouse checked SellerFlex returns, product not received"
+                          style={{ minWidth: '24rem' }}
+                          autoFocus
+                        />
+                        <button
+                          className="ainv-btn ainv-btn--danger ainv-btn--sm"
+                          type="button"
+                          onClick={() => void onConfirmMark()}
+                          disabled={savingMark || markReason.trim().length < 4}
+                        >
+                          {savingMark ? 'Saving...' : 'Move to step 11'}
+                        </button>
+                        <button
+                          className="ainv-btn ainv-btn--sm"
+                          type="button"
+                          onClick={() => setMarkingOrderId('')}
+                          disabled={savingMark}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ) : null,
+              ])
             )}
           </tbody>
         </table>
