@@ -1073,6 +1073,13 @@ export async function postPaymentClearingToZoho(
     longOpts
   )) as PaymentPostingResult & { jobId?: string; status?: string }
 
+  return waitForPostingJob(marketplace, started)
+}
+
+async function waitForPostingJob(
+  marketplace: PaymentClearingMarketplace,
+  started: PaymentPostingResult & { jobId?: string; status?: string }
+) {
   if (!started?.jobId) return started
 
   const deadline = Date.now() + longOpts.timeoutMs
@@ -1163,11 +1170,12 @@ export async function forceRepostPaymentClearing(
   batchId: number | string,
   body: { reason: string; dryRun?: boolean }
 ) {
-  return api.post(
+  const response = (await api.post(
     `${paymentClearingBase(marketplace)}/batches/${encodeURIComponent(String(batchId))}/force-repost`,
     { dryRun: body.dryRun !== false, reason: body.reason },
     longOpts
-  ) as Promise<PaymentPostingResult>
+  )) as PaymentPostingResult & { jobId?: string; status?: string }
+  return waitForPostingJob(marketplace, response)
 }
 
 export async function forceRepostKsaPaymentClearing(

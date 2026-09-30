@@ -719,14 +719,6 @@ async function listClearingAudit(batchId) {
 async function clearPostingsForBatch(batchId) {
   await query(`DELETE FROM amazon_payment_clearing_postings WHERE batch_id = $1`, [Number(batchId)])
 }
-
-async function deletePostingsByIds(ids = []) {
-  const cleanIds = Array.from(new Set((Array.isArray(ids) ? ids : []).map(Number).filter(Boolean)))
-  if (!cleanIds.length) return 0
-  const result = await query(`DELETE FROM amazon_payment_clearing_postings WHERE id = ANY($1::bigint[])`, [cleanIds])
-  return result.rowCount || 0
-}
-
 async function listRecentBatches(limit = 10) {
   const n = Math.min(50, Math.max(1, Number(limit) || 10))
   const result = await query(
@@ -1183,7 +1175,6 @@ module.exports = {
   insertClearingAudit,
   listClearingAudit,
   clearPostingsForBatch,
-  deletePostingsByIds,
   approveBatch,
   savePaymentPreview,
   getLatestPaymentPreviewForBatch,

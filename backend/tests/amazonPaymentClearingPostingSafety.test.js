@@ -800,47 +800,94 @@ test('isSalesOrFeeJournalPosting keeps credit notes and return-fee journals', ()
   assert.equal(isSalesOrFeeJournalPosting('credit_note_create'), false)
 })
 
-test('clearing local sales and fee rows reposts only after the Zoho records are gone', async () => {
+function postedForceBatch() {
   const fee = feeLine('ADVERTISING', 'ServiceFee', 'Cost of Advertising', 50)
-  const batch = batchFor('UAE', { nonOrderLinkedAmazonFeeMappings: [fee] })
+  return batchFor('UAE', { nonOrderLinkedAmazonFeeMappings: [fee] })
+}
+
+const salesAndFeeRows = (postingStore) => postingStore.postings.filter((row) => isSalesOrFeeJournalPosting(row.paymentType))
+
+test('force repost links exact Zoho matches that an earlier run flagged for verification', async () => {
+  const batch = postedForceBatch()
   const zoho = createFakeZoho({ currency: 'AED' })
   const postingStore = storeFor(batch)
-  const first = await run(batch, postingStore, zoho)
-  assert.equal(first.success, true)
-  assert.equal(zoho.payments.size, 3)
-  assert.equal(zoho.journals.size, 1)
-  postingStore.postings.push({
-    id: 900,
-    batchId: batch.batchId,
-    paymentType: 'credit_note_refund',
-    postingGroupKey: 'APC-cn',
-    status: 'posted',
-    zohoPaymentId: 'cn-keep',
-    mappingSnapshot: {},
-  })
-
-  const dropSalesAndFees = () => {
-    for (let i = postingStore.postings.length - 1; i >= 0; i -= 1) {
-      if (isSalesOrFeeJournalPosting(postingStore.postings[i].paymentType)) postingStore.postings.splice(i, 1)
-    }
+  await run(batch, postingStore, zoho)
+  for (const row of salesAndFeeRows(postingStore)) {
+    row.status = 'verification_required'
+    row.zohoPaymentId = ''
+    row.mappingSnapshot = { ...row.mappingSnapshot, attempted: false }
   }
+  const createdBefore = zoho.calls.createPayment + zoho.calls.createJournal
 
-  dropSalesAndFees()
-  const blocked = await run({ ...batch, status: 'posted' }, postingStore, zoho, { allowPosted: true })
-  assert.equal(zoho.payments.size, 3, 'existing Zoho payments are not created again')
-  assert.equal(zoho.journals.size, 1, 'existing Zoho journals are not created again')
-  assert.equal(blocked.summary.paymentsCreated, 0)
-  assert.equal(blocked.summary.journalsCreated, 0)
-  assert.ok(postingStore.postings.some((row) => row.paymentType === 'credit_note_refund'))
+  const plain = await run({ ...batch, status: 'posted' }, postingStore, zoho, { allowPosted: true })
+  assert.equal(plain.success, false, 'without force the matches stay flagged')
 
+  const forced = await run({ ...batch, status: 'posted' }, postingStore, zoho, { allowPosted: true, forceRepost: true })
+  assert.equal(forced.success, true)
+  assert.equal(zoho.calls.createPayment + zoho.calls.createJournal, createdBefore, 'nothing is created again')
+  assert.ok(salesAndFeeRows(postingStore).every((row) => row.status === 'posted' && row.zohoPaymentId))
+  assert.equal(postingStore.markedPosted, 2)
+})
+
+test('force repost posts again entries whose Zoho records were deleted, keeping credit notes', async () => {
+  const batch = postedForceBatch()
+  const zoho = createFakeZoho({ currency: 'AED' })
+  const postingStore = storeFor(batch)
+  await run(batch, postingStore, zoho)
+  postingStore.postings.push({ id: 900, batchId: batch.batchId, paymentType: 'credit_note_refund', postingGroupKey: 'APC-cn', status: 'posted', zohoPaymentId: 'cn-keep', mappingSnapshot: {} })
   zoho.payments.clear()
   zoho.journals.clear()
-  dropSalesAndFees()
-  const reposted = await run({ ...batch, status: 'posted' }, postingStore, zoho, { allowPosted: true })
-  assert.equal(reposted.success, true)
+
+  const plain = await run({ ...batch, status: 'posted' }, postingStore, zoho, { allowPosted: true })
+  assert.equal(plain.success, false)
+  assert.equal(zoho.payments.size, 0, 'without force nothing is reposted')
+
+  const forced = await run({ ...batch, status: 'posted' }, postingStore, zoho, { allowPosted: true, forceRepost: true })
+  assert.equal(forced.success, true)
+  assert.equal(forced.summary.paymentsCreated, 3)
+  assert.equal(forced.summary.journalsCreated, 1)
   assert.equal(zoho.payments.size, 3)
   assert.equal(zoho.journals.size, 1)
-  assert.equal(reposted.summary.paymentsCreated, 3)
-  assert.equal(reposted.summary.journalsCreated, 1)
   assert.ok(postingStore.postings.some((row) => row.paymentType === 'credit_note_refund' && row.zohoPaymentId === 'cn-keep'))
+
+  const again = await run({ ...batch, status: 'posted' }, postingStore, zoho, { allowPosted: true, forceRepost: true })
+  assert.equal(again.success, true)
+  assert.equal(zoho.payments.size, 3, 'a second force repost creates no duplicates')
+  assert.equal(zoho.journals.size, 1)
+})
+
+test('force repost does not resend a recently timed-out create, but does once it is stale', async () => {
+  const minutesAgo = (m) => new Date(Date.now() - m * 60 * 1000).toISOString()
+  const uncertainRow = (attemptedAt) => ({
+    batchId: 1,
+    paymentType: 'shipping_fba',
+    postingGroupKey: 'k',
+    status: 'verification_required',
+    zohoPaymentId: '',
+    mappingSnapshot: { attempted: true, attemptedAt },
+  })
+  const attempt = async (postingStore) => {
+    let created = 0
+    const outcome = await runSafeWrite({
+      force: true,
+      store: postingStore,
+      label: 'Shipping',
+      row: { batchId: 1, paymentType: 'shipping_fba', postingGroupKey: 'k', amount: 1 },
+      lookup: async () => ({ outcome: 'none', match: null, candidates: [], message: 'none' }),
+      create: async () => {
+        created += 1
+        return { zohoId: 'pay-new' }
+      },
+    })
+    return { outcome, created }
+  }
+
+  const recent = await attempt(createFakePostingStore({ existing: [uncertainRow(minutesAgo(2))] }))
+  assert.equal(recent.outcome.status, 'verification_required')
+  assert.equal(recent.created, 0)
+
+  const stale = await attempt(createFakePostingStore({ existing: [uncertainRow(minutesAgo(20))] }))
+  assert.equal(stale.outcome.status, 'posted')
+  assert.equal(stale.outcome.zohoId, 'pay-new')
+  assert.equal(stale.created, 1)
 })

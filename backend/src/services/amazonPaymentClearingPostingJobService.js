@@ -61,11 +61,10 @@ function startPostToZohoJob(batchId, options = {}) {
     job.status = 'running'
     job.progress = { step: 'Posting grouped Zoho Record Payments and fee journals', current: 0, total: 0 }
     try {
-      const { postBatchToZoho } = require('./amazonPaymentClearingService')
-      job.result = await postBatchToZoho(id, {
-        dryRun: false,
-        postedBy: options.postedBy,
-      })
+      const { postBatchToZoho, forceRepostBatch } = require('./amazonPaymentClearingService')
+      job.result = options.forceRepostReason
+        ? await forceRepostBatch(id, { dryRun: false, reason: options.forceRepostReason, postedBy: options.postedBy })
+        : await postBatchToZoho(id, { dryRun: false, postedBy: options.postedBy })
       const summary = job.result?.summary || {}
       const done =
         (summary.paymentsCreated || 0) + (summary.paymentsSkipped || 0) + (summary.journalsCreated || 0) + (summary.journalsSkipped || 0)

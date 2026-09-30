@@ -64,7 +64,7 @@ function postingOutcomeMessage(result: PaymentPostingResult, label = 'Zoho posti
   const state = result.status === 'verification_required' ? 'needs verification' : 'is only partially posted'
   return {
     ok: false,
-    message: `${label} ${state}: ${parts.join(', ') || 'not every entry was confirmed'}. Automatic reposting is blocked for uncertain entries — review the posting status below.`,
+    message: `${label} ${state}: ${parts.join(', ') || 'not every entry was confirmed'}. Each entry's reason is in the posting status below.`,
   }
 }
 

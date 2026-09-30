@@ -17,6 +17,8 @@ const STATUS = Object.freeze({
   VERIFICATION_REQUIRED: 'verification_required',
 })
 
+const DEFAULT_STALE_ATTEMPT_MS = 15 * 60 * 1000
+
 /**
  * @typedef {import('./amazonPaymentClearingZohoRecovery').LookupResult} LookupResult
  * @typedef {{
@@ -54,13 +56,21 @@ function verificationRecord(result, reason, now) {
  *   verifyById?: ((zohoId: string, localRow: any) => Promise<LookupResult>) | null,
  *   create: () => Promise<{ zohoId: string, zohoNumber?: string, extra?: Record<string, any> }>,
  *   now?: () => string,
+ *   force?: boolean,
+ *   staleAttemptMs?: number,
  * }} input
+ * `force` (admin force repost): a single exact Zoho match is linked as posted, a recorded
+ * entry whose Zoho record is gone is posted again, and an uncertain earlier attempt with no
+ * Zoho record is resent only once it is older than `staleAttemptMs`, because Zoho can
+ * finish saving a timed-out payment well after the request fails.
  * @returns {Promise<SafeWriteResult>}
  */
 async function runSafeWrite(input) {
   const { store, row, label, lookup, create } = input
   const verifyById = input.verifyById || null
   const now = input.now || (() => new Date().toISOString())
+  const force = input.force === true
+  const staleAttemptMs = Number.isFinite(input.staleAttemptMs) ? input.staleAttemptMs : DEFAULT_STALE_ATTEMPT_MS
 
   /** @returns {SafeWriteResult} */
   const result = (status, posting, extra = {}) => ({
@@ -121,7 +131,39 @@ async function runSafeWrite(input) {
     }
   }
 
-  const existing = await store.findPostingByKey(row.batchId, row)
+  const adopt = async (posting, check) => {
+    const snapshotPatch = { adopted: true, verification: verificationRecord(check, 'force repost linked the matching Zoho record', now) }
+    if (posting) return markPosted(posting, check.match, snapshotPatch, { alreadyPosted: true })
+    const saved = await store.insertPosting({
+      ...row,
+      zohoPaymentId: check.match.zohoId,
+      zohoJournalNumber: check.match.zohoNumber || null,
+      status: STATUS.POSTED,
+      errorMessage: null,
+      mappingSnapshot: { ...(row.mappingSnapshot || {}), attempted: false, ...snapshotPatch },
+    })
+    return result(STATUS.POSTED, saved, {
+      alreadyPosted: true,
+      zohoId: check.match.zohoId,
+      zohoNumber: check.match.zohoNumber || '',
+      message: '',
+    })
+  }
+
+  const release = (posting, check, why) =>
+    store.updatePostingOutcome(posting.id, {
+      status: STATUS.FAILED,
+      errorMessage: `${label}: ${why}`,
+      snapshotPatch: { verification: verificationRecord(check, why, now) },
+    })
+
+  const attemptIsStale = (posting) => {
+    if (!posting.mappingSnapshot?.attempted || posting.zohoPaymentId) return true
+    const at = Date.parse(posting.mappingSnapshot?.attemptedAt || posting.createdAt || '')
+    return !Number.isFinite(at) || Date.now() - at >= staleAttemptMs
+  }
+
+  let existing = await store.findPostingByKey(row.batchId, row)
 
   if (existing && existing.status === STATUS.POSTED && existing.zohoPaymentId) {
     let check
@@ -137,7 +179,10 @@ async function runSafeWrite(input) {
     if (check.outcome === 'error') {
       return result(STATUS.FAILED, existing, { alreadyPosted: true, message: `${label}: ${check.message}` })
     }
-    return needsVerification(existing, check, 'recorded Zoho entry no longer matches')
+    if (!force || (check.outcome !== 'missing' && check.outcome !== 'none')) {
+      return needsVerification(existing, check, 'recorded Zoho entry no longer matches')
+    }
+    existing = await release(existing, check, 'the recorded Zoho entry was deleted; posting it again')
   }
 
   if (existing && (existing.status === STATUS.PENDING || existing.status === STATUS.VERIFICATION_REQUIRED || existing.status === STATUS.POSTED)) {
@@ -152,24 +197,32 @@ async function runSafeWrite(input) {
         { alreadyPosted: true }
       )
     }
+    if (check.outcome === 'exact' && force) return adopt(existing, check)
     if (check.outcome === 'error') {
       return result(existing.status === STATUS.PENDING ? STATUS.VERIFICATION_REQUIRED : existing.status, existing, {
         message: `${label}: ${check.message}`,
       })
     }
-    const reason =
-      check.outcome === 'none'
-        ? 'an earlier create was sent but no Zoho record was found; release it after checking Zoho'
-        : check.outcome === 'exact'
-          ? 'a matching Zoho record exists but was not created by this run; link it to continue'
-          : 'Zoho records do not exactly match'
-    return needsVerification(existing, check, reason)
+    if (check.outcome === 'none' && force && attemptIsStale(existing)) {
+      existing = await release(existing, check, 'no Zoho record exists; posting it again')
+    } else {
+      const reason =
+        check.outcome === 'none'
+          ? force
+            ? 'an earlier create timed out a few minutes ago and Zoho may still be saving it; run Force Repost again in 15 minutes'
+            : 'an earlier create was sent but no Zoho record was found; release it after checking Zoho'
+          : check.outcome === 'exact'
+            ? 'a matching Zoho record exists but was not created by this run; link it to continue'
+            : 'Zoho records do not exactly match'
+      return needsVerification(existing, check, reason)
+    }
   }
 
   const preflight = await safeLookup(existing)
   if (preflight.outcome === 'error') {
     return result(STATUS.FAILED, existing, { message: `${label}: ${preflight.message}. Nothing was posted.` })
   }
+  if (preflight.outcome === 'exact' && force) return adopt(existing, preflight)
   if (preflight.outcome !== 'none') {
     const reason =
       preflight.outcome === 'exact'

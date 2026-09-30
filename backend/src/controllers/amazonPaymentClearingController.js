@@ -369,12 +369,18 @@ async function postReturnFeeJournals(req, res) {
 async function postForceRepost(req, res) {
   try {
     await assertBatchMarketplaceForReq(req)
-    const json = await service.forceRepostBatch(req.params.id, {
-      dryRun: req.body?.dryRun !== false,
-      reason: req.body?.reason,
-      postedBy: req.user?.userId,
-    })
-    res.json(json)
+    if (req.body?.dryRun !== false) {
+      const json = await service.forceRepostBatch(req.params.id, {
+        dryRun: true,
+        reason: req.body?.reason,
+        postedBy: req.user?.userId,
+      })
+      return res.json(json)
+    }
+    const { reason } = await service.prepareForceRepost(req.params.id, req.body?.reason)
+    const { startPostToZohoJob } = require('../services/amazonPaymentClearingPostingJobService')
+    const json = startPostToZohoJob(req.params.id, { postedBy: req.user?.userId, forceRepostReason: reason })
+    return res.status(202).json({ success: true, ...json })
   } catch (err) {
     sendError(res, err)
   }

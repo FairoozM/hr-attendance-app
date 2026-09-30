@@ -257,6 +257,7 @@ async function safeWriteJournal({
   createManualJournal,
   lookupDeps,
   source,
+  force = false,
 }) {
   const debitAccountId = resolveLineAccountId(journalRequest.debit, marketplace, env)
   const creditAccountId = resolveLineAccountId(journalRequest.credit, marketplace, env)
@@ -275,6 +276,7 @@ async function safeWriteJournal({
     ],
   })
   return runSafeWrite({
+    force,
     store: storeForLocalRow(store, localRow),
     label: `${line.feeType || line.normalizedFeeType || 'Journal'} journal`,
     row: {
@@ -732,6 +734,7 @@ async function postApprovedBatch({
   store,
   dryRun = true,
   allowPosted = false,
+  forceRepost = false,
   postedBy,
   createPayment = zohoPaymentService.createZohoCustomerPayment,
   buildPayloadPreview = zohoPaymentService.buildCustomerPaymentPayloadPreview,
@@ -890,6 +893,7 @@ async function postApprovedBatch({
       })),
     })
     const outcome = await runSafeWrite({
+      force: forceRepost,
       store,
       label: row.paymentLabel,
       row: {
@@ -1028,6 +1032,7 @@ async function postApprovedBatch({
       createManualJournal,
       lookupDeps,
       source: 'amazon_payment_clearing_fee_journal_post',
+      force: forceRepost,
     })
     const status = tally(result, 'journal', outcome)
     if (status === 'created' && (row.mappingRuleId || row.mappingRuleUsed?.id)) {
