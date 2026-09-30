@@ -2,6 +2,7 @@ import type {
   PaymentClearingPaymentPreview,
   PaymentClearingPreview,
   PaymentPostingResult,
+  PostingJobProgress,
   PostingStatus,
   SavedBatchSummary,
   SettlementReport,
@@ -31,6 +32,8 @@ export interface ClearingContext {
   approving: boolean
   generatingPaymentPreview: boolean
   posting: boolean
+  postingProgress: PostingJobProgress | null
+  postingStartedAt: number | null
   postingReturnFees: boolean
 
   search: ReturnType<typeof useClearingSearch>

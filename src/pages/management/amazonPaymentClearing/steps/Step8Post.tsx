@@ -7,6 +7,7 @@ import {
   PostingResultTable,
   SummaryCard,
 } from '../clearingShared'
+import { PostingProgressBar } from '../components/PostingProgressBar'
 import { PostingStatusPanel } from '../components/PostingStatusPanel'
 import type { ClearingContext } from './clearingContext'
 
@@ -98,6 +99,10 @@ export function Step8Post({ ctx }: { ctx: ClearingContext }) {
           onChanged={(message) => ctx.refreshPostingStatus(batchId, message)}
           onResume={ctx.goToStep}
         />
+      ) : null}
+
+      {ctx.posting && ctx.postingStartedAt ? (
+        <PostingProgressBar progress={ctx.postingProgress} startedAt={ctx.postingStartedAt} />
       ) : null}
 
       <div className="apc-button-row">

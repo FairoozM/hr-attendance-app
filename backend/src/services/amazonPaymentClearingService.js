@@ -1276,6 +1276,7 @@ async function postBatchToZoho(id, options = {}) {
       allowPosted: options.allowPosted === true,
       postedBy: options.postedBy,
       createPayment: options.createPayment,
+      onProgress: options.onProgress,
     })
   })
 }
@@ -1332,6 +1333,7 @@ async function forceRepostBatch(id, options = {}) {
       forceRepost: !dryRun,
       postedBy: options.postedBy,
       createPayment: options.createPayment,
+      onProgress: options.onProgress,
     })
   })
 }

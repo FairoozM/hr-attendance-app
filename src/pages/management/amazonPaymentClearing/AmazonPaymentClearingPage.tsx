@@ -16,6 +16,7 @@ import {
   type PaymentClearingPreview,
   type PaymentPostingResult,
   type PostingGroupKey,
+  type PostingJobProgress,
   type PostingStatus,
   postPaymentClearingToZoho,
   postReturnFeeJournals,
@@ -104,6 +105,8 @@ export function AmazonPaymentClearingPage() {
   const [approving, setApproving] = useState(false)
   const [generatingPaymentPreview, setGeneratingPaymentPreview] = useState(false)
   const [posting, setPosting] = useState(false)
+  const [postingProgress, setPostingProgress] = useState<PostingJobProgress | null>(null)
+  const [postingStartedAt, setPostingStartedAt] = useState<number | null>(null)
   const [postingReturnFees, setPostingReturnFees] = useState(false)
 
   const [forceRepostOpen, setForceRepostOpen] = useState(false)
@@ -452,8 +455,10 @@ export function AmazonPaymentClearingPage() {
       setPosting(true)
       setError('')
       setNotice('')
+      setPostingProgress(null)
+      setPostingStartedAt(dryRun ? null : Date.now())
       try {
-        const json = await postPaymentClearingToZoho(marketplace, batchId, dryRun)
+        const json = await postPaymentClearingToZoho(marketplace, batchId, dryRun, setPostingProgress)
         setPostingResult(json)
         if (dryRun) {
           setNotice('Dry run completed. No Zoho payments were created.')
@@ -470,6 +475,8 @@ export function AmazonPaymentClearingPage() {
         setError(safeError(e))
       } finally {
         setPosting(false)
+        setPostingStartedAt(null)
+        setPostingProgress(null)
         if (!dryRun) await refreshPostClearingStepStatus(batchId)
       }
     },
@@ -522,8 +529,10 @@ export function AmazonPaymentClearingPage() {
       setPosting(true)
       setError('')
       setNotice('')
+      setPostingProgress(null)
+      setPostingStartedAt(Date.now())
       try {
-        const json = await forceRepostPaymentClearing(marketplace, batchId, { reason, dryRun: false })
+        const json = await forceRepostPaymentClearing(marketplace, batchId, { reason, dryRun: false }, setPostingProgress)
         setPostingResult(json)
         setForceRepostOpen(false)
         const outcome = postingOutcomeMessage(json, 'Force repost')
@@ -538,6 +547,8 @@ export function AmazonPaymentClearingPage() {
         setError(safeError(e))
       } finally {
         setPosting(false)
+        setPostingStartedAt(null)
+        setPostingProgress(null)
         await refreshPostClearingStepStatus(batchId)
       }
     },
@@ -581,6 +592,8 @@ export function AmazonPaymentClearingPage() {
     approving,
     generatingPaymentPreview,
     posting,
+    postingProgress,
+    postingStartedAt,
     postingReturnFees,
     search,
     isPosted,
@@ -769,6 +782,8 @@ export function AmazonPaymentClearingPage() {
         open={forceRepostOpen}
         postingSummary={preview?.postingSummary || preview?.batch?.postingSummary}
         busy={posting}
+        progress={postingProgress}
+        startedAt={postingStartedAt}
         onCancel={() => setForceRepostOpen(false)}
         onConfirm={onConfirmForceRepost}
       />

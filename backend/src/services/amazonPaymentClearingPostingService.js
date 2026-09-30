@@ -744,6 +744,7 @@ async function postApprovedBatch({
   fetchUnpaidInvoices: fetchUnpaidInvoicesOverride,
   zohoLookup = null,
   env = process.env,
+  onProgress = null,
 }) {
   const latestPreview = await store.getLatestPaymentPreviewForBatch(batch.batchId)
   await ensureCanPostBatch(batch, Boolean(latestPreview), { dryRun, allowPosted })
@@ -809,6 +810,17 @@ async function postApprovedBatch({
     return !local || local.status === STATUS.FAILED
   }
 
+  const totalEntries = postingRows.length + feeJournalLines.length
+  const reportProgress = (step, current) => {
+    if (typeof onProgress !== 'function') return
+    try {
+      onProgress({ step, current, total: totalEntries })
+    } catch {
+      // progress reporting must never break posting
+    }
+  }
+
+  reportProgress('Checking invoice balances in Zoho', 0)
   let balanceIssueByInvoiceId = new Map()
   try {
     const balanceIssues = await validateRemainingInvoiceBalances(postingRows.filter(needsWrite), {
@@ -823,7 +835,8 @@ async function postApprovedBatch({
     result.warnings = [err.message]
   }
 
-  for (const row of postingRows) {
+  for (const [index, row] of postingRows.entries()) {
+    reportProgress(row.paymentLabel, index)
     const local = localByType.get(row.paymentType) || null
     const blockingIssues = needsWrite(row)
       ? row.invoiceAllocations.map((allocation) => balanceIssueByInvoiceId.get(allocation.invoiceId)).filter(Boolean)
@@ -946,7 +959,8 @@ async function postApprovedBatch({
   }
 
   const feeResolver = localJournalRowResolver(existingPostings, 'fee', marketplace, feeJournalLines)
-  for (const row of feeJournalLines) {
+  for (const [index, row] of feeJournalLines.entries()) {
+    reportProgress(`${row.feeType || row.normalizedFeeType || 'Fee'} journal`, postingRows.length + index)
     const { paymentType } = row
     const localRow = feeResolver.find(paymentType)
     const journalRequest = {
@@ -1054,6 +1068,7 @@ async function postApprovedBatch({
 
   result.status = overallPostingStatus(result.summary, dryRun)
   result.success = result.summary.errors === 0 && result.summary.verificationRequired === 0
+  reportProgress('Saving the result', totalEntries)
 
   if (!dryRun && result.success) {
     await store.markBatchPosted(batch.batchId, postedBy, {

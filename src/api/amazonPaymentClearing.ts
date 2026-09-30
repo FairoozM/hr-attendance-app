@@ -1054,10 +1054,19 @@ export async function generateKsaPaymentClearingPaymentPreview(batchId: number |
   return generatePaymentClearingPaymentPreview('KSA', batchId)
 }
 
+export interface PostingJobProgress {
+  step: string
+  current: number
+  total: number
+}
+
+const POSTING_JOB_WAIT_MS = 30 * 60 * 1000
+
 export async function postPaymentClearingToZoho(
   marketplace: PaymentClearingMarketplace,
   batchId: number | string,
-  dryRun = true
+  dryRun = true,
+  onProgress?: (progress: PostingJobProgress) => void
 ) {
   if (dryRun) {
     return api.post(
@@ -1073,26 +1082,30 @@ export async function postPaymentClearingToZoho(
     longOpts
   )) as PaymentPostingResult & { jobId?: string; status?: string }
 
-  return waitForPostingJob(marketplace, started)
+  return waitForPostingJob(marketplace, started, onProgress)
 }
 
 async function waitForPostingJob(
   marketplace: PaymentClearingMarketplace,
-  started: PaymentPostingResult & { jobId?: string; status?: string }
+  started: PaymentPostingResult & { jobId?: string; status?: string; progress?: PostingJobProgress },
+  onProgress?: (progress: PostingJobProgress) => void
 ) {
   if (!started?.jobId) return started
+  if (started.progress) onProgress?.(started.progress)
 
-  const deadline = Date.now() + longOpts.timeoutMs
+  const deadline = Date.now() + POSTING_JOB_WAIT_MS
   while (Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 2000))
+    await new Promise((resolve) => setTimeout(resolve, 1500))
     const job = (await api.get(
       `${paymentClearingBase(marketplace)}/post-to-zoho-jobs/${encodeURIComponent(started.jobId)}`,
       longOpts
     )) as {
       status?: string
       error?: string
+      progress?: PostingJobProgress
       result?: PaymentPostingResult
     }
+    if (job.progress) onProgress?.(job.progress)
     if (job.status === 'completed' && job.result) return job.result
     if (job.status === 'failed') {
       throw new Error(job.error || 'Zoho posting failed.')
@@ -1168,14 +1181,15 @@ export async function postKsaReturnFeeJournals(batchId: number | string, dryRun 
 export async function forceRepostPaymentClearing(
   marketplace: PaymentClearingMarketplace,
   batchId: number | string,
-  body: { reason: string; dryRun?: boolean }
+  body: { reason: string; dryRun?: boolean },
+  onProgress?: (progress: PostingJobProgress) => void
 ) {
   const response = (await api.post(
     `${paymentClearingBase(marketplace)}/batches/${encodeURIComponent(String(batchId))}/force-repost`,
     { dryRun: body.dryRun !== false, reason: body.reason },
     longOpts
   )) as PaymentPostingResult & { jobId?: string; status?: string }
-  return waitForPostingJob(marketplace, response)
+  return waitForPostingJob(marketplace, response, onProgress)
 }
 
 export async function forceRepostKsaPaymentClearing(

@@ -461,6 +461,53 @@
 .apc-modal__ids ul { margin: 0.25rem 0 0; padding-left: 1.1rem; font-size: 0.85rem; }
 .apc-modal__ids code { font-size: 0.8rem; }
 
+/* Zoho posting progress */
+.apc-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  border-radius: 1rem;
+  border: 1px solid color-mix(in srgb, #0ea5e9 40%, var(--theme-border));
+  background: color-mix(in srgb, #0ea5e9 10%, var(--theme-glass-bg));
+  padding: 1rem;
+}
+.apc-progress__head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.5rem; }
+.apc-progress__meta { font-variant-numeric: tabular-nums; color: var(--text-muted, #64748b); }
+.apc-progress__track {
+  position: relative;
+  height: 0.75rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, #0ea5e9 18%, transparent);
+}
+.apc-progress__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 999px;
+  background: #0284c7;
+  transition: width 0.4s ease;
+}
+.apc-progress__active {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #38bdf8, #7dd3fc, #38bdf8);
+  background-size: 200% 100%;
+  animation: apc-progress-pulse 1.2s linear infinite;
+  transition: left 0.4s ease, width 0.4s ease;
+}
+.apc-progress__active--indeterminate { left: 0; width: 30%; animation: apc-progress-slide 1.4s ease-in-out infinite; }
+.apc-progress__note { margin: 0; font-size: 0.8rem; }
+@keyframes apc-progress-pulse {
+  from { background-position: 200% 0; }
+  to { background-position: 0 0; }
+}
+@keyframes apc-progress-slide {
+  from { left: -30%; }
+  to { left: 100%; }
+}
+
 .ainv-btn--sm { padding: 0.3rem 0.6rem; font-size: 0.8rem; }
 
 /* Zoho posting traceability */

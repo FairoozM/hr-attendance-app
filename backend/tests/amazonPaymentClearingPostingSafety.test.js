@@ -856,6 +856,17 @@ test('force repost posts again entries whose Zoho records were deleted, keeping 
   assert.equal(zoho.journals.size, 1)
 })
 
+test('posting reports progress for every payment and journal', async () => {
+  const batch = postedForceBatch()
+  const zoho = createFakeZoho({ currency: 'AED' })
+  const events = []
+  const result = await run(batch, storeFor(batch), zoho, { onProgress: (p) => events.push(p) })
+  assert.equal(result.success, true)
+  assert.ok(events.every((e) => e.total === 4))
+  assert.deepEqual(events.map((e) => e.current), [0, 0, 1, 2, 3, 4])
+  assert.deepEqual(events.slice(1, 5).map((e) => e.step), ['Net Balance Payment', 'Commission Payment', 'Shipping/FBA Payment', 'ADVERTISING journal'])
+})
+
 test('force repost does not resend a recently timed-out create, but does once it is stale', async () => {
   const minutesAgo = (m) => new Date(Date.now() - m * 60 * 1000).toISOString()
   const uncertainRow = (attemptedAt) => ({
