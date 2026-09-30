@@ -4,6 +4,10 @@
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
+const { isolateInventoryHealthDiskCache } = require('./helpers/isolatedInventoryHealthCache')
+
+isolateInventoryHealthDiskCache(test)
+
 const {
   computeInventoryHealthMetrics,
   buildSummary,

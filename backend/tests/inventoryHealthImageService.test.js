@@ -7,6 +7,9 @@ const assert = require('node:assert/strict')
 const fs = require('fs')
 const path = require('path')
 const { mockModule, freshRequire } = require('./_helpers')
+const { isolateInventoryHealthDiskCache } = require('./helpers/isolatedInventoryHealthCache')
+
+isolateInventoryHealthDiskCache(test)
 
 const UPLOAD_ROOT = path.join(__dirname, '../uploads/inventory-item-images-test')
 

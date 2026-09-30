@@ -6,13 +6,23 @@
 const fs = require('fs')
 const path = require('path')
 
-const CACHE_DIR = path.join(__dirname, '../data')
-const CACHE_FILE = path.join(CACHE_DIR, 'inventory-health-base-cache.json')
+const DEFAULT_CACHE_DIR = path.join(__dirname, '../data')
+const CACHE_FILE_NAME = 'inventory-health-base-cache.json'
+
+/** Resolved per call so tests can point INVENTORY_HEALTH_DISK_CACHE_DIR at a temp dir. */
+function cacheDir() {
+  const override = String(process.env.INVENTORY_HEALTH_DISK_CACHE_DIR || '').trim()
+  return override || DEFAULT_CACHE_DIR
+}
+
+function cacheFile() {
+  return path.join(cacheDir(), CACHE_FILE_NAME)
+}
 
 function readAllEntries() {
   try {
-    if (!fs.existsSync(CACHE_FILE)) return {}
-    const parsed = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8'))
+    if (!fs.existsSync(cacheFile())) return {}
+    const parsed = JSON.parse(fs.readFileSync(cacheFile(), 'utf8'))
     return parsed && typeof parsed.entries === 'object' ? parsed.entries : {}
   } catch (err) {
     console.warn('[inventory-health] disk cache read failed:', err?.message || err)
@@ -42,14 +52,14 @@ function readDiskCacheEntry(key, opts = {}) {
 
 function writeDiskCacheEntry(key, expiresAt, value) {
   try {
-    fs.mkdirSync(CACHE_DIR, { recursive: true })
+    fs.mkdirSync(cacheDir(), { recursive: true })
     const entries = readAllEntries()
     entries[key] = {
       expiresAt: Number(expiresAt),
       savedAt: Date.now(),
       value,
     }
-    fs.writeFileSync(CACHE_FILE, JSON.stringify({ version: 1, entries }))
+    fs.writeFileSync(cacheFile(), JSON.stringify({ version: 1, entries }))
   } catch (err) {
     console.warn('[inventory-health] disk cache write failed:', err?.message || err)
   }
@@ -57,15 +67,15 @@ function writeDiskCacheEntry(key, expiresAt, value) {
 
 function deleteDiskCacheEntry(key) {
   try {
-    if (!fs.existsSync(CACHE_FILE)) return
+    if (!fs.existsSync(cacheFile())) return
     const entries = readAllEntries()
     if (!entries[key]) return
     delete entries[key]
     if (Object.keys(entries).length === 0) {
-      fs.unlinkSync(CACHE_FILE)
+      fs.unlinkSync(cacheFile())
       return
     }
-    fs.writeFileSync(CACHE_FILE, JSON.stringify({ version: 1, entries }))
+    fs.writeFileSync(cacheFile(), JSON.stringify({ version: 1, entries }))
   } catch (err) {
     console.warn('[inventory-health] disk cache delete failed:', err?.message || err)
   }
@@ -73,7 +83,7 @@ function deleteDiskCacheEntry(key) {
 
 function clearDiskCache() {
   try {
-    if (fs.existsSync(CACHE_FILE)) fs.unlinkSync(CACHE_FILE)
+    if (fs.existsSync(cacheFile())) fs.unlinkSync(cacheFile())
   } catch (err) {
     console.warn('[inventory-health] disk cache clear failed:', err?.message || err)
   }
