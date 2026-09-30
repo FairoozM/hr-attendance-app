@@ -928,7 +928,7 @@ export function PostedStoredEntriesTable({
   )
 }
 
-export function PostingResultTable({ result }: { result: PaymentPostingResult }) {
+export function PostingResultTable({ result, currency = 'SAR' }: { result: PaymentPostingResult; currency?: string }) {
   const payments = result.payments || []
   const journals = result.journals || []
 
@@ -963,7 +963,7 @@ export function PostingResultTable({ result }: { result: PaymentPostingResult })
                     {accountName || '-'}
                     {accountId ? <div className="apc-muted apc-cell-sub">id: {accountId}</div> : null}
                   </td>
-                  <td className="apc-money">{money(row.zohoPayloadPreview?.amount ?? row.amount)}</td>
+                  <td className="apc-money">{money(row.zohoPayloadPreview?.amount ?? row.amount, currency)}</td>
                   <td><code className="apc-ref">{reference}</code></td>
                   <td>{description ? <pre className="apc-description">{description}</pre> : '-'}</td>
                   <td>
@@ -971,7 +971,7 @@ export function PostingResultTable({ result }: { result: PaymentPostingResult })
                       <div className="apc-allocation-list">
                         {row.zohoPayloadPreview.invoices.map((invoice) => (
                           <div key={`${row.paymentType}-${invoice.invoice_id}`}>
-                            {invoice.invoice_id}: {money(invoice.amount_applied)}
+                            {invoice.invoice_id}: {money(invoice.amount_applied, currency)}
                           </div>
                         ))}
                       </div>
@@ -1005,7 +1005,7 @@ export function PostingResultTable({ result }: { result: PaymentPostingResult })
               {journals.map((row) => (
                 <tr key={row.key || row.paymentType}>
                   <td>{row.feeType}</td>
-                  <td className="apc-money">{money(Math.abs(row.totalAmount ?? row.amount ?? 0))}</td>
+                  <td className="apc-money">{money(Math.abs(row.totalAmount ?? row.amount ?? 0), currency)}</td>
                   <td><code className="apc-ref">{row.zohoPayloadPreview?.reference_number || row.referenceNumber || '-'}</code></td>
                   <td>{row.zohoPayloadPreview?.notes || row.notes || '-'}</td>
                   <td>
@@ -1013,7 +1013,7 @@ export function PostingResultTable({ result }: { result: PaymentPostingResult })
                       <div className="apc-allocation-list">
                         {row.zohoPayloadPreview.line_items.map((line) => (
                           <div key={`${row.key}-${line.debit_or_credit}`}>
-                            {line.debit_or_credit}: {line.account_name || line.account_id} {money(line.amount)}
+                            {line.debit_or_credit}: {line.account_name || line.account_id} {money(line.amount, currency)}
                           </div>
                         ))}
                       </div>

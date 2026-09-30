@@ -182,7 +182,7 @@ export function Step9ReturnFeeClearing({ ctx }: { ctx: ClearingContext }) {
             <SummaryCard label="Journals Skipped" value={postingResult.summary.journalsSkipped || 0} />
             <SummaryCard label="Errors" value={postingResult.summary?.errors ?? 0} />
           </section>
-          <PostingResultTable result={postingResult} />
+          <PostingResultTable result={postingResult} currency={ctx.currency} />
         </>
       ) : null}
     </div>

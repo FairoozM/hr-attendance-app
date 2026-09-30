@@ -473,6 +473,10 @@ async function getZohoCustomerPayment(paymentId, opts = {}) {
   }
 }
 
+// Zoho takes well over a minute to save a payment carrying a few hundred invoice
+// allocations; aborting earlier leaves the outcome unknown while Zoho still saves it.
+const CUSTOMER_PAYMENT_CREATE_TIMEOUT_MS = 5 * 60 * 1000
+
 async function createZohoCustomerPayment(payment, opts = {}) {
   const account = await resolveConfiguredDepositAccount(payment, opts)
   const depositToAccountId = account.accountId
@@ -487,6 +491,7 @@ async function createZohoCustomerPayment(payment, opts = {}) {
       skipCache: true,
       critical: true,
       retryTransport: opts.retryTransport,
+      timeoutMs: CUSTOMER_PAYMENT_CREATE_TIMEOUT_MS,
     }
   )
   const body = json?.payment || json?.customerpayment || json || {}

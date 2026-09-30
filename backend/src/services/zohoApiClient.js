@@ -630,7 +630,7 @@ async function zohoBooksJsonRequest(path, searchParams, method, body, meta = {})
         url,
         method: methodU,
         body,
-        timeoutMs: c.timeoutMs,
+        timeoutMs: Math.max(c.timeoutMs, Number(meta.timeoutMs) || 0),
         pathBase,
         cacheKey,
         cacheCategory,

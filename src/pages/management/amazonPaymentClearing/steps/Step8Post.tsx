@@ -163,7 +163,7 @@ export function Step8Post({ ctx }: { ctx: ClearingContext }) {
               ))}
             </div>
           ) : null}
-          <PostingResultTable result={postingResult} />
+          <PostingResultTable result={postingResult} currency={ctx.currency} />
         </>
       ) : null}
 
