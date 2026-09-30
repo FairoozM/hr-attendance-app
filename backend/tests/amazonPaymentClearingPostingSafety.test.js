@@ -50,7 +50,7 @@ const { applyCreditNotesForBatch, buildRefundCreditNoteRequest } = require('../s
 const { runSafeWrite } = require('../src/services/amazonPaymentClearingSafeWrite')
 const { isAmbiguousWriteError, lookupCustomerPayment } = require('../src/services/amazonPaymentClearingZohoRecovery')
 const { buildPostingStatus, linkPosting, releasePosting, reverifyPosting } = require('../src/services/amazonPaymentClearingPostingRecoveryService')
-const { feeJournalIdentity } = require('../src/services/amazonPaymentClearingPostingIdentity')
+const { feeJournalIdentity, isSalesOrFeeJournalPosting } = require('../src/services/amazonPaymentClearingPostingIdentity')
 const { resolveConfiguredDepositAccount } = require('../src/services/amazonPaymentClearingZohoPaymentService')
 const store = require('../src/services/amazonPaymentClearingStore')
 
@@ -786,4 +786,61 @@ test('safe write on a posted row re-verifies it in Zoho and flags a deleted reco
   })
   assert.equal(outcome.status, 'verification_required')
   assert.equal(created, 0)
+})
+
+test('isSalesOrFeeJournalPosting keeps credit notes and return-fee journals', () => {
+  assert.equal(isSalesOrFeeJournalPosting('net_balance'), true)
+  assert.equal(isSalesOrFeeJournalPosting('commission'), true)
+  assert.equal(isSalesOrFeeJournalPosting('shipping_fba'), true)
+  assert.equal(isSalesOrFeeJournalPosting('fee_journal:abc'), true)
+  assert.equal(isSalesOrFeeJournalPosting('fee_journal_2'), true)
+  assert.equal(isSalesOrFeeJournalPosting('return_fee_journal:COMMISSION'), false)
+  assert.equal(isSalesOrFeeJournalPosting('return_fee_journal_1'), false)
+  assert.equal(isSalesOrFeeJournalPosting('credit_note_refund'), false)
+  assert.equal(isSalesOrFeeJournalPosting('credit_note_create'), false)
+})
+
+test('clearing local sales and fee rows reposts only after the Zoho records are gone', async () => {
+  const fee = feeLine('ADVERTISING', 'ServiceFee', 'Cost of Advertising', 50)
+  const batch = batchFor('UAE', { nonOrderLinkedAmazonFeeMappings: [fee] })
+  const zoho = createFakeZoho({ currency: 'AED' })
+  const postingStore = storeFor(batch)
+  const first = await run(batch, postingStore, zoho)
+  assert.equal(first.success, true)
+  assert.equal(zoho.payments.size, 3)
+  assert.equal(zoho.journals.size, 1)
+  postingStore.postings.push({
+    id: 900,
+    batchId: batch.batchId,
+    paymentType: 'credit_note_refund',
+    postingGroupKey: 'APC-cn',
+    status: 'posted',
+    zohoPaymentId: 'cn-keep',
+    mappingSnapshot: {},
+  })
+
+  const dropSalesAndFees = () => {
+    for (let i = postingStore.postings.length - 1; i >= 0; i -= 1) {
+      if (isSalesOrFeeJournalPosting(postingStore.postings[i].paymentType)) postingStore.postings.splice(i, 1)
+    }
+  }
+
+  dropSalesAndFees()
+  const blocked = await run({ ...batch, status: 'posted' }, postingStore, zoho, { allowPosted: true })
+  assert.equal(zoho.payments.size, 3, 'existing Zoho payments are not created again')
+  assert.equal(zoho.journals.size, 1, 'existing Zoho journals are not created again')
+  assert.equal(blocked.summary.paymentsCreated, 0)
+  assert.equal(blocked.summary.journalsCreated, 0)
+  assert.ok(postingStore.postings.some((row) => row.paymentType === 'credit_note_refund'))
+
+  zoho.payments.clear()
+  zoho.journals.clear()
+  dropSalesAndFees()
+  const reposted = await run({ ...batch, status: 'posted' }, postingStore, zoho, { allowPosted: true })
+  assert.equal(reposted.success, true)
+  assert.equal(zoho.payments.size, 3)
+  assert.equal(zoho.journals.size, 1)
+  assert.equal(reposted.summary.paymentsCreated, 3)
+  assert.equal(reposted.summary.journalsCreated, 1)
+  assert.ok(postingStore.postings.some((row) => row.paymentType === 'credit_note_refund' && row.zohoPaymentId === 'cn-keep'))
 })

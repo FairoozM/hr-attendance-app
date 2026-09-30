@@ -26,7 +26,7 @@ export function Step8Post({ ctx }: { ctx: ClearingContext }) {
   const batchId = preview.batch?.batchId
   const salesGroups = (ctx.postingStatus?.groups || []).filter((g) => g.key === 'sales_payment' || g.key === 'fee_journal')
   const salesStarted = salesGroups.some((g) => g.entries.some((e) => e.status !== 'not_started'))
-  const salesNeedsVerification = salesGroups.some((g) => g.status === 'verification_required')
+  const canForceRepost = ctx.isPosted || salesStarted
 
   return (
     <div className="apc-step-stack">
@@ -70,16 +70,14 @@ export function Step8Post({ ctx }: { ctx: ClearingContext }) {
             reference (for example, 29-Apr-2026 to 13-May-2026), so search Zoho Journals by that range if needed.
           </p>
           <p className="apc-muted">
-            This batch is view-only. Dry run is still available. Force Repost (admin, with a reason) re-checks every entry
-            in Zoho and only posts entries that are missing — it never clears history or resends recorded entries.
+            Delete the Zoho payment received entries and fee journals for this settlement, then use Force Repost and
+            enter a reason. That posts the sales payments and fee journals again.
           </p>
         </div>
       ) : salesStarted ? (
-        <div className={`apc-alert ${salesNeedsVerification ? 'apc-alert--error' : ''}`} role="status">
-          <strong>{salesNeedsVerification ? 'Verification required.' : 'Partially posted.'}</strong>{' '}
-          {salesNeedsVerification
-            ? 'Some entries may exist in Zoho but could not be confirmed. Automatic reposting is blocked for them — re-check or link them below.'
-            : 'Some entries are posted. Resume posting sends only the missing entries; recorded entries are re-checked in Zoho, never resent.'}
+        <div className="apc-alert" role="status">
+          <strong>Sales payments or fee journals already exist for this settlement.</strong> Delete those payment
+          received entries and fee journals in Zoho, then use Force Repost and enter a reason.
         </div>
       ) : (
         <div className="apc-alert">
@@ -96,6 +94,7 @@ export function Step8Post({ ctx }: { ctx: ClearingContext }) {
           currency={ctx.currency}
           loading={ctx.postingStatusLoading}
           groups={['sales_payment', 'fee_journal']}
+          readOnly
           onChanged={(message) => ctx.refreshPostingStatus(batchId, message)}
           onResume={ctx.goToStep}
         />
@@ -110,7 +109,7 @@ export function Step8Post({ ctx }: { ctx: ClearingContext }) {
         >
           {ctx.posting ? 'Working...' : 'Dry Run'}
         </button>
-        {ctx.isPosted ? (
+        {canForceRepost ? (
           <button className="ainv-btn ainv-btn--danger" type="button" onClick={ctx.onOpenForceRepost} disabled={ctx.posting}>
             Force Repost
           </button>
@@ -121,7 +120,7 @@ export function Step8Post({ ctx }: { ctx: ClearingContext }) {
             onClick={() => ctx.onRunPosting(false)}
             disabled={!ctx.canPostToZoho || ctx.posting}
           >
-            {salesStarted ? 'RESUME POSTING (missing entries only)' : 'POST TO ZOHO'}
+            POST TO ZOHO
           </button>
         )}
       </div>

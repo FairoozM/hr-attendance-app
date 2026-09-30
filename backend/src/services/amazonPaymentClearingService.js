@@ -49,6 +49,7 @@ const {
   releasePosting,
 } = require('./amazonPaymentClearingPostingRecoveryService')
 const { buildSettlementReference } = require('./amazonPaymentClearingReferenceService')
+const { isSalesOrFeeJournalPosting } = require('./amazonPaymentClearingPostingIdentity')
 const { getAccountDiagnostics, listZohoChartAccounts } = require('./amazonPaymentClearingZohoPaymentService')
 const store = require('./amazonPaymentClearingStore')
 const { buildZohoOAuthAuthorizeUrl, exchangeZohoAuthorizationCode } = require('../integrations/zoho/zohoOAuth')
@@ -1280,9 +1281,11 @@ async function postBatchToZoho(id, options = {}) {
 }
 
 /**
- * Admin-only force repost of an already-posted batch. Requires an explicit reason and
- * records an audit entry. Posting history is never cleared: every recorded entry is
- * re-verified in Zoho and only entries that are provably missing are posted.
+ * Admin-only force repost. Requires a reason. Clears the local sales-payment and fee-journal
+ * rows (the audit entry keeps the previous Zoho ids) and posts those entries again. Use this
+ * after the matching Zoho payment-received entries and fee journals have been deleted.
+ * Credit notes and return-fee journals are left untouched. If a Zoho record is still there,
+ * that entry is not created again.
  */
 async function forceRepostBatch(id, options = {}) {
   const dryRun = options.dryRun !== false
@@ -1294,28 +1297,36 @@ async function forceRepostBatch(id, options = {}) {
     err.status = 404
     throw err
   }
-  if (batch.status !== 'posted' && !batch.postedToZoho) {
-    const err = new Error('Force repost is only for batches already posted to Zoho. Use the normal posting flow.')
-    err.code = 'AMAZON_PAYMENT_CLEARING_BATCH_NOT_POSTED'
-    err.status = 422
-    throw err
-  }
-  if (!reason) {
+  if (reason.length < 4) {
     const err = new Error('A reason is required to force repost a settlement to Zoho.')
     err.code = 'AMAZON_PAYMENT_CLEARING_REASON_REQUIRED'
     err.status = 422
     throw err
   }
   const previousPostings = await store.listPostingsForBatch(id)
+  const toReset = previousPostings.filter((row) => isSalesOrFeeJournalPosting(row.paymentType))
+  if (batch.status !== 'posted' && !batch.postedToZoho && toReset.length === 0) {
+    const err = new Error('Force repost is only for a settlement that already has sales payments or fee journals. Use the normal posting flow.')
+    err.code = 'AMAZON_PAYMENT_CLEARING_BATCH_NOT_POSTED'
+    err.status = 422
+    throw err
+  }
   await store.insertClearingAudit({
     batchId: batch.batchId,
     action: dryRun ? 'force_repost_dry_run' : 'force_repost',
     reason,
     actorUserId: options.postedBy,
-    previousZohoPaymentIds: previousPostings.map((row) => row.zohoPaymentId).filter(Boolean),
-    details: { dryRun, resumeOnly: true },
+    previousZohoPaymentIds: toReset.map((row) => row.zohoPaymentId).filter(Boolean),
+    details: {
+      dryRun,
+      resetSalesAndFeeJournals: !dryRun,
+      resetCount: dryRun ? 0 : toReset.length,
+    },
   })
   return store.withBatchPostingLock(id, async () => {
+    if (!dryRun && toReset.length) {
+      await store.deletePostingsByIds(toReset.map((row) => row.id))
+    }
     const current = await batchWithCurrentFeeJournalMappings(await store.getBatchById(id))
     return postApprovedBatch({
       batch: current,

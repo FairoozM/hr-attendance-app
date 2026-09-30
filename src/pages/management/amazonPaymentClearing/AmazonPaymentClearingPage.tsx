@@ -526,12 +526,13 @@ export function AmazonPaymentClearingPage() {
         const json = await forceRepostPaymentClearing(marketplace, batchId, { reason, dryRun: false })
         setPostingResult(json)
         setForceRepostOpen(false)
-        const outcome = postingOutcomeMessage(json, 'Force repost (missing entries only)')
+        const outcome = postingOutcomeMessage(json, 'Force repost')
         if (outcome.ok) setNotice(`${outcome.message} Logged to the audit trail.`)
         else setError(outcome.message)
         const refreshed = await fetchPaymentClearingBatch(marketplace, batchId)
         setPreview(refreshed)
         setPostingResult(json)
+        await refreshPostingStatus(batchId)
         await loadSavedBatches()
       } catch (e) {
         setError(safeError(e))
@@ -540,7 +541,7 @@ export function AmazonPaymentClearingPage() {
         await refreshPostClearingStepStatus(batchId)
       }
     },
-    [loadSavedBatches, marketplace, preview?.batch?.batchId, refreshPostClearingStepStatus]
+    [loadSavedBatches, marketplace, preview?.batch?.batchId, refreshPostClearingStepStatus, refreshPostingStatus]
   )
 
   const onMarkAccountLevelFee = useCallback(

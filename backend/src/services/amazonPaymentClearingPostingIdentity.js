@@ -9,6 +9,7 @@ const FEE_JOURNAL_PREFIX = 'fee_journal:'
 const RETURN_FEE_JOURNAL_PREFIX = 'return_fee_journal:'
 const LEGACY_FEE_JOURNAL = /^fee_journal_\d+$/
 const LEGACY_RETURN_FEE_JOURNAL = /^return_fee_journal_\d+$/
+const SALES_PAYMENT_TYPES = new Set(['net_balance', 'commission', 'shipping_fba'])
 const MAX_PAYMENT_TYPE_LENGTH = 64
 
 function clean(value) {
@@ -39,6 +40,14 @@ function returnFeeJournalIdentity(line) {
   const identity = `${RETURN_FEE_JOURNAL_PREFIX}${type}`
   if (type && identity.length <= MAX_PAYMENT_TYPE_LENGTH) return identity
   return `${RETURN_FEE_JOURNAL_PREFIX}${shortHash(type)}`
+}
+
+/** Sales payments and Amazon fee journals. Credit notes and return-fee journals stay put. */
+function isSalesOrFeeJournalPosting(paymentType) {
+  const type = clean(paymentType)
+  if (SALES_PAYMENT_TYPES.has(type)) return true
+  if (type.startsWith(FEE_JOURNAL_PREFIX)) return true
+  return LEGACY_FEE_JOURNAL.test(type)
 }
 
 function duplicateIdentityError(kind, identity, labels) {
@@ -117,6 +126,7 @@ module.exports = {
   RETURN_FEE_JOURNAL_PREFIX,
   LEGACY_FEE_JOURNAL,
   LEGACY_RETURN_FEE_JOURNAL,
+  isSalesOrFeeJournalPosting,
   feeJournalIdentity,
   returnFeeJournalIdentity,
   assignIdentities,

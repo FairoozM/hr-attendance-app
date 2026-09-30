@@ -22,9 +22,8 @@ export function ForceRepostModal({
       <div className="apc-modal">
         <h2 className="ainv-page__title" style={{ fontSize: '1.15rem' }}>Force repost to Zoho</h2>
         <div className="apc-alert apc-alert--error">
-          This batch was already posted to Zoho. Force repost keeps the posting history: every recorded entry is
-          re-checked in Zoho first, and only entries that are missing are posted. Entries that cannot be confirmed are
-          marked &quot;verification required&quot; and are not resent.
+          Delete the previous Zoho payment received entries and fee journals for this settlement first. Force repost
+          then posts those sales payments and fee journals again. A reason is required and kept in the audit log.
         </div>
         {previousIds.length ? (
           <div className="apc-modal__ids">
@@ -47,7 +46,7 @@ export function ForceRepostModal({
             rows={3}
             value={reason}
             onChange={(e) => setReason(e.target.value)}
-            placeholder="Explain why this settlement must be reposted (e.g. previous Zoho payments were reversed manually)."
+            placeholder="Why this settlement is being reposted (for example, the previous Zoho payments and journals were deleted)."
           />
         </label>
         <div className="apc-button-row">

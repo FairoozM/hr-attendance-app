@@ -92,6 +92,7 @@ export function PostingStatusPanel({
   currency,
   groups,
   loading,
+  readOnly = false,
   onChanged,
   onResume,
 }: {
@@ -101,6 +102,7 @@ export function PostingStatusPanel({
   currency: string
   groups?: PostingGroupKey[]
   loading?: boolean
+  readOnly?: boolean
   onChanged: (message: string) => Promise<void> | void
   onResume: (stepId: number) => void
 }) {
@@ -208,7 +210,7 @@ export function PostingStatusPanel({
                   <th>Status</th>
                   <th>Zoho record</th>
                   <th>Details</th>
-                  <th>Recovery</th>
+                  {readOnly ? null : <th>Recovery</th>}
                 </tr>
               </thead>
               <tbody>
@@ -245,6 +247,7 @@ export function PostingStatusPanel({
                         <VerificationDetail verification={entry.verification} />
                         {!entry.error && !entry.verification?.message ? '-' : null}
                       </td>
+                      {readOnly ? null : (
                       <td>
                         {formOpen && form ? (
                           <div className="apc-step-stack">
@@ -301,6 +304,7 @@ export function PostingStatusPanel({
                           '-'
                         )}
                       </td>
+                      )}
                     </tr>
                   )
                 })}
