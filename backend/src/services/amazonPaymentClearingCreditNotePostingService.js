@@ -555,6 +555,13 @@ function localCreditNotePostingsByOrder(postings) {
   return out
 }
 
+/** A failed attempt that Zoho rejected (no Zoho id) left nothing in Zoho. */
+function hasActiveCreditNotePosting(local) {
+  return [local?.create, local?.refund].some(
+    (posting) => posting && (posting.status !== STATUS.FAILED || clean(posting.zohoPaymentId))
+  )
+}
+
 function isCreditNotePlanRowComplete(row) {
   return (
     row.action === 'skipped_already_refunded' ||
@@ -933,4 +940,5 @@ module.exports = {
   principalRefundAmountForOrder,
   creditNoteRefundTotal,
   localCreditNotePostingsByOrder,
+  hasActiveCreditNotePosting,
 }

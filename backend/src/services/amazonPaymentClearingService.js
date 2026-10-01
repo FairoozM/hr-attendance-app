@@ -54,6 +54,7 @@ const {
   isCreditNoteApplyComplete,
   mergeRefreshedReturnMatches,
   localCreditNotePostingsByOrder,
+  hasActiveCreditNotePosting,
   collectReturnRowsForApply,
 } = require('./amazonPaymentClearingCreditNotePostingService')
 const { listCreditNoteRefunds } = require('../integrations/zoho/zohoBooksClient')
@@ -1606,9 +1607,9 @@ async function markReturnNotReceived(id, orderIdInput, input = {}, options = {})
       )
     }
     const local = localCreditNotePostingsByOrder(postings).get(orderId)
-    if (local?.create || local?.refund) {
+    if (hasActiveCreditNotePosting(local)) {
       throw clearingError(
-        `Order ${orderId} already has a credit note posting from step 10. Resolve it there first.`,
+        `Order ${orderId} already has a credit note or refund in Zoho from step 10 (or one whose outcome is unconfirmed). Resolve it in step 10 first.`,
         'AMAZON_PAYMENT_CLEARING_CREDIT_NOTE_EXISTS',
         409
       )
@@ -1708,8 +1709,11 @@ async function postNotReceivedReturnsForBatchId(id, options = {}) {
     if (!batch) throw batchNotFoundError()
     if (!dryRun) {
       const marked = new Set((batch.returnDispositions || []).map((d) => cleanOrderId(d.orderId)))
+      const localByOrder = localCreditNotePostingsByOrder(await store.listPostingsForBatch(batch.batchId))
       const withCreditNote = collectReturnRowsForApply(await batchForCreditNoteApply(id)).filter(
-        (row) => marked.has(cleanOrderId(row.orderId)) && String(row.zohoCreditNoteId || '').trim()
+        (row) =>
+          marked.has(cleanOrderId(row.orderId)) &&
+          (String(row.zohoCreditNoteId || '').trim() || hasActiveCreditNotePosting(localByOrder.get(cleanOrderId(row.orderId))))
       )
       if (withCreditNote.length) {
         throw clearingError(

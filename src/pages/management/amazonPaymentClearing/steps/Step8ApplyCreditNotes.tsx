@@ -29,8 +29,16 @@ const ACTION_LABEL: Record<string, string> = {
 
 const NOT_RECEIVED_ELIGIBLE_ACTIONS = new Set(['create_and_refund', 'create_and_apply', 'blocked'])
 
+function hasActiveLocalPosting(row: CreditNoteApplyPlanRow) {
+  return [row.localCreate, row.localRefund].some((posting) => posting && (posting.status !== 'failed' || posting.zohoId))
+}
+
 function canMarkNotReceived(row: CreditNoteApplyPlanRow) {
-  return !row.zohoCreditNoteId && NOT_RECEIVED_ELIGIBLE_ACTIONS.has(row.action)
+  return !row.zohoCreditNoteId && NOT_RECEIVED_ELIGIBLE_ACTIONS.has(row.action) && !hasActiveLocalPosting(row)
+}
+
+function rowProblem(row: CreditNoteApplyPlanRow) {
+  return row.error || row.blockingReason || row.localCreate?.errorMessage || row.localRefund?.errorMessage || ''
 }
 
 const READY_ACTIONS = new Set([
@@ -217,7 +225,9 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
   const planLooksEmpty = plan != null && rows.length === 0 && settlementReturnCount > 0
   const liveCheckedText = plan?.liveRefreshedAt ? new Date(plan.liveRefreshedAt).toLocaleString() : ''
   const stepComplete = Boolean(plan?.summary?.isComplete || ctx.creditNoteApplyComplete)
-  const movedCount = rows.filter((row) => row.action === 'moved_to_not_received').length
+  const movedRows = rows.filter((row) => row.action === 'moved_to_not_received')
+  const movedCount = movedRows.length
+  const notReceivedCandidates = rows.filter(canMarkNotReceived)
   const busy = loading || applying || refreshing || savingMark
 
   return (
@@ -303,6 +313,111 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
         </p>
       ) : null}
 
+      {notReceivedCandidates.length || movedRows.length ? (
+        <section className="apc-alert">
+          <strong>Returns not received — post to Amazon Return Exp instead of a credit note</strong>
+          <p>
+            These returns have no credit note in Zoho. If the warehouse never received the product, move the return to
+            step 11. Step 11 posts one general journal for all of them: Dr Amazon Return Exp / Cr{' '}
+            {undepositedFundsLabel(ctx.marketplace)}. No credit note is created for a moved return.
+          </p>
+          <div className="apc-table-wrap">
+            <table className="apc-table">
+              <thead>
+                <tr>
+                  <th>Amazon order</th>
+                  <th>Zoho invoice</th>
+                  <th className="apc-money">Amazon refund</th>
+                  <th>Status</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {[...notReceivedCandidates, ...movedRows].flatMap((row) => {
+                  const moved = row.action === 'moved_to_not_received'
+                  return [
+                    <tr key={`nr-${row.orderId}`}>
+                      <td>{row.orderId}</td>
+                      <td>{row.zohoInvoiceNumber || row.zohoInvoiceId || '-'}</td>
+                      <td className="apc-money">{money(row.amazonRefundAmount ?? row.applyAmount, ctx.currency)}</td>
+                      <td>{moved ? 'Moved to step 11 (not received)' : rowProblem(row) || 'No credit note in Zoho'}</td>
+                      <td>
+                        {moved ? (
+                          <button
+                            className="ainv-btn ainv-btn--sm"
+                            type="button"
+                            onClick={() => void onUndoMark(row.orderId)}
+                            disabled={busy || marksLocked}
+                            title={marksLocked ? 'The step 11 journal is already posted.' : undefined}
+                          >
+                            Undo
+                          </button>
+                        ) : (
+                          <button
+                            className="ainv-btn ainv-btn--danger ainv-btn--sm"
+                            type="button"
+                            onClick={() => {
+                              setMarkingOrderId(row.orderId)
+                              setMarkReason('')
+                            }}
+                            disabled={busy || marksLocked}
+                          >
+                            Not received → Amazon Return Exp
+                          </button>
+                        )}
+                      </td>
+                    </tr>,
+                    markingOrderId === row.orderId ? (
+                      <tr key={`nr-${row.orderId}-mark`}>
+                        <td colSpan={5}>
+                          <div className="apc-button-row">
+                            <span>
+                              Post {money(row.amazonRefundAmount ?? 0, ctx.currency)} to Amazon Return Exp (step 11).
+                            </span>
+                            <input
+                              className="ainv-input"
+                              type="text"
+                              value={markReason}
+                              onChange={(e) => setMarkReason(e.target.value)}
+                              placeholder="Reason, e.g. warehouse checked SellerFlex returns, product not received"
+                              style={{ minWidth: '24rem' }}
+                              autoFocus
+                            />
+                            <button
+                              className="ainv-btn ainv-btn--danger ainv-btn--sm"
+                              type="button"
+                              onClick={() => void onConfirmMark()}
+                              disabled={savingMark || markReason.trim().length < 4}
+                            >
+                              {savingMark ? 'Saving...' : 'Move to step 11'}
+                            </button>
+                            <button
+                              className="ainv-btn ainv-btn--sm"
+                              type="button"
+                              onClick={() => setMarkingOrderId('')}
+                              disabled={savingMark}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : null,
+                  ]
+                })}
+              </tbody>
+            </table>
+          </div>
+          {movedCount > 0 ? (
+            <div className="apc-button-row">
+              <button className="ainv-btn" type="button" onClick={() => ctx.goToStep(11)} disabled={busy}>
+                Go to step 11 — post the Amazon Return Exp journal
+              </button>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
       {!ctx.salesComplete ? (
         <p className="apc-muted">
           Every sales payment and fee journal in step 9 must be posted and verified first. You can review the Zoho credit
@@ -340,13 +455,12 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
               <th className="apc-money">Already refunded</th>
               <th>Action</th>
               <th>Status</th>
-              <th />
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={11} className="apc-muted">
+                <td colSpan={10} className="apc-muted">
                   {loading
                     ? 'Loading the refund plan...'
                     : plan
@@ -355,7 +469,7 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
                 </td>
               </tr>
             ) : (
-              rows.flatMap((row) => [
+              rows.map((row) => (
                 <tr key={row.orderId}>
                   <td>{row.orderId}</td>
                   <td>{row.zohoInvoiceNumber || row.zohoInvoiceId || '-'}</td>
@@ -375,70 +489,9 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
                       : '-'}
                   </td>
                   <td>{ACTION_LABEL[row.action] || row.action}</td>
-                  <td>{row.error || row.blockingReason || row.status || '-'}</td>
-                  <td>
-                    {row.action === 'moved_to_not_received' ? (
-                      <button
-                        className="ainv-btn ainv-btn--sm"
-                        type="button"
-                        onClick={() => void onUndoMark(row.orderId)}
-                        disabled={busy || marksLocked}
-                        title={marksLocked ? 'The step 11 journal is already posted.' : undefined}
-                      >
-                        Undo
-                      </button>
-                    ) : canMarkNotReceived(row) ? (
-                      <button
-                        className="ainv-btn ainv-btn--sm"
-                        type="button"
-                        onClick={() => {
-                          setMarkingOrderId(row.orderId)
-                          setMarkReason('')
-                        }}
-                        disabled={busy || marksLocked}
-                      >
-                        Not received
-                      </button>
-                    ) : null}
-                  </td>
-                </tr>,
-                markingOrderId === row.orderId ? (
-                  <tr key={`${row.orderId}-mark`}>
-                    <td colSpan={11}>
-                      <div className="apc-button-row">
-                        <span>
-                          Not received — post {money(row.amazonRefundAmount ?? 0, ctx.currency)} to Amazon Return Exp (step 11).
-                        </span>
-                        <input
-                          className="ainv-input"
-                          type="text"
-                          value={markReason}
-                          onChange={(e) => setMarkReason(e.target.value)}
-                          placeholder="Reason, e.g. warehouse checked SellerFlex returns, product not received"
-                          style={{ minWidth: '24rem' }}
-                          autoFocus
-                        />
-                        <button
-                          className="ainv-btn ainv-btn--danger ainv-btn--sm"
-                          type="button"
-                          onClick={() => void onConfirmMark()}
-                          disabled={savingMark || markReason.trim().length < 4}
-                        >
-                          {savingMark ? 'Saving...' : 'Move to step 11'}
-                        </button>
-                        <button
-                          className="ainv-btn ainv-btn--sm"
-                          type="button"
-                          onClick={() => setMarkingOrderId('')}
-                          disabled={savingMark}
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ) : null,
-              ])
+                  <td>{rowProblem(row) || row.status || '-'}</td>
+                </tr>
+              ))
             )}
           </tbody>
         </table>

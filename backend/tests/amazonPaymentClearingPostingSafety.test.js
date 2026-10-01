@@ -1190,6 +1190,41 @@ test('offline step 10 plan uses saved refunds and never looks up the Zoho custom
   assert.equal(byOrder.get('r-1').zohoCustomerId, null)
 })
 
+test('a return whose credit note create Zoho rejected can still be marked not received', async () => {
+  const service = require('../src/services/amazonPaymentClearingService')
+  const batch = notReceivedBatch({ returnDispositions: [], creditNoteRefundsCheckedAt: new Date().toISOString() })
+  const orderId = '404-0828335-0868329'
+  const original = {
+    getBatchById: store.getBatchById,
+    listPostingsForBatch: store.listPostingsForBatch,
+    updateReturnDispositions: store.updateReturnDispositions,
+    insertClearingAudit: store.insertClearingAudit,
+  }
+  let postings = [{ id: 5, batchId: batch.batchId, orderId, paymentType: 'credit_note_create', status: 'failed', zohoPaymentId: null, errorMessage: 'Specify the Associated Invoice Number.' }]
+  let saved = null
+  store.getBatchById = async () => batch
+  store.listPostingsForBatch = async () => postings
+  store.updateReturnDispositions = async (_id, rows) => {
+    saved = rows
+    return { ...batch, returnDispositions: rows }
+  }
+  store.insertClearingAudit = async () => ({})
+  try {
+    await service.markReturnNotReceived(9998, orderId, { reason: 'warehouse did not receive' }, { actorUserId: 1 })
+    assert.deepEqual(saved.map((d) => d.orderId), [orderId])
+
+    saved = null
+    postings = [{ ...postings[0], status: 'posted', zohoPaymentId: 'cn-9' }]
+    await assert.rejects(
+      () => service.markReturnNotReceived(9997, orderId, { reason: 'warehouse did not receive' }, { actorUserId: 1 }),
+      (err) => err.code === 'AMAZON_PAYMENT_CLEARING_CREDIT_NOTE_EXISTS'
+    )
+    assert.equal(saved, null)
+  } finally {
+    Object.assign(store, original)
+  }
+})
+
 test('marking not received needs a recent Zoho refresh', async () => {
   const service = require('../src/services/amazonPaymentClearingService')
   const batch = notReceivedBatch({ returnDispositions: [] })

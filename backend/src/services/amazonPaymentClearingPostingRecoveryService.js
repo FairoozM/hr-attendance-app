@@ -14,6 +14,7 @@ const {
   collectReturnRowsForApply,
   settlementHasReturnApplyWork,
   localCreditNotePostingsByOrder,
+  hasActiveCreditNotePosting,
   notReceivedOrderIds,
 } = require('./amazonPaymentClearingCreditNotePostingService')
 const recovery = require('./amazonPaymentClearingZohoRecovery')
@@ -138,7 +139,7 @@ async function buildPostingStatus({ batch, creditNoteBatch = null, store, env = 
   const movedToNotReceived = notReceivedOrderIds(returnsBatch)
   for (const row of returnRows) {
     const local = cnLocal.get(clean(row.orderId)) || { create: null, refund: null }
-    if (movedToNotReceived.has(clean(row.orderId)) && !local.create && !local.refund && !clean(row.zohoCreditNoteId)) continue
+    if (movedToNotReceived.has(clean(row.orderId)) && !hasActiveCreditNotePosting(local) && !clean(row.zohoCreditNoteId)) continue
     const refundStatus = entryStatus(local.refund)
     const createStatus = local.create ? entryStatus(local.create) : ''
     const status =

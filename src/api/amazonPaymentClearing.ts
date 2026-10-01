@@ -534,6 +534,14 @@ export interface PaymentClearingPaymentPreview {
   warnings: string[]
 }
 
+export interface CreditNoteLocalPosting {
+  postingId: number
+  paymentType: string
+  status: string
+  zohoId: string
+  errorMessage: string
+}
+
 export interface CreditNoteApplyPlanRow {
   orderId: string
   action:
@@ -562,6 +570,8 @@ export interface CreditNoteApplyPlanRow {
   zohoCreditNoteNumber?: string
   blockingReason?: string
   error?: string
+  localCreate?: CreditNoteLocalPosting | null
+  localRefund?: CreditNoteLocalPosting | null
 }
 
 export interface CreditNoteApplyPlan {
