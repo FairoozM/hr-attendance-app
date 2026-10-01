@@ -70,13 +70,37 @@ function sortMatchedChildrenForFallback(matchedOrders) {
     })
 }
 
-function findDeterministicChildForParent(parentOrderId, matchedOrders) {
+const CAPACITY_TOLERANCE = 0.01
+
+function parentChargeNeed(row) {
+  return round2(Math.max(0, -num(row?.total)))
+}
+
+function remainingChildCapacity(child, usedCapacity) {
+  const used = usedCapacity ? num(usedCapacity.get(matchKey(child.itemOrderId))) : 0
+  return round2(num(child.total) - used)
+}
+
+/**
+ * Lowest-suffix matched child whose statement Total can absorb `need` (a net parent charge
+ * larger than the child's Total pushes the payment past its Zoho invoice). When no child
+ * can absorb it, the child with the most remaining capacity.
+ */
+function findDeterministicChildForParent(parentOrderId, matchedOrders, need = 0, usedCapacity = null) {
   const parent = clean(parentOrderId)
   if (!parent) return null
   const children = sortMatchedChildrenForFallback(matchedOrders).filter((m) =>
     isStrictChildOfParent(parent, m.itemOrderId)
   )
-  return children[0] || null
+  if (!children.length) return null
+  if (num(need) < CAPACITY_TOLERANCE) return children[0]
+  const fits = children.find(
+    (c) => remainingChildCapacity(c, usedCapacity) + CAPACITY_TOLERANCE >= num(need)
+  )
+  if (fits) return fits
+  return children.reduce((best, c) =>
+    remainingChildCapacity(c, usedCapacity) > remainingChildCapacity(best, usedCapacity) ? c : best
+  )
 }
 
 /**
@@ -196,6 +220,7 @@ function applyParentOrderChargeFallbackWithSynthetics(rows, matchedOrders = [], 
   const assignmentCounts = new Map()
   const syntheticMatched = []
   const syntheticByItem = new Map()
+  const usedCapacity = new Map()
 
   const annotated = list.map((row) => {
     if (!needsParentOrderFallback(row)) {
@@ -209,7 +234,12 @@ function applyParentOrderChargeFallbackWithSynthetics(rows, matchedOrders = [], 
     }
 
     const originalParentOrderId = clean(row.parentOrderId)
-    let child = findDeterministicChildForParent(originalParentOrderId, matchedOrders)
+    const need = parentChargeNeed(row)
+    let child = findDeterministicChildForParent(originalParentOrderId, matchedOrders, need, usedCapacity)
+    if (child) {
+      const childKey = matchKey(child.itemOrderId)
+      usedCapacity.set(childKey, round2(num(usedCapacity.get(childKey)) + need))
+    }
     let reason = ASSIGNMENT_REASON
     let reasonLabel = ASSIGNMENT_REASON_LABEL
     let status = 'assigned'

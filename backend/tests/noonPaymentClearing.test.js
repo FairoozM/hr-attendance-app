@@ -1260,6 +1260,59 @@ describe('parent-order fallback bounds', () => {
     assert.equal(rows[0].assignmentReason, 'parent_order_fallback')
   })
 
+  it('assigns a parent charge to a child whose Total can absorb it (PS-11752 NAEI80070711516)', () => {
+    const matched = [
+      { matchStatus: 'matched', itemOrderId: 'NAEI80070711516-4', zohoInvoiceId: 'inv-4', total: 25.27 },
+      { matchStatus: 'matched', itemOrderId: 'NAEI80070711516-5', zohoInvoiceId: 'inv-5', total: 25.27 },
+      { matchStatus: 'matched', itemOrderId: 'NAEI80070711516-6', zohoInvoiceId: 'inv-6', total: 912.43 },
+    ]
+    const rows = applyParentOrderChargeFallback(
+      [
+        {
+          rowNumber: 58,
+          rowClass: ROW_CLASS.PARENT_ORDER_CHARGE,
+          parentOrderId: 'NAEI80070711516',
+          itemOrderId: '',
+          fulfillmentFee: -115.51,
+          orderSubsidies: 25.47,
+          total: -90.04,
+        },
+        {
+          rowNumber: 59,
+          rowClass: ROW_CLASS.PARENT_ORDER_CHARGE,
+          parentOrderId: 'NAEI80070711516',
+          itemOrderId: '',
+          fulfillmentFee: -20,
+          total: -20,
+        },
+        {
+          rowNumber: 60,
+          rowClass: ROW_CLASS.PARENT_ORDER_CHARGE,
+          parentOrderId: 'NAEI80070711516',
+          itemOrderId: '',
+          orderSubsidies: 7.56,
+          total: 7.56,
+        },
+      ],
+      matched
+    )
+    assert.equal(rows[0].assignedItemOrderId, 'NAEI80070711516-6')
+    assert.equal(rows[1].assignedItemOrderId, 'NAEI80070711516-4')
+    assert.equal(rows[2].assignedItemOrderId, 'NAEI80070711516-4')
+  })
+
+  it('falls back to the child with most remaining capacity when none can absorb the charge', () => {
+    const child = findDeterministicChildForParent(
+      'NAEI1',
+      [
+        { matchStatus: 'matched', itemOrderId: 'NAEI1-1', total: 10 },
+        { matchStatus: 'matched', itemOrderId: 'NAEI1-2', total: 40 },
+      ],
+      100
+    )
+    assert.equal(child.itemOrderId, 'NAEI1-2')
+  })
+
   it('still flags genuine unexplained other amounts', () => {
     const row = normalizeNoonStatementRow(
       {
