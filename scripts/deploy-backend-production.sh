@@ -83,8 +83,15 @@ with open(sys.argv[2], "w", encoding="utf-8") as f:
     json.dump({"commands": [script]}, f)
 PY
 
+echo "==> Staging backend..."
+STAGE="$(mktemp -d)"
+trap 'cleanup_local; rm -rf "$STAGE"' EXIT
+tar cf - --exclude=node_modules --exclude=.env --exclude=backend/data -C "$ROOT" backend shared | tar xf - -C "$STAGE"
+# Production Node has no type stripping: ship .ts modules as stripped JavaScript under the same names.
+node "$ROOT/scripts/strip-backend-types.ts" "$STAGE/backend"
+
 echo "==> Packaging backend..."
-tar czf "/tmp/$KEY" --exclude=node_modules --exclude=.env --exclude=backend/data -C "$ROOT" backend shared
+tar czf "/tmp/$KEY" -C "$STAGE" backend shared
 
 echo "==> Uploading s3://${BUCKET}/${KEY}..."
 aws s3 cp "/tmp/$KEY" "s3://${BUCKET}/${KEY}" --region "$REGION"
