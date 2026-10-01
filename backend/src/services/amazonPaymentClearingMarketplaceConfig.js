@@ -266,7 +266,8 @@ function getPaymentClearingMarketplaceConfig(marketplace) {
       accountId: readEnv(key, 'ZOHO_RETURN_EXPENSE_ACCOUNT_ID', key === 'uae' ? '4265011000003287848' : ''),
     }),
     unclearedClearing: Object.freeze({
-      vatRate: Number(readEnv(key, 'FEE_VAT_RATE', key === 'uae' ? '0.05' : '0.15')),
+      // KSA input/output VAT is not kept in Zoho: the full fee goes to expense, no VAT line.
+      vatRate: key === 'uae' ? Number(readEnv(key, 'FEE_VAT_RATE', '0.05')) : 0,
       inputVatAccountIdEnv: `${envPrefix(key)}_ZOHO_INPUT_VAT_ACCOUNT_ID`,
       inputVatAccount: Object.freeze({
         accountCode: 'input_vat',

@@ -5,6 +5,9 @@
  *   Dr Amazon Commission Exp (net)  + Dr Input VAT  / Cr Amazon Uncleared Commission (gross)
  *   Dr Amazon Shipping Exp (net)    + Dr Input VAT  / Cr Amazon Uncleared Shipping   (gross)
  *
+ * When the marketplace VAT rate is 0 (KSA) there is no Input VAT line: the full gross
+ * goes to expense.
+ *
  * The gross is exactly what this settlement's commission / shipping record payments
  * deposited to each uncleared account in Zoho.
  */
@@ -119,7 +122,7 @@ function buildUnclearedClearingPlan(batch, postings, opts) {
       { ...uncleared, debitOrCredit: unclearedSide, amount: split.gross, description },
     ]
     const missing = lineItems.filter((row) => !clean(row.accountId)).map((row) => row.accountName || row.accountCode)
-    const envHints = [settings[kind.expenseEnvKey], settings.inputVatAccountIdEnv]
+    const envHints = [settings[kind.expenseEnvKey], ...(split.vat > 0 ? [settings.inputVatAccountIdEnv] : [])]
     lines.push({
       key: kind.paymentType,
       paymentType: kind.paymentType,

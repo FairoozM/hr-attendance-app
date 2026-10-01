@@ -75,6 +75,7 @@ export function StepUnclearedClearing({ ctx }: { ctx: ClearingContext }) {
   const allReady = lines.length > 0 && lines.every((line) => line.status === 'ready')
   const canPost = Boolean(plan?.readiness?.ok && allReady && !posted)
   const vatPercent = plan ? Math.round(plan.vatRate * 10000) / 100 : null
+  const splitsVat = vatPercent == null ? ctx.marketplace !== 'KSA' : vatPercent > 0
 
   const run = async (dryRun: boolean) => {
     if (!batchId) return
@@ -108,8 +109,10 @@ export function StepUnclearedClearing({ ctx }: { ctx: ClearingContext }) {
       <div className="apc-alert">
         Record payments in step 9 park Amazon&apos;s commission and shipping/FBA fees on the <strong>uncleared</strong>{' '}
         accounts. This step moves exactly those payment amounts into expense with one journal per account (return
-        journals from step 12 already post straight to expense), splitting out the {vatPercent != null ? `${vatPercent}% ` : ''}input VAT
-        included in Amazon&apos;s fees.
+        journals from step 12 already post straight to expense)
+        {splitsVat
+          ? `, splitting out the ${vatPercent != null ? `${vatPercent}% ` : ''}input VAT included in Amazon's fees.`
+          : '. VAT is not tracked in Zoho for this marketplace, so the full amount goes to expense.'}
       </div>
 
       {localError ? <div className="apc-alert apc-alert--error" role="alert">{localError}</div> : null}
@@ -127,8 +130,8 @@ export function StepUnclearedClearing({ ctx }: { ctx: ClearingContext }) {
 
       <section className="apc-summary-grid">
         <SummaryCard label="Uncleared Total" value={money(plan?.summary?.grossTotal ?? 0, currency)} />
-        <SummaryCard label="To Expense (net)" value={money(plan?.summary?.netTotal ?? 0, currency)} />
-        <SummaryCard label="Input VAT" value={money(plan?.summary?.vatTotal ?? 0, currency)} />
+        <SummaryCard label={splitsVat ? 'To Expense (net)' : 'To Expense'} value={money(plan?.summary?.netTotal ?? 0, currency)} />
+        {splitsVat ? <SummaryCard label="Input VAT" value={money(plan?.summary?.vatTotal ?? 0, currency)} /> : null}
         <SummaryCard label="Status" value={posted ? 'Posted' : lines.length ? 'Not posted' : 'Nothing to clear'} />
       </section>
 

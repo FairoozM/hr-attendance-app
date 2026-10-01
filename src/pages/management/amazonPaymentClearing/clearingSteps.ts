@@ -97,7 +97,7 @@ export const CLEARING_STEPS: ClearingStep[] = [
     key: 'clear-uncleared',
     title: 'Clear Commission & Shipping',
     description:
-      'Move the commission and shipping this settlement paid onto Amazon Uncleared Commission and Uncleared Shipping into Commission Exp and Shipping Exp, splitting out the input VAT.',
+      'Move the commission and shipping this settlement paid onto Amazon Uncleared Commission and Uncleared Shipping into Commission Exp and Shipping Exp (UAE splits out the input VAT; KSA posts the full amount).',
   },
 ]
 

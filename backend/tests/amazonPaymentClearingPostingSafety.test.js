@@ -1143,7 +1143,7 @@ test('step 13 clears exactly the commission / shipping record payments, net of i
   assert.equal(again.summary.journalsSkipped, 2)
 })
 
-test('step 13 waits for steps 9-12 and blocks KSA without an input VAT account', async () => {
+test('step 13 waits for steps 9-12; KSA posts the full amount to expense without an input VAT line', async () => {
   const zoho = createFakeZoho({ currency: 'AED' })
   const batch = notReceivedBatch()
   await assert.rejects(
@@ -1155,13 +1155,19 @@ test('step 13 waits for steps 9-12 and blocks KSA without an input VAT account',
   const ksa = { ...batch, marketplace: 'KSA' }
   const ksaPostings = [{ batchId: ksa.batchId, paymentType: 'commission', accountCode: '1026', amount: 115, zohoPaymentId: 'zp-k' }]
   const plan = buildUnclearedClearingPlanForBatch(ksa, ksaPostings.map((row) => ({ status: 'posted', mappingSnapshot: {}, ...row })), PROD_LIKE_KSA_ENV)
-  assert.equal(plan.lines[0].vatAmount, 15)
-  assert.equal(plan.lines[0].status, 'needs_mapping')
-  assert.match(plan.lines[0].blockingReason, /AMAZON_KSA_ZOHO_INPUT_VAT_ACCOUNT_ID/)
-  await assert.rejects(
-    () => postUnclearedClearingForBatch(clearingOpts(ksa, storeFor(ksa, ksaPostings), zoho)),
-    (err) => err.code === 'AMAZON_PAYMENT_CLEARING_CLEARING_ACCOUNT_MISSING'
-  )
+  const line = plan.lines[0]
+  assert.equal(plan.vatRate, 0)
+  assert.equal(line.vatAmount, 0)
+  assert.equal(line.netAmount, 115)
+  assert.equal(line.status, 'ready')
+  assert.equal(line.blockingReason, '')
+  assert.deepEqual(line.lineItems.map((l) => [l.debitOrCredit, l.accountCode, l.amount]), [
+    ['debit', 'commission_expense', 115],
+    ['credit', '1026', 115],
+  ])
+  assert.ok(!line.lineItems.some((l) => l.accountCode === 'input_vat'))
+  const dry = await postUnclearedClearingForBatch(clearingOpts(ksa, storeFor(ksa, ksaPostings), zoho, { dryRun: true }))
+  assert.deepEqual(dry.journals.map((j) => j.status), ['dry_run'])
   assert.equal(zoho.calls.createJournal, 0)
 })
 
