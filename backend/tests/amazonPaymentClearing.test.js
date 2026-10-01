@@ -2185,6 +2185,54 @@ test('return fee breakdown splits commission reversal and retained shipping on r
   assert.ok(breakdown.netReturnSettlement < 0)
 })
 
+test('refunded closing fee posts Dr Undeposited / Cr Shipping and shipping refund nets with promotion', () => {
+  const { buildReturnFeeJournalLinesForBreakdown } = require('../src/services/amazonPaymentClearingReturnFeeService')
+  const orderId = '402-0000000-0000001'
+  const rows = [
+    { orderId, transactionType: 'Refund', amountType: 'ItemPrice', amountDescription: 'Principal', amount: -100 },
+    { orderId, transactionType: 'Refund', amountType: 'ItemPrice', amountDescription: 'Shipping', amount: -9.17 },
+    { orderId, transactionType: 'Refund', amountType: 'Promotion', amountDescription: 'Shipping', amount: 9.17 },
+    { orderId, transactionType: 'Refund', amountType: 'ItemFees', amountDescription: 'VariableClosingFee', amount: 20.76 },
+  ]
+  const breakdown = buildReturnFeeBreakdown(rows)
+  assert.equal(breakdown.customerRefundAmount, -100)
+  assert.equal(breakdown.shippingFbaRetained, 20.76)
+
+  const batch = { marketplace: 'UAE', report: { settlementId: 'S', settlementStartDate: '2026-09-03', settlementEndDate: '2026-09-17' } }
+  const lines = buildReturnFeeJournalLinesForBreakdown(breakdown, batch, { marketplace: 'UAE' })
+  const refundLine = lines.find((line) => line.normalizedFeeType === 'RETURN_SHIPPING_FEE_REFUND')
+  assert.ok(refundLine)
+  assert.equal(refundLine.amount, 20.76)
+  assert.match(refundLine.debit.accountName, /Undeposi/i)
+  assert.match(refundLine.credit.accountName, /Shipping/i)
+  assert.ok(!lines.some((line) => line.normalizedFeeType === 'RETURN_SHIPPING_RETAINED'))
+  assert.ok(!lines.some((line) => line.normalizedFeeType === 'RETURN_VARIANCE'))
+})
+
+test('credit note refund never exceeds what Amazon refunded', () => {
+  const { resolveCreditNoteRefundAmount } = require('../src/services/amazonPaymentClearingCreditNotePostingService')
+  assert.equal(resolveCreditNoteRefundAmount({ creditNoteAmount: 225, amazonRefundAmount: 121 }), 121)
+  assert.equal(resolveCreditNoteRefundAmount({ creditNoteAmount: 100, amazonRefundAmount: 150 }), 100)
+  assert.equal(resolveCreditNoteRefundAmount({ creditNoteAmount: 0, amazonRefundAmount: 75 }), 75)
+  assert.equal(resolveCreditNoteRefundAmount({ creditNoteAmount: 80, amazonRefundAmount: 0 }), 80)
+})
+
+test('COD charge offsets the COD fee so Undeposited receives the full order net', () => {
+  const orderId = '404-0000000-0000002'
+  const breakdown = buildOrderFeeBreakdown([
+    { orderId, transactionType: 'Order', amountType: 'ItemPrice', amountDescription: 'Principal', amount: 100 },
+    { orderId, transactionType: 'Order', amountType: 'ItemPrice', amountDescription: 'COD', amount: 50 },
+    { orderId, transactionType: 'Order', amountType: 'ItemFees', amountDescription: 'Commission', amount: -10 },
+    { orderId, transactionType: 'Order', amountType: 'ItemFees', amountDescription: 'CODFee', amount: -50 },
+  ])
+  assert.equal(breakdown.otherChargesTotal, 50)
+  const plan = buildInvoicePaymentPlan({ ...breakdown, orderId, zohoInvoiceTotal: 100 }, 'Amazon', 'UAE')
+  assert.equal(plan.invoiceClearingNetBalance, 90)
+  assert.equal(plan.netBalancePayment.amount, 90)
+  assert.equal(plan.shippingFbaPayment.amount, 0)
+  assert.equal(plan.remainingDifference, 0)
+})
+
 test('credit note apply plan marks missing credit note as create_and_refund', async () => {
   const batch = {
     batchId: 9,
@@ -2867,6 +2915,27 @@ test('UAE SAFE-T reimbursements become one simple journal, not invoice payments'
     'SAFE-T Reimbursement 3 Orders 03.09.2026-17.09.2026\n403-7899568-4465903, 403-3282003-4189922, 407-3586917-0392359'
   )
   assert.doesNotMatch(group.journalPreview.notes, /HR|hr-attendance|Generated|Purchase Planning/)
+
+  const { buildNonOrderLinkedAmazonFeeMappings } = require('../src/services/amazonPaymentClearingPreviewService')
+  const reversedRule = {
+    id: 39,
+    marketplace: 'UAE',
+    normalizedFeeType: 'SAFET_REIMBURSEMENT',
+    rawTransactionType: group.rawTransactionType,
+    descriptionPattern: group.description,
+    debitAccountId: 'acct-safet',
+    debitAccountName: 'Amazon Safe-T Damage Claim',
+    creditAccountId: '4265011000000781161',
+    creditAccountName: 'Amazon Undeposided Funds',
+    isActive: true,
+    priority: 100,
+  }
+  const [fixed] = buildNonOrderLinkedAmazonFeeMappings(parsed.rows, { ...preview.report, marketplace: 'UAE' }, [reversedRule]).filter(
+    (row) => row.normalizedFeeType === 'SAFET_REIMBURSEMENT'
+  )
+  assert.equal(fixed.directionCorrected, true)
+  assert.equal(fixed.journalPreview.debit.accountId, '4265011000000781161')
+  assert.equal(fixed.journalPreview.credit.accountId, 'acct-safet')
 })
 
 test('reopened UAE batch applies saved UAE fee journal mappings', () => {

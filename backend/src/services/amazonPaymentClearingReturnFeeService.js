@@ -34,6 +34,7 @@ function emptyReturnBreakdown(orderId = '') {
     orderId,
     customerRefundAmount: 0,
     principalRefundAmount: 0,
+    taxRefundAmount: 0,
     commissionReversal: 0,
     shippingFbaRetained: 0,
     otherFeeDelta: 0,
@@ -61,8 +62,16 @@ function buildReturnFeeBreakdown(orderRows) {
     if (amountType === 'ItemPrice' && amountDesc.toLowerCase() === 'principal') {
       breakdown.principalRefundAmount = round2(breakdown.principalRefundAmount + amount)
     }
-    if (amountType === 'ItemPrice' && ['principal', 'tax', 'shipping', 'shipping tax'].includes(amountDesc.toLowerCase())) {
+    if (amountType === 'ItemPrice' && amountDesc.toLowerCase() === 'tax') {
+      breakdown.taxRefundAmount = round2(breakdown.taxRefundAmount + amount)
+    }
+    if (amountType === 'ItemPrice' && ['principal', 'tax'].includes(amountDesc.toLowerCase())) {
       breakdown.customerRefundAmount = round2(breakdown.customerRefundAmount + amount)
+      continue
+    }
+    // Shipping refunds net against the shipping promotion / shipping fees, not the credit note.
+    if (amountType === 'ItemPrice' && ['shipping', 'shipping tax'].includes(amountDesc.toLowerCase())) {
+      breakdown.shippingFbaRetained = round2(breakdown.shippingFbaRetained + amount)
       continue
     }
     if (amountType === 'ItemFees' && amountDesc === 'Commission') {
@@ -154,6 +163,21 @@ function buildReturnFeeJournalLinesForBreakdown(breakdown, batch, opts = {}) {
       credit: { ...accounts.UNDEPOSITED, amount: shippingAmt },
       referenceNumber: entry.referenceNumber,
       notes: entry.description || `Amazon return shipping/FBA retained ${orderId}`,
+      status: 'ready',
+    })
+  }
+  if (shippingAmt > TOLERANCE && breakdown.shippingFbaRetained > 0) {
+    const entry = buildEntryReference(settlementReference, 'return_shipping_fee_refund', `Order ${orderId}`)
+    lines.push({
+      key: `return-shipping-refund-${orderId}`,
+      orderId,
+      feeType: 'return_shipping_fee_refund',
+      normalizedFeeType: 'RETURN_SHIPPING_FEE_REFUND',
+      amount: shippingAmt,
+      debit: { ...accounts.UNDEPOSITED, amount: shippingAmt },
+      credit: { ...accounts.SHIPPING_FBA, amount: shippingAmt },
+      referenceNumber: entry.referenceNumber,
+      notes: entry.description || `Amazon return shipping/FBA fee refund ${orderId}`,
       status: 'ready',
     })
   }

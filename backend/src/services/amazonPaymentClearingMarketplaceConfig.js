@@ -285,6 +285,7 @@ function getPaymentClearingMarketplaceConfig(marketplace) {
     }),
     undepositedAccountCode: undeposited.accountCode,
     undepositedAccountName: undeposited.defaultName,
+    undepositedAccountId: undeposited.verifiedAccountId || '',
     feeJournalAccountSuggestions: feeJournalAccountSuggestions(key),
     journalNotesLabel: key === 'uae' ? 'Amazon UAE' : 'Amazon KSA',
     settlementNotFoundCode:

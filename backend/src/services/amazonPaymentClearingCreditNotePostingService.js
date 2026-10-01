@@ -59,8 +59,8 @@ function principalRefundAmountForOrder(orderId, allRows) {
   )
   if (!orderRows.length) return 0
   const breakdown = buildReturnFeeBreakdown(orderRows)
-  const principalOnly = positiveAmount(breakdown.principalRefundAmount)
-  if (principalOnly > TOLERANCE) return principalOnly
+  const principalWithTax = positiveAmount(round2(breakdown.principalRefundAmount + breakdown.taxRefundAmount))
+  if (positiveAmount(breakdown.principalRefundAmount) > TOLERANCE) return principalWithTax
   return positiveAmount(breakdown.customerRefundAmount)
 }
 
@@ -323,7 +323,14 @@ function notReceivedOrderIds(batch) {
   )
 }
 
+/**
+ * Undeposited Funds only paid out what Amazon refunded, so a larger credit note is
+ * refunded for the Amazon amount (the rest stays open on the credit note).
+ */
 function resolveCreditNoteRefundAmount(row) {
+  const creditNoteAmount = positiveAmount(row.creditNoteAmount)
+  const amazonRefund = positiveAmount(row.amazonRefundAmount)
+  if (creditNoteAmount > TOLERANCE && amazonRefund > TOLERANCE) return round2(Math.min(creditNoteAmount, amazonRefund))
   return resolveCreditNoteApplyAmount(row)
 }
 

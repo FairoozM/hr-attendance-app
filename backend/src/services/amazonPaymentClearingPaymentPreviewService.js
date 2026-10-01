@@ -99,7 +99,9 @@ function requireBatchForPaymentPreview(batch) {
 function buildInvoicePaymentPlan(order, customerName = '', marketplace = 'KSA') {
   const accounts = paymentAccountsFor(marketplace)
   const shippingOffsetTotal = round2(
-    (Number(order.shippingCollectedTotal) || 0) + (Number(order.shippingPromotionTotal) || 0)
+    (Number(order.shippingCollectedTotal) || 0) +
+      (Number(order.shippingPromotionTotal) || 0) +
+      (Number(order.otherChargesTotal) || 0)
   )
   const shippingFbaFeeTotal = round2(
     (Number(order.fulfillmentFeeTotal) || 0) +

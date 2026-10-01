@@ -12,6 +12,7 @@ const ORDER_AMOUNT_FIELDS = [
   'fulfillmentFeeTotal',
   'closingFeeTotal',
   'shippingPromotionTotal',
+  'otherChargesTotal',
   'refundTotal',
   'otherAmazonFeeTotal',
   'amazonOrderTotal',

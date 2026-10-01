@@ -21,6 +21,7 @@ function emptyBreakdown() {
     fulfillmentFeeTotal: 0,
     closingFeeTotal: 0,
     shippingPromotionTotal: 0,
+    otherChargesTotal: 0,
     refundTotal: 0,
     otherAmazonFeeTotal: 0,
     amazonOrderTotal: 0,
@@ -71,6 +72,8 @@ function classifyOrderRowBucket(row) {
   if (amountType === 'ItemFees' && amountDesc === 'FBAPerUnitFulfillmentFee') return 'fulfillmentFeeTotal'
   if (amountType === 'ItemFees' && amountDesc === 'VariableClosingFee') return 'closingFeeTotal'
   if (amountType === 'Promotion' && amountDesc === 'Shipping') return 'shippingPromotionTotal'
+  // Other customer charges (COD, gift wrap) offset the matching Amazon fee (e.g. CODFee).
+  if (amountType === 'ItemPrice' && amountDesc && amount > 0) return 'otherChargesTotal'
 
   if (amount < 0 && isFeeLike(row)) return 'otherAmazonFeeTotal'
 

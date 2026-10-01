@@ -78,6 +78,35 @@ function suggestedAccountsForNormalizedFeeType(normalizedFeeType, marketplace = 
   }
 }
 
+function isUndepositedAccount(accountId, accountName, marketplace) {
+  const cfg = getPaymentClearingMarketplaceConfig(marketplace)
+  const id = String(accountId || '').trim()
+  if (id && cfg.undepositedAccountId && id === cfg.undepositedAccountId) return true
+  return /undepos/i.test(String(accountName || ''))
+}
+
+/**
+ * Money Amazon pays in (positive total) must debit Undeposited Funds; fees (negative)
+ * must credit it. A mapping saved the other way round is flipped so the journal still
+ * moves Undeposited Funds in the direction the settlement did.
+ */
+function orientAccountsForAmount(accounts, totalAmount, marketplace) {
+  const amount = round2(Number(totalAmount) || 0)
+  const debitIsUndeposited = isUndepositedAccount(accounts.debitAccountId, accounts.debitAccountName, marketplace)
+  const creditIsUndeposited = isUndepositedAccount(accounts.creditAccountId, accounts.creditAccountName, marketplace)
+  const reversed =
+    (amount > 0 && creditIsUndeposited && !debitIsUndeposited) ||
+    (amount < 0 && debitIsUndeposited && !creditIsUndeposited)
+  if (!reversed) return { ...accounts, directionCorrected: false }
+  return {
+    debitAccountName: accounts.creditAccountName,
+    debitAccountId: accounts.creditAccountId,
+    creditAccountName: accounts.debitAccountName,
+    creditAccountId: accounts.debitAccountId,
+    directionCorrected: true,
+  }
+}
+
 function mappingStatus(accounts, amount = 0, rule = null) {
   if (Math.abs(round2(Number(amount) || 0)) <= 0.01) return 'not_required'
   if (rule && rule.isActive === false) return 'inactive_mapping'
@@ -194,14 +223,18 @@ function buildNonOrderLinkedAmazonFeeMappings(rows, report = {}, mappingRules = 
         : null
       const rule = findFeeJournalMappingRule(entry, mappingRules)
       const suggestion = suggestedAccountsForNormalizedFeeType(entry.normalizedFeeType, marketplace)
-      const accounts = rule
-        ? {
-            debitAccountName: rule.debitAccountName || '',
-            debitAccountId: rule.debitAccountId || '',
-            creditAccountName: rule.creditAccountName || '',
-            creditAccountId: rule.creditAccountId || '',
-          }
-        : suggestion
+      const accounts = orientAccountsForAmount(
+        rule
+          ? {
+              debitAccountName: rule.debitAccountName || '',
+              debitAccountId: rule.debitAccountId || '',
+              creditAccountName: rule.creditAccountName || '',
+              creditAccountId: rule.creditAccountId || '',
+            }
+          : suggestion,
+        entry.totalAmount,
+        marketplace
+      )
       return {
         ...entry,
         ...accounts,
