@@ -809,7 +809,7 @@ export function NoonPaymentClearingPage() {
                     </thead>
                     <tbody>
                       {rows.slice(0, 200).map((row) => (
-                        <tr key={row.rowNumber}>
+                        <tr key={`${row.rowNumber}-${row.splitPart ?? 0}`}>
                           <td>
                             <code className="npc-ref">{row.parentOrderId || '—'}</code>
                           </td>
@@ -916,7 +916,10 @@ export function NoonPaymentClearingPage() {
                             : null}
                           {open
                             ? parent.parentCharges.map((charge) => (
-                                <tr key={`pc-${charge.rowNumber}`} className="npc-hier-child npc-hier-charge">
+                                <tr
+                                  key={`pc-${charge.rowNumber}-${charge.splitPart ?? 0}`}
+                                  className="npc-hier-child npc-hier-charge"
+                                >
                                   <td colSpan={2}>Parent order charge</td>
                                   <td className="npc-money">{money(charge.total)}</td>
                                   <td>—</td>
@@ -1000,7 +1003,7 @@ export function NoonPaymentClearingPage() {
                     </thead>
                     <tbody>
                       {(preview.adjustments || []).map((row) => (
-                        <tr key={row.rowNumber}>
+                        <tr key={`${row.rowNumber}-${row.splitPart ?? 0}`}>
                           <td>
                             <code className="npc-ref">{row.parentOrderId || '—'}</code>
                           </td>
@@ -1175,14 +1178,16 @@ export function NoonPaymentClearingPage() {
                         const assigned = String(row.assignedItemOrderId || '')
                         const excluded = Boolean(row.excludeFromPaymentClearing)
                         return (
-                          <tr key={row.rowNumber}>
+                          <tr key={`${row.rowNumber}-${row.splitPart ?? 0}`}>
                             <td>
                               <code className="npc-ref">{row.parentOrderId}</code>
                               {assigned ? (
                                 <div className="npc-muted" style={{ marginTop: 4 }}>
                                   Cleared via: <code className="npc-ref">{assigned}</code>
                                   <br />
-                                  Parent-order fallback
+                                  {row.splitCount
+                                    ? `Split ${row.splitPart}/${row.splitCount} across child invoices`
+                                    : 'Parent-order fallback'}
                                 </div>
                               ) : null}
                               {excluded ? (

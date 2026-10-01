@@ -86,12 +86,16 @@ function remainingChildCapacity(child, usedCapacity) {
  * larger than the child's Total pushes the payment past its Zoho invoice). When no child
  * can absorb it, the child with the most remaining capacity.
  */
-function findDeterministicChildForParent(parentOrderId, matchedOrders, need = 0, usedCapacity = null) {
+function matchedChildrenForParent(parentOrderId, matchedOrders) {
   const parent = clean(parentOrderId)
-  if (!parent) return null
-  const children = sortMatchedChildrenForFallback(matchedOrders).filter((m) =>
+  if (!parent) return []
+  return sortMatchedChildrenForFallback(matchedOrders).filter((m) =>
     isStrictChildOfParent(parent, m.itemOrderId)
   )
+}
+
+function findDeterministicChildForParent(parentOrderId, matchedOrders, need = 0, usedCapacity = null) {
+  const children = matchedChildrenForParent(parentOrderId, matchedOrders)
   if (!children.length) return null
   if (num(need) < CAPACITY_TOLERANCE) return children[0]
   const fits = children.find(
@@ -101,6 +105,88 @@ function findDeterministicChildForParent(parentOrderId, matchedOrders, need = 0,
   return children.reduce((best, c) =>
     remainingChildCapacity(c, usedCapacity) > remainingChildCapacity(best, usedCapacity) ? c : best
   )
+}
+
+const SPLIT_AMOUNT_FIELDS = [
+  'netProceed',
+  'referralFee',
+  'fulfillmentFee',
+  'shippingCharges',
+  'otherOrderFees',
+  'orderSubsidies',
+  'orderSubscriptionFees',
+  'nonOrderFees',
+  'nonOrderSubscriptionFees',
+  'othersInclVat',
+  'total',
+]
+
+/**
+ * When no single child can absorb a parent charge, divide it across the children in
+ * proportion to their remaining capacity. Returns null when the children together
+ * cannot absorb it either.
+ */
+function planProportionalSplit(children, need, usedCapacity) {
+  const candidates = children
+    .map((child) => ({ child, capacity: remainingChildCapacity(child, usedCapacity) }))
+    .filter((c) => c.capacity >= CAPACITY_TOLERANCE)
+  if (candidates.length < 2) return null
+  const totalCapacity = round2(candidates.reduce((sum, c) => sum + c.capacity, 0))
+  if (totalCapacity + CAPACITY_TOLERANCE < need) return null
+  return candidates.map((c) => ({ child: c.child, share: c.capacity / totalCapacity }))
+}
+
+/** Cent remainders land on the part with the largest share so small invoices never overflow. */
+function splitRowAmounts(row, plan) {
+  const remainderIndex = plan.reduce((best, p, i) => (p.share > plan[best].share ? i : best), 0)
+  const parts = plan.map(() => ({}))
+  for (const field of SPLIT_AMOUNT_FIELDS) {
+    const value = num(row[field])
+    let allocated = 0
+    plan.forEach((p, i) => {
+      if (i === remainderIndex) return
+      parts[i][field] = round2(value * p.share)
+      allocated = round2(allocated + parts[i][field])
+    })
+    parts[remainderIndex][field] = round2(value - allocated)
+  }
+  return parts
+}
+
+function splitOriginalAmounts(row) {
+  return Object.fromEntries(SPLIT_AMOUNT_FIELDS.map((field) => [field, num(row[field])]))
+}
+
+/** Collapse previously split parts back to the original statement row before re-assigning. */
+function mergeSplitParentRows(rows) {
+  const out = []
+  const seen = new Set()
+  for (const row of rows) {
+    if (!row || !row.splitOriginalAmounts) {
+      out.push(row)
+      continue
+    }
+    if (seen.has(row.rowNumber)) continue
+    seen.add(row.rowNumber)
+    // Exclusions are per part; callers re-apply them by statementRowKey after re-splitting.
+    const {
+      splitPart,
+      splitCount,
+      splitShare,
+      splitOriginalAmounts: original,
+      excludeFromPaymentClearing,
+      excludeReason,
+      ...rest
+    } = row
+    out.push({ ...rest, ...original })
+  }
+  return out
+}
+
+/** Unique key for a statement row; split parts share the statement rowNumber. */
+function statementRowKey(row) {
+  const part = num(row?.splitPart)
+  return part ? `${row.rowNumber}#${part}` : String(row?.rowNumber)
 }
 
 /**
@@ -216,13 +302,13 @@ function assignParentRow(row, child, reason, reasonLabel, status) {
  * needed for logistics-only payments when the sale is not in this statement.
  */
 function applyParentOrderChargeFallbackWithSynthetics(rows, matchedOrders = [], zohoInvoices = []) {
-  const list = Array.isArray(rows) ? rows : []
+  const list = mergeSplitParentRows(Array.isArray(rows) ? rows : [])
   const assignmentCounts = new Map()
   const syntheticMatched = []
   const syntheticByItem = new Map()
   const usedCapacity = new Map()
 
-  const annotated = list.map((row) => {
+  const annotated = list.flatMap((row) => {
     if (!needsParentOrderFallback(row)) {
       return {
         ...row,
@@ -236,6 +322,37 @@ function applyParentOrderChargeFallbackWithSynthetics(rows, matchedOrders = [], 
     const originalParentOrderId = clean(row.parentOrderId)
     const need = parentChargeNeed(row)
     let child = findDeterministicChildForParent(originalParentOrderId, matchedOrders, need, usedCapacity)
+    const splitPlan =
+      child && remainingChildCapacity(child, usedCapacity) + CAPACITY_TOLERANCE < need
+        ? planProportionalSplit(
+            matchedChildrenForParent(originalParentOrderId, matchedOrders),
+            need,
+            usedCapacity
+          )
+        : null
+    if (splitPlan) {
+      const original = splitOriginalAmounts(row)
+      const amounts = splitRowAmounts(row, splitPlan)
+      return splitPlan.map((p, i) => {
+        const childKey = matchKey(p.child.itemOrderId)
+        const partNeed = parentChargeNeed(amounts[i])
+        usedCapacity.set(childKey, round2(num(usedCapacity.get(childKey)) + partNeed))
+        return assignParentRow(
+          {
+            ...row,
+            ...amounts[i],
+            splitPart: i + 1,
+            splitCount: splitPlan.length,
+            splitShare: round2(p.share * 10000) / 10000,
+            splitOriginalAmounts: original,
+          },
+          p.child,
+          ASSIGNMENT_REASON,
+          `${ASSIGNMENT_REASON_LABEL} (split ${i + 1}/${splitPlan.length})`,
+          'assigned_split'
+        )
+      })
+    }
     if (child) {
       const childKey = matchKey(child.itemOrderId)
       usedCapacity.set(childKey, round2(num(usedCapacity.get(childKey)) + need))
@@ -303,6 +420,8 @@ module.exports = {
   findDeterministicChildForParent,
   findZohoInvoiceForOrphanParent,
   needsParentOrderFallback,
+  mergeSplitParentRows,
+  statementRowKey,
   applyParentOrderChargeFallback,
   applyParentOrderChargeFallbackWithSynthetics,
   isStrictChildOfParent,

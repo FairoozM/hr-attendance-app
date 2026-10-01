@@ -9,6 +9,7 @@ const { matchZohoInvoicesForNoonRows, matchNoonRowsToInvoices, mapInvoice } = re
 const {
   applyParentOrderChargeFallbackWithSynthetics,
   needsParentOrderFallback,
+  statementRowKey,
 } = require('./noonPaymentClearingParentChargeFallback')
 const { buildNoonOrderHierarchy } = require('./noonPaymentClearingHierarchyService')
 const { getNoonPaymentClearingMarketplaceConfig } = require('./noonPaymentClearingMarketplaceConfig')
@@ -969,13 +970,13 @@ function mergeExcludedShortfalls(previous = [], current = []) {
 }
 
 function preserveRowExclusions(oldRows = [], newRows = []) {
-  const byNumber = new Map(
+  const byKey = new Map(
     (Array.isArray(oldRows) ? oldRows : [])
       .filter((r) => r && r.rowNumber != null)
-      .map((r) => [Number(r.rowNumber), r])
+      .map((r) => [statementRowKey(r), r])
   )
   return (Array.isArray(newRows) ? newRows : []).map((row) => {
-    const prev = byNumber.get(Number(row.rowNumber))
+    const prev = byKey.get(statementRowKey(row))
     if (!prev?.excludeFromPaymentClearing) return row
     return {
       ...row,

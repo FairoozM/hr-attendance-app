@@ -1313,6 +1313,99 @@ describe('parent-order fallback bounds', () => {
     assert.equal(child.itemOrderId, 'NAEI1-2')
   })
 
+  describe('proportional split when no single child can absorb the charge (NAEI80063582899)', () => {
+    const {
+      collectAssignedUnclearedPaymentAddOns,
+      buildInvoicePaymentPlan,
+    } = require('../src/services/noonPaymentClearing/noonPaymentClearingPaymentPreviewService')
+    const { getNoonPaymentClearingMarketplaceConfig } = require('../src/services/noonPaymentClearing/noonPaymentClearingMarketplaceConfig')
+
+    const parent = 'NAEI80063582899'
+    const prices = { 6: 55, 7: 55, 8: 45, 10: 45, 11: 45, 12: 45, 13: 35, 14: 35 }
+    const children = Object.entries(prices).map(([suffix, price]) => {
+      const referralFee = -round2(price * 0.1575)
+      return {
+        matchStatus: 'matched',
+        itemOrderId: `${parent}-${suffix}`,
+        parentOrderId: parent,
+        zohoInvoiceId: `inv-${suffix}`,
+        zohoInvoiceNumber: `INV-${suffix}`,
+        zohoInvoiceTotal: price,
+        netProceed: price,
+        referralFee,
+        fulfillmentFee: 0,
+        shippingCharges: 0,
+        total: round2(price + referralFee),
+      }
+    })
+    const parentRow = {
+      rowNumber: 40,
+      rowClass: ROW_CLASS.PARENT_ORDER_CHARGE,
+      normalizedFeeType: 'FULFILLMENT',
+      parentOrderId: parent,
+      itemOrderId: '',
+      fulfillmentFee: -140.76,
+      orderSubsidies: 28.15,
+      othersInclVat: 28.15,
+      total: -112.61,
+    }
+    const sum = (rows, field) => round2(rows.reduce((s, r) => s + (Number(r[field]) || 0), 0))
+
+    it('splits across every child, preserving each amount column exactly', () => {
+      const parts = applyParentOrderChargeFallback([parentRow], children)
+      assert.equal(parts.length, children.length)
+      assert.deepEqual(
+        parts.map((p) => p.assignedItemOrderId).sort(),
+        children.map((c) => c.itemOrderId).sort()
+      )
+      assert.equal(sum(parts, 'total'), -112.61)
+      assert.equal(sum(parts, 'fulfillmentFee'), -140.76)
+      assert.equal(sum(parts, 'othersInclVat'), 28.15)
+      for (const part of parts) {
+        assert.equal(part.rowNumber, 40)
+        assert.equal(part.splitCount, children.length)
+        assert.equal(part.parentFallbackStatus, 'assigned_split')
+      }
+    })
+
+    it('keeps every child payment within its Zoho invoice', () => {
+      const parts = applyParentOrderChargeFallback([parentRow], children)
+      const saleRows = children.map((c, i) => ({
+        rowNumber: 100 + i,
+        rowClass: ROW_CLASS.SALE_ITEM,
+        parentOrderId: parent,
+        itemOrderId: c.itemOrderId,
+        netProceed: c.netProceed,
+        referralFee: c.referralFee,
+        total: c.total,
+      }))
+      const addOns = collectAssignedUnclearedPaymentAddOns([...saleRows, ...parts])
+      const accounts = getNoonPaymentClearingMarketplaceConfig().paymentPreviewAccounts
+      let logistics = 0
+      for (const child of children) {
+        const plan = buildInvoicePaymentPlan(child, accounts, addOns.get(child.itemOrderId))
+        assert.equal(plan.exceedsInvoiceTotal, false, `${child.itemOrderId} overpaid`)
+        logistics = round2(logistics + plan.parentLogisticsAddOn)
+      }
+      assert.equal(logistics, 112.61)
+    })
+
+    it('re-assigning already split rows gives the same split', () => {
+      const first = applyParentOrderChargeFallback([parentRow], children)
+      const second = applyParentOrderChargeFallback(first, children)
+      assert.deepEqual(
+        second.map((p) => [p.splitPart, p.assignedItemOrderId, p.total]),
+        first.map((p) => [p.splitPart, p.assignedItemOrderId, p.total])
+      )
+    })
+
+    it('does not split when the children together cannot absorb the charge', () => {
+      const rows = applyParentOrderChargeFallback([{ ...parentRow, total: -500, fulfillmentFee: -500 }], children)
+      assert.equal(rows.length, 1)
+      assert.equal(rows[0].splitCount, undefined)
+    })
+  })
+
   it('still flags genuine unexplained other amounts', () => {
     const row = normalizeNoonStatementRow(
       {

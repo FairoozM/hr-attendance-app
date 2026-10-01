@@ -200,14 +200,16 @@ function resolveSettlementAdjustmentVatSplit(row, vatRate = DEFAULT_VAT_RATE) {
 
 function buildSettlementAdjustmentSourceIdentity(row, metadata = {}) {
   const ref = clean(metadata.referenceNr) || clean(metadata.statementId) || 'unknown'
-  return [
+  const parts = [
     ref,
     `row:${Number(row.rowNumber) || 0}`,
     `item:${clean(row.itemOrderId)}`,
     `parent:${parentOrderIdForRow(row)}`,
     `class:${clean(row.rowClass)}`,
     `total:${round2(num(row.total))}`,
-  ].join('|')
+  ]
+  if (num(row.splitPart)) parts.push(`part:${num(row.splitPart)}`)
+  return parts.join('|')
 }
 
 function detectDuplicateSettlementAdjustmentSources(sourceRows = [], metadata = {}) {
@@ -383,6 +385,7 @@ function buildSourceRowAdjustmentFragments(row, accounts, metadata, saleParentSe
 
   const sourceDetail = {
     rowNumber: row.rowNumber,
+    ...(num(row.splitPart) ? { splitPart: num(row.splitPart) } : {}),
     rowClass: row.rowClass,
     transactionType: clean(row.transactionType),
     parentOrderId: clean(row.originalParentOrderId || row.parentOrderId),

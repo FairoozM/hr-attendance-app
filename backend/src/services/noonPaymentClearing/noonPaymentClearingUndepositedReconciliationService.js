@@ -14,6 +14,7 @@ const {
   reclassifyReturnRows,
   returnFulfillment1066Impact,
 } = require('./noonPaymentClearingReturnService')
+const { statementRowKey } = require('./noonPaymentClearingParentChargeFallback')
 
 function signedParentRowFulfillment(row) {
   if (Math.abs(num(row.total)) >= 0.01) {
@@ -41,7 +42,7 @@ function expected1066Contribution(row, ctx) {
   const total = round2(num(row.total))
   const isAdvertising = row.rowClass === ROW_CLASS.STATEMENT_FEE
   const isSettlementAdj = isSettlementAdjustmentSourceRow(row, planExclusions, saleParentSet)
-  const adjLine = adjSourceByRow.get(row.rowNumber)
+  const adjLine = adjSourceByRow.get(statementRowKey(row))
 
   if (isAdvertising) {
     return round2(-Math.abs(total))
@@ -73,7 +74,7 @@ function classifyRowAccounting(row, ctx) {
   const isReturn = row.rowClass === ROW_CLASS.RETURN
   const isAdvertising = row.rowClass === ROW_CLASS.STATEMENT_FEE
   const isSettlementAdj = isSettlementAdjustmentSourceRow(row, planExclusions, saleParentSet)
-  const adjLine = adjSourceByRow.get(row.rowNumber)
+  const adjLine = adjSourceByRow.get(statementRowKey(row))
   const expected1066 = expected1066Contribution(row, ctx)
 
   if (isReturn) {
@@ -126,7 +127,7 @@ function classifyRowAccounting(row, ctx) {
     plan &&
     rp1068FromPlan >= 0.01 &&
     Math.abs(rp1066FromPlan) < 0.01 &&
-    !adjSourceByRow.has(row.rowNumber)
+    !adjSourceByRow.has(statementRowKey(row))
   ) {
     return {
       classification: 'zero_sale_logistics_misrouted_to_record_payment',
@@ -233,7 +234,7 @@ function buildUndepositedReconciliation(batch, preview, planExclusions = null) {
   const allRows = reclassifyReturnRows(rawRows, saleParentSet)
   const adjSources = collectSettlementAdjustmentSourceRows(allRows, planExclusions)
   const adjSourceByRow = new Map(
-    (preview?.settlementAdjustmentJournal?.sourceLines || []).map((line) => [line.rowNumber, line])
+    (preview?.settlementAdjustmentJournal?.sourceLines || []).map((line) => [statementRowKey(line), line])
   )
   const invoicePaymentByItem = new Map(
     (preview?.invoicePayments || []).map((p) => [clean(p.itemOrderId), p])
@@ -305,7 +306,7 @@ function buildUndepositedReconciliation(batch, preview, planExclusions = null) {
         assignedZohoInvoiceId: clean(row.assignedZohoInvoiceId || row.zohoInvoiceId),
         assignedZohoInvoiceNumber: clean(row.assignedZohoInvoiceNumber || row.zohoInvoiceNumber),
         logisticsOnly: Boolean(row.logisticsOnly),
-        settlementAdjustment: Boolean(adjSourceByRow.has(row.rowNumber)),
+        settlementAdjustment: Boolean(adjSourceByRow.has(statementRowKey(row))),
         recordPayment: cls.classification.startsWith('record_payment'),
         classification: cls.classification,
         expected1066Contribution,

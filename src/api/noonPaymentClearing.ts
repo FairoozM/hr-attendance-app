@@ -32,6 +32,8 @@ export interface NoonStatementRow {
   assignedItemOrderId?: string
   assignmentReason?: string
   assignmentReasonLabel?: string
+  splitPart?: number
+  splitCount?: number
   parentFallbackStatus?: string
   displayLabel?: string
   accountingTreatment?: string

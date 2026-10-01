@@ -70,7 +70,7 @@ function LineTypeCard({ lineType }: { lineType: NoonLineType }) {
             </thead>
             <tbody>
               {lineType.rows.map((row, idx) => (
-                <tr key={`lt-${lineType.id}-${row.rowNumber ?? idx}`}>
+                <tr key={`lt-${lineType.id}-${row.rowNumber ?? ''}-${idx}`}>
                   <td>{row.rowNumber ?? '—'}</td>
                   <td>
                     <code className="npc-ref">{row.itemOrderId || row.parentOrderId || row.title || '—'}</code>
@@ -330,8 +330,8 @@ export function NoonPaymentPreviewStep({
               {Array.isArray(paymentPreview.undepositedReconciliation?.nonZeroDeltas) &&
               paymentPreview.undepositedReconciliation.nonZeroDeltas.length > 0 ? (
                 <ul style={{ margin: '8px 0 0', paddingLeft: '1.2rem' }}>
-                  {paymentPreview.undepositedReconciliation.nonZeroDeltas.slice(0, 8).map((row) => (
-                    <li key={`delta-${String(row.rowNumber)}`}>
+                  {paymentPreview.undepositedReconciliation.nonZeroDeltas.slice(0, 8).map((row, idx) => (
+                    <li key={`delta-${String(row.rowNumber)}-${idx}`}>
                       Row {String(row.rowNumber)} · {String(row.itemOrderId || row.parentOrderId)} · delta{' '}
                       {money(Number(row.delta) || 0)} · {String(row.reason || '')}
                     </li>
