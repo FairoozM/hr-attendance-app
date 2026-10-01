@@ -833,45 +833,77 @@ export function NoonPaymentClearingPage() {
 
             {step.id === 3 && preview && (
               <div className="npc-step-stack">
-                <p className="npc-muted">
-                  Expand a parent to see item-level children. Matching still uses each Item Order separately.
-                </p>
-                {parents.map((parent) => {
-                  const open = expandedParents[parent.parentOrderId] ?? true
-                  return (
-                    <div key={parent.parentOrderId} className="npc-callout">
-                      <button
-                        type="button"
-                        className="ainv-btn ainv-btn--sm"
-                        onClick={() =>
-                          setExpandedParents((prev) => ({
-                            ...prev,
-                            [parent.parentOrderId]: !open,
-                          }))
-                        }
-                      >
-                        {open ? 'Collapse' : 'Expand'} {parent.parentOrderId}
-                      </button>
-                      <span className="npc-muted">
-                        {' '}
-                        {parent.children.length} item(s) · {parent.parentCharges.length} parent charge(s) · total{' '}
-                        {money(parent.totals?.total)}
-                      </span>
-                      {open ? (
-                        <div className="npc-table-wrap" style={{ marginTop: '0.75rem' }}>
-                          <table className="npc-table">
-                            <thead>
-                              <tr>
-                                <th>Item Order</th>
-                                <th>SKU</th>
-                                <th>Proceeds</th>
-                                <th>Match</th>
-                                <th>Zoho Invoice</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {parent.children.map((child) => (
-                                <tr key={child.itemOrderId}>
+                <div className="npc-hier-toolbar">
+                  <p className="npc-muted">
+                    Click a parent order to show or hide its items. Matching still uses each Item Order separately.
+                  </p>
+                  <div className="npc-button-row">
+                    <button
+                      type="button"
+                      className="ainv-btn ainv-btn--sm"
+                      onClick={() =>
+                        setExpandedParents(Object.fromEntries(parents.map((p) => [p.parentOrderId, true])))
+                      }
+                    >
+                      Expand all
+                    </button>
+                    <button
+                      type="button"
+                      className="ainv-btn ainv-btn--sm"
+                      onClick={() =>
+                        setExpandedParents(Object.fromEntries(parents.map((p) => [p.parentOrderId, false])))
+                      }
+                    >
+                      Collapse all
+                    </button>
+                  </div>
+                </div>
+                <div className="npc-table-wrap">
+                  <table className="npc-table npc-hier-table">
+                    <thead>
+                      <tr>
+                        <th>Order</th>
+                        <th>SKU</th>
+                        <th className="npc-money">Amount</th>
+                        <th>Match</th>
+                        <th>Zoho Invoice</th>
+                      </tr>
+                    </thead>
+                    {parents.map((parent) => {
+                      const hasRows = parent.children.length + parent.parentCharges.length > 0
+                      const open = hasRows && (expandedParents[parent.parentOrderId] ?? true)
+                      const matchedCount = parent.children.filter((c) => c.matchStatus === 'matched').length
+                      const toggle = () =>
+                        setExpandedParents((prev) => ({ ...prev, [parent.parentOrderId]: !open }))
+                      return (
+                        <tbody key={parent.parentOrderId} className="npc-hier-group">
+                          <tr
+                            className={`npc-hier-parent${hasRows ? ' npc-hier-parent--toggle' : ''}`}
+                            onClick={hasRows ? toggle : undefined}
+                          >
+                            <td>
+                              <span className="npc-hier-chevron" aria-hidden="true">
+                                {hasRows ? (open ? '▾' : '▸') : ''}
+                              </span>
+                              <strong>{parent.parentOrderId}</strong>
+                            </td>
+                            <td className="npc-muted">
+                              {parent.children.length} item{parent.children.length === 1 ? '' : 's'}
+                              {parent.parentCharges.length > 0
+                                ? ` · ${parent.parentCharges.length} charge${parent.parentCharges.length === 1 ? '' : 's'}`
+                                : ''}
+                            </td>
+                            <td className="npc-money">
+                              <strong>{money(parent.totals?.total)}</strong>
+                            </td>
+                            <td className="npc-muted">
+                              {parent.children.length > 0 ? `${matchedCount}/${parent.children.length} matched` : '—'}
+                            </td>
+                            <td />
+                          </tr>
+                          {open
+                            ? parent.children.map((child) => (
+                                <tr key={child.itemOrderId} className="npc-hier-child">
                                   <td>
                                     <code className="npc-ref">{child.itemOrderId}</code>
                                   </td>
@@ -880,24 +912,23 @@ export function NoonPaymentClearingPage() {
                                   <td>{child.matchStatus || '—'}</td>
                                   <td>{child.zohoInvoiceNumber || '—'}</td>
                                 </tr>
-                              ))}
-                              {parent.parentCharges.map((charge) => (
-                                <tr key={`pc-${charge.rowNumber}`}>
-                                  <td colSpan={2}>
-                                    <strong>Parent Order Charge</strong>
-                                  </td>
+                              ))
+                            : null}
+                          {open
+                            ? parent.parentCharges.map((charge) => (
+                                <tr key={`pc-${charge.rowNumber}`} className="npc-hier-child npc-hier-charge">
+                                  <td colSpan={2}>Parent order charge</td>
                                   <td className="npc-money">{money(charge.total)}</td>
-                                  <td>not_applicable</td>
+                                  <td>—</td>
                                   <td>—</td>
                                 </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      ) : null}
-                    </div>
-                  )
-                })}
+                              ))
+                            : null}
+                        </tbody>
+                      )
+                    })}
+                  </table>
+                </div>
               </div>
             )}
 

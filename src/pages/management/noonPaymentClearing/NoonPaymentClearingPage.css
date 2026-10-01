@@ -633,3 +633,48 @@
 }
 
 .npc-linetype .npc-table-wrap { width: 100%; }
+
+.npc-hier-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.npc-hier-toolbar p { margin: 0; }
+
+.npc-hier-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.npc-hier-table th,
+.npc-hier-table td {
+  padding: 0.45rem 0.75rem;
+  vertical-align: middle;
+}
+
+.npc-hier-parent td {
+  background: color-mix(in srgb, var(--theme-glass-bg) 70%, transparent);
+  border-top: 1px solid var(--theme-border);
+}
+
+.npc-hier-parent--toggle { cursor: pointer; }
+
+.npc-hier-parent--toggle:hover td {
+  background: color-mix(in srgb, #0ea5e9 8%, var(--theme-glass-bg));
+}
+
+.npc-hier-chevron {
+  display: inline-block;
+  width: 1rem;
+  color: var(--text-muted);
+}
+
+.npc-hier-child td:first-child { padding-left: 2rem; }
+
+.npc-hier-charge td {
+  color: var(--text-muted);
+  font-style: italic;
+}
