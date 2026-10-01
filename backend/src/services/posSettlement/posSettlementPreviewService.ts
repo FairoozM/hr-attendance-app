@@ -73,7 +73,7 @@ function componentView(c: any, accounts: any, local: any, zoho: any, recovery: a
 
 /**
  * @param input.refreshIndex read changed Zoho invoices into the RRN index first (default true)
- * @param input.deepScan index every invoice of the scanned customers in the window, not only POS orders
+ * @param input.deepScan kept for callers; every invoice of the scanned customers is always indexed
  * @param input.deep search Zoho directly (not only the search index) for every planned record
  */
 async function buildPosPreview({ settlementId, store, sources, config, now = new Date(), persist = true, refreshIndex = true, deepScan = false, deep = false }: any) {

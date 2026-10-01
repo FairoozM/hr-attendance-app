@@ -237,15 +237,19 @@ function settlementCodeOf(payoutKey: string, date: string | null, prefix: string
 
 /**
  * RRNs written in a Zoho field. With a label (notes: "RRN : 003042448545"), only digits on lines
- * that carry the label (and digit-only lines right after them) count; a custom field holds RRNs only.
- * Leading zeros are kept; numbers of the wrong length are returned as `malformed`, never fixed.
+ * that carry the label (and digit-only lines right after them) count. Notes without the label are
+ * searched for the bare number: every standalone run of exactly `digits` digits is a candidate
+ * (a transaction only matches its own RRN, so other numbers never match anything).
+ * A custom field holds RRNs only. Leading zeros are kept; with a label, numbers of the wrong length
+ * are returned as `malformed`, never fixed.
  */
 function extractRrns(text: unknown, { label, digits, labelled }: { label: RegExp; digits: number; labelled: boolean }): { rrns: string[]; malformed: string[] } {
   const s = clean(text)
   if (!s) return { rrns: [], malformed: [] }
   const lines = s.split(/\r\n|\n|\r/)
   const picked: string[] = []
-  if (!labelled) picked.push(s)
+  const hasLabel = labelled && lines.some((l) => label.test(l))
+  if (!hasLabel) picked.push(s)
   else {
     let carry = false
     for (const line of lines) {
@@ -262,7 +266,7 @@ function extractRrns(text: unknown, { label, digits, labelled }: { label: RegExp
     for (const m of chunk.match(/\d+/g) || []) {
       if (m.length === digits) {
         if (!rrns.includes(m)) rrns.push(m)
-      } else if (m.length >= digits - 3 && m.length <= digits + 2) malformed.push(m)
+      } else if ((hasLabel || !labelled) && m.length >= digits - 3 && m.length <= digits + 2) malformed.push(m)
     }
   }
   return { rrns, malformed }

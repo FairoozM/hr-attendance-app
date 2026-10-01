@@ -66,7 +66,10 @@ test('RRN extraction from invoice notes keeps leading zeros and ignores other nu
   assert.deepEqual(model.extractRrns('Phone 0501234567\nRRN: 003042448545, 003042448546\nThanks', opts).rrns, ['003042448545', '003042448546'])
   assert.deepEqual(model.extractRrns('RRN:\n003042448545\n003042448546', opts).rrns, ['003042448545', '003042448546'])
   assert.deepEqual(model.extractRrns('RRN 3042448545', opts), { rrns: [], malformed: ['3042448545'] })
-  assert.deepEqual(model.extractRrns('Order 003042448545', opts).rrns, [], 'no label → not an RRN')
+  assert.deepEqual(model.extractRrns('Order 003042448545', opts).rrns, ['003042448545'], 'no label: the bare number is found')
+  assert.deepEqual(model.extractRrns('003043504724', opts), { rrns: ['003043504724'], malformed: [] })
+  assert.deepEqual(model.extractRrns('Call 0501234567, paid card 003043504724', opts), { rrns: ['003043504724'], malformed: [] }, 'other numbers are neither RRNs nor malformed')
+  assert.deepEqual(model.extractRrns('RRN : 003043504724\nRef 003099999999', opts).rrns, ['003043504724'], 'with a label, only labelled numbers count')
   assert.deepEqual(model.extractRrns('003042448545', { ...opts, labelled: false }).rrns, ['003042448545'])
 })
 

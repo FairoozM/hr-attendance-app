@@ -22,13 +22,16 @@ const lower = (s: unknown) => clean(s).toLowerCase()
 
 // ── RRN index ───────────────────────────────────────────────────────────────
 
+/** Bumped when RRN extraction changes, so invoices indexed by an older rule are read again. */
+const INDEX_RULE = 'v2'
+
 /**
- * Bring the RRN index up to date for invoices dated from..to. Shop-customer invoices are always
- * read; website-customer invoices only for website orders paid by POS, unless `deep`. An invoice
- * whose last_modified_time is unchanged is not read again.
+ * Bring the RRN index up to date for invoices dated from..to. Every invoice of the scanned
+ * customers is read: card payments are written on website-customer invoices whatever payment
+ * method the website order shows. An invoice whose last_modified_time is unchanged is not read again.
  * @returns counts and warnings (never throws for a single unreadable invoice; it is reported)
  */
-async function refreshRrnIndex({ sources, store, config, dateFrom, dateTo, deep = false }: any) {
+async function refreshRrnIndex({ sources, store, config, dateFrom, dateTo }: any) {
   const warnings: any[] = []
   const stats = { listed: 0, detailRead: 0, skippedUnchanged: 0, skippedNotPos: 0, capped: 0, failed: 0 }
   let posOrderNumbers: Set<string> | null = null
@@ -36,9 +39,9 @@ async function refreshRrnIndex({ sources, store, config, dateFrom, dateTo, deep 
     const orders = await sources.loadPosOrdersBetween(dateFrom, dateTo)
     if (orders) posOrderNumbers = new Set(orders.filter((o: any) => !o.deleted).map((o: any) => o.orderNumber))
   } catch (err: any) {
-    warnings.push({ code: 'WEBSITE_DB_UNAVAILABLE', message: `Website orders could not be read (${err.message}); website-customer invoices are only indexed on a deep scan.` })
+    warnings.push({ code: 'WEBSITE_DB_UNAVAILABLE', message: `Website orders could not be read (${err.message}); channels are taken from Zoho customers and terminals only.` })
   }
-  if (!posOrderNumbers && !deep) warnings.push({ code: 'WEBSITE_ORDERS_UNKNOWN', message: 'Website POS orders are unknown; only shop invoices were indexed. Run a deep RRN scan if a transaction is not found.' })
+  const indexedField = `${config.rrnSource.field}@${INDEX_RULE}`
 
   for (const customerId of config.rrnScanCustomerIds) {
     const listed = await sources.listInvoices({ customerId, dateFrom, dateTo })
@@ -46,14 +49,9 @@ async function refreshRrnIndex({ sources, store, config, dateFrom, dateTo, deep 
     const known = new Map((await store.getIndexedInvoices(config.organizationId, listed.map((i: any) => i.invoiceId))).map((i: any) => [i.invoiceId, i]))
     for (const inv of listed) {
       const prev: any = known.get(inv.invoiceId)
-      if (prev && prev.lastModifiedTime === inv.lastModifiedTime && prev.rrnField === config.rrnSource.field) {
+      if (prev && prev.lastModifiedTime === inv.lastModifiedTime && prev.rrnField === indexedField) {
         stats.skippedUnchanged += 1
         if (prev.balanceMinor !== inv.balanceMinor || prev.status !== inv.status) await store.upsertIndexedInvoice(config.organizationId, { ...prev, ...inv, rrns: prev.rrns, malformed: prev.malformed, rrnField: prev.rrnField })
-        continue
-      }
-      const isShop = customerId === config.shopZohoCustomerId
-      if (!deep && !isShop && !(posOrderNumbers && posOrderNumbers.has(inv.referenceNumber))) {
-        stats.skippedNotPos += 1
         continue
       }
       if (stats.detailRead >= config.maxInvoiceDetailsPerScan) {
@@ -65,7 +63,7 @@ async function refreshRrnIndex({ sources, store, config, dateFrom, dateTo, deep 
         stats.detailRead += 1
         if (!detail) continue
         const { rrns, malformed } = model.extractRrns(detail.rrnText, { label: config.rrnSource.label, digits: config.rrnSource.digits, labelled: !config.rrnSource.field.startsWith('cf_') })
-        await store.upsertIndexedInvoice(config.organizationId, { ...inv, ...detail, rrnField: config.rrnSource.field, rrns, malformed })
+        await store.upsertIndexedInvoice(config.organizationId, { ...inv, ...detail, rrnField: indexedField, rrns, malformed })
       } catch (err: any) {
         stats.failed += 1
         warnings.push({ code: 'INVOICE_UNREADABLE', message: `Zoho invoice ${inv.invoiceNumber} could not be read: ${err.message}` })

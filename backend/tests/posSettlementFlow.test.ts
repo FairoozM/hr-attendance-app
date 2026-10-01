@@ -152,6 +152,23 @@ test('real Mashreq exports of 5 Sep: Enrich, csv1 and detail TXT are one payout;
   assert.equal(s.zoho.writes.length, 0)
 })
 
+test('RRN on a website-customer invoice is found even when the website order is not marked POS, with or without the "RRN" label', async () => {
+  const s = setup({ invoices: false, orders: [
+    { orderNumber: '20947', shopOrder: false, userAgent: 'web', paymentMethod: 'cash' },
+    { orderNumber: '20948', shopOrder: false, userAgent: 'web', paymentMethod: 'cash' },
+  ] })
+  s.zoho.addInvoice({ invoiceId: 'W659', invoiceNumber: 'INV-043659', referenceNumber: '20947', customerId: WEBSITE, date: '2026-09-05', total: 227.8, notes: '003042448545' })
+  s.zoho.addInvoice({ invoiceId: 'W660', invoiceNumber: 'INV-043660', referenceNumber: '20948', customerId: WEBSITE, date: '2026-09-05', total: 102.85, notes: 'RRN : 003042523578' })
+  await s.importText(FILE_5_SEP)
+  const p = await s.preview()
+  assert.ok(!codes(p.blockers).includes('RRN_NOT_FOUND'), JSON.stringify(p.blockers))
+  assert.deepEqual(p.transactions.map((t: any) => [t.rrn, t.match.status, t.match.allocations.map((a: any) => a.invoiceNumber)]), [
+    ['003042448545', 'MATCHED', ['INV-043659']],
+    ['003042523578', 'MATCHED', ['INV-043660']],
+  ])
+  assert.equal(s.zoho.writes.length, 0)
+})
+
 test('posting guards: disabled server, missing approval, stale approval', async () => {
   const s = setup()
   await s.importText(FILE_5_SEP)
