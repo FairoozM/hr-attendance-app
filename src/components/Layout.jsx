@@ -466,6 +466,7 @@ export function Layout() {
     if (location.pathname.startsWith('/account')) return 'My Account'
     if (location.pathname.startsWith('/management/noon-payment-clearing')) return 'Noon Payment Clearance'
     if (location.pathname.startsWith('/management/tabby-clearing')) return 'Tabby Settlement Clearing'
+    if (location.pathname.startsWith('/management/pos-settlements')) return 'Mashreq POS Settlements'
     if (location.pathname.startsWith('/management/amazon-uae-payment-clearing')) return 'Amazon UAE Payment Clearing'
     if (location.pathname.startsWith('/management/amazon-payment-clearing')) return 'Amazon KSA Payment Clearing'
     if (location.pathname.startsWith('/management/amazon-return-reconciliation')) return 'Amazon Return Reconciliation'
@@ -647,6 +648,7 @@ export function Layout() {
     isAdmin && { label: 'Amazon UAE Payment Clearing', to: '/management/amazon-uae-payment-clearing' },
     isAdmin && { label: 'Noon Payment Clearance', to: '/management/noon-payment-clearing' },
     isAdmin && { label: 'Tabby Settlement Clearing', to: '/management/tabby-clearing' },
+    isAdmin && { label: 'Mashreq POS Settlements', to: '/management/pos-settlements' },
     isAdmin && { label: 'Amazon Return Reconciliation', to: '/management/amazon-return-reconciliation' },
   ].filter(Boolean)
 
@@ -838,6 +840,8 @@ export function Layout() {
               ? 'stripe connection webhook status test live payments'
             : i.to === '/management/tabby-clearing'
               ? 'tabby settlement statement payout commission fees vat clearing bank zoho'
+            : i.to === '/management/pos-settlements'
+              ? 'mashreq pos card machine settlement rrn burjuman shop commission vat rak bank zoho'
               : '',
     })),
     ...ISO_QMS_ALL_ITEMS.map((i) => ({

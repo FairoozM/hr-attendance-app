@@ -1,0 +1,26 @@
+.pos-mapping-dialog {
+  width: min(880px, 96vw);
+}
+
+.pos-mapping-dialog textarea,
+.pos-mapping-dialog input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.pos-mapping-dialog .tabby-page__table input {
+  width: 7.5rem;
+  text-align: right;
+}
+
+.pos-mapping-dialog__results {
+  margin: 0;
+  padding-left: 1.1rem;
+  max-height: 14rem;
+  overflow: auto;
+}
+
+.pos-mapping-dialog .tabby-page__link {
+  display: block;
+  text-align: left;
+}

@@ -127,6 +127,12 @@ app.use('/api/amazon', authMiddleware.attachAuth, amazonListingRoutes)
 // the catch-all "API route not found".
 app.use('/api/noon/payment-clearing', authMiddleware.attachAuth, noonPaymentClearingRoutes)
 app.use('/api/tabby-clearing', authMiddleware.attachAuth, tabbyClearingRoutes)
+try {
+  // TypeScript module (Node type stripping); a runtime without it must not take the API down.
+  app.use('/api/pos-settlements', authMiddleware.attachAuth, require('./routes/posSettlement.routes.ts'))
+} catch (err) {
+  console.error('[app] POS settlement routes not loaded:', err && err.message)
+}
 app.use('/api/noon', authMiddleware.attachAuth, noonRoutes)
 app.use('/api/inventory', authMiddleware.attachAuth, inventoryRoutes)
 app.use('/api/sku-coverage', authMiddleware.attachAuth, skuChannelCoverageRoutes)

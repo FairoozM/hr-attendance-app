@@ -82,6 +82,7 @@ import { PurchasePlanningPage } from './pages/management/PurchasePlanningPage'
 import { AmazonPaymentClearingPage } from './pages/management/amazonPaymentClearing/AmazonPaymentClearingPage'
 import { NoonPaymentClearingPage } from './pages/management/noonPaymentClearing/NoonPaymentClearingPage'
 import { TabbyClearingPage } from './pages/management/tabby/TabbyClearingPage'
+import { PosSettlementsPage } from './pages/management/pos/PosSettlementsPage'
 import { AmazonReturnReconciliationPage } from './pages/management/amazonReturnReconciliation/AmazonReturnReconciliationPage'
 import { InventoryHealthDashboardPage } from './pages/management/inventoryHealth/InventoryHealthDashboardPage'
 import { AccountBalanceWatchlistPage } from './pages/management/accountBalanceWatchlist/AccountBalanceWatchlistPage'
@@ -539,6 +540,22 @@ function AppContent() {
           element={
             <AdminOnly>
               <TabbyClearingPage />
+            </AdminOnly>
+          }
+        />
+        <Route
+          path="management/pos-settlements"
+          element={
+            <AdminOnly>
+              <PosSettlementsPage />
+            </AdminOnly>
+          }
+        />
+        <Route
+          path="management/pos-settlements/:settlementId"
+          element={
+            <AdminOnly>
+              <PosSettlementsPage />
             </AdminOnly>
           }
         />

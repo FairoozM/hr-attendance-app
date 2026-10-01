@@ -266,4 +266,4 @@ async function postOne({ c, batchId, store, sources, writer, actor, now, settleM
   return { status: S.VERIFIED, zohoRecordId: result.recordId, message: `Posted and verified Zoho ${result.recordId}.` }
 }
 
-module.exports = { postTabbyBatch, writeErrorKind, RECOVERY_ACTION }
+module.exports = { postTabbyBatch, postOne, writeErrorKind, RECOVERY_ACTION }

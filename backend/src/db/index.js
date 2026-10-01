@@ -1230,6 +1230,12 @@ async function testConnection() {
     console.error('[db] ensureTabbyClearingTables skipped/failed (non-fatal):', e.message || e)
   }
   try {
+    const { ensurePosSettlementTables } = require('../services/posSettlement/posSettlementStore.ts')
+    await ensurePosSettlementTables(query)
+  } catch (e) {
+    console.error('[db] ensurePosSettlementTables skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
     const { ensureZohoAccountWatchlistTable } = require('../services/zohoAccountWatchlistStore')
     await ensureZohoAccountWatchlistTable()
   } catch (e) {
