@@ -864,7 +864,6 @@ export function NoonPaymentClearingPage() {
                               <tr>
                                 <th>Item Order</th>
                                 <th>SKU</th>
-                                <th>Title</th>
                                 <th>Proceeds</th>
                                 <th>Match</th>
                                 <th>Zoho Invoice</th>
@@ -877,7 +876,6 @@ export function NoonPaymentClearingPage() {
                                     <code className="npc-ref">{child.itemOrderId}</code>
                                   </td>
                                   <td>{child.sku || child.partnerSku || '—'}</td>
-                                  <td>{child.title || '—'}</td>
                                   <td className="npc-money">{money(child.totals?.netProceed)}</td>
                                   <td>{child.matchStatus || '—'}</td>
                                   <td>{child.zohoInvoiceNumber || '—'}</td>
@@ -888,7 +886,6 @@ export function NoonPaymentClearingPage() {
                                   <td colSpan={2}>
                                     <strong>Parent Order Charge</strong>
                                   </td>
-                                  <td>{charge.title || charge.transactionType}</td>
                                   <td className="npc-money">{money(charge.total)}</td>
                                   <td>not_applicable</td>
                                   <td>—</td>
@@ -967,7 +964,6 @@ export function NoonPaymentClearingPage() {
                         <th>Parent</th>
                         <th>Item</th>
                         <th>Type</th>
-                        <th>Title</th>
                         <th>Total</th>
                       </tr>
                     </thead>
@@ -981,13 +977,12 @@ export function NoonPaymentClearingPage() {
                             <code className="npc-ref">{row.itemOrderId || '—'}</code>
                           </td>
                           <td>{row.transactionType}</td>
-                          <td>{row.title}</td>
                           <td className="npc-money">{money(row.total)}</td>
                         </tr>
                       ))}
                       {(preview.adjustments || []).length === 0 ? (
                         <tr>
-                          <td colSpan={5} className="npc-empty">
+                          <td colSpan={4} className="npc-empty">
                             No adjustments in this statement.
                           </td>
                         </tr>
