@@ -501,7 +501,9 @@ async function resolvePlanRowAction(row, batch, opts = {}) {
   }
 
   if (row.creditNoteAction === 'ready_to_create') {
-    const customerId = await resolvePaymentClearingZohoCustomerId(matchOpts)
+    const customerId = opts.offline
+      ? clean(opts.customerId) || null
+      : await resolvePaymentClearingZohoCustomerId(matchOpts)
     const paymentDate = opts.paymentDate || zohoPaymentService.todayLocalDate()
     return {
       ...baseFields,
@@ -574,6 +576,7 @@ async function buildCreditNoteApplyPlan(batch, opts = {}) {
   }
   const onProgress = typeof opts.onProgress === 'function' ? opts.onProgress : () => {}
   let rows = collectReturnRowsForApply(batch)
+  if (matchOpts.offline) matchOpts.refreshZoho = false
   if (matchOpts.refreshZoho !== false && rows.length > 0) {
     onProgress({ step: 'Loading invoices and credit notes from Zoho', current: 0, total: 0 })
     rows = await refreshReturnRowsFromLiveZoho(batch, rows, matchOpts)

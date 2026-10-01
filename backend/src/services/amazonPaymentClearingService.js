@@ -1385,6 +1385,8 @@ async function batchForCreditNoteApply(id) {
     refundReturnRows: hydrated?.refundReturnRows || enriched.refundReturnRows || raw.refundReturnRows || [],
     allRows: hydrated?.allRows || enriched.allRows || [],
     returnDispositions: raw.returnDispositions || [],
+    creditNoteRefundsSnapshot: raw.creditNoteRefundsSnapshot || {},
+    creditNoteRefundsCheckedAt: raw.creditNoteRefundsCheckedAt || null,
   }
 }
 
@@ -1418,15 +1420,14 @@ function stillMissingFromPlan(plan) {
 }
 
 /*
- * Step 10 plans need one Zoho refund lookup per credit note, and a live re-match lists
- * every invoice and credit note in the settlement range. Page loads ask for the plan from
- * several places at once, so reads share one build (cached briefly) from the saved
- * matches; only "Refresh credit notes from Zoho" and refunding re-read Zoho in full.
+ * The Zoho API quota is shared with other jobs and is often saturated, so page reads of
+ * the Step 10 plan never call Zoho: they use the saved credit note matches, local postings
+ * and the refunds snapshot from the last live check. "Refresh credit notes from Zoho" and
+ * refunding (background jobs) re-read Zoho and save a new snapshot.
  */
 const CREDIT_NOTE_PLAN_CACHE_MS = 3 * 60 * 1000
 const LIVE_REFRESH_VALID_MS = 30 * 60 * 1000
 const creditNotePlanCache = new Map()
-const lastLiveRefreshAt = new Map()
 
 function invalidateCreditNotePlan(id) {
   creditNotePlanCache.delete(String(id))
@@ -1436,8 +1437,47 @@ function rememberCreditNotePlan(id, plan) {
   creditNotePlanCache.set(String(id), { plan, builtAt: Date.now() })
 }
 
-function cachedRefunds(creditNoteId) {
-  return listCreditNoteRefunds(creditNoteId, { source: 'amazon_payment_clearing_plan' })
+function snapshotRefunds(batch) {
+  const snapshot = batch?.creditNoteRefundsSnapshot && typeof batch.creditNoteRefundsSnapshot === 'object'
+    ? batch.creditNoteRefundsSnapshot
+    : {}
+  return async (creditNoteId) => {
+    const refunds = snapshot[String(creditNoteId)]
+    return Array.isArray(refunds) ? refunds : []
+  }
+}
+
+/** Reads refunds live from Zoho and keeps what was seen, so the snapshot can be saved. */
+function recordingLiveRefunds() {
+  const snapshot = {}
+  return {
+    snapshot,
+    listRefunds: async (creditNoteId) => {
+      const refunds = await listCreditNoteRefunds(creditNoteId, {
+        source: 'amazon_payment_clearing_verify',
+        skipCache: true,
+      })
+      snapshot[String(creditNoteId)] = (Array.isArray(refunds) ? refunds : []).map((row) => ({
+        refund_id: row.refund_id || row.creditnote_refund_id || null,
+        reference_number: row.reference_number || row.referenceNumber || '',
+        amount: row.amount ?? row.amount_bcy ?? row.amount_fcy ?? 0,
+        date: row.date || null,
+      }))
+      return refunds
+    },
+  }
+}
+
+async function saveRefundsSnapshot(id, batch, snapshot) {
+  const previous = batch?.creditNoteRefundsSnapshot && typeof batch.creditNoteRefundsSnapshot === 'object'
+    ? batch.creditNoteRefundsSnapshot
+    : {}
+  const saved = await store.updateCreditNoteRefundsSnapshot(id, { ...previous, ...snapshot })
+  return saved?.creditNoteRefundsCheckedAt || new Date().toISOString()
+}
+
+function offlinePlanOptions(batch) {
+  return { refreshZoho: false, offline: true, listRefunds: snapshotRefunds(batch) }
 }
 
 async function cachedCreditNotePlan(id) {
@@ -1448,8 +1488,12 @@ async function cachedCreditNotePlan(id) {
   const promise = (async () => {
     const batch = await batchForCreditNoteApply(id)
     if (!batch) throw batchNotFoundError()
-    const plan = await buildCreditNoteApplyPlan(batch, { refreshZoho: false, listRefunds: cachedRefunds })
-    return { ...plan, returnDispositions: batch.returnDispositions }
+    const plan = await buildCreditNoteApplyPlan(batch, offlinePlanOptions(batch))
+    return {
+      ...plan,
+      returnDispositions: batch.returnDispositions,
+      liveRefreshedAt: batch.creditNoteRefundsCheckedAt || null,
+    }
   })()
   creditNotePlanCache.set(key, { promise })
   try {
@@ -1462,14 +1506,9 @@ async function cachedCreditNotePlan(id) {
   }
 }
 
-function liveRefreshedAtIso(id) {
-  const at = lastLiveRefreshAt.get(String(id))
-  return at ? new Date(at).toISOString() : null
-}
-
 async function getCreditNoteApplyPlanForBatch(id) {
   const plan = await cachedCreditNotePlan(id)
-  return { success: true, ...plan, liveRefreshedAt: liveRefreshedAtIso(id) }
+  return { success: true, ...plan }
 }
 
 /** Re-read credit notes from Zoho for every return in the settlement and save what was found. */
@@ -1478,14 +1517,16 @@ async function refreshReturnCreditNotesForBatch(id, options = {}) {
   if (!batch) throw batchNotFoundError()
   let merged = { changed: false, newlyFound: [] }
   invalidateCreditNotePlan(id)
+  const live = recordingLiveRefunds()
   const plan = await buildCreditNoteApplyPlan(batch, {
+    listRefunds: live.listRefunds,
     onProgress: options.onProgress,
     onRefreshedRows: async (rows) => {
       merged = await persistRefreshedReturnMatches(id, rows)
     },
   })
-  lastLiveRefreshAt.set(String(id), Date.now())
-  rememberCreditNotePlan(id, { ...plan, returnDispositions: batch.returnDispositions })
+  const liveRefreshedAt = await saveRefundsSnapshot(id, batch, live.snapshot)
+  invalidateCreditNotePlan(id)
   const stillMissing = stillMissingFromPlan(plan)
   await store.insertClearingAudit({
     batchId: batch.batchId,
@@ -1500,7 +1541,7 @@ async function refreshReturnCreditNotesForBatch(id, options = {}) {
     newlyFoundCreditNotes: merged.newlyFound,
     stillMissing,
     returnDispositions: batch.returnDispositions,
-    liveRefreshedAt: liveRefreshedAtIso(id),
+    liveRefreshedAt,
   }
 }
 
@@ -1545,7 +1586,7 @@ async function markReturnNotReceived(id, orderIdInput, input = {}, options = {})
         409
       )
     }
-    const refreshedAt = lastLiveRefreshAt.get(String(id))
+    const refreshedAt = batch.creditNoteRefundsCheckedAt ? Date.parse(batch.creditNoteRefundsCheckedAt) : 0
     if (!refreshedAt || Date.now() - refreshedAt > LIVE_REFRESH_VALID_MS) {
       throw clearingError(
         'Click "Refresh credit notes from Zoho" first, so Zoho is checked for a credit note before this return is marked not received.',
@@ -1712,17 +1753,27 @@ async function applyCreditNotesForBatchId(id, options = {}) {
     err.status = 422
     throw err
   }
+  const live = recordingLiveRefunds()
   const liveOptions = {
     postedBy: options.postedBy,
     onProgress: options.onProgress,
+    listRefunds: live.listRefunds,
     onRefreshedRows: async (rows) => {
       await persistRefreshedReturnMatches(id, rows)
-      lastLiveRefreshAt.set(String(id), Date.now())
     },
+  }
+  const saveSnapshot = async () => {
+    invalidateCreditNotePlan(id)
+    if (!Object.keys(live.snapshot).length) return
+    try {
+      await saveRefundsSnapshot(id, await store.getBatchById(id), live.snapshot)
+    } catch (err) {
+      console.warn('[amazon-payment-clearing] could not save credit note refunds snapshot', id, err?.message || err)
+    }
   }
   if (options.dryRun !== false) {
     const preview = await applyCreditNotesForBatch(batch, { ...liveOptions, dryRun: true })
-    invalidateCreditNotePlan(id)
+    await saveSnapshot()
     return preview
   }
   return store.withBatchPostingLock(id, async () => {
@@ -1743,7 +1794,7 @@ async function applyCreditNotesForBatchId(id, options = {}) {
     try {
       return await applyCreditNotesForBatch(current, { ...liveOptions, dryRun: false })
     } finally {
-      invalidateCreditNotePlan(id)
+      await saveSnapshot()
     }
   })
 }
@@ -1763,7 +1814,7 @@ async function getReturnFeePlanForBatch(id) {
     ...plan,
     creditNoteApplyComplete: creditNotePlan.rows.length
       ? Boolean(creditNotePlan.summary?.isComplete)
-      : await isCreditNoteApplyComplete(id, batch),
+      : await isCreditNoteApplyComplete(id, batch, offlinePlanOptions(await store.getBatchById(id))),
     notReceivedPostComplete: await isNotReceivedPostComplete(id, batch),
     returnFeePostComplete: await isReturnFeePostComplete(id, batch),
   }

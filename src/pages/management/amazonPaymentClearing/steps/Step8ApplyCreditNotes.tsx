@@ -214,7 +214,8 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
   const rows = plan?.rows || []
   const readyCount = rows.filter((row) => READY_ACTIONS.has(row.action)).length
   const existingCnCount = rows.filter((row) => row.zohoCreditNoteId && !row.action.startsWith('create_')).length
-  const planLooksEmpty = rows.length === 0 && settlementReturnCount > 0
+  const planLooksEmpty = plan != null && rows.length === 0 && settlementReturnCount > 0
+  const liveCheckedText = plan?.liveRefreshedAt ? new Date(plan.liveRefreshedAt).toLocaleString() : ''
   const stepComplete = Boolean(plan?.summary?.isComplete || ctx.creditNoteApplyComplete)
   const movedCount = rows.filter((row) => row.action === 'moved_to_not_received').length
   const busy = loading || applying || refreshing || savingMark
@@ -291,10 +292,14 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
           note="Zoho allows a limited number of requests per minute, so this can take a few minutes. It runs on the server — keep this tab open to see the result."
         />
       ) : null}
-      {plan && !plan.liveRefreshedAt && rows.some(canMarkNotReceived) ? (
+      {plan ? (
         <p className="apc-muted">
-          Click <strong>Refresh credit notes from Zoho</strong> first — returns can only be marked "Not received" after
-          Zoho has been checked for their credit notes.
+          {liveCheckedText
+            ? `Credit notes and refunds as of the last Zoho check (${liveCheckedText}). Click Refresh credit notes from Zoho to check again.`
+            : 'Showing saved credit note matches — refunds made directly in Zoho are not checked yet. Click Refresh credit notes from Zoho to check them.'}
+          {!liveCheckedText && rows.some(canMarkNotReceived)
+            ? ' Returns can only be marked "Not received" after that check.'
+            : ''}
         </p>
       ) : null}
 
@@ -342,7 +347,11 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
             {rows.length === 0 ? (
               <tr>
                 <td colSpan={11} className="apc-muted">
-                  {loading ? 'Loading credit notes from Zoho...' : 'No return orders in this settlement.'}
+                  {loading
+                    ? 'Loading the refund plan...'
+                    : plan
+                      ? 'No return orders in this settlement.'
+                      : 'The refund plan did not load. Reload the page to try again.'}
                 </td>
               </tr>
             ) : (

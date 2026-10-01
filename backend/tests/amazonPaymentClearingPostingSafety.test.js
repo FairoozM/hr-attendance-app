@@ -1173,6 +1173,23 @@ test('step 10 plan reports progress for every return it checks', async () => {
   assert.deepEqual(events.map((e) => [e.current, e.total]), [[0, 2], [1, 2]])
 })
 
+test('offline step 10 plan uses saved refunds and never looks up the Zoho customer', async () => {
+  const { zohoCustomerId: _omit, ...batch } = returnBatch('UAE')
+  const snapshot = { 'existing-cn': [{ reference_number: '', amount: 45 }] }
+  const plan = await buildCreditNoteApplyPlan(batch, {
+    offline: true,
+    refreshZoho: true,
+    store: storeFor(batch),
+    env: PROD_LIKE_KSA_ENV,
+    listRefunds: async (id) => snapshot[id] || [],
+    onRefreshedRows: () => { throw new Error('offline plan must not re-read Zoho') },
+  })
+  const byOrder = new Map(plan.rows.map((row) => [row.orderId, row]))
+  assert.equal(byOrder.get('r-2').action, 'skipped_already_refunded')
+  assert.equal(byOrder.get('r-1').action, 'create_and_refund')
+  assert.equal(byOrder.get('r-1').zohoCustomerId, null)
+})
+
 test('marking not received needs a recent Zoho refresh', async () => {
   const service = require('../src/services/amazonPaymentClearingService')
   const batch = notReceivedBatch({ returnDispositions: [] })
