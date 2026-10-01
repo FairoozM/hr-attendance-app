@@ -107,8 +107,8 @@ export function StepUnclearedClearing({ ctx }: { ctx: ClearingContext }) {
     <div className="apc-step-stack">
       <div className="apc-alert">
         Record payments in step 9 park Amazon&apos;s commission and shipping/FBA fees on the <strong>uncleared</strong>{' '}
-        accounts, and the return journals in step 12 adjust them. This step moves what this settlement left there into
-        expense with one journal per account, splitting out the {vatPercent != null ? `${vatPercent}% ` : ''}input VAT
+        accounts. This step moves exactly those payment amounts into expense with one journal per account (return
+        journals from step 12 already post straight to expense), splitting out the {vatPercent != null ? `${vatPercent}% ` : ''}input VAT
         included in Amazon&apos;s fees.
       </div>
 

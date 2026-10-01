@@ -5,8 +5,8 @@
  *   Dr Amazon Commission Exp (net)  + Dr Input VAT  / Cr Amazon Uncleared Commission (gross)
  *   Dr Amazon Shipping Exp (net)    + Dr Input VAT  / Cr Amazon Uncleared Shipping   (gross)
  *
- * The gross is what this batch's posted entries actually left on each uncleared account
- * (record payments in, return fee journals in or out), so it matches Zoho, not a forecast.
+ * The gross is exactly what this settlement's commission / shipping record payments
+ * deposited to each uncleared account in Zoho.
  */
 const { round2 } = require('./amazonPaymentClearingOrderBreakdownService')
 const { buildSettlementReference, buildEntryReference } = require('./amazonPaymentClearingReferenceService')
@@ -54,8 +54,9 @@ function splitVatInclusive(gross, vatRate) {
 }
 
 /**
- * Signed movements a batch's posted entries made on one uncleared account
- * (positive = debit, i.e. expense parked there).
+ * The settlement's record payments deposited to one uncleared account. Journals are
+ * excluded: return fee reversals belong to orders from other settlements and post
+ * straight to the expense accounts, so they must not shrink this settlement's clearing.
  * @param {any[]} postings
  * @param {{ accountCode: string, accountId: string }} account
  */
@@ -65,14 +66,9 @@ function unclearedMovements(postings, account) {
     if (posting?.status !== 'posted' || !clean(posting.zohoPaymentId)) continue
     if (isUnclearedClearingType(posting.paymentType)) continue
     const snap = posting.mappingSnapshot || {}
-    const amount = Math.abs(round2(Number(posting.amount) || 0))
-    let signed = 0
-    if (clean(snap.debitAccountId) || clean(snap.creditAccountId)) {
-      if (account.accountId && clean(snap.debitAccountId) === account.accountId) signed = amount
-      else if (account.accountId && clean(snap.creditAccountId) === account.accountId) signed = -amount
-    } else if (account.accountCode && clean(posting.accountCode) === account.accountCode) {
-      signed = amount
-    }
+    if (clean(snap.debitAccountId) || clean(snap.creditAccountId)) continue
+    if (!account.accountCode || clean(posting.accountCode) !== account.accountCode) continue
+    const signed = Math.abs(round2(Number(posting.amount) || 0))
     if (!signed) continue
     movements.push({
       paymentType: posting.paymentType,

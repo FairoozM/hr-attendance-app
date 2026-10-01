@@ -634,7 +634,10 @@ test('return fee journals post to UAE accounts with stable identities and never 
   assert.equal(zoho.journals.size, 1)
   const journal = [...zoho.journals.values()][0]
   assert.equal(journal.total, 22)
-  assert.deepEqual(journal.line_items.map((l) => l.account_id).sort(), [UAE_IDS.UNDEPOSITED, UAE_IDS.COMMISSION].sort())
+  const commissionLine = journal.line_items.find((l) => l.debit_or_credit === 'credit')
+  assert.equal(commissionLine.account_id, '4265011000000708205', 'commission refunded on returns goes straight to Amazon Commission Exp')
+  assert.equal(journal.line_items.find((l) => l.debit_or_credit === 'debit').account_id, UAE_IDS.UNDEPOSITED)
+  assert.ok(!journal.line_items.some((l) => l.account_id === UAE_IDS.COMMISSION), 'never touches uncleared commission')
   assert.deepEqual(postingStore.postings.map((row) => row.paymentType), ['return_fee_journal:RETURN_COMMISSION_REVERSAL'])
 
   const again = await postReturnFeeJournalsForBatch(opts)
@@ -1098,21 +1101,21 @@ function clearingOpts(batch, postingStore, zoho, extra = {}) {
   }
 }
 
-test('step 13 clears what the batch left on uncleared commission / shipping, net of input VAT', async () => {
+test('step 13 clears exactly the commission / shipping record payments, net of input VAT, ignoring return journals', async () => {
   const batch = notReceivedBatch()
   const postings = batch40Postings(batch.batchId)
   const plan = buildUnclearedClearingPlanForBatch(batch, postings.map((row) => ({ status: 'posted', mappingSnapshot: {}, ...row })), PROD_LIKE_KSA_ENV)
   const commission = plan.lines.find((line) => line.role === 'COMMISSION')
   const shipping = plan.lines.find((line) => line.role === 'SHIPPING_FBA')
-  assert.equal(commission.grossAmount, 9403.99)
-  assert.equal(commission.vatAmount, 447.81)
-  assert.equal(commission.netAmount, 8956.18)
-  assert.equal(shipping.grossAmount, 5575.1)
-  assert.equal(shipping.vatAmount, 265.48)
-  assert.equal(shipping.netAmount, 5309.62)
+  assert.equal(commission.grossAmount, 10345.08)
+  assert.equal(commission.vatAmount, 492.62)
+  assert.equal(commission.netAmount, 9852.46)
+  assert.equal(shipping.grossAmount, 5505.21)
+  assert.equal(shipping.vatAmount, 262.15)
+  assert.equal(shipping.netAmount, 5243.06)
   assert.deepEqual(
     commission.lineItems.map((l) => [l.debitOrCredit, l.accountId, l.amount]),
-    [['debit', UAE_COMMISSION_EXP_ID, 8956.18], ['debit', UAE_INPUT_VAT_ID, 447.81], ['credit', UAE_IDS.COMMISSION, 9403.99]]
+    [['debit', UAE_COMMISSION_EXP_ID, 9852.46], ['debit', UAE_INPUT_VAT_ID, 492.62], ['credit', UAE_IDS.COMMISSION, 10345.08]]
   )
   assert.equal(shipping.lineItems[0].accountId, UAE_SHIPPING_EXP_ID)
   assert.equal(shipping.lineItems[2].accountId, UAE_IDS.SHIPPING_FBA)
@@ -1129,11 +1132,11 @@ test('step 13 clears what the batch left on uncleared commission / shipping, net
   assert.equal(first.success, true)
   assert.equal(zoho.journals.size, 2)
   const totals = [...zoho.journals.values()].map((j) => j.total).sort((a, b) => a - b)
-  assert.deepEqual(totals, [5575.1, 9403.99])
+  assert.deepEqual(totals, [5505.21, 10345.08])
   const after = await postingStore.listPostingsForBatch(batch.batchId)
   assert.equal(await isUnclearedClearingComplete(batch, after, PROD_LIKE_KSA_ENV), true)
   const replan = buildUnclearedClearingPlanForBatch(batch, after, PROD_LIKE_KSA_ENV)
-  assert.equal(replan.lines.find((l) => l.role === 'COMMISSION').grossAmount, 9403.99, 'own clearing journal is not counted')
+  assert.equal(replan.lines.find((l) => l.role === 'COMMISSION').grossAmount, 10345.08, 'own clearing journal is not counted')
 
   const again = await postUnclearedClearingForBatch(clearingOpts(batch, postingStore, zoho))
   assert.equal(zoho.calls.createJournal, 2, 'never posted twice')

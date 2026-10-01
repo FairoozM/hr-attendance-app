@@ -229,6 +229,16 @@ function getPaymentClearingMarketplaceConfig(marketplace) {
   const undeposited = clearingAccounts.UNDEPOSITED
   const commission = clearingAccounts.COMMISSION
   const shipping = clearingAccounts.SHIPPING_FBA
+  const commissionExpenseAccount = Object.freeze({
+    accountCode: 'commission_expense',
+    accountName: readEnv(key, 'ZOHO_COMMISSION_EXPENSE_ACCOUNT_NAME', key === 'uae' ? 'Amazon Commission Exp' : 'KSA Amazon Commission Exp'),
+    accountId: readEnv(key, 'ZOHO_COMMISSION_EXPENSE_ACCOUNT_ID', key === 'uae' ? '4265011000000708205' : '4265011000012454629'),
+  })
+  const shippingExpenseAccount = Object.freeze({
+    accountCode: 'shipping_expense',
+    accountName: readEnv(key, 'ZOHO_SHIPPING_EXPENSE_ACCOUNT_NAME', key === 'uae' ? 'Amazon Shipping Exp.' : 'KSA Amazon Shipping Exp'),
+    accountId: readEnv(key, 'ZOHO_SHIPPING_EXPENSE_ACCOUNT_ID', key === 'uae' ? '4265011000000747608' : '4265011000012454635'),
+  })
 
   return {
     key,
@@ -264,23 +274,17 @@ function getPaymentClearingMarketplaceConfig(marketplace) {
         accountId: readEnv(key, 'ZOHO_INPUT_VAT_ACCOUNT_ID', key === 'uae' ? '4265011000000077044' : ''),
       }),
       commissionExpenseAccountIdEnv: `${envPrefix(key)}_ZOHO_COMMISSION_EXPENSE_ACCOUNT_ID`,
-      commissionExpenseAccount: Object.freeze({
-        accountCode: 'commission_expense',
-        accountName: readEnv(key, 'ZOHO_COMMISSION_EXPENSE_ACCOUNT_NAME', key === 'uae' ? 'Amazon Commission Exp' : 'KSA Amazon Commission Exp'),
-        accountId: readEnv(key, 'ZOHO_COMMISSION_EXPENSE_ACCOUNT_ID', key === 'uae' ? '4265011000000708205' : '4265011000012454629'),
-      }),
+      commissionExpenseAccount,
       shippingExpenseAccountIdEnv: `${envPrefix(key)}_ZOHO_SHIPPING_EXPENSE_ACCOUNT_ID`,
-      shippingExpenseAccount: Object.freeze({
-        accountCode: 'shipping_expense',
-        accountName: readEnv(key, 'ZOHO_SHIPPING_EXPENSE_ACCOUNT_NAME', key === 'uae' ? 'Amazon Shipping Exp.' : 'KSA Amazon Shipping Exp'),
-        accountId: readEnv(key, 'ZOHO_SHIPPING_EXPENSE_ACCOUNT_ID', key === 'uae' ? '4265011000000747608' : '4265011000012454635'),
-      }),
+      shippingExpenseAccount,
     }),
     clearingAccounts,
+    // Return fee reversals belong to orders settled earlier, so they post straight to
+    // expense; only the settlement's own record payments sit on the uncleared accounts.
     returnFeeAccounts: Object.freeze({
       UNDEPOSITED: { accountCode: undeposited.accountCode, accountName: undeposited.defaultName },
-      COMMISSION: { accountCode: commission.accountCode, accountName: commission.defaultName },
-      SHIPPING_FBA: { accountCode: shipping.accountCode, accountName: shipping.defaultName },
+      COMMISSION: { ...commissionExpenseAccount },
+      SHIPPING_FBA: { ...shippingExpenseAccount },
     }),
     paymentPreviewAccounts: Object.freeze({
       NET_BALANCE: {
