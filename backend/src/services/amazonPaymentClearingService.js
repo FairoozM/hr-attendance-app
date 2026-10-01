@@ -1427,7 +1427,7 @@ function stillMissingFromPlan(plan) {
  * refunding (background jobs) re-read Zoho and save a new snapshot.
  */
 const CREDIT_NOTE_PLAN_CACHE_MS = 3 * 60 * 1000
-const LIVE_REFRESH_VALID_MS = 30 * 60 * 1000
+const LIVE_REFRESH_VALID_MS = 4 * 60 * 60 * 1000
 const creditNotePlanCache = new Map()
 
 function invalidateCreditNotePlan(id) {
