@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { exportCreditNoteRows } from '../clearingExport'
 import { ReturnCreditNotesTable, SummaryCard } from '../clearingShared'
-import { refreshReturnCreditNotes, type RefundReturnCreditNoteRow } from '../../../../api/amazonPaymentClearing'
+import {
+  refreshReturnCreditNotes,
+  type PostingJobProgress,
+  type RefundReturnCreditNoteRow,
+} from '../../../../api/amazonPaymentClearing'
+import { PostingProgressBar } from '../components/PostingProgressBar'
 import type { ClearingContext } from './clearingContext'
 
 type Tab = 'matched' | 'ready_to_create' | 'missing' | 'differences'
@@ -45,14 +50,18 @@ export function Step4Returns({ ctx }: { ctx: ClearingContext }) {
   const [tab, setTab] = useState<Tab>('matched')
   const [refreshing, setRefreshing] = useState(false)
   const [refreshError, setRefreshError] = useState('')
+  const [refreshProgress, setRefreshProgress] = useState<PostingJobProgress | null>(null)
+  const [refreshStartedAt, setRefreshStartedAt] = useState<number | null>(null)
   const batchId = preview?.batch?.batchId
 
   const onRefreshFromZoho = async () => {
     if (batchId == null) return
     setRefreshing(true)
     setRefreshError('')
+    setRefreshProgress(null)
+    setRefreshStartedAt(Date.now())
     try {
-      const json = await refreshReturnCreditNotes(ctx.marketplace, batchId)
+      const json = await refreshReturnCreditNotes(ctx.marketplace, batchId, setRefreshProgress)
       await ctx.onReloadCurrentBatch()
       await ctx.refreshPostClearingStepStatus(batchId)
       const found = json.newlyFoundCreditNotes || []
@@ -66,6 +75,7 @@ export function Step4Returns({ ctx }: { ctx: ClearingContext }) {
       setRefreshError(e instanceof Error ? e.message : 'Failed to refresh credit notes from Zoho')
     } finally {
       setRefreshing(false)
+      setRefreshStartedAt(null)
     }
   }
 
@@ -109,6 +119,15 @@ export function Step4Returns({ ctx }: { ctx: ClearingContext }) {
         </div>
       ) : null}
       {refreshError ? <div className="apc-alert apc-alert--error" role="alert">{refreshError}</div> : null}
+      {refreshStartedAt != null ? (
+        <PostingProgressBar
+          progress={refreshProgress}
+          startedAt={refreshStartedAt}
+          startingText="Checking Zoho for credit notes…"
+          itemNoun="Return"
+          note="Zoho allows a limited number of requests per minute, so this can take a few minutes. Keep this tab open to see the result."
+        />
+      ) : null}
 
       <div className="apc-tabs">
         {tabs.map((t) => (

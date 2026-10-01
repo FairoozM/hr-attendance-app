@@ -584,6 +584,8 @@ export interface CreditNoteApplyPlan {
   }
   newlyFoundCreditNotes?: NewlyFoundCreditNote[]
   returnDispositions?: ReturnDisposition[]
+  /** When this server last re-read the credit notes from Zoho (null until "Refresh credit notes from Zoho"). */
+  liveRefreshedAt?: string | null
 }
 
 export interface NewlyFoundCreditNote {
@@ -1095,12 +1097,49 @@ export async function fetchKsaCreditNoteApplyPlan(batchId: number | string) {
   return fetchCreditNoteApplyPlan('KSA', batchId)
 }
 
-export async function applyCreditNotes(marketplace: PaymentClearingMarketplace, batchId: number | string, dryRun = true) {
-  return api.post(
+interface ReturnsJobState<T> {
+  jobId?: string
+  status?: 'queued' | 'running' | 'completed' | 'failed'
+  progress?: PostingJobProgress
+  error?: string | null
+  result?: T
+}
+
+const RETURNS_JOB_WAIT_MS = 30 * 60 * 1000
+
+async function waitForReturnsJob<T>(
+  marketplace: PaymentClearingMarketplace,
+  started: ReturnsJobState<T>,
+  onProgress?: (progress: PostingJobProgress) => void
+): Promise<T> {
+  if (!started?.jobId) throw new Error('The server did not start the job.')
+  if (started.progress) onProgress?.(started.progress)
+  const deadline = Date.now() + RETURNS_JOB_WAIT_MS
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 2000))
+    const job = (await api.get(
+      `${paymentClearingBase(marketplace)}/returns-jobs/${encodeURIComponent(started.jobId)}`,
+      longOpts
+    )) as ReturnsJobState<T>
+    if (job.progress) onProgress?.(job.progress)
+    if (job.status === 'completed' && job.result) return job.result
+    if (job.status === 'failed') throw new Error(job.error || 'The job failed.')
+  }
+  throw new Error('Timed out waiting for Zoho. Check the status below, then try again.')
+}
+
+export async function applyCreditNotes(
+  marketplace: PaymentClearingMarketplace,
+  batchId: number | string,
+  dryRun = true,
+  onProgress?: (progress: PostingJobProgress) => void
+) {
+  const started = (await api.post(
     `${paymentClearingBase(marketplace)}/batches/${encodeURIComponent(String(batchId))}/apply-credit-notes`,
     { dryRun },
     longOpts
-  ) as Promise<CreditNoteApplyResult>
+  )) as ReturnsJobState<CreditNoteApplyResult>
+  return waitForReturnsJob(marketplace, started, onProgress)
 }
 
 export async function applyKsaCreditNotes(batchId: number | string, dryRun = true) {
@@ -1111,12 +1150,17 @@ function batchPath(marketplace: PaymentClearingMarketplace, batchId: number | st
   return `${paymentClearingBase(marketplace)}/batches/${encodeURIComponent(String(batchId))}`
 }
 
-export async function refreshReturnCreditNotes(marketplace: PaymentClearingMarketplace, batchId: number | string) {
-  return api.post(
+export async function refreshReturnCreditNotes(
+  marketplace: PaymentClearingMarketplace,
+  batchId: number | string,
+  onProgress?: (progress: PostingJobProgress) => void
+) {
+  const started = (await api.post(
     `${batchPath(marketplace, batchId)}/returns/refresh-credit-notes`,
     {},
     longOpts
-  ) as Promise<RefreshReturnCreditNotesResult>
+  )) as ReturnsJobState<RefreshReturnCreditNotesResult>
+  return waitForReturnsJob(marketplace, started, onProgress)
 }
 
 export async function markReturnNotReceived(

@@ -1001,7 +1001,8 @@ test('a marked order that later gets a Zoho credit note stays in step 10', async
   const zoho = createFakeZoho({ currency: 'AED' })
   const plan = await buildCreditNoteApplyPlan(batch, applyOpts(zoho, storeFor(batch)))
   const row = plan.rows.find((r) => r.orderId === '404-0828335-0868329')
-  assert.notEqual(row.action, 'moved_to_not_received')
+  assert.equal(row.action, 'blocked', 'never refunded and expensed at the same time')
+  assert.match(row.blockingReason, /Undo the mark/)
 })
 
 test('not-received returns post one combined journal: Dr Amazon Return Exp / Cr Undeposited, never twice', async () => {
@@ -1125,6 +1126,68 @@ test('undo and new marks are refused once the step 11 journal is in Zoho', async
     await assert.rejects(
       () => service.markReturnNotReceived(batch.batchId, '407-3586917-0392359', { reason: 'no' }, { actorUserId: 1 }),
       (err) => err.code === 'AMAZON_PAYMENT_CLEARING_REASON_REQUIRED'
+    )
+    assert.equal(saved, null)
+  } finally {
+    Object.assign(store, original)
+  }
+})
+
+test('returns jobs report progress, share one run per batch, and keep the error code', async () => {
+  const { startReturnsJob, getReturnsJob } = require('../src/services/amazonPaymentClearingReturnsJobService')
+  let release
+  let runs = 0
+  const gate = new Promise((resolve) => { release = resolve })
+  const first = startReturnsJob('test_job', 7, async (onProgress) => {
+    runs += 1
+    onProgress({ step: 'Order 1', current: 1, total: 3 })
+    await gate
+    return { ok: true }
+  })
+  const second = startReturnsJob('test_job', 7, async () => ({ ok: false }))
+  assert.equal(second.jobId, first.jobId)
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.deepEqual(getReturnsJob(first.jobId).progress, { step: 'Order 1', current: 1, total: 3 })
+  release()
+  await new Promise((resolve) => setTimeout(resolve, 5))
+  const done = getReturnsJob(first.jobId)
+  assert.equal(done.status, 'completed')
+  assert.deepEqual(done.result, { ok: true })
+  assert.equal(runs, 1)
+
+  const failing = startReturnsJob('test_job', 8, async () => {
+    throw Object.assign(new Error('Zoho said no'), { code: 'X_CODE', status: 422 })
+  })
+  await new Promise((resolve) => setTimeout(resolve, 5))
+  const failed = getReturnsJob(failing.jobId)
+  assert.equal(failed.status, 'failed')
+  assert.equal(failed.error, 'Zoho said no')
+  assert.equal(failed.errorCode, 'X_CODE')
+})
+
+test('step 10 plan reports progress for every return it checks', async () => {
+  const batch = returnBatch('UAE')
+  const zoho = createFakeZoho({ currency: 'AED' })
+  const events = []
+  await buildCreditNoteApplyPlan(batch, applyOpts(zoho, storeFor(batch), { onProgress: (p) => events.push(p) }))
+  assert.deepEqual(events.map((e) => [e.current, e.total]), [[0, 2], [1, 2]])
+})
+
+test('marking not received needs a recent Zoho refresh', async () => {
+  const service = require('../src/services/amazonPaymentClearingService')
+  const batch = notReceivedBatch({ returnDispositions: [] })
+  const original = { getBatchById: store.getBatchById, listPostingsForBatch: store.listPostingsForBatch, updateReturnDispositions: store.updateReturnDispositions }
+  let saved = null
+  store.getBatchById = async () => batch
+  store.listPostingsForBatch = async () => []
+  store.updateReturnDispositions = async (_id, rows) => {
+    saved = rows
+    return { ...batch, returnDispositions: rows }
+  }
+  try {
+    await assert.rejects(
+      () => service.markReturnNotReceived(9999, '404-0828335-0868329', { reason: 'warehouse did not receive' }, { actorUserId: 1 }),
+      (err) => err.code === 'AMAZON_PAYMENT_CLEARING_REFRESH_REQUIRED'
     )
     assert.equal(saved, null)
   } finally {

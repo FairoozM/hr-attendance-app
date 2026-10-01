@@ -281,11 +281,11 @@ async function getCreditNoteApplyPlan(req, res) {
 async function postApplyCreditNotes(req, res) {
   try {
     await assertBatchMarketplaceForReq(req)
-    const json = await service.applyCreditNotesForBatchId(req.params.id, {
+    const job = service.startApplyCreditNotesJob(req.params.id, {
       dryRun: req.body?.dryRun !== false,
       postedBy: req.user?.userId,
     })
-    res.json(json)
+    res.status(202).json({ success: true, ...job })
   } catch (err) {
     sendError(res, err)
   }
@@ -294,10 +294,23 @@ async function postApplyCreditNotes(req, res) {
 async function postRefreshReturnCreditNotes(req, res) {
   try {
     await assertBatchMarketplaceForReq(req)
-    const json = await service.refreshReturnCreditNotesForBatch(req.params.id, { actorUserId: req.user?.userId })
-    res.json(json)
+    const job = service.startRefreshReturnCreditNotesJob(req.params.id, { actorUserId: req.user?.userId })
+    res.status(202).json({ success: true, ...job })
   } catch (err) {
     sendError(res, err)
+  }
+}
+
+async function getReturnsJob(req, res) {
+  try {
+    const { getReturnsJob: findJob } = require('../services/amazonPaymentClearingReturnsJobService')
+    const job = findJob(req.params.jobId)
+    if (!job) {
+      return res.status(404).json({ success: false, error: 'Job not found. The server may have restarted; run it again.', code: 'AMAZON_PAYMENT_CLEARING_RETURNS_JOB_NOT_FOUND' })
+    }
+    return res.json({ success: true, ...job })
+  } catch (err) {
+    return sendError(res, err)
   }
 }
 
@@ -546,6 +559,7 @@ module.exports = {
   getCreditNoteApplyPlan,
   postApplyCreditNotes,
   postRefreshReturnCreditNotes,
+  getReturnsJob,
   postMarkReturnNotReceived,
   deleteReturnNotReceived,
   getNotReceivedPlan,

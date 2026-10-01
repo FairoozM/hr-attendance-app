@@ -428,7 +428,17 @@ async function resolvePlanRowAction(row, batch, opts = {}) {
     description: entry.description,
   }
 
-  if (!creditNoteId && notReceivedOrderIds(batch).has(clean(row.orderId))) {
+  if (notReceivedOrderIds(batch).has(clean(row.orderId))) {
+    if (creditNoteId) {
+      return {
+        ...baseFields,
+        action: 'blocked',
+        status: 'blocked',
+        applyAmount: 0,
+        refundAmount: 0,
+        blockingReason: `Marked not received, but Zoho now has credit note ${row.zohoCreditNoteNumber || creditNoteId} for this order. Undo the mark (step 10) or void the credit note in Zoho.`,
+      }
+    }
     return {
       ...baseFields,
       action: 'moved_to_not_received',
@@ -562,13 +572,16 @@ async function buildCreditNoteApplyPlan(batch, opts = {}) {
     customerId: opts.customerId || batch.zohoCustomerId || null,
     customerName: opts.customerName || batch.zohoCustomerName || null,
   }
+  const onProgress = typeof opts.onProgress === 'function' ? opts.onProgress : () => {}
   let rows = collectReturnRowsForApply(batch)
   if (matchOpts.refreshZoho !== false && rows.length > 0) {
+    onProgress({ step: 'Loading invoices and credit notes from Zoho', current: 0, total: 0 })
     rows = await refreshReturnRowsFromLiveZoho(batch, rows, matchOpts)
     if (typeof opts.onRefreshedRows === 'function') await opts.onRefreshedRows(rows)
   }
   const planRows = []
-  for (const row of rows) {
+  for (const [index, row] of rows.entries()) {
+    onProgress({ step: `Checking refunds in Zoho for order ${row.orderId}`, current: index, total: rows.length })
     planRows.push(await resolvePlanRowAction(row, batch, matchOpts))
   }
 
@@ -635,12 +648,13 @@ async function buildCreditNoteApplyPlan(batch, opts = {}) {
   }
 }
 
-async function isCreditNoteApplyComplete(batchId, batchOverride = null) {
+/** Uses the saved credit note matches; "Refresh credit notes from Zoho" is what re-reads them. */
+async function isCreditNoteApplyComplete(batchId, batchOverride = null, opts = {}) {
   const batch = batchOverride || await store.getBatchById(batchId)
   if (!batch) return false
   const returnCount = collectReturnRowsForApply(batch).length
   if (returnCount === 0) return !settlementHasReturnApplyWork(batch)
-  const plan = await buildCreditNoteApplyPlan(batch)
+  const plan = await buildCreditNoteApplyPlan(batch, { refreshZoho: false, ...opts })
   return Boolean(plan.summary?.isComplete)
 }
 
@@ -680,6 +694,8 @@ async function applyCreditNotesForBatch(batch, options = {}) {
     resolveDepositAccount: options.resolveDepositAccount,
     env: options.env,
     store: postingStore,
+    onProgress: options.onProgress,
+    onRefreshedRows: options.onRefreshedRows,
     ...(options.refreshZoho === false ? { refreshZoho: false } : {}),
   })
 
@@ -726,7 +742,9 @@ async function applyCreditNotesForBatch(batch, options = {}) {
     result.rows.push(out)
   }
 
-  for (const row of plan.rows) {
+  const reportProgress = typeof options.onProgress === 'function' ? options.onProgress : () => {}
+  for (const [index, row] of plan.rows.entries()) {
+    reportProgress({ step: `Order ${row.orderId}`, current: index, total: plan.rows.length })
     if (
       row.action === 'skipped_already_refunded' ||
       row.action === 'skipped_already_applied' ||

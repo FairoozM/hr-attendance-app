@@ -7,8 +7,10 @@ import {
   unmarkReturnNotReceived,
   type CreditNoteApplyPlan,
   type CreditNoteApplyPlanRow,
+  type PostingJobProgress,
 } from '../../../../api/amazonPaymentClearing'
 import { money, SummaryCard } from '../clearingShared'
+import { PostingProgressBar } from '../components/PostingProgressBar'
 import { PostingStatusPanel } from '../components/PostingStatusPanel'
 import { undepositedFundsLabel } from '../marketplaceConfig'
 import type { ClearingContext } from './clearingContext'
@@ -48,6 +50,9 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
   const [markingOrderId, setMarkingOrderId] = useState('')
   const [markReason, setMarkReason] = useState('')
   const [savingMark, setSavingMark] = useState(false)
+  const [jobProgress, setJobProgress] = useState<PostingJobProgress | null>(null)
+  const [jobStartedAt, setJobStartedAt] = useState<number | null>(null)
+  const [jobTitle, setJobTitle] = useState('')
 
   const batchId = preview?.batch?.batchId
   const marksLocked = ctx.notReceivedCount > 0 && ctx.notReceivedComplete
@@ -79,12 +84,23 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
 
   if (!preview) return null
 
+  const startJob = (title: string) => {
+    setJobTitle(title)
+    setJobProgress(null)
+    setJobStartedAt(Date.now())
+  }
+  const endJob = () => {
+    setJobStartedAt(null)
+    setJobProgress(null)
+  }
+
   const onRefreshFromZoho = async () => {
     if (!batchId) return
     setRefreshing(true)
     setLocalError('')
+    startJob('Checking Zoho for credit notes…')
     try {
-      const json = await refreshReturnCreditNotes(ctx.marketplace, batchId)
+      const json = await refreshReturnCreditNotes(ctx.marketplace, batchId, setJobProgress)
       setPlan(json)
       await ctx.onReloadCurrentBatch()
       await ctx.refreshPostClearingStepStatus(batchId)
@@ -101,6 +117,7 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
       setLocalError(e instanceof Error ? e.message : 'Failed to refresh credit notes from Zoho')
     } finally {
       setRefreshing(false)
+      endJob()
     }
   }
 
@@ -146,14 +163,16 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
     if (!batchId) return
     setApplying(true)
     setLocalError('')
+    startJob('Preparing the refund preview…')
     try {
-      const json = await applyCreditNotes(ctx.marketplace, batchId, true)
+      const json = await applyCreditNotes(ctx.marketplace, batchId, true, setJobProgress)
       setPlan(json.plan || null)
       ctx.setNotice('Dry run complete. Zoho was not changed.')
     } catch (e) {
       setLocalError(e instanceof Error ? e.message : 'Dry run failed')
     } finally {
       setApplying(false)
+      endJob()
     }
   }
 
@@ -165,8 +184,9 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
     if (!ok) return
     setApplying(true)
     setLocalError('')
+    startJob('Refunding credit notes in Zoho…')
     try {
-      const json = await applyCreditNotes(ctx.marketplace, batchId, false)
+      const json = await applyCreditNotes(ctx.marketplace, batchId, false, setJobProgress)
       setPlan(json.plan || null)
       await ctx.onReloadCurrentBatch()
       await ctx.refreshPostClearingStepStatus(batchId)
@@ -187,6 +207,7 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
       setLocalError(e instanceof Error ? e.message : 'Refund failed')
     } finally {
       setApplying(false)
+      endJob()
     }
   }
 
@@ -211,8 +232,8 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
       {localError ? <div className="apc-alert apc-alert--error" role="alert">{localError}</div> : null}
       {planLooksEmpty ? (
         <div className="apc-alert apc-alert--error" role="alert">
-          This settlement has {settlementReturnCount} return row(s) but no refund plan was built. Click Refresh plan
-          or reopen the batch from step 1.
+          This settlement has {settlementReturnCount} return row(s) but no refund plan was built. Click Refresh credit
+          notes from Zoho, or reopen the batch from step 1.
         </div>
       ) : null}
 
@@ -230,7 +251,7 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
 
       <div className="apc-button-row">
         <button className="ainv-btn ainv-btn--sm" type="button" onClick={() => void onRefreshFromZoho()} disabled={busy}>
-          {refreshing || loading ? 'Checking Zoho...' : 'Refresh credit notes from Zoho'}
+          {refreshing ? 'Checking Zoho...' : loading ? 'Loading...' : 'Refresh credit notes from Zoho'}
         </button>
         <button
           className="ainv-btn"
@@ -260,6 +281,22 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
           )
         ) : null}
       </div>
+
+      {jobStartedAt != null ? (
+        <PostingProgressBar
+          progress={jobProgress}
+          startedAt={jobStartedAt}
+          startingText={jobTitle}
+          itemNoun="Return"
+          note="Zoho allows a limited number of requests per minute, so this can take a few minutes. It runs on the server — keep this tab open to see the result."
+        />
+      ) : null}
+      {plan && !plan.liveRefreshedAt && rows.some(canMarkNotReceived) ? (
+        <p className="apc-muted">
+          Click <strong>Refresh credit notes from Zoho</strong> first — returns can only be marked "Not received" after
+          Zoho has been checked for their credit notes.
+        </p>
+      ) : null}
 
       {!ctx.salesComplete ? (
         <p className="apc-muted">

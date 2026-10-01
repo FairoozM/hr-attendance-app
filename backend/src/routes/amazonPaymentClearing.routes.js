@@ -39,6 +39,7 @@ router.post('/:marketplace/batches/:id/approve', rejectInvalidMarketplace, ctrl.
 router.get('/:marketplace/batches/:id/credit-note-apply-plan', rejectInvalidMarketplace, ctrl.getCreditNoteApplyPlan)
 router.post('/:marketplace/batches/:id/apply-credit-notes', rejectInvalidMarketplace, ctrl.postApplyCreditNotes)
 router.post('/:marketplace/batches/:id/returns/refresh-credit-notes', rejectInvalidMarketplace, ctrl.postRefreshReturnCreditNotes)
+router.get('/:marketplace/returns-jobs/:jobId', rejectInvalidMarketplace, ctrl.getReturnsJob)
 router.post('/:marketplace/batches/:id/returns/:orderId/not-received', rejectInvalidMarketplace, ctrl.postMarkReturnNotReceived)
 router.delete('/:marketplace/batches/:id/returns/:orderId/not-received', rejectInvalidMarketplace, ctrl.deleteReturnNotReceived)
 router.get('/:marketplace/batches/:id/not-received-plan', rejectInvalidMarketplace, ctrl.getNotReceivedPlan)

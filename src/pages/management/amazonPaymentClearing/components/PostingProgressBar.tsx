@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import type { PostingJobProgress } from '../../../../api/amazonPaymentClearing'
 
 function elapsedText(ms: number) {
@@ -11,9 +11,15 @@ function elapsedText(ms: number) {
 export function PostingProgressBar({
   progress,
   startedAt,
+  startingText = 'Starting Zoho posting…',
+  itemNoun = 'Entry',
+  note,
 }: {
   progress: PostingJobProgress | null
   startedAt: number | null
+  startingText?: string
+  itemNoun?: string
+  note?: ReactNode
 }) {
   const [now, setNow] = useState(() => Date.now())
 
@@ -28,10 +34,12 @@ export function PostingProgressBar({
   const donePct = total ? (done / total) * 100 : 0
   const activePct = total && !finishing ? 100 / total : 0
   const heading = !total
-    ? 'Starting Zoho posting…'
+    ? progress?.step && progress.step !== 'Queued' && progress.step !== 'Starting'
+      ? `${progress.step}…`
+      : startingText
     : finishing
-      ? `All ${total} entries sent. Saving the result…`
-      : `Entry ${done + 1} of ${total}: ${progress?.step || ''}`
+      ? `All ${total} done. Saving the result…`
+      : `${itemNoun} ${done + 1} of ${total}: ${progress?.step || ''}`
 
   return (
     <div className="apc-progress" role="status" aria-live="polite">
@@ -56,8 +64,12 @@ export function PostingProgressBar({
         )}
       </div>
       <p className="apc-muted apc-progress__note">
-        Each sales payment is applied to hundreds of invoices, so Zoho can take a minute or more per payment. Keep this
-        tab open until it finishes.
+        {note ?? (
+          <>
+            Each sales payment is applied to hundreds of invoices, so Zoho can take a minute or more per payment. Keep
+            this tab open until it finishes.
+          </>
+        )}
       </p>
     </div>
   )
