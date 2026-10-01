@@ -33,6 +33,19 @@ const PER_MINUTE_AUTO_WAIT = !/^(0|false|no)$/i.test(
   String(process.env.ZOHO_PER_MINUTE_AUTO_WAIT ?? 'true')
 )
 const PER_MINUTE_WAIT_MAX_MS = parseEnvInt('ZOHO_PER_MINUTE_WAIT_MAX_MS', 120000)
+/**
+ * Bulk catalogue scans (composite item details, sales-by-item reports, item pages) may only
+ * use part of the per-minute window, so interactive work (posting, clearing, page loads)
+ * always has free slots instead of queueing behind hundreds of background reads.
+ */
+const PER_MINUTE_RESERVED_INTERACTIVE = Math.min(
+  parseEnvInt('ZOHO_PER_MINUTE_RESERVED_INTERACTIVE', 25),
+  Math.max(0, PER_MINUTE_LIMIT - 5)
+)
+const BULK_PER_MINUTE_LIMIT = PER_MINUTE_LIMIT - PER_MINUTE_RESERVED_INTERACTIVE
+const BULK_WAIT_MAX_MS = parseEnvInt('ZOHO_BULK_WAIT_MAX_MS', 15 * 60 * 1000)
+const BULK_SOURCE_RE = /composite|inventory_health|purchase_planning_composite|price_report|inventory_items_page|salesbyitem/i
+const BULK_PATH_RE = /\/compositeitems(\/|$)|\/reports\/salesbyitem/i
 const CACHE_ENABLED = !/^(0|false|no)$/i.test(String(process.env.ZOHO_CACHE_ENABLED ?? 'true'))
 
 const TTL_MS = {
@@ -45,6 +58,8 @@ const TTL_MS = {
 }
 
 const minuteTimestamps = []
+/** Requests that passed the per-minute check but have not been sent yet. */
+let reservedMinuteSlots = 0
 let warnedWarningLimitDay = ''
 let syncPausedUntil = 0
 let dailyCountCache = { n: null, at: 0 }
@@ -60,9 +75,18 @@ function trimMinuteWindow() {
   }
 }
 
-function recordOutboundMinute() {
+function recordOutboundMinute({ reserved = false } = {}) {
+  if (reserved && reservedMinuteSlots > 0) reservedMinuteSlots -= 1
   trimMinuteWindow()
   minuteTimestamps.push(Date.now())
+}
+
+function isBulkZohoRequest(pathBase, source) {
+  return BULK_SOURCE_RE.test(String(source || '')) || BULK_PATH_RE.test(String(pathBase || ''))
+}
+
+function minuteSlotsInUse() {
+  return minuteTimestamps.length + reservedMinuteSlots
 }
 
 async function getDailySuccessCount() {
@@ -171,14 +195,17 @@ async function assertGuards(pathBase, method, source, critical) {
     throw e
   }
 
+  const bulk = isBulkZohoRequest(pathBase, source)
+  const minuteLimit = bulk ? BULK_PER_MINUTE_LIMIT : PER_MINUTE_LIMIT
+  const maxWaitMs = bulk ? BULK_WAIT_MAX_MS : PER_MINUTE_WAIT_MAX_MS
   trimMinuteWindow()
-  if (minuteTimestamps.length >= PER_MINUTE_LIMIT) {
+  if (minuteSlotsInUse() >= minuteLimit) {
     if (PER_MINUTE_AUTO_WAIT) {
       const waitStarted = Date.now()
-      while (minuteTimestamps.length >= PER_MINUTE_LIMIT) {
-        if (Date.now() - waitStarted > PER_MINUTE_WAIT_MAX_MS) {
+      while (minuteSlotsInUse() >= minuteLimit) {
+        if (Date.now() - waitStarted > maxWaitMs) {
           const e = new Error(
-            `Zoho per-minute limit: still at ${PER_MINUTE_LIMIT} calls/60s after ${PER_MINUTE_WAIT_MAX_MS}ms wait. Try again or slow down.`
+            `Zoho per-minute limit: still at ${minuteLimit} calls/60s after ${maxWaitMs}ms wait. Try again or slow down.`
           )
           e.code = 'ZOHO_RATE_MINUTE_LIMIT'
           console.warn(
@@ -191,22 +218,27 @@ async function assertGuards(pathBase, method, source, critical) {
           throw e
         }
         const oldest = minuteTimestamps[0]
-        const waitMs = Math.min(Math.max(50, oldest + 60_000 - Date.now() + 50), 15_000)
-        console.warn(
-          '[zoho-api] per-minute window full; waiting',
-          Math.round(waitMs),
-          'ms',
-          'queued=',
-          minuteTimestamps.length,
-          'endpoint=',
-          pathBase
-        )
+        const waitMs = oldest == null
+          ? 250
+          : Math.min(Math.max(50, oldest + 60_000 - Date.now() + 50), bulk ? 15_000 : 2_000)
+        if (bulk || Date.now() - waitStarted < 100) {
+          console.warn(
+            '[zoho-api] per-minute window full; waiting',
+            Math.round(waitMs),
+            'ms',
+            'queued=',
+            minuteTimestamps.length,
+            bulk ? 'lane=bulk' : 'lane=interactive',
+            'endpoint=',
+            pathBase
+          )
+        }
         await sleep(waitMs)
         trimMinuteWindow()
       }
     } else {
       const e = new Error(
-        `Zoho per-minute API limit exceeded (${PER_MINUTE_LIMIT} calls / 60s). Slow down requests.`
+        `Zoho per-minute API limit exceeded (${minuteLimit} calls / 60s). Slow down requests.`
       )
       e.code = 'ZOHO_RATE_MINUTE_LIMIT'
       console.warn(
@@ -220,6 +252,16 @@ async function assertGuards(pathBase, method, source, critical) {
     }
   }
 
+  reservedMinuteSlots += 1
+  try {
+    await assertDailyGuards(pathBase, method, source, critical)
+  } catch (err) {
+    reservedMinuteSlots = Math.max(0, reservedMinuteSlots - 1)
+    throw err
+  }
+}
+
+async function assertDailyGuards(pathBase, method, source, critical) {
   const daily = await getDailySuccessCount()
   console.log('[zoho-api] usage today=', daily, 'endpoint=', pathBase)
 
@@ -274,7 +316,7 @@ async function runInventoryJsonOnce(opts) {
       headers: { Authorization: `Zoho-oauthtoken ${t}` },
     })
 
-  recordOutboundMinute()
+  recordOutboundMinute({ reserved: true })
   let { status, body: resBody } = await doReq(token)
 
   if (isInvalidAccessTokenResponse(status, resBody)) {
@@ -518,7 +560,7 @@ async function zohoInventoryBufferRequest(path, searchParams, meta = {}) {
           timeoutMs: c.timeoutMs,
           headers: { Authorization: `Zoho-oauthtoken ${t}` },
         })
-      recordOutboundMinute()
+      recordOutboundMinute({ reserved: true })
       let { status, body, headers: resHeaders } = await doReq(token)
       const bodyStr = body.toString('utf8')
       if (isInvalidAccessTokenResponse(status, bodyStr)) {

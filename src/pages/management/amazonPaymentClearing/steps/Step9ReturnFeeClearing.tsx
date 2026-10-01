@@ -74,7 +74,7 @@ export function Step9ReturnFeeClearing({ ctx }: { ctx: ClearingContext }) {
           loading={ctx.postingStatusLoading}
           groups={['return_fee_journal']}
           onChanged={(message) => ctx.refreshPostingStatus(batchId, message)}
-          onResume={ctx.goToStep}
+          onResume={(step) => (step === 12 && canPostJournals ? ctx.onPostReturnFeeJournals(false) : ctx.goToStep(step))}
         />
       ) : null}
       {ctx.postingStatus?.settlementComplete ? (

@@ -438,7 +438,7 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
             await ctx.refreshPostingStatus(batchId, message)
             await loadPlan()
           }}
-          onResume={ctx.goToStep}
+          onResume={(step) => (step === 10 ? void onApply() : ctx.goToStep(step))}
         />
       ) : null}
 

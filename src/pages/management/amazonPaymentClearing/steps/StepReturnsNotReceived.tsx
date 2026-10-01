@@ -169,7 +169,7 @@ export function StepReturnsNotReceived({ ctx }: { ctx: ClearingContext }) {
             await ctx.refreshPostingStatus(batchId, message)
             await loadPlan()
           }}
-          onResume={ctx.goToStep}
+          onResume={(step) => (step === 11 ? void run(false) : ctx.goToStep(step))}
         />
       ) : null}
 
