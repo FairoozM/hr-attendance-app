@@ -109,6 +109,7 @@ export function AmazonPaymentClearingPage() {
   const [posting, setPosting] = useState(false)
   const [postingProgress, setPostingProgress] = useState<PostingJobProgress | null>(null)
   const [postingStartedAt, setPostingStartedAt] = useState<number | null>(null)
+  const [salesPostingMessage, setSalesPostingMessage] = useState<{ kind: 'error' | 'notice'; text: string } | null>(null)
   const [postingReturnFees, setPostingReturnFees] = useState(false)
 
   const [forceRepostOpen, setForceRepostOpen] = useState(false)
@@ -298,6 +299,7 @@ export function AmazonPaymentClearingPage() {
     setPreview(json)
     setPaymentPreview(json.paymentPreview ?? null)
     setPostingResult(null)
+    setSalesPostingMessage(null)
     if (json.zohoCustomerName || json.batch?.zohoCustomerName) {
       setZohoCustomerName(json.zohoCustomerName || json.batch?.zohoCustomerName || defaultZohoCustomerName(marketplace))
     }
@@ -467,24 +469,42 @@ export function AmazonPaymentClearingPage() {
       setPosting(true)
       setError('')
       setNotice('')
+      setSalesPostingMessage(null)
+      setPostingResult(null)
       setPostingProgress(null)
-      setPostingStartedAt(dryRun ? null : Date.now())
+      setPostingStartedAt(Date.now())
+      const report = (kind: 'error' | 'notice', text: string) => {
+        setSalesPostingMessage({ kind, text })
+        if (kind === 'error') setError(text)
+        else setNotice(text)
+      }
       try {
         const json = await postPaymentClearingToZoho(marketplace, batchId, dryRun, setPostingProgress)
         setPostingResult(json)
         if (dryRun) {
-          setNotice('Dry run completed. No Zoho payments were created.')
+          const errors = json.summary?.errors || 0
+          const verification = json.summary?.verificationRequired || 0
+          if (errors || verification) {
+            report(
+              'error',
+              `Dry run found problems: ${[
+                errors ? `${errors} entr${errors === 1 ? 'y' : 'ies'} with errors` : '',
+                verification ? `${verification} entr${verification === 1 ? 'y needs' : 'ies need'} verification` : '',
+              ].filter(Boolean).join(', ')}. See the details below. No Zoho payments were created.`
+            )
+          } else {
+            report('notice', 'Dry run completed. No Zoho payments were created.')
+          }
         } else {
           const outcome = postingOutcomeMessage(json)
-          if (outcome.ok) setNotice(outcome.message)
-          else setError(outcome.message)
+          report(outcome.ok ? 'notice' : 'error', outcome.message)
           const refreshed = await fetchPaymentClearingBatch(marketplace, batchId)
           setPreview(refreshed)
           setPostingResult(json)
           await loadSavedBatches()
         }
       } catch (e) {
-        setError(safeError(e))
+        report('error', `${dryRun ? 'Dry run' : 'POST TO ZOHO'} failed: ${safeError(e)}`)
       } finally {
         setPosting(false)
         setPostingStartedAt(null)
@@ -606,6 +626,7 @@ export function AmazonPaymentClearingPage() {
     posting,
     postingProgress,
     postingStartedAt,
+    salesPostingMessage,
     postingReturnFees,
     search,
     isPosted,

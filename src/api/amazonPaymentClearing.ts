@@ -1329,17 +1329,9 @@ export async function postPaymentClearingToZoho(
   dryRun = true,
   onProgress?: (progress: PostingJobProgress) => void
 ) {
-  if (dryRun) {
-    return api.post(
-      `${paymentClearingBase(marketplace)}/batches/${encodeURIComponent(String(batchId))}/post-to-zoho`,
-      { dryRun: true },
-      longOpts
-    ) as Promise<PaymentPostingResult>
-  }
-
   const started = (await api.post(
     `${paymentClearingBase(marketplace)}/batches/${encodeURIComponent(String(batchId))}/post-to-zoho`,
-    { dryRun: false },
+    { dryRun },
     longOpts
   )) as PaymentPostingResult & { jobId?: string; status?: string }
 
@@ -1372,7 +1364,7 @@ async function waitForPostingJob(
       throw new Error(job.error || 'Zoho posting failed.')
     }
   }
-  throw new Error('Zoho posting timed out while waiting for the background job to finish.')
+  throw new Error('Zoho posting timed out while waiting for the background job to finish. Check the posting status below before trying again.')
 }
 
 export async function postKsaPaymentClearingToZoho(batchId: number | string, dryRun = true) {

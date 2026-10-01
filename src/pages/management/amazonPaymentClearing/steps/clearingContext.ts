@@ -34,6 +34,8 @@ export interface ClearingContext {
   posting: boolean
   postingProgress: PostingJobProgress | null
   postingStartedAt: number | null
+  /** Outcome of the last step 9 Dry Run / POST TO ZOHO, shown next to those buttons. */
+  salesPostingMessage: { kind: 'error' | 'notice'; text: string } | null
   postingReturnFees: boolean
 
   search: ReturnType<typeof useClearingSearch>

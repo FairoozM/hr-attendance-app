@@ -424,15 +424,10 @@ async function postPostToZoho(req, res) {
   try {
     await assertBatchMarketplaceForReq(req)
     const dryRun = req.body?.dryRun !== false
-    if (dryRun) {
-      const json = await service.postBatchToZoho(req.params.id, {
-        dryRun: true,
-        postedBy: req.user?.userId,
-      })
-      return res.json(json)
-    }
+    // Dry runs read Zoho invoice balances too, so they run as a job like real posts;
+    // a single long request is cut off by CloudFront (504).
     const { startPostToZohoJob } = require('../services/amazonPaymentClearingPostingJobService')
-    const json = startPostToZohoJob(req.params.id, { postedBy: req.user?.userId })
+    const json = startPostToZohoJob(req.params.id, { postedBy: req.user?.userId, dryRun })
     return res.status(202).json({ success: true, ...json })
   } catch (err) {
     sendError(res, err)
@@ -444,7 +439,7 @@ async function getPostToZohoJob(req, res) {
     const { getPostToZohoJob } = require('../services/amazonPaymentClearingPostingJobService')
     const json = getPostToZohoJob(req.params.jobId)
     if (!json) {
-      return res.status(404).json({ success: false, error: 'Posting job not found.', code: 'AMAZON_PAYMENT_CLEARING_POST_JOB_NOT_FOUND' })
+      return res.status(404).json({ success: false, error: 'Posting job not found. The server may have restarted; check the posting status, then run it again.', code: 'AMAZON_PAYMENT_CLEARING_POST_JOB_NOT_FOUND' })
     }
     return res.json({ success: true, ...json })
   } catch (err) {

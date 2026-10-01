@@ -8,6 +8,7 @@ function serializeJob(job) {
   return {
     jobId: job.jobId,
     batchId: job.batchId,
+    dryRun: job.dryRun,
     status: job.status,
     progress: job.progress,
     startedAt: job.startedAt,
@@ -33,7 +34,10 @@ function startPostToZohoJob(batchId, options = {}) {
     throw err
   }
 
-  const existingJobId = activeByBatchId.get(id)
+  const dryRun = options.dryRun === true && !options.forceRepostReason
+  // A running dry run must never be returned in place of a real post (and vice versa).
+  const activeKey = `${id}:${dryRun ? 'dry_run' : 'post'}`
+  const existingJobId = activeByBatchId.get(activeKey)
   if (existingJobId) {
     const existing = jobs.get(existingJobId)
     if (existing && ['queued', 'running'].includes(existing.status)) {
@@ -46,6 +50,7 @@ function startPostToZohoJob(batchId, options = {}) {
   const job = {
     jobId,
     batchId: id,
+    dryRun,
     status: 'queued',
     progress: { step: 'Queued', current: 0, total: 0 },
     startedAt: now,
@@ -55,7 +60,7 @@ function startPostToZohoJob(batchId, options = {}) {
     postedBy: options.postedBy || null,
   }
   jobs.set(jobId, job)
-  activeByBatchId.set(id, jobId)
+  activeByBatchId.set(activeKey, jobId)
 
   setImmediate(async () => {
     job.status = 'running'
@@ -67,16 +72,18 @@ function startPostToZohoJob(batchId, options = {}) {
       const { postBatchToZoho, forceRepostBatch } = require('./amazonPaymentClearingService')
       job.result = options.forceRepostReason
         ? await forceRepostBatch(id, { dryRun: false, reason: options.forceRepostReason, postedBy: options.postedBy, onProgress })
-        : await postBatchToZoho(id, { dryRun: false, postedBy: options.postedBy, onProgress })
+        : await postBatchToZoho(id, { dryRun, postedBy: options.postedBy, onProgress })
       const summary = job.result?.summary || {}
       const done =
         (summary.paymentsCreated || 0) + (summary.paymentsSkipped || 0) + (summary.journalsCreated || 0) + (summary.journalsSkipped || 0)
       const total = done + (summary.errors || 0) + (summary.verificationRequired || 0)
-      job.progress = {
-        step: job.result?.success ? 'All sales entries verified in Zoho' : 'Posting stopped with entries still open',
-        current: done,
-        total,
-      }
+      job.progress = dryRun
+        ? { step: 'Dry run finished', current: total, total }
+        : {
+            step: job.result?.success ? 'All sales entries verified in Zoho' : 'Posting stopped with entries still open',
+            current: done,
+            total,
+          }
       job.status = 'completed'
       job.completedAt = new Date().toISOString()
     } catch (err) {
@@ -84,9 +91,9 @@ function startPostToZohoJob(batchId, options = {}) {
       job.error = safeError(err)
       job.errorCode = err?.code || null
       job.completedAt = new Date().toISOString()
-      console.error('[amazon-payment-clearing-post]', id, err?.message || err)
+      console.error('[amazon-payment-clearing-post]', id, dryRun ? '(dry run)' : '', err?.message || err)
     } finally {
-      if (activeByBatchId.get(id) === jobId) activeByBatchId.delete(id)
+      if (activeByBatchId.get(activeKey) === jobId) activeByBatchId.delete(activeKey)
     }
   })
 

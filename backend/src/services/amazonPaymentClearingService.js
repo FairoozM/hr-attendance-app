@@ -1294,7 +1294,8 @@ async function buildPaymentPreviewForBatch(id, createdBy) {
 }
 
 async function postBatchToZoho(id, options = {}) {
-  return store.withBatchPostingLock(id, async () => {
+  const dryRun = options.dryRun !== false
+  const run = async () => {
     const batch = await batchWithCurrentFeeJournalMappings(await store.getBatchById(id))
     if (!batch) {
       const err = new Error('Payment clearing batch not found.')
@@ -1305,13 +1306,15 @@ async function postBatchToZoho(id, options = {}) {
     return postApprovedBatch({
       batch,
       store,
-      dryRun: options.dryRun !== false,
+      dryRun,
       allowPosted: options.allowPosted === true,
       postedBy: options.postedBy,
       createPayment: options.createPayment,
       onProgress: options.onProgress,
     })
-  })
+  }
+  // A dry run writes nothing, so it must not hold the posting lock and block a real post.
+  return dryRun ? run() : store.withBatchPostingLock(id, run)
 }
 
 async function prepareForceRepost(id, reasonInput) {

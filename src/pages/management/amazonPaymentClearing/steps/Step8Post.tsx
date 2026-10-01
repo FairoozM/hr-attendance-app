@@ -129,6 +129,14 @@ export function Step8Post({ ctx }: { ctx: ClearingContext }) {
           </button>
         )}
       </div>
+      {ctx.salesPostingMessage ? (
+        <div
+          className={ctx.salesPostingMessage.kind === 'error' ? 'apc-alert apc-alert--error' : 'apc-alert'}
+          role={ctx.salesPostingMessage.kind === 'error' ? 'alert' : 'status'}
+        >
+          {ctx.salesPostingMessage.text}
+        </div>
+      ) : null}
         {!paymentPreview ? (
         <p className="apc-muted">Generate the payment preview in step 8 before posting.</p>
       ) : null}
