@@ -6,6 +6,16 @@ function safeError(err) {
   return msg.slice(0, 800)
 }
 
+/** Posting kinds are never replaced: a second run while the first is alive could double-post to Zoho. */
+const READ_ONLY_JOB_KINDS = new Set(['reconcile_open_balances', 'payment_preview'])
+const READ_ONLY_JOB_MAX_AGE_MS = 10 * 60 * 1000
+
+function isAbandonedReadOnlyJob(job) {
+  if (!READ_ONLY_JOB_KINDS.has(job.kind)) return false
+  const started = Date.parse(job.startedAt || '')
+  return Number.isFinite(started) && Date.now() - started > READ_ONLY_JOB_MAX_AGE_MS
+}
+
 async function startJob(batchId, kind, runner, progressStep, completedStep = 'Completed', createdBy = null) {
   const id = Number(batchId)
   if (!Number.isFinite(id) || id <= 0) {
@@ -16,7 +26,22 @@ async function startJob(batchId, kind, runner, progressStep, completedStep = 'Co
   }
 
   const existing = await store.findActiveClearingJobForBatch(id)
-  if (existing) return existing
+  if (existing && isAbandonedReadOnlyJob(existing)) {
+    await store.updateClearingJob(existing.jobId, {
+      status: 'failed',
+      error: 'Abandoned after running too long — replaced by a new run.',
+      completedAt: new Date().toISOString(),
+    })
+  } else if (existing && existing.kind === kind) {
+    return existing
+  } else if (existing) {
+    const err = new Error(
+      `Another Noon job (${existing.kind.replace(/_/g, ' ')}) is still running for this batch. Wait for it to finish, then try again.`
+    )
+    err.code = 'NOON_PAYMENT_CLEARING_JOB_BUSY'
+    err.status = 409
+    throw err
+  }
 
   const jobId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`
   const job = await store.createClearingJob({

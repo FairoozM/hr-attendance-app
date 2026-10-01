@@ -59,6 +59,14 @@ async function startServer() {
     await testConnection()
     console.log('[boot] Database ready.')
 
+    try {
+      const { failInterruptedClearingJobs } = require('./services/noonPaymentClearing/noonPaymentClearingStore')
+      const interrupted = await failInterruptedClearingJobs()
+      if (interrupted) console.log(`[noon-payment-clearing] marked ${interrupted} interrupted job(s) as failed`)
+    } catch (err) {
+      console.error('[noon-payment-clearing] interrupted job cleanup failed (non-fatal):', err.message || err)
+    }
+
     if (/^(1|true|yes)$/i.test(String(process.env.ZOHO_AUTO_SYNC_ON_START || ''))) {
       console.log('[zoho] ZOHO_AUTO_SYNC_ON_START=1 — background items refresh scheduled')
       setImmediate(() => {

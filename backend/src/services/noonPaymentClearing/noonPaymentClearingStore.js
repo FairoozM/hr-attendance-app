@@ -1069,6 +1069,20 @@ async function findActiveClearingJobForBatch(batchId) {
   return mapClearingJob(result.rows[0])
 }
 
+/** Jobs run in-process, so any still queued/running when the API boots died with the old process. */
+async function failInterruptedClearingJobs() {
+  await ensureNoonPaymentClearingTables()
+  const result = await query(
+    `UPDATE noon_payment_clearing_jobs
+     SET status = 'failed',
+         error = 'Interrupted by an API restart before it finished. Run it again.',
+         completed_at = NOW()
+     WHERE status IN ('queued', 'running')
+     RETURNING id`
+  )
+  return result.rowCount || 0
+}
+
 async function createClearingJob({ jobId, batchId, kind, createdBy, progress }) {
   await ensureNoonPaymentClearingTables()
   await query(
@@ -1132,6 +1146,7 @@ module.exports = {
   ensureNoonPaymentClearingTables,
   findBatchByReference,
   getBatchById,
+  failInterruptedClearingJobs,
   listSavedBatches,
   savePreviewBatch,
   approveBatch,
