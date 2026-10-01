@@ -77,10 +77,13 @@ export function Step9ReturnFeeClearing({ ctx }: { ctx: ClearingContext }) {
           onResume={(step) => (step === 12 && canPostJournals ? ctx.onPostReturnFeeJournals(false) : ctx.goToStep(step))}
         />
       ) : null}
-      {ctx.postingStatus?.settlementComplete ? (
+      {ctx.returnFeePostComplete ? (
         <div className="apc-alert apc-approved-panel" role="status">
-          <strong>Settlement complete.</strong> Sales payments, fee journals, credit note refunds, returns not received
-          and return fee journals are all posted and recorded.
+          <strong>Return fee journals are posted.</strong> Last step: move the uncleared commission and shipping balances
+          to expense.{' '}
+          <button className="ainv-btn ainv-btn--sm" type="button" onClick={() => ctx.goToStep(13)}>
+            Continue to step 13
+          </button>
         </div>
       ) : null}
       {(plan?.warnings || []).map((warning) => (

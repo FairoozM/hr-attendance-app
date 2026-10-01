@@ -26,6 +26,7 @@ const GROUP_LABELS = Object.freeze({
   credit_note: 'Credit notes and refunds',
   return_not_received: 'Returns not received',
   return_fee_journal: 'Return fee journals',
+  uncleared_clearing: 'Commission & shipping clearing',
 })
 
 function clean(value) {
@@ -104,8 +105,8 @@ function recoveryActionsFor(entry) {
  */
 async function buildPostingStatus({ batch, creditNoteBatch = null, store, env = process.env }) {
   const returnsBatch = creditNoteBatch || batch
-  const described = describeExpectedEntries(batch, { env })
   const postings = await store.listPostingsForBatch(batch.batchId)
+  const described = describeExpectedEntries(batch, { env, postings })
   const byType = new Map(postings.map((row) => [row.paymentType, row]))
   const expected = Array.from(described.entries.values())
   const feeResolver = localJournalRowResolver(
@@ -127,7 +128,7 @@ async function buildPostingStatus({ batch, creditNoteBatch = null, store, env = 
     return byType.get(row.paymentType) || null
   }
 
-  const groups = { sales_payment: [], fee_journal: [], credit_note: [], return_not_received: [], return_fee_journal: [] }
+  const groups = { sales_payment: [], fee_journal: [], credit_note: [], return_not_received: [], return_fee_journal: [], uncleared_clearing: [] }
   for (const row of expected) {
     const view = entryView(row, localFor(row))
     view.actions = recoveryActionsFor(view)
@@ -196,13 +197,15 @@ async function buildPostingStatus({ batch, creditNoteBatch = null, store, env = 
     credit_note: settlementHasReturnApplyWork(returnsBatch) || groups.credit_note.length ? groupStatus(groups.credit_note) : 'not_required',
     return_not_received: groupStatus(groups.return_not_received),
     return_fee_journal: groupStatus(groups.return_fee_journal),
+    uncleared_clearing: groupStatus(groups.uncleared_clearing),
   }
   const done = (s) => s === 'posted' || s === 'not_required'
   const salesComplete = done(status.sales_payment) && done(status.fee_journal)
   const creditNotesComplete = done(status.credit_note)
   const notReceivedComplete = done(status.return_not_received)
   const returnFeesComplete = done(status.return_fee_journal)
-  const settlementComplete = salesComplete && creditNotesComplete && notReceivedComplete && returnFeesComplete
+  const unclearedClearingComplete = done(status.uncleared_clearing)
+  const settlementComplete = salesComplete && creditNotesComplete && notReceivedComplete && returnFeesComplete && unclearedClearingComplete
 
   const all = [
     ...groups.sales_payment,
@@ -210,6 +213,7 @@ async function buildPostingStatus({ batch, creditNoteBatch = null, store, env = 
     ...groups.credit_note,
     ...groups.return_not_received,
     ...groups.return_fee_journal,
+    ...groups.uncleared_clearing,
   ]
   const verificationCount = all.filter((row) => row.status === 'verification_required').length
   const postedCount = all.filter((row) => row.status === 'posted').length
@@ -263,6 +267,7 @@ async function buildPostingStatus({ batch, creditNoteBatch = null, store, env = 
     creditNotesComplete,
     notReceivedComplete,
     returnFeesComplete,
+    unclearedClearingComplete,
     settlementComplete,
     groups: Object.entries(groups).map(([key, entries]) => ({
       key,
@@ -346,7 +351,7 @@ async function loadPosting(store, batchId, postingId) {
  */
 async function reverifyPosting({ batch, store, postingId, actorUserId = null, zohoLookup = null, env = process.env }) {
   const { posting, postings } = await loadPosting(store, batch.batchId, postingId)
-  const described = describeExpectedEntries(batch, { env })
+  const described = describeExpectedEntries(batch, { env, postings })
   const exp = expectationForPosting(posting, described, postings)
   if (!exp) throw httpError('This posting row no longer matches a planned entry; review it manually.', 'AMAZON_PAYMENT_CLEARING_POSTING_UNPLANNED', 409)
   const deps = zohoLookup || recovery.defaultZohoLookupDeps()
@@ -393,7 +398,7 @@ async function linkPosting({ batch, store, postingId = null, paymentType = '', z
   if (!id) throw httpError('A Zoho record id is required to link.', 'AMAZON_PAYMENT_CLEARING_ZOHO_ID_REQUIRED', 422)
   if (!clean(reason)) throw httpError('A reason is required to link a Zoho record.', 'AMAZON_PAYMENT_CLEARING_REASON_REQUIRED', 422)
   const postings = await store.listPostingsForBatch(batch.batchId)
-  const described = describeExpectedEntries(batch, { env })
+  const described = describeExpectedEntries(batch, { env, postings })
   if (described.configProblem) throw httpError(described.configProblem, 'AMAZON_PAYMENT_CLEARING_ACCOUNT_CONFIG_INVALID', 422)
   const deps = zohoLookup || recovery.defaultZohoLookupDeps()
 
@@ -475,7 +480,7 @@ async function releasePosting({ batch, store, postingId, reason = '', actorUserI
   if (posting.status !== STATUS.PENDING && posting.status !== STATUS.VERIFICATION_REQUIRED) {
     throw httpError('Only entries awaiting verification can be released.', 'AMAZON_PAYMENT_CLEARING_POSTING_NOT_UNCERTAIN', 409)
   }
-  const described = describeExpectedEntries(batch, { env })
+  const described = describeExpectedEntries(batch, { env, postings })
   const exp = expectationForPosting(posting, described, postings)
   if (!exp) throw httpError('This posting row no longer matches a planned entry.', 'AMAZON_PAYMENT_CLEARING_POSTING_UNPLANNED', 409)
   const deps = zohoLookup || recovery.defaultZohoLookupDeps()

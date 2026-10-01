@@ -1055,6 +1055,113 @@ test('not-received journal waits for sales payments and needs something marked',
   assert.equal(zoho.calls.createJournal, 0)
 })
 
+// 12. Step 13: uncleared commission / shipping moved to expense with input VAT split
+
+const {
+  postUnclearedClearingForBatch,
+  buildUnclearedClearingPlanForBatch,
+  isUnclearedClearingComplete,
+} = require('../src/services/amazonPaymentClearingPostingService')
+
+const UAE_COMMISSION_EXP_ID = '4265011000000708205'
+const UAE_SHIPPING_EXP_ID = '4265011000000747608'
+const UAE_INPUT_VAT_ID = '4265011000000077044'
+
+function batch40Postings(batchId) {
+  const journal = (paymentType, amount, debitAccountId, creditAccountId) => ({
+    batchId, paymentType, amount, zohoPaymentId: `zj-${paymentType}`, mappingSnapshot: { debitAccountId, creditAccountId },
+  })
+  return [
+    { batchId, paymentType: 'net_balance', accountCode: '1016', amount: 49829.7, zohoPaymentId: 'zp-net' },
+    { batchId, paymentType: 'commission', accountCode: '1021', amount: 10345.08, zohoPaymentId: 'zp-comm' },
+    { batchId, paymentType: 'shipping_fba', accountCode: '1025', amount: 5505.21, zohoPaymentId: 'zp-ship' },
+    { batchId, paymentType: 'credit_note_refund', accountCode: '1016', amount: 121, zohoPaymentId: 'zr-1', mappingSnapshot: { refundAccountId: UAE_IDS.UNDEPOSITED } },
+    journal('return_fee_journal:RETURN_COMMISSION_REVERSAL', 941.09, UAE_IDS.UNDEPOSITED, UAE_IDS.COMMISSION),
+    journal('return_fee_journal:RETURN_OTHER_FEE', 140.65, UAE_IDS.SHIPPING_FBA, UAE_IDS.UNDEPOSITED),
+    journal('return_fee_journal:RETURN_SHIPPING_FEE_REFUND', 20.76, UAE_IDS.UNDEPOSITED, UAE_IDS.SHIPPING_FBA),
+    journal('correction_journal:cod_offset', 50, UAE_IDS.UNDEPOSITED, UAE_IDS.SHIPPING_FBA),
+    { batchId, paymentType: 'commission', accountCode: '1021', amount: 999, zohoPaymentId: '', status: 'failed' },
+  ]
+}
+
+function clearingOpts(batch, postingStore, zoho, extra = {}) {
+  return {
+    batch,
+    store: postingStore,
+    dryRun: false,
+    env: PROD_LIKE_KSA_ENV,
+    zohoLookup: zoho.lookup,
+    createManualJournal: zoho.createManualJournal(),
+    buildJournalPayloadPreview: async (j) => ({ reference_number: j.referenceNumber, notes: j.notes }),
+    readiness: async () => ({ ok: true }),
+    ...extra,
+  }
+}
+
+test('step 13 clears what the batch left on uncleared commission / shipping, net of input VAT', async () => {
+  const batch = notReceivedBatch()
+  const postings = batch40Postings(batch.batchId)
+  const plan = buildUnclearedClearingPlanForBatch(batch, postings.map((row) => ({ status: 'posted', mappingSnapshot: {}, ...row })), PROD_LIKE_KSA_ENV)
+  const commission = plan.lines.find((line) => line.role === 'COMMISSION')
+  const shipping = plan.lines.find((line) => line.role === 'SHIPPING_FBA')
+  assert.equal(commission.grossAmount, 9403.99)
+  assert.equal(commission.vatAmount, 447.81)
+  assert.equal(commission.netAmount, 8956.18)
+  assert.equal(shipping.grossAmount, 5575.1)
+  assert.equal(shipping.vatAmount, 265.48)
+  assert.equal(shipping.netAmount, 5309.62)
+  assert.deepEqual(
+    commission.lineItems.map((l) => [l.debitOrCredit, l.accountId, l.amount]),
+    [['debit', UAE_COMMISSION_EXP_ID, 8956.18], ['debit', UAE_INPUT_VAT_ID, 447.81], ['credit', UAE_IDS.COMMISSION, 9403.99]]
+  )
+  assert.equal(shipping.lineItems[0].accountId, UAE_SHIPPING_EXP_ID)
+  assert.equal(shipping.lineItems[2].accountId, UAE_IDS.SHIPPING_FBA)
+  assert.equal(commission.referenceNumber, '03-Sep-2026 to 17-Sep-2026 Commission Clearing')
+  assert.doesNotMatch(`${commission.notes} ${commission.lineItems.map((l) => l.description).join(' ')}`, /HR|hr-attendance|Generated|Purchase Planning/)
+
+  const zoho = createFakeZoho({ currency: 'AED' })
+  const postingStore = storeFor(batch, postings)
+  const dry = await postUnclearedClearingForBatch(clearingOpts(batch, postingStore, zoho, { dryRun: true }))
+  assert.deepEqual(dry.journals.map((j) => j.status), ['dry_run', 'dry_run'])
+  assert.equal(zoho.calls.createJournal, 0)
+
+  const first = await postUnclearedClearingForBatch(clearingOpts(batch, postingStore, zoho))
+  assert.equal(first.success, true)
+  assert.equal(zoho.journals.size, 2)
+  const totals = [...zoho.journals.values()].map((j) => j.total).sort((a, b) => a - b)
+  assert.deepEqual(totals, [5575.1, 9403.99])
+  const after = await postingStore.listPostingsForBatch(batch.batchId)
+  assert.equal(await isUnclearedClearingComplete(batch, after, PROD_LIKE_KSA_ENV), true)
+  const replan = buildUnclearedClearingPlanForBatch(batch, after, PROD_LIKE_KSA_ENV)
+  assert.equal(replan.lines.find((l) => l.role === 'COMMISSION').grossAmount, 9403.99, 'own clearing journal is not counted')
+
+  const again = await postUnclearedClearingForBatch(clearingOpts(batch, postingStore, zoho))
+  assert.equal(zoho.calls.createJournal, 2, 'never posted twice')
+  assert.equal(again.summary.journalsSkipped, 2)
+})
+
+test('step 13 waits for steps 9-12 and blocks KSA without an input VAT account', async () => {
+  const zoho = createFakeZoho({ currency: 'AED' })
+  const batch = notReceivedBatch()
+  await assert.rejects(
+    () => postUnclearedClearingForBatch(clearingOpts(batch, storeFor(batch, batch40Postings(batch.batchId)), zoho, {
+      readiness: async () => ({ ok: false, message: 'Post the return fee journals first (step 12).' }),
+    })),
+    (err) => err.code === 'AMAZON_PAYMENT_CLEARING_CLEARING_NOT_READY'
+  )
+  const ksa = { ...batch, marketplace: 'KSA' }
+  const ksaPostings = [{ batchId: ksa.batchId, paymentType: 'commission', accountCode: '1026', amount: 115, zohoPaymentId: 'zp-k' }]
+  const plan = buildUnclearedClearingPlanForBatch(ksa, ksaPostings.map((row) => ({ status: 'posted', mappingSnapshot: {}, ...row })), PROD_LIKE_KSA_ENV)
+  assert.equal(plan.lines[0].vatAmount, 15)
+  assert.equal(plan.lines[0].status, 'needs_mapping')
+  assert.match(plan.lines[0].blockingReason, /AMAZON_KSA_ZOHO_INPUT_VAT_ACCOUNT_ID/)
+  await assert.rejects(
+    () => postUnclearedClearingForBatch(clearingOpts(ksa, storeFor(ksa, ksaPostings), zoho)),
+    (err) => err.code === 'AMAZON_PAYMENT_CLEARING_CLEARING_ACCOUNT_MISSING'
+  )
+  assert.equal(zoho.calls.createJournal, 0)
+})
+
 test('step 12 return fee journals wait for the step 11 journal when returns are marked', async () => {
   const returnRows = [
     { orderId: 'r-1', transactionType: 'Refund', amountType: 'ItemPrice', amountDescription: 'Principal', amount: -100 },

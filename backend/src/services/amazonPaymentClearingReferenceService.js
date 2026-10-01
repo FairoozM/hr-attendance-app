@@ -43,6 +43,8 @@ const ENTRY_TYPE_ZOHO_REF_SUFFIX = Object.freeze({
   return_other_fee: 'Return Other Fee',
   return_variance: 'Return Variance',
   return_not_received: 'Returns Not Received',
+  uncleared_commission_clearing: 'Commission Clearing',
+  uncleared_shipping_clearing: 'Shipping Clearing',
   ADVERTISING: 'Advertising Fee',
   ADVERTISING_CREDIT: 'Advertising Credit',
   STORAGE: 'Storage Fee',

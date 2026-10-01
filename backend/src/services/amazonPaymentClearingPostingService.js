@@ -5,6 +5,7 @@ const { buildSettlementReference, buildEntryReference } = require('./amazonPayme
 const { isCreditNoteApplyComplete } = require('./amazonPaymentClearingCreditNotePostingService')
 const { buildReturnFeePlan, aggregateReturnFeeJournalLines } = require('./amazonPaymentClearingReturnFeeService')
 const { buildNotReceivedReturnPlan } = require('./amazonPaymentClearingNotReceivedReturnService')
+const { buildUnclearedClearingPlan } = require('./amazonPaymentClearingUnclearedClearingService')
 const { fetchInvoices, fetchInvoicesByIds, invoiceBalanceDue } = require('../integrations/zoho/zohoBooksClient')
 const store = require('./amazonPaymentClearingStore')
 const {
@@ -16,6 +17,7 @@ const {
   requireMarketplaceCode,
   assertPostingAccountsReady,
   requireClearingAccountByCode,
+  resolveMarketplaceClearingAccounts,
 } = require('./amazonPaymentClearingAccountGuard')
 const { getPaymentClearingMarketplaceConfig } = require('./amazonPaymentClearingMarketplaceConfig')
 const { runSafeWrite, STATUS } = require('./amazonPaymentClearingSafeWrite')
@@ -278,21 +280,33 @@ async function safeWriteJournal({
   source,
   force = false,
 }) {
-  const debitAccountId = resolveLineAccountId(journalRequest.debit, marketplace, env)
-  const creditAccountId = resolveLineAccountId(journalRequest.credit, marketplace, env)
-  const request = {
-    ...journalRequest,
-    debit: { ...journalRequest.debit, accountId: debitAccountId },
-    credit: { ...journalRequest.credit, accountId: creditAccountId },
+  const multiLine = Array.isArray(journalRequest.lineItems) && journalRequest.lineItems.length >= 2
+  let request
+  let expectedLines
+  if (multiLine) {
+    const lineItems = journalRequest.lineItems.map((item) => ({ ...item, accountId: resolveLineAccountId(item, marketplace, env) }))
+    request = { ...journalRequest, lineItems }
+    expectedLines = lineItems.map((item) => ({ accountId: item.accountId, debitOrCredit: item.debitOrCredit, amount: item.amount }))
+  } else {
+    const debitId = resolveLineAccountId(journalRequest.debit, marketplace, env)
+    const creditId = resolveLineAccountId(journalRequest.credit, marketplace, env)
+    request = {
+      ...journalRequest,
+      debit: { ...journalRequest.debit, accountId: debitId },
+      credit: { ...journalRequest.credit, accountId: creditId },
+    }
+    expectedLines = [
+      { accountId: debitId, debitOrCredit: 'debit', amount: journalRequest.amount },
+      { accountId: creditId, debitOrCredit: 'credit', amount: journalRequest.amount },
+    ]
   }
+  const debitAccountId = expectedLines.find((item) => item.debitOrCredit === 'debit')?.accountId || ''
+  const creditAccountId = expectedLines.find((item) => item.debitOrCredit === 'credit')?.accountId || ''
   const expectedFor = (local) => ({
     referenceNumber: journalRequest.referenceNumber,
     date: requestDateOf(local),
     amount: journalRequest.amount,
-    lines: [
-      { accountId: debitAccountId, debitOrCredit: 'debit', amount: journalRequest.amount },
-      { accountId: creditAccountId, debitOrCredit: 'credit', amount: journalRequest.amount },
-    ],
+    lines: expectedLines,
   })
   return runSafeWrite({
     force,
@@ -315,6 +329,7 @@ async function safeWriteJournal({
         marketplace,
         debitAccountId,
         creditAccountId,
+        ...(multiLine ? { lineItems: expectedLines } : {}),
         request: { date: journalRequest.date, amount: journalRequest.amount, referenceNumber: journalRequest.referenceNumber },
       },
     },
@@ -1125,7 +1140,26 @@ async function postApprovedBatch({
  * posting identity, with the same expected-record builders posting uses. No Zoho calls.
  * @returns {{ marketplace: string, customerId: string, currencyCode: string, entries: Map<string, any>, configProblem: string }}
  */
-function describeExpectedEntries(batch, { env = process.env } = {}) {
+function unclearedAccountsFor(marketplace, env) {
+  const defs = getPaymentClearingMarketplaceConfig(marketplace).clearingAccounts
+  const { accounts } = resolveMarketplaceClearingAccounts(marketplace, { env })
+  const out = {}
+  for (const role of ['COMMISSION', 'SHIPPING_FBA']) {
+    const resolved = accounts[role]
+    out[role] = resolved
+      ? { accountCode: resolved.accountCode, accountName: resolved.accountName, accountId: resolved.accountId }
+      : { accountCode: defs[role].accountCode, accountName: defs[role].defaultName, accountId: '' }
+  }
+  return out
+}
+
+/** Step 13 plan: uncleared commission / shipping balances of this batch moved to expense. */
+function buildUnclearedClearingPlanForBatch(batch, postings, env = process.env) {
+  const marketplace = requireMarketplaceCode(batch.marketplace)
+  return buildUnclearedClearingPlan(batch, postings, { env, unclearedAccounts: unclearedAccountsFor(marketplace, env) })
+}
+
+function describeExpectedEntries(batch, { env = process.env, postings = null } = {}) {
   const marketplace = requireMarketplaceCode(batch.marketplace)
   const entries = new Map()
   let configProblem = ''
@@ -1238,6 +1272,36 @@ function describeExpectedEntries(batch, { env = process.env } = {}) {
   const notReceived = buildNotReceivedReturnPlan(batch, { env }).line
   if (notReceived && notReceived.status === 'ready') {
     entries.set(notReceived.paymentType, journalEntry('return_not_received', notReceived, notReceived.amount))
+  }
+  if (Array.isArray(postings)) {
+    for (const line of buildUnclearedClearingPlanForBatch(batch, postings, env).lines) {
+      if (line.status !== 'ready') continue
+      const lines = line.lineItems.map((item) => ({ accountId: item.accountId, debitOrCredit: item.debitOrCredit, amount: item.amount }))
+      entries.set(line.paymentType, {
+        group: 'uncleared_clearing',
+        kind: 'journal',
+        paymentType: line.paymentType,
+        label: line.feeType,
+        amount: line.amount,
+        referenceNumber: line.referenceNumber,
+        debitAccountId: lines.find((item) => item.debitOrCredit === 'debit')?.accountId || '',
+        creditAccountId: lines.find((item) => item.debitOrCredit === 'credit')?.accountId || '',
+        rowTemplate: {
+          batchId: batch.batchId,
+          invoiceId: null,
+          orderId: null,
+          paymentType: line.paymentType,
+          postingGroupKey: `APC-${batch.batchId}-${line.paymentType}`,
+          amount: line.amount,
+          accountCode: lines[0]?.accountId || '',
+          invoiceAllocations: [],
+          referenceNumber: line.referenceNumber,
+          description: line.notes,
+          notes: line.notes,
+        },
+        expectedFor: (local) => ({ referenceNumber: line.referenceNumber, date: requestDateOf(local), amount: line.amount, lines }),
+      })
+    }
   }
   return { marketplace, customerId, currencyCode, entries, configProblem }
 }
@@ -1464,9 +1528,158 @@ async function postNotReceivedReturnsForBatch({
   return result
 }
 
+/** True when every Step 13 clearing journal in the plan is posted and verified. */
+async function isUnclearedClearingComplete(batch, postings, env = process.env) {
+  const { lines } = buildUnclearedClearingPlanForBatch(batch, postings, env)
+  return lines.every((line) => {
+    const local = postings.find((row) => row.paymentType === line.paymentType)
+    return Boolean(local && local.status === STATUS.POSTED && local.zohoPaymentId)
+  })
+}
+
+/**
+ * Step 13: move this batch's uncleared commission / shipping balances to expense,
+ * splitting out input VAT (one multi-line journal per uncleared account).
+ */
+async function postUnclearedClearingForBatch({
+  batch,
+  store,
+  dryRun = true,
+  readiness = null,
+  createManualJournal = zohoPaymentService.createZohoManualJournal,
+  buildJournalPayloadPreview = zohoPaymentService.buildManualJournalPayloadPreview,
+  zohoLookup = null,
+  env = process.env,
+}) {
+  if (!batch) {
+    const err = new Error('Payment clearing batch not found.')
+    err.code = 'AMAZON_PAYMENT_CLEARING_BATCH_NOT_FOUND'
+    err.status = 404
+    throw err
+  }
+  const marketplace = requireMarketplaceCode(batch.marketplace)
+  const postings = await store.listPostingsForBatch(batch.batchId)
+  const plan = buildUnclearedClearingPlanForBatch(batch, postings, env)
+  const result = {
+    success: true,
+    dryRun: Boolean(dryRun),
+    batchId: batch.batchId,
+    marketplace,
+    status: dryRun ? 'dry_run' : 'posted',
+    plan,
+    summary: { journalsCreated: 0, journalsSkipped: 0, verificationRequired: 0, errors: 0 },
+    journals: [],
+    errors: [],
+  }
+  if (!plan.lines.length) {
+    const err = new Error('Nothing is left on the uncleared commission or shipping accounts for this settlement.')
+    err.code = 'AMAZON_PAYMENT_CLEARING_NOTHING_TO_CLEAR'
+    err.status = 422
+    throw err
+  }
+  const unmapped = plan.lines.find((line) => line.status !== 'ready')
+  if (unmapped) {
+    const err = new Error(unmapped.blockingReason)
+    err.code = 'AMAZON_PAYMENT_CLEARING_CLEARING_ACCOUNT_MISSING'
+    err.status = 422
+    throw err
+  }
+  if (!dryRun) {
+    if (batch.status !== 'posted' && !batch.postedToZoho) {
+      const err = new Error('Commission and shipping clearing waits until sales payments are posted (step 9).')
+      err.code = 'AMAZON_PAYMENT_CLEARING_SALES_NOT_POSTED'
+      err.status = 422
+      throw err
+    }
+    const ready = typeof readiness === 'function' ? await readiness() : { ok: true }
+    if (!ready.ok) {
+      const err = new Error(ready.message || 'Finish steps 9 to 12 before clearing commission and shipping.')
+      err.code = 'AMAZON_PAYMENT_CLEARING_CLEARING_NOT_READY'
+      err.status = 422
+      throw err
+    }
+  }
+
+  const paymentDate = zohoPaymentService.todayLocalDate()
+  const lookupDeps = zohoLookup || recovery.defaultZohoLookupDeps()
+  for (const line of plan.lines) {
+    const journalRequest = {
+      feeType: line.feeType,
+      description: line.notes,
+      amount: line.amount,
+      lineItems: line.lineItems,
+      referenceNumber: line.referenceNumber,
+      notes: line.notes,
+      date: paymentDate,
+    }
+    let zohoPayloadPreview = null
+    try {
+      zohoPayloadPreview = await buildJournalPayloadPreview(journalRequest, { marketplace, strictMarketplace: true, env })
+    } catch (err) {
+      result.summary.errors += 1
+      const error = { ...line, status: 'error', zohoJournalId: '', error: err?.message || 'Failed to build the clearing journal preview' }
+      result.errors.push(error)
+      result.journals.push(error)
+      continue
+    }
+    const localRow = postings.find((row) => row.paymentType === line.paymentType) || null
+    if (dryRun) {
+      const already = localRow && localRow.status === STATUS.POSTED
+      result.journals.push({
+        ...line,
+        status: already ? 'skipped' : 'dry_run',
+        zohoJournalId: already ? localRow.zohoPaymentId : '',
+        localStatus: localRow?.status || '',
+        zohoPayloadPreview,
+      })
+      continue
+    }
+    const outcome = await safeWriteJournal({
+      store,
+      batch,
+      marketplace,
+      env,
+      line,
+      journalRequest,
+      mappingSnapshot: {
+        identity: line.paymentType,
+        normalizedFeeType: line.normalizedFeeType,
+        feeType: line.feeType,
+        sourceAmount: line.amount,
+        netAmount: line.netAmount,
+        vatAmount: line.vatAmount,
+        vatRate: line.vatRate,
+        movements: line.movements,
+      },
+      localRow,
+      createManualJournal,
+      lookupDeps,
+      source: 'amazon_payment_clearing_uncleared_clearing_post',
+    })
+    const status = tally(result, 'journal', outcome)
+    const entry = {
+      ...line,
+      status,
+      zohoJournalId: outcome.zohoId,
+      zohoJournalNumber: outcome.zohoNumber,
+      error: status === 'error' || status === 'verification_required' ? outcome.message : undefined,
+      verification: outcome.verification || null,
+      zohoPayloadPreview,
+    }
+    if (status === 'error') result.errors.push(entry)
+    result.journals.push(entry)
+  }
+  result.status = overallPostingStatus(result.summary, dryRun)
+  result.success = result.summary.errors === 0 && result.summary.verificationRequired === 0
+  return result
+}
+
 module.exports = {
   PAYMENT_TYPES,
   ensureCanPostBatch,
+  isUnclearedClearingComplete,
+  postUnclearedClearingForBatch,
+  buildUnclearedClearingPlanForBatch,
   ensureCanPostReturnFeeJournals,
   isReturnFeePostComplete,
   isNotReceivedPostComplete,

@@ -44,6 +44,8 @@ router.post('/:marketplace/batches/:id/returns/:orderId/not-received', rejectInv
 router.delete('/:marketplace/batches/:id/returns/:orderId/not-received', rejectInvalidMarketplace, ctrl.deleteReturnNotReceived)
 router.get('/:marketplace/batches/:id/not-received-plan', rejectInvalidMarketplace, ctrl.getNotReceivedPlan)
 router.post('/:marketplace/batches/:id/post-not-received-returns', rejectInvalidMarketplace, ctrl.postNotReceivedReturns)
+router.get('/:marketplace/batches/:id/uncleared-clearing-plan', rejectInvalidMarketplace, ctrl.getUnclearedClearingPlan)
+router.post('/:marketplace/batches/:id/post-uncleared-clearing', rejectInvalidMarketplace, ctrl.postUnclearedClearing)
 router.get('/:marketplace/batches/:id/return-fee-plan', rejectInvalidMarketplace, ctrl.getReturnFeePlan)
 router.post('/:marketplace/batches/:id/payment-preview', rejectInvalidMarketplace, ctrl.postPaymentPreview)
 router.post('/:marketplace/batches/:id/post-to-zoho', rejectInvalidMarketplace, ctrl.postPostToZoho)

@@ -672,6 +672,59 @@ export interface NotReceivedPlan {
   notReceivedPostComplete: boolean
 }
 
+export interface UnclearedClearingLineItem extends JournalAccountRef {
+  debitOrCredit: 'debit' | 'credit'
+  amount: number
+  description?: string
+}
+
+export interface UnclearedClearingMovement {
+  paymentType: string
+  referenceNumber: string
+  zohoId: string
+  zohoNumber: string
+  amount: number
+}
+
+export interface UnclearedClearingLine {
+  key: string
+  paymentType: string
+  feeType: string
+  normalizedFeeType: string
+  role: 'COMMISSION' | 'SHIPPING_FBA'
+  direction: 'to_expense' | 'from_expense'
+  amount: number
+  grossAmount: number
+  netAmount: number
+  vatAmount: number
+  vatRate: number
+  lineItems: UnclearedClearingLineItem[]
+  movements: UnclearedClearingMovement[]
+  referenceNumber: string
+  notes: string
+  status: 'ready' | 'needs_mapping'
+  blockingReason: string
+  posting: {
+    id: number
+    status: string
+    zohoJournalId: string
+    zohoJournalNumber: string
+    error: string
+  } | null
+}
+
+export interface UnclearedClearingPlan {
+  success?: boolean
+  batchId: number
+  marketplace: string
+  currency: string
+  vatRate: number
+  lines: UnclearedClearingLine[]
+  summary: { grossTotal: number; netTotal: number; vatTotal: number; needsMappingCount: number }
+  readiness: { ok: boolean; message: string }
+  unclearedClearingComplete: boolean
+}
+
 export interface CreditNoteApplyResult {
   success: boolean
   dryRun: boolean
@@ -818,7 +871,13 @@ export interface PaymentPostingResult {
 
 export type PostingEntryStatus = 'posted' | 'failed' | 'verification_required' | 'not_started' | 'partially_posted'
 
-export type PostingGroupKey = 'sales_payment' | 'fee_journal' | 'credit_note' | 'return_not_received' | 'return_fee_journal'
+export type PostingGroupKey =
+  | 'sales_payment'
+  | 'fee_journal'
+  | 'credit_note'
+  | 'return_not_received'
+  | 'return_fee_journal'
+  | 'uncleared_clearing'
 
 export type PostingGroupStatus = PostingEntryStatus | 'not_required'
 
@@ -903,6 +962,7 @@ export interface PostingStatus {
   salesComplete: boolean
   creditNotesComplete: boolean
   returnFeesComplete: boolean
+  unclearedClearingComplete?: boolean
   settlementComplete: boolean
   groups: PostingStatusGroup[]
   unmappedLegacyPostings: Array<{
@@ -1199,6 +1259,22 @@ export async function unmarkReturnNotReceived(
 
 export async function fetchNotReceivedPlan(marketplace: PaymentClearingMarketplace, batchId: number | string) {
   return api.get(`${batchPath(marketplace, batchId)}/not-received-plan`, longOpts) as Promise<NotReceivedPlan>
+}
+
+export async function fetchUnclearedClearingPlan(marketplace: PaymentClearingMarketplace, batchId: number | string) {
+  return api.get(`${batchPath(marketplace, batchId)}/uncleared-clearing-plan`, longOpts) as Promise<UnclearedClearingPlan>
+}
+
+export async function postUnclearedClearing(
+  marketplace: PaymentClearingMarketplace,
+  batchId: number | string,
+  dryRun = true
+) {
+  return api.post(
+    `${batchPath(marketplace, batchId)}/post-uncleared-clearing`,
+    { dryRun },
+    longOpts
+  ) as Promise<PaymentPostingResult>
 }
 
 export async function postNotReceivedReturns(

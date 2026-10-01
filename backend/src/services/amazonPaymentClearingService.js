@@ -47,6 +47,9 @@ const {
   isReturnFeePostComplete,
   isNotReceivedPostComplete,
   postNotReceivedReturnsForBatch,
+  buildUnclearedClearingPlanForBatch,
+  isUnclearedClearingComplete,
+  postUnclearedClearingForBatch,
 } = require('./amazonPaymentClearingPostingService')
 const {
   buildCreditNoteApplyPlan,
@@ -1737,6 +1740,67 @@ async function postNotReceivedReturnsForBatchId(id, options = {}) {
   return dryRun ? run() : store.withBatchPostingLock(id, run)
 }
 
+async function unclearedClearingReadiness(id) {
+  const { batch: statusBatch, creditNoteBatch } = await loadBatchesForPostingStatus(id)
+  const status = await buildPostingStatus({ batch: statusBatch, creditNoteBatch, store })
+  if (!status.salesComplete) return { ok: false, message: 'Every sales payment and fee journal must be posted and verified first (step 9).' }
+  if (!status.creditNotesComplete) return { ok: false, message: 'Refund the return credit notes first (step 10).' }
+  if (!status.notReceivedComplete) return { ok: false, message: 'Post the returns-not-received journal first (step 11).' }
+  if (!status.returnFeesComplete) return { ok: false, message: 'Post the return fee journals first (step 12).' }
+  return { ok: true, message: '' }
+}
+
+async function getUnclearedClearingPlanForBatch(id) {
+  const batch = await store.getBatchById(id)
+  if (!batch) throw batchNotFoundError()
+  const postings = await store.listPostingsForBatch(batch.batchId)
+  const plan = buildUnclearedClearingPlanForBatch(batch, postings, process.env)
+  const readiness = batch.status === 'posted' || batch.postedToZoho
+    ? await unclearedClearingReadiness(id)
+    : { ok: false, message: 'Sales payments are not posted yet (step 9).' }
+  return {
+    success: true,
+    ...plan,
+    lines: plan.lines.map((line) => {
+      const local = postings.find((row) => row.paymentType === line.paymentType) || null
+      return {
+        ...line,
+        posting: local
+          ? {
+              id: local.id,
+              status: local.status,
+              zohoJournalId: local.zohoPaymentId || '',
+              zohoJournalNumber: local.zohoJournalNumber || '',
+              error: local.errorMessage || '',
+            }
+          : null,
+      }
+    }),
+    currency: settlementCurrencyForCustomer(
+      batch.zohoCustomerName,
+      batch.report?.currency,
+      getPaymentClearingMarketplaceConfig(batch.marketplace).currency
+    ),
+    readiness,
+    unclearedClearingComplete: await isUnclearedClearingComplete(batch, postings, process.env),
+  }
+}
+
+async function postUnclearedClearingForBatchId(id, options = {}) {
+  const dryRun = options.dryRun !== false
+  const run = async () => {
+    const batch = await store.getBatchById(id)
+    if (!batch) throw batchNotFoundError()
+    return postUnclearedClearingForBatch({
+      batch,
+      store,
+      dryRun,
+      readiness: () => unclearedClearingReadiness(id),
+    })
+  }
+  return dryRun ? run() : store.withBatchPostingLock(id, run)
+}
+
 async function applyCreditNotesForBatchId(id, options = {}) {
   const batch = await batchForCreditNoteApply(id)
   if (!batch) {
@@ -1984,6 +2048,8 @@ module.exports = {
   unmarkReturnNotReceived,
   getNotReceivedPlanForBatch,
   postNotReceivedReturnsForBatchId,
+  getUnclearedClearingPlanForBatch,
+  postUnclearedClearingForBatchId,
   applyCreditNotesForBatchId,
   getReturnFeePlanForBatch,
   getZohoAccountDiagnostics,

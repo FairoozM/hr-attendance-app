@@ -255,6 +255,27 @@ function getPaymentClearingMarketplaceConfig(marketplace) {
       accountName: readEnv(key, 'ZOHO_RETURN_EXPENSE_ACCOUNT_NAME', key === 'uae' ? 'Amazon Return Exp' : 'KSA-Amazon Return Exp'),
       accountId: readEnv(key, 'ZOHO_RETURN_EXPENSE_ACCOUNT_ID', key === 'uae' ? '4265011000003287848' : ''),
     }),
+    unclearedClearing: Object.freeze({
+      vatRate: Number(readEnv(key, 'FEE_VAT_RATE', key === 'uae' ? '0.05' : '0.15')),
+      inputVatAccountIdEnv: `${envPrefix(key)}_ZOHO_INPUT_VAT_ACCOUNT_ID`,
+      inputVatAccount: Object.freeze({
+        accountCode: 'input_vat',
+        accountName: readEnv(key, 'ZOHO_INPUT_VAT_ACCOUNT_NAME', key === 'uae' ? 'Input VAT - All Except Basmat Goods WH' : 'KSA Input VAT'),
+        accountId: readEnv(key, 'ZOHO_INPUT_VAT_ACCOUNT_ID', key === 'uae' ? '4265011000000077044' : ''),
+      }),
+      commissionExpenseAccountIdEnv: `${envPrefix(key)}_ZOHO_COMMISSION_EXPENSE_ACCOUNT_ID`,
+      commissionExpenseAccount: Object.freeze({
+        accountCode: 'commission_expense',
+        accountName: readEnv(key, 'ZOHO_COMMISSION_EXPENSE_ACCOUNT_NAME', key === 'uae' ? 'Amazon Commission Exp' : 'KSA Amazon Commission Exp'),
+        accountId: readEnv(key, 'ZOHO_COMMISSION_EXPENSE_ACCOUNT_ID', key === 'uae' ? '4265011000000708205' : '4265011000012454629'),
+      }),
+      shippingExpenseAccountIdEnv: `${envPrefix(key)}_ZOHO_SHIPPING_EXPENSE_ACCOUNT_ID`,
+      shippingExpenseAccount: Object.freeze({
+        accountCode: 'shipping_expense',
+        accountName: readEnv(key, 'ZOHO_SHIPPING_EXPENSE_ACCOUNT_NAME', key === 'uae' ? 'Amazon Shipping Exp.' : 'KSA Amazon Shipping Exp'),
+        accountId: readEnv(key, 'ZOHO_SHIPPING_EXPENSE_ACCOUNT_ID', key === 'uae' ? '4265011000000747608' : '4265011000012454635'),
+      }),
+    }),
     clearingAccounts,
     returnFeeAccounts: Object.freeze({
       UNDEPOSITED: { accountCode: undeposited.accountCode, accountName: undeposited.defaultName },

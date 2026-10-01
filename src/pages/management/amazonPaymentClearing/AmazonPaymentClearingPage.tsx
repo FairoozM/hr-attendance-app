@@ -49,6 +49,7 @@ import { Step7AmazonFeeJournalMapping } from './steps/Step7AmazonFeeJournalMappi
 import { Step8ApplyCreditNotes } from './steps/Step8ApplyCreditNotes'
 import { Step9ReturnFeeClearing } from './steps/Step9ReturnFeeClearing'
 import { StepReturnsNotReceived } from './steps/StepReturnsNotReceived'
+import { StepUnclearedClearing } from './steps/StepUnclearedClearing'
 import { Step7Preview as Step10PaymentPreview } from './steps/Step7Preview'
 import { Step8Post as Step11Post } from './steps/Step8Post'
 import './AmazonPaymentClearingPage.css'
@@ -709,8 +710,16 @@ export function AmazonPaymentClearingPage() {
         : salesComplete && creditNoteApplyComplete && notReceivedPostComplete
           ? 'ready'
           : 'not_started'
+    const clearingStatus = postingStatus?.groups.find((group) => group.key === 'uncleared_clearing')?.status
+    statuses[13] = clearingStatus === 'posted' || (clearingStatus === 'not_required' && returnFeePostComplete)
+      ? 'completed'
+      : clearingStatus === 'verification_required' || clearingStatus === 'failed'
+        ? 'blocked'
+        : salesComplete && returnFeePostComplete
+          ? 'ready'
+          : 'not_started'
     return statuses
-  }, [canPostToZoho, creditNoteApplyComplete, creditNoteBlockingRows.length, creditNotesNeedAttention, isApproved, isCleanForApproval, isPosted, notReceivedCount, notReceivedNeedsAttention, notReceivedPostComplete, paymentPreview, preview, returnFeeBlockerCount, returnFeePostComplete, salesComplete, salesPostingNeedsAttention, salesPostingStarted, unmappedFeeJournalCount])
+  }, [postingStatus, canPostToZoho, creditNoteApplyComplete, creditNoteBlockingRows.length, creditNotesNeedAttention, isApproved, isCleanForApproval, isPosted, notReceivedCount, notReceivedNeedsAttention, notReceivedPostComplete, paymentPreview, preview, returnFeeBlockerCount, returnFeePostComplete, salesComplete, salesPostingNeedsAttention, salesPostingStarted, unmappedFeeJournalCount])
 
   const stepBodies: Record<number, ReactNode> = {
     1: <Step1SelectSettlement ctx={ctx} />,
@@ -725,6 +734,7 @@ export function AmazonPaymentClearingPage() {
     10: <Step8ApplyCreditNotes ctx={ctx} />,
     11: <StepReturnsNotReceived ctx={ctx} />,
     12: <Step9ReturnFeeClearing ctx={ctx} />,
+    13: <StepUnclearedClearing ctx={ctx} />,
   }
 
   const stepSummaries: Record<number, string> = {
@@ -758,12 +768,17 @@ export function AmazonPaymentClearingPage() {
           ? 'Verification required'
           : `${notReceivedCount} return(s) waiting to post`,
     12: returnFeePostComplete
-      ? postingStatus?.settlementComplete
-        ? 'Return fees posted · settlement complete'
-        : 'Return fees posted'
+      ? 'Return fees posted'
       : preview
         ? `${returnFeeBlockerCount} variance blocker(s)`
         : '',
+    13: postingGroup('uncleared_clearing')?.status === 'posted'
+      ? postingStatus?.settlementComplete
+        ? 'Commission & shipping cleared · settlement complete'
+        : 'Commission & shipping cleared'
+      : returnFeePostComplete
+        ? 'Ready to clear'
+        : 'After return fees',
   }
 
   return (
@@ -777,7 +792,7 @@ export function AmazonPaymentClearingPage() {
         </p>
         <div className="ainv-callout-emerald">
           <strong>Zoho posting guarded.</strong> Sales payments post in step 9 after reconciliation is clean. Return
-          credit notes, returns not received and return fee journals run in steps 10–12 only after payments land in Zoho.
+          credit notes, returns not received and return fee journals run in steps 10–12, and commission &amp; shipping clearing in step 13, only after payments land in Zoho.
         </div>
       </section>
 
@@ -804,7 +819,7 @@ export function AmazonPaymentClearingPage() {
             collapsed={activeStep !== step.id}
             onExpand={() => goToStep(step.id)}
             summary={stepSummaries[step.id]}
-            blocker={status === 'blocked' ? (step.id === 12 ? 'Resolve return fee variance blockers before posting journals.' : step.id === 11 ? 'Re-check the returns-not-received journal in Zoho before continuing.' : 'Resolve the blocking items before continuing.') : undefined}
+            blocker={status === 'blocked' ? (step.id === 13 ? 'Re-check the commission & shipping clearing journals in Zoho before continuing.' : step.id === 12 ? 'Resolve return fee variance blockers before posting journals.' : step.id === 11 ? 'Re-check the returns-not-received journal in Zoho before continuing.' : 'Resolve the blocking items before continuing.') : undefined}
           >
             {stepBodies[step.id]}
           </StepPanel>

@@ -39,6 +39,18 @@ function createFakeZoho({ currency = 'SAR' } = {}) {
 
   function journalFromRequest(request, id) {
     const amount = round2(request.amount)
+    if (Array.isArray(request.lineItems) && request.lineItems.length >= 2) {
+      const lines = request.lineItems.map((l) => ({ account_id: l.accountId, debit_or_credit: l.debitOrCredit, amount: round2(l.amount) }))
+      return {
+        journal_id: id,
+        entry_number: `JE-${seq}`,
+        reference_number: request.referenceNumber,
+        journal_date: request.date,
+        total: round2(lines.filter((l) => l.debit_or_credit === 'debit').reduce((s, l) => s + l.amount, 0)),
+        currency_code: currency,
+        line_items: lines,
+      }
+    }
     return {
       journal_id: id,
       entry_number: `JE-${seq}`,

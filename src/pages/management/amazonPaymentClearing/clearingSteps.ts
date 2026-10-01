@@ -92,6 +92,13 @@ export const CLEARING_STEPS: ClearingStep[] = [
     description:
       'After credit notes are applied, review return fee asymmetry and post commission/shipping return journals to Zoho.',
   },
+  {
+    id: 13,
+    key: 'clear-uncleared',
+    title: 'Clear Commission & Shipping',
+    description:
+      'Move what this settlement left on Amazon Uncleared Commission and Uncleared Shipping into Commission Exp and Shipping Exp, splitting out the input VAT.',
+  },
 ]
 
 export const STEP_STATUS_LABEL: Record<StepStatus, string> = {

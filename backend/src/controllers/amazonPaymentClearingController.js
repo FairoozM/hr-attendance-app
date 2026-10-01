@@ -367,6 +367,29 @@ async function postNotReceivedReturns(req, res) {
   }
 }
 
+async function getUnclearedClearingPlan(req, res) {
+  try {
+    await assertBatchMarketplaceForReq(req)
+    const json = await service.getUnclearedClearingPlanForBatch(req.params.id)
+    res.json(json)
+  } catch (err) {
+    sendError(res, err)
+  }
+}
+
+async function postUnclearedClearing(req, res) {
+  try {
+    await assertBatchMarketplaceForReq(req)
+    const json = await service.postUnclearedClearingForBatchId(req.params.id, {
+      dryRun: req.body?.dryRun !== false,
+      postedBy: req.user?.userId,
+    })
+    res.json(json)
+  } catch (err) {
+    sendError(res, err)
+  }
+}
+
 async function getReturnFeePlan(req, res) {
   try {
     await assertBatchMarketplaceForReq(req)
@@ -564,6 +587,8 @@ module.exports = {
   deleteReturnNotReceived,
   getNotReceivedPlan,
   postNotReceivedReturns,
+  getUnclearedClearingPlan,
+  postUnclearedClearing,
   getReturnFeePlan,
   postPaymentPreview,
   postPostToZoho,
