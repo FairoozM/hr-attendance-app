@@ -130,6 +130,75 @@ test('net is derived and flagged when the file has no net column', () => {
   assert.ok(p.transactions[0].warnings.some((w: any) => w.code === 'NET_DERIVED'))
 })
 
+// ── Real Mashreq merchant-portal exports ────────────────────────────────────
+
+const fs = require('node:fs')
+const path = require('node:path')
+const fixture = (name: string) => fs.readFileSync(path.join(__dirname, 'fixtures', 'mashreq', name))
+const parseFixture = (name: string, sourceFormat = 'ENRICH_CSV') => parseMashreqFile(fixture(name), { fileName: name, sourceFormat, config })
+const SEP5 = [
+  { rrn: '003042448545', terminalId: '10244324', stan: '119', authCode: '330309', transactionDate: '2026-09-05', transactionTime: '21:29:00', minor: { gross: 22780, commission: 456, otherFees: 0, vat: 23, net: 22301 } },
+  { rrn: '003042523578', terminalId: '10244324', stan: '120', authCode: '468081', transactionDate: '2026-09-05', transactionTime: '21:54:00', minor: { gross: 10285, commission: 154, otherFees: 0, vat: 8, net: 10123 } },
+]
+const essentials = (t: any) => ({ rrn: t.rrn, terminalId: t.terminalId, stan: t.stan, authCode: t.authCode, transactionDate: t.transactionDate, transactionTime: t.transactionTime, minor: t.minor })
+
+test('real Enrich CSV: detected from content, RRN from ARN REFNO, deductions stored as positive charges', () => {
+  const p = parseFixture('enrich-2461289.csv', 'SIMPLE_CSV')
+  assert.deepEqual(p.problems, [])
+  assert.equal(p.sourceFormat, 'ENRICH_CSV', 'the picked format does not matter for a recognised export')
+  assert.deepEqual(p.transactions.map(essentials), SEP5)
+  const t = p.transactions[0]
+  assert.equal(t.transactionType, 'SALE')
+  assert.equal(t.merchantId, '001000195592')
+  assert.equal(t.settlementId, '2461289', 'settlement reference from the TR record')
+  assert.equal(t.settlementDate, '2026-09-05')
+  assert.equal(t.cardScheme, 'VISA PREM')
+  assert.deepEqual(t.problems, [])
+  assert.equal(p.totalsRows.length, 2, 'TR and GT gross / net reconciled')
+})
+
+test('real csv1 (no column row) and detailed batch TXT read the same transactions as Enrich', () => {
+  for (const name of ['csv1-2461289.csv', 'detail-2461289.txt']) {
+    const p = parseFixture(name)
+    assert.deepEqual(p.problems, [], name)
+    assert.deepEqual(p.transactions.map(essentials), SEP5, name)
+    assert.ok(p.transactions.every((t: any) => t.settlementId === '2461289' && t.settlementDate === '2026-09-05' && !t.problems.length), name)
+  }
+  assert.equal(parseFixture('csv1-2461289.csv').sourceFormat, 'SIMPLE_CSV')
+  assert.equal(parseFixture('detail-2461289.txt').sourceFormat, 'DETAIL_TXT')
+})
+
+test('real Enrich with two terminals: one settlement, file totals reconciled', () => {
+  const p = parseFixture('enrich-2461288.csv')
+  assert.deepEqual(p.problems, [])
+  assert.equal(p.transactions.length, 4)
+  assert.deepEqual([...new Set(p.transactions.map((t: any) => t.terminalId))].sort(), ['10244323', '10244324'])
+  assert.ok(p.transactions.every((t: any) => t.settlementId === '2461288'))
+  assert.equal(p.transactions.reduce((s: number, t: any) => s + t.minor.net, 0), 266803)
+})
+
+test('real MSA statement is detected and stored as a control document with its payment', () => {
+  const p = parseFixture('msa-2461289.txt', 'SIMPLE_CSV')
+  assert.equal(p.sourceFormat, 'MSA')
+  assert.equal(p.role, 'CONTROL')
+  assert.deepEqual(p.problems, [])
+  assert.match(p.warnings[0].message, /05-SEP-26.*324\.24/)
+})
+
+test('real layouts refuse tampered files instead of guessing', () => {
+  const enrich = fixture('enrich-2461289.csv').toString('utf8')
+  const badNet = parseMashreqFile(Buffer.from(enrich.replace('          330.65,          324.24', '          330.65,          324.25')), { fileName: 'x.csv', config })
+  assert.ok(badNet.problems.some((x: any) => x.code === 'TOTALS_NOT_RECONCILED'))
+  const lostZeros = parseMashreqFile(Buffer.from(enrich.replace("'003042448545", '3042448545')), { fileName: 'x.csv', config })
+  assert.equal(lostZeros.transactions[0].problems[0].code, 'RRN_FORMAT')
+  const extraRecord = parseMashreqFile(Buffer.from(`${enrich}\nAD,001000195592,10244324,-49.00\n`), { fileName: 'x.csv', config })
+  assert.ok(extraRecord.problems.some((x: any) => x.code === 'UNKNOWN_RECORD'))
+  const csv1 = fixture('csv1-2461289.csv').toString('utf8').replace(/,'\r?\nTR/, ",',EXTRA\nTR")
+  assert.ok(parseMashreqFile(Buffer.from(csv1), { fileName: 'x.csv', config }).problems.some((x: any) => x.code === 'LAYOUT_CHANGED'))
+  const detail = fixture('detail-2461289.txt').toString('utf8').replace('227.80  AED      227.80', '227.81  AED      227.81')
+  assert.ok(parseMashreqFile(Buffer.from(detail), { fileName: 'x.txt', config }).problems.some((x: any) => x.code === 'TOTALS_NOT_RECONCILED'))
+})
+
 test('MSA files are control documents with no transactions', () => {
   const p = parseMashreqFile(Buffer.from('anything'), { fileName: 'msa.txt', sourceFormat: 'MSA', config })
   assert.equal(p.role, 'CONTROL')

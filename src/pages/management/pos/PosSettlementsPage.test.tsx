@@ -266,6 +266,30 @@ describe('PosSettlementsPage', () => {
     fireEvent.change(input, { target: { files: [new File(['x'], 'enrich.csv', { type: 'text/csv' })] } })
     fireEvent.click(screen.getByRole('button', { name: 'Upload' }))
     expect(await screen.findByText(/leading zeros were probably lost/)).toBeTruthy()
-    expect(api.uploadPosFile).toHaveBeenCalledWith(expect.any(File), 'ENRICH_CSV')
+    expect(api.uploadPosFile).toHaveBeenCalledWith(expect.any(File))
+    expect(screen.queryByLabelText('Source format')).toBeNull()
+  })
+
+  it('a refusal already naming its problem does not repeat it', async () => {
+    api.getPosPreview.mockResolvedValue({ preview: preview() })
+    const problem = 'The TR record(s) carry no settlement reference; expected one.'
+    const err = Object.assign(new Error(`x.csv was not imported: ${problem}`), { body: { code: 'FILE_REFUSED', problems: [{ code: 'SETTLEMENT_REF', message: problem }] } })
+    api.uploadPosFile.mockRejectedValue(err)
+    renderAt('/management/pos-settlements')
+    const input = (await screen.findByLabelText('Mashreq file')) as HTMLInputElement
+    fireEvent.change(input, { target: { files: [new File(['x'], 'x.csv', { type: 'text/csv' })] } })
+    fireEvent.click(screen.getByRole('button', { name: 'Upload' }))
+    const banner = await screen.findByText(/was not imported/)
+    expect(banner.textContent?.split(problem).length).toBe(2)
+  })
+
+  it('an MSA statement is reported as a control document with its payment', async () => {
+    api.getPosPreview.mockResolvedValue({ preview: preview() })
+    api.uploadPosFile.mockResolvedValue({ result: 'IMPORTED', role: 'CONTROL', file: null, settlementIds: [], transactions: [], warnings: [{ code: 'MSA_CONTROL_ONLY', message: 'Statement 05-SEP-26, net payment AED 324.24.' }] })
+    renderAt('/management/pos-settlements')
+    const input = (await screen.findByLabelText('Mashreq file')) as HTMLInputElement
+    fireEvent.change(input, { target: { files: [new File(['x'], '100140318MSA-2.txt', { type: 'text/plain' })] } })
+    fireEvent.click(screen.getByRole('button', { name: 'Upload' }))
+    expect(await screen.findByText(/stored as a control document.*net payment AED 324\.24/)).toBeTruthy()
   })
 })

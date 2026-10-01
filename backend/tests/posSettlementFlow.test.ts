@@ -127,6 +127,31 @@ test('5 Sep preview: BurJuman shop, NET 324.24 + FEE 6.41, fee journal, BRV-0111
   assert.ok(s.zoho.calls.filter((c: any) => /^\/invoices\/[^/]+$/.test(c.path)).length - before <= 2, 'only the live state of the two matched invoices')
 })
 
+test('real Mashreq exports of 5 Sep: Enrich, csv1 and detail TXT are one payout; MSA is control only', async () => {
+  const fs = require('node:fs')
+  const path = require('node:path')
+  const s = setup()
+  const upload = (name: string, sourceFormat = 'ENRICH_CSV') => importPosFile({ buffer: fs.readFileSync(path.join(__dirname, 'fixtures', 'mashreq', name)), fileName: name, sourceFormat, store: s.store, config: s.config, actor: ACTOR })
+  const enrich = await upload('enrich-2461289.csv')
+  assert.equal(enrich.result, 'IMPORTED')
+  assert.equal(enrich.settlementIds.length, 1)
+  for (const name of ['csv1-2461289.csv', 'detail-2461289.txt']) {
+    const again = await upload(name, 'SIMPLE_CSV')
+    assert.equal(again.result, 'IMPORTED', name)
+    assert.ok(again.transactions.every((t: any) => t.status === 'DUPLICATE'), `${name}: same transactions, not counted twice`)
+  }
+  const msa = await upload('msa-2461289.txt', 'SIMPLE_CSV')
+  assert.equal(msa.role, 'CONTROL')
+  assert.equal((await s.store.listSettlements()).length, 1)
+
+  const p = await buildPosPreview({ settlementId: String(enrich.settlementIds[0]), store: s.store, sources: s.sources, config: s.config, now: s.now() })
+  assert.deepEqual(p.blockers, [])
+  assert.deepEqual(p.totals, { count: 2, gross: 330.65, commission: 6.1, otherFees: 0, vat: 0.31, charges: 6.41, net: 324.24 })
+  assert.ok(p.transactions.every((t: any) => t.match.status === 'MATCHED'))
+  assert.equal(p.bank.matched.referenceNumber, 'BRV-01117')
+  assert.equal(s.zoho.writes.length, 0)
+})
+
 test('posting guards: disabled server, missing approval, stale approval', async () => {
   const s = setup()
   await s.importText(FILE_5_SEP)

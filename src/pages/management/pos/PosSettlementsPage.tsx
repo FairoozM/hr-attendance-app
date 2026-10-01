@@ -31,10 +31,10 @@ const BASE_PATH = '/management/pos-settlements'
 const POLL_FAILURES_BEFORE_WARNING = 3
 
 const FORMAT_LABEL: Record<PosSourceFormat, string> = {
-  ENRICH_CSV: 'Mashreq Enrich CSV',
-  SIMPLE_CSV: 'Simple CSV',
-  DETAIL_TXT: 'Detail TXT (pipe / tab)',
-  MSA: 'MSA (control document only)',
+  ENRICH_CSV: 'Enrich CSV',
+  SIMPLE_CSV: 'csv1',
+  DETAIL_TXT: 'Detailed batch TXT',
+  MSA: 'MSA statement (control only)',
 }
 
 type Notice = { tone: 'info' | 'warning' | 'error'; text: string }
@@ -66,7 +66,6 @@ export function PosSettlementsPage({ pollMs = 2000 }: { pollMs?: number } = {}) 
   const [postingEnabled, setPostingEnabled] = useState(false)
   const [listError, setListError] = useState<string | null>(null)
   const [file, setFile] = useState<File | null>(null)
-  const [format, setFormat] = useState<PosSourceFormat>('ENRICH_CSV')
   const [notice, setNotice] = useState<Notice | null>(null)
   const [preview, setPreview] = useState<PosPreview | null>(null)
   const [loadingPreview, setLoadingPreview] = useState(false)
@@ -169,8 +168,9 @@ export function PosSettlementsPage({ pollMs = 2000 }: { pollMs?: number } = {}) 
       const body = posErrorBody(err)
       if (body?.preview) setPreview(body.preview)
       if (body?.job) setJob(body.job)
-      const problems = body?.problems?.length ? ` ${body.problems.slice(0, 5).map((p) => p.message).join(' ')}` : ''
-      setNotice({ tone: 'error', text: `${errorMessage(err, fallback)}${body?.code === 'FILE_REFUSED' ? problems : ''}` })
+      const message = errorMessage(err, fallback)
+      const extra = body?.code === 'FILE_REFUSED' ? (body.problems || []).slice(0, 5).map((p) => p.message).filter((m) => !message.includes(m)) : []
+      setNotice({ tone: 'error', text: [message, ...extra].join(' ') })
     } finally {
       setBusy(false)
     }
@@ -179,12 +179,13 @@ export function PosSettlementsPage({ pollMs = 2000 }: { pollMs?: number } = {}) 
   const upload = () =>
     act(async () => {
       if (!file) return
-      const res = await uploadPosFile(file, format)
+      const res = await uploadPosFile(file)
       setFile(null)
       if (fileInput.current) fileInput.current.value = ''
       await loadList()
       if (res.role === 'CONTROL') {
-        setNotice({ tone: 'info', text: `${file.name} stored as a control document; it does not create or change payouts.` })
+        const facts = res.warnings.map((w) => w.message).join(' ')
+        setNotice({ tone: 'info', text: res.result === 'ALREADY_IMPORTED' ? `${file.name} was already stored; nothing changed.` : `${file.name} stored as a control document; it does not create or change payouts. ${facts}`.trim() })
         return
       }
       const counts = res.counts ? ` ${res.counts.NEW} new, ${res.counts.DUPLICATE} duplicate, ${res.counts.CONFLICT} conflicting.` : ''
@@ -302,20 +303,13 @@ export function PosSettlementsPage({ pollMs = 2000 }: { pollMs?: number } = {}) 
       <section className="tabby-page__card">
         <h2>Upload Mashreq file</h2>
         <div className="tabby-page__upload">
-          <select aria-label="Source format" value={format} onChange={(e) => setFormat(e.target.value as PosSourceFormat)} disabled={busy}>
-            {(Object.keys(FORMAT_LABEL) as PosSourceFormat[]).map((f) => (
-              <option key={f} value={f}>
-                {FORMAT_LABEL[f]}
-              </option>
-            ))}
-          </select>
           <input ref={fileInput} type="file" aria-label="Mashreq file" accept=".csv,.txt,.tsv,text/csv,text/plain" onChange={(e) => setFile(e.target.files?.[0] || null)} disabled={busy} />
           <button type="button" className="ainv-btn ainv-btn--primary-sky" disabled={!file || busy} onClick={upload}>
             {busy && file ? 'Reading…' : 'Upload'}
           </button>
         </div>
         <p className="tabby-page__sub">
-          Export as CSV/TXT with the RRN column as text (Excel drops leading zeros). Re-uploading a file is safe: identical files and transactions are recognised; a transaction reported again with different amounts is flagged as a conflict.
+          Upload the file as downloaded from the Mashreq portal (Enrich CSV, csv1 or the detailed batch TXT; the type is recognised automatically). Do not open and re-save it in Excel, which drops the RRN&apos;s leading zeros. The MSA statement is kept as a control document only. Re-uploading is safe: the same day in another format is recognised as the same transactions; a transaction reported again with different amounts is flagged as a conflict.
         </p>
       </section>
 

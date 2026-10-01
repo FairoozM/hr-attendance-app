@@ -417,10 +417,11 @@ export function listPosSettlements(): Promise<{ settlements: PosSettlement[]; fi
   return api.get(`${BASE}/settlements`)
 }
 
-export function uploadPosFile(file: File, sourceFormat: PosSourceFormat): Promise<PosUploadResult> {
+/** Mashreq portal exports are recognised from their content; `sourceFormat` only guides other layouts. */
+export function uploadPosFile(file: File, sourceFormat?: PosSourceFormat): Promise<PosUploadResult> {
   const form = new FormData()
   form.append('file', file)
-  form.append('sourceFormat', sourceFormat)
+  if (sourceFormat) form.append('sourceFormat', sourceFormat)
   return api.postForm(`${BASE}/upload`, form, { timeoutMs: POS_LONG_TIMEOUT_MS })
 }
 
