@@ -77,10 +77,10 @@ async function upload(req: Req, res: Res) {
     if (!file || !file.buffer || !file.buffer.length) throw badRequest('FILE_REQUIRED', 'Upload the Mashreq settlement file.')
     const sourceFormat = text(req.body && req.body.sourceFormat) || SOURCE_FORMAT.ENRICH_CSV
     if (!Object.values(SOURCE_FORMAT).includes(sourceFormat)) throw badRequest('FORMAT_UNKNOWN', `Unknown source format ${sourceFormat}.`)
-    if (!/\.(csv|txt|tsv)$/i.test(file.originalname || '')) throw badRequest('FILE_TYPE', 'Mashreq files must be .csv, .txt or .tsv exports.')
+    if (!/\.csv$/i.test(file.originalname || '')) throw badRequest('FILE_TYPE', 'Upload the Mashreq Enrich CSV (its name ends with _Enrich_csv1.csv).')
     const { store } = getDeps()
     const config = getPosSettlementConfig()
-    const imported = await importPosFile({ buffer: file.buffer, fileName: file.originalname, sourceFormat, store, config, actor: actorOf(req) })
+    const imported = await importPosFile({ buffer: file.buffer, fileName: file.originalname, sourceFormat, store, config, actor: actorOf(req), enrichOnly: true })
     return res.status(imported.result === IMPORT_RESULT.IMPORTED ? 201 : 200).json(imported)
   } catch (err) {
     return sendError(res, err, 'upload')

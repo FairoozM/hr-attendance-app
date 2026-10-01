@@ -23,7 +23,7 @@ import { Pill } from '../tabby/TabbyPreviewPanel'
 import { PosManualMappingDialog } from './PosManualMappingDialog'
 import { PosPreviewPanel } from './PosPreviewPanel'
 import { PosAccountMapping, PosTerminalMapping } from './PosSetupPanels'
-import { bankTone, channelLabel, formatAed, formatDateTime, humanize, settlementStatusTone } from './posFormat'
+import { bankTone, channelLabel, formatAed, formatDateTime, humanize, settlementStatusTone, zohoLimitReached } from './posFormat'
 import '../tabby/TabbyClearingPage.css'
 import './PosSettlementsPage.css'
 
@@ -82,7 +82,7 @@ export function PosSettlementsPage({ pollMs = 2000 }: { pollMs?: number } = {}) 
     try {
       const res = await listPosSettlements()
       setSettlements(res.settlements)
-      setFiles(res.files)
+      setFiles(res.files.filter((f) => f.role !== 'CONTROL'))
       setPostingEnabled(res.postingEnabled)
       setListError(null)
     } catch (err) {
@@ -264,7 +264,9 @@ export function PosSettlementsPage({ pollMs = 2000 }: { pollMs?: number } = {}) 
     ? ''
     : preview.status === 'POSTED'
       ? 'Everything in this payout is already in Zoho.'
-      : preview.blockers.length
+      : zohoLimitReached([...preview.blockers, ...preview.warnings])
+        ? 'Waiting for Zoho (daily request limit reached).'
+        : preview.blockers.length
         ? `${preview.blockers.length} blocker(s) must be resolved first.`
         : !preview.approved
           ? 'Review the preview below, then approve it.'
@@ -301,15 +303,15 @@ export function PosSettlementsPage({ pollMs = 2000 }: { pollMs?: number } = {}) 
       {setup === 'terminals' ? <PosTerminalMapping onChanged={() => preview && void loadPreview(preview.settlementId)} /> : null}
 
       <section className="tabby-page__card">
-        <h2>Upload Mashreq file</h2>
+        <h2>Upload Mashreq Enrich CSV</h2>
         <div className="tabby-page__upload">
-          <input ref={fileInput} type="file" aria-label="Mashreq file" accept=".csv,.txt,.tsv,text/csv,text/plain" onChange={(e) => setFile(e.target.files?.[0] || null)} disabled={busy} />
+          <input ref={fileInput} type="file" aria-label="Mashreq file" accept=".csv,text/csv" onChange={(e) => setFile(e.target.files?.[0] || null)} disabled={busy} />
           <button type="button" className="ainv-btn ainv-btn--primary-sky" disabled={!file || busy} onClick={upload}>
             {busy && file ? 'Reading…' : 'Upload'}
           </button>
         </div>
         <p className="tabby-page__sub">
-          Upload the file as downloaded from the Mashreq portal (Enrich CSV, csv1 or the detailed batch TXT; the type is recognised automatically). Do not open and re-save it in Excel, which drops the RRN&apos;s leading zeros. The MSA statement is kept as a control document only. Re-uploading is safe: the same day in another format is recognised as the same transactions; a transaction reported again with different amounts is flagged as a conflict.
+          One file per day: the Enrich CSV from the Mashreq portal (name ends with _Enrich_csv1.csv), uploaded as downloaded, not re-saved in Excel. Uploading the same file again changes nothing.
         </p>
       </section>
 

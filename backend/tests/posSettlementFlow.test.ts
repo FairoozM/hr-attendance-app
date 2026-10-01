@@ -127,21 +127,20 @@ test('5 Sep preview: BurJuman shop, NET 324.24 + FEE 6.41, fee journal, BRV-0111
   assert.ok(s.zoho.calls.filter((c: any) => /^\/invoices\/[^/]+$/.test(c.path)).length - before <= 2, 'only the live state of the two matched invoices')
 })
 
-test('real Mashreq exports of 5 Sep: Enrich, csv1 and detail TXT are one payout; MSA is control only', async () => {
+test('real Mashreq export of 5 Sep: only the Enrich CSV is accepted; csv1, TXT and MSA are refused by name', async () => {
   const fs = require('node:fs')
   const path = require('node:path')
   const s = setup()
-  const upload = (name: string, sourceFormat = 'ENRICH_CSV') => importPosFile({ buffer: fs.readFileSync(path.join(__dirname, 'fixtures', 'mashreq', name)), fileName: name, sourceFormat, store: s.store, config: s.config, actor: ACTOR })
+  const upload = (name: string) => importPosFile({ buffer: fs.readFileSync(path.join(__dirname, 'fixtures', 'mashreq', name)), fileName: name, store: s.store, config: s.config, actor: ACTOR, enrichOnly: true })
+  for (const name of ['csv1-2461289.csv', 'detail-2461289.txt', 'msa-2461289.txt']) {
+    await assert.rejects(() => upload(name), (e: any) => e.status === 422 && e.code === 'ENRICH_CSV_ONLY' && /_Enrich_csv1\.csv/.test(e.message), name)
+  }
+  await assert.rejects(() => importPosFile({ buffer: Buffer.from(FILE_5_SEP), fileName: 'other.csv', store: s.store, config: s.config, actor: ACTOR, enrichOnly: true }), (e: any) => e.code === 'ENRICH_CSV_ONLY')
+  assert.deepEqual(await s.store.listFiles({ limit: 10 }), [], 'refused files are not stored')
   const enrich = await upload('enrich-2461289.csv')
   assert.equal(enrich.result, 'IMPORTED')
   assert.equal(enrich.settlementIds.length, 1)
-  for (const name of ['csv1-2461289.csv', 'detail-2461289.txt']) {
-    const again = await upload(name, 'SIMPLE_CSV')
-    assert.equal(again.result, 'IMPORTED', name)
-    assert.ok(again.transactions.every((t: any) => t.status === 'DUPLICATE'), `${name}: same transactions, not counted twice`)
-  }
-  const msa = await upload('msa-2461289.txt', 'SIMPLE_CSV')
-  assert.equal(msa.role, 'CONTROL')
+  assert.equal((await upload('enrich-2461289.csv')).result, 'ALREADY_IMPORTED')
   assert.equal((await s.store.listSettlements()).length, 1)
 
   const p = await buildPosPreview({ settlementId: String(enrich.settlementIds[0]), store: s.store, sources: s.sources, config: s.config, now: s.now() })

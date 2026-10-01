@@ -31,6 +31,14 @@ export function bankTone(status: PosBankStatus | string | null | undefined): Ton
   }
 }
 
+/** True when the preview failed only because the app's daily Zoho call budget is used up. */
+export function zohoLimitReached(issues: Array<{ message: string }>): boolean {
+  return issues.some((i) => /safe-stop|daily API limit/i.test(i.message))
+}
+
+export const ZOHO_LIMIT_TEXT =
+  "Zoho can't be checked right now: today's Zoho request limit is used up. Nothing is wrong with your file. Checks resume after 04:00 Dubai time; then click Refresh preview."
+
 export function matchTone(status: string | null | undefined): Tone {
   if (status === 'MATCHED' || status === 'MANUAL') return 'ok'
   if (status === 'LOOKUP_FAILED') return 'warn'

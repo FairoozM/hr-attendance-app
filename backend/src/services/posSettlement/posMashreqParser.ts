@@ -581,7 +581,7 @@ function parseMashreqFile(buffer: Buffer, opts: { fileName?: string; sourceForma
   // A recognised Mashreq export is read by its own layout whatever format was picked.
   const layout = detectMashreqLayout(lines)
   const sourceFormat = layout ? LAYOUT_FORMAT[layout] : opts.sourceFormat || SOURCE_FORMAT.ENRICH_CSV
-  const base = { parserVersion: PARSER_VERSION, fileHash, fileName: opts.fileName || null, sourceFormat }
+  const base = { parserVersion: PARSER_VERSION, fileHash, fileName: opts.fileName || null, sourceFormat, mashreqLayout: layout }
 
   if (sourceFormat === SOURCE_FORMAT.MSA) {
     // Control document: never booked. Totals in MSA statements were found inconsistent (OTHERS/EPP),

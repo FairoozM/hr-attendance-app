@@ -283,13 +283,35 @@ describe('PosSettlementsPage', () => {
     expect(banner.textContent?.split(problem).length).toBe(2)
   })
 
-  it('an MSA statement is reported as a control document with its payment', async () => {
-    api.getPosPreview.mockResolvedValue({ preview: preview() })
-    api.uploadPosFile.mockResolvedValue({ result: 'IMPORTED', role: 'CONTROL', file: null, settlementIds: [], transactions: [], warnings: [{ code: 'MSA_CONTROL_ONLY', message: 'Statement 05-SEP-26, net payment AED 324.24.' }] })
+  it('a used-up Zoho daily limit shows one plain message instead of a list of blockers', async () => {
+    const limit = 'Zoho safe-stop active (8800/8500 calls today). Non-critical requests are blocked.'
+    api.getPosPreview.mockResolvedValue({
+      preview: preview({
+        blockers: [
+          { code: 'ZOHO_ACCOUNTS_UNAVAILABLE', message: `Zoho chart of accounts could not be read: ${limit}` },
+          { code: 'NOT_CHECKED', message: 'Zoho invoices were not searched.' },
+        ],
+        canApprove: false,
+      }),
+    })
+    renderAt('/management/pos-settlements/1')
+    expect(await screen.findByText(/today's Zoho request limit is used up/)).toBeTruthy()
+    expect(screen.queryByText(/Blockers \(/)).toBeNull()
+    expect(screen.getByText('Waiting for Zoho (daily request limit reached).')).toBeTruthy()
+  })
+
+  it('MSA control files are not listed with the imported files', async () => {
+    api.listPosSettlements.mockResolvedValue({
+      settlements: [],
+      postingEnabled: false,
+      sourceFormats: [],
+      files: [
+        { id: '1', fileHash: 'a'.repeat(64), fileName: '100140318MSA-1.txt', sourceFormat: 'MSA', role: 'CONTROL', transactionCount: 0, newCount: 0, duplicateCount: 0, conflictCount: 0, importedBy: 'user:1', createdAt: null },
+        { id: '2', fileHash: 'b'.repeat(64), fileName: '100140318_Enrich_csv1-12.csv', sourceFormat: 'ENRICH_CSV', role: 'TRANSACTIONS', transactionCount: 2, newCount: 2, duplicateCount: 0, conflictCount: 0, importedBy: 'user:1', createdAt: null },
+      ],
+    })
     renderAt('/management/pos-settlements')
-    const input = (await screen.findByLabelText('Mashreq file')) as HTMLInputElement
-    fireEvent.change(input, { target: { files: [new File(['x'], '100140318MSA-2.txt', { type: 'text/plain' })] } })
-    fireEvent.click(screen.getByRole('button', { name: 'Upload' }))
-    expect(await screen.findByText(/stored as a control document.*net payment AED 324\.24/)).toBeTruthy()
+    expect(await screen.findByText('Imported files (1)')).toBeTruthy()
+    expect(screen.queryByText('100140318MSA-1.txt')).toBeNull()
   })
 })

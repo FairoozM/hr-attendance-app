@@ -18,8 +18,22 @@ function refused(code: string, message: string, problems: any[]) {
  * @returns {{ result, file, settlementIds, counts, transactions, warnings }}
  * @throws 422 FILE_REFUSED with `problems` when the file or any row is not safely readable
  */
-async function importPosFile({ buffer, fileName, sourceFormat, store, config, actor }: any) {
+const OTHER_EXPORT: Record<string, string> = {
+  CSV1: 'the csv1 export',
+  DETAIL: 'the detailed batch report (TXT)',
+  MSA: 'the MSA statement',
+}
+
+/**
+ * @param input.enrichOnly accept only the Mashreq Enrich CSV (the upload screen); other layouts are
+ *   refused with the name of the file to upload instead
+ */
+async function importPosFile({ buffer, fileName, sourceFormat, store, config, actor, enrichOnly = false }: any) {
   const parsed = parseMashreqFile(buffer, { fileName, sourceFormat, config })
+  if (enrichOnly && parsed.mashreqLayout !== 'ENRICH') {
+    const what = OTHER_EXPORT[parsed.mashreqLayout] || 'not a Mashreq Enrich CSV'
+    throw refused('ENRICH_CSV_ONLY', `${fileName || 'This file'} is ${what}. Upload the Enrich CSV from the Mashreq portal instead (its name ends with _Enrich_csv1.csv).`, [])
+  }
   if (parsed.problems.length) throw refused('FILE_REFUSED', `${fileName || 'File'} was not imported: ${parsed.problems.slice(0, 3).map((p: any) => p.message).join(' ')}`, parsed.problems)
   const rowProblems = parsed.transactions.flatMap((t: any) => t.problems.map((p: any) => ({ ...p, sourceRow: t.sourceRow, rrn: t.rrn })))
   if (rowProblems.length) throw refused('FILE_REFUSED', `${fileName || 'File'} was not imported: ${rowProblems.length} row problem(s), e.g. row ${rowProblems[0].sourceRow}: ${rowProblems[0].message}`, rowProblems)

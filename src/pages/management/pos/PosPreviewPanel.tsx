@@ -12,6 +12,8 @@ import {
   matchTone,
   recoveryTone,
   settlementStatusTone,
+  ZOHO_LIMIT_TEXT,
+  zohoLimitReached,
 } from './posFormat'
 
 function IssueList({ title, issues, tone }: { title: string; issues: PosIssue[]; tone: 'error' | 'warning' }) {
@@ -141,8 +143,14 @@ export function PosPreviewPanel({
 
   return (
     <>
-      <IssueList title="Blockers" issues={preview.blockers} tone="error" />
-      <IssueList title="Warnings" issues={preview.warnings} tone="warning" />
+      {zohoLimitReached([...preview.blockers, ...preview.warnings]) ? (
+        <div className="tabby-page__banner tabby-page__banner--warning">{ZOHO_LIMIT_TEXT}</div>
+      ) : (
+        <>
+          <IssueList title="Blockers" issues={preview.blockers} tone="error" />
+          <IssueList title="Warnings" issues={preview.warnings} tone="warning" />
+        </>
+      )}
 
       <div className="tabby-page__grid">
         <Figures
