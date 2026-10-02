@@ -5,6 +5,8 @@ export type LedgerRow = {
   /** Zoho Transaction# (invoice, payment or journal number); bank-style sections only. */
   transactionNumber?: string
   description?: string
+  /** Notes typed on that account's Zoho expense lines for the day; Expenses section only. */
+  notes?: string
   debit?: number | null
   credit?: number | null
   sale?: number | null
@@ -49,14 +51,18 @@ export function LedgerSection({ section, defaultExpanded = false, showSaleColumn
   const cols = section.columns || ['reference', 'description', 'debit', 'credit', 'balance']
   const useSale = showSaleColumn ?? cols.includes('sale')
   const useTxnNumber = cols.includes('transactionNumber')
-  const labelSpan = 2 + (useSale ? 1 : 0) + (useTxnNumber ? 1 : 0)
+  const useNotes = cols.includes('notes')
+  const labelSpan = 2 + (useSale ? 1 : 0) + (useTxnNumber ? 1 : 0) + (useNotes ? 1 : 0)
+  const searchPlaceholder = `Search ${['reference', useTxnNumber ? 'transaction#' : '', 'description', useNotes ? 'notes' : '', 'amount']
+    .filter(Boolean)
+    .join(', ')}…`
 
   const filtered = useMemo(() => {
     const rows = section.rows || []
     const q = query.trim().toLowerCase()
     if (!q) return rows
     return rows.filter((r) => {
-      const hay = `${r.reference || ''} ${r.transactionNumber || ''} ${r.description || ''} ${r.debit ?? ''} ${r.credit ?? ''} ${r.sale ?? ''}`.toLowerCase()
+      const hay = `${r.reference || ''} ${r.transactionNumber || ''} ${r.description || ''} ${r.notes || ''} ${r.debit ?? ''} ${r.credit ?? ''} ${r.sale ?? ''}`.toLowerCase()
       return hay.includes(q)
     })
   }, [section.rows, query])
@@ -97,11 +103,7 @@ export function LedgerSection({ section, defaultExpanded = false, showSaleColumn
               className="del-section__search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder={
-                useTxnNumber
-                  ? 'Search reference, transaction#, description, amount…'
-                  : 'Search reference, description, amount…'
-              }
+              placeholder={searchPlaceholder}
             />
             {(section.accountCode || section.accountName) && (
               <span className="del-section__acct">
@@ -117,6 +119,7 @@ export function LedgerSection({ section, defaultExpanded = false, showSaleColumn
                   <th>Reference</th>
                   {useTxnNumber ? <th>Transaction#</th> : null}
                   <th>Description</th>
+                  {useNotes ? <th>Notes</th> : null}
                   {useSale ? <th className="num">Sale</th> : null}
                   {cols.includes('debit') ? <th className="num">DR</th> : null}
                   {cols.includes('credit') ? <th className="num">CR</th> : null}
@@ -138,6 +141,7 @@ export function LedgerSection({ section, defaultExpanded = false, showSaleColumn
                     <td>{row.reference || '—'}</td>
                     {useTxnNumber ? <td>{row.transactionNumber || '—'}</td> : null}
                     <td>{row.description || '—'}</td>
+                    {useNotes ? <td className="del-cell--notes">{row.notes || '—'}</td> : null}
                     {useSale ? (
                       <td className={`num ${Number(row.sale) < 0 ? 'neg' : ''}`}>{fmt(row.sale)}</td>
                     ) : null}

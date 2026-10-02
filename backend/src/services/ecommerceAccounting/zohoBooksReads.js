@@ -326,6 +326,50 @@ async function fetchExpensesForDay(dateYmd) {
 }
 
 /**
+ * Notes typed on the day's expenses, grouped by expense account id.
+ * Itemized expenses keep a note per line, and only GET /expenses/{id} returns
+ * line_items, so each expense of the day is read individually.
+ */
+async function fetchExpenseNotesByAccount(dateYmd, { concurrency = 4 } = {}) {
+  const notesByAccount = new Map()
+  const add = (accountId, note) => {
+    const id = clean(accountId)
+    const text = clean(note)
+    if (!id || !text) return
+    const list = notesByAccount.get(id) || []
+    if (!list.includes(text)) list.push(text)
+    notesByAccount.set(id, list)
+  }
+
+  const expenses = await fetchExpensesForDay(dateYmd)
+  const ids = expenses.map((e) => clean(e.expense_id)).filter(Boolean)
+  for (let i = 0; i < ids.length; i += concurrency) {
+    const details = await Promise.all(
+      ids.slice(i, i + concurrency).map(async (id) => {
+        const json = await zohoBooksJsonRequest(
+          `${BOOKS_V3}/expenses/${encodeURIComponent(id)}`,
+          new URLSearchParams(),
+          'GET',
+          undefined,
+          { source: 'ecommerce_accounting_expense_detail', skipCache: true }
+        )
+        return json?.expense || null
+      })
+    )
+    for (const detail of details) {
+      if (!detail) continue
+      const lines = Array.isArray(detail.line_items) ? detail.line_items : []
+      if (lines.length) {
+        for (const line of lines) add(line.account_id, line.description)
+      } else {
+        add(detail.account_id, detail.description)
+      }
+    }
+  }
+  return notesByAccount
+}
+
+/**
  * Operating Expense total from P&L for [fromDate, toDate].
  */
 async function fetchOperatingExpenseTotal(fromDate, toDate) {
@@ -514,6 +558,7 @@ module.exports = {
   fetchBankTransactionsSince,
   fetchAccountTransactionNumbers,
   fetchExpensesForDay,
+  fetchExpenseNotesByAccount,
   fetchOperatingExpenseTotal,
   fetchExpenseTotalsByAccountIds,
   fetchExpenseTotalsSplit,

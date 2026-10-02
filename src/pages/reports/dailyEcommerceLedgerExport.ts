@@ -84,10 +84,14 @@ export function buildSectionSheetRows(section: LedgerSectionData) {
   const cols = section.columns || ['reference', 'description', 'debit', 'credit', 'balance']
   const useSale = cols.includes('sale')
   const useTxnNumber = cols.includes('transactionNumber')
+  const useNotes = cols.includes('notes')
   const rows = section.rows || []
   const showCurrency = rows.some((row) => row.currencyCode)
 
-  const core = useTxnNumber ? ['Reference', 'Transaction#', 'Description'] : ['Reference', 'Description']
+  const core = ['Reference']
+  if (useTxnNumber) core.push('Transaction#')
+  core.push('Description')
+  if (useNotes) core.push('Notes')
   if (useSale) core.push(`Sale (${BASE_CURRENCY})`)
   if (cols.includes('debit')) core.push(`DR (${BASE_CURRENCY})`)
   if (cols.includes('credit')) core.push(`CR (${BASE_CURRENCY})`)
@@ -103,9 +107,10 @@ export function buildSectionSheetRows(section: LedgerSectionData) {
   }
 
   const body = rows.map((row: LedgerRow) => {
-    const cells: (string | number)[] = useTxnNumber
-      ? [row.reference || '', row.transactionNumber || '', row.description || '']
-      : [row.reference || '', row.description || '']
+    const cells: (string | number)[] = [row.reference || '']
+    if (useTxnNumber) cells.push(row.transactionNumber || '')
+    cells.push(row.description || '')
+    if (useNotes) cells.push(row.notes || '')
     if (useSale) cells.push(row.sale ?? 0)
     if (cols.includes('debit')) cells.push(row.debit ?? 0)
     if (cols.includes('credit')) cells.push(row.credit ?? 0)

@@ -30,6 +30,7 @@ function stubReads(stubs) {
         fetchBankTransactionsSince: stubs.fetchBankTransactionsSince,
         fetchAccountTransactionNumbers:
           stubs.fetchAccountTransactionNumbers || (async () => new Map()),
+        fetchExpenseNotesByAccount: stubs.fetchExpenseNotesByAccount || (async () => new Map()),
         fetchExpensesByCategory: stubs.fetchExpensesByCategory || (async () => []),
         fetchPnlExpenseAccountIds: stubs.fetchPnlExpenseAccountIds || (async () => new Set()),
       }
@@ -215,6 +216,63 @@ describe('dailyEcommerceLedgerService (mocked Zoho)', () => {
     assert.equal(expenses.rows[0].debit, 5868.5)
     assert.equal(expenses.rows[1].balance, 1798197.1)
     assert.ok(expenses.warnings.some((w) => w.includes('Miscellaneous (500)')))
+  })
+
+  it('expense rows carry the notes typed on that account in Zoho expenses', async () => {
+    const WAREHOUSE = '4265011000003071795'
+    const PARKING = '4265011000020795054'
+    const noteDates = []
+    restore = stubReads({
+      fetchSalesByCustomerTotal: async () => ({ salesWithTax: 0 }),
+      fetchInvoicesForDay: async () => ({ rows: [], truncated: false }),
+      fetchCreditNotesForDay: async () => ({ rows: [], truncated: false }),
+      fetchAccountDetail: async () => ({ account_name: 'Cash', account_type: 'cash', closing_balance: 0 }),
+      fetchBankTransactionsSince: async () => [],
+      fetchPnlExpenseAccountIds: async () => new Set([WAREHOUSE, PARKING]),
+      fetchExpensesByCategory: async (from, to) => [
+        { accountId: WAREHOUSE, accountName: 'Warehouse Expense', amount: from === to ? 158.56 : 1000 },
+        { accountId: PARKING, accountName: 'Parking', amount: from === to ? 20 : 500 },
+      ],
+      fetchExpenseNotesByAccount: async (date) => {
+        noteDates.push(date)
+        return new Map([[WAREHOUSE, ['A4 Papers & Stationery for Warehouse', 'Stretch Film for Warehouse']]])
+      },
+    })
+
+    const { buildDailyEcommerceLedger } = freshRequire(SERVICE)
+    const report = await buildDailyEcommerceLedger({ date: '2026-09-24' })
+    const expenses = report.sections.expenses
+    assert.ok(expenses.columns.includes('notes'))
+    const warehouse = expenses.rows.find((r) => r.reference === WAREHOUSE)
+    assert.equal(warehouse.notes, 'A4 Papers & Stationery for Warehouse; Stretch Film for Warehouse')
+    assert.equal(expenses.rows.find((r) => r.reference === PARKING).notes, '')
+    assert.deepEqual(noteDates, ['2026-09-24'])
+  })
+
+  it('keeps expense totals when the notes read fails', async () => {
+    const PARKING = '4265011000020795054'
+    restore = stubReads({
+      fetchSalesByCustomerTotal: async () => ({ salesWithTax: 0 }),
+      fetchInvoicesForDay: async () => ({ rows: [], truncated: false }),
+      fetchCreditNotesForDay: async () => ({ rows: [], truncated: false }),
+      fetchAccountDetail: async () => ({ account_name: 'Cash', account_type: 'cash', closing_balance: 0 }),
+      fetchBankTransactionsSince: async () => [],
+      fetchPnlExpenseAccountIds: async () => new Set([PARKING]),
+      fetchExpensesByCategory: async (from, to) => [
+        { accountId: PARKING, accountName: 'Parking', amount: from === to ? 20 : 500 },
+      ],
+      fetchExpenseNotesByAccount: async () => {
+        throw new Error('Zoho API HTTP 429')
+      },
+    })
+
+    const { buildDailyEcommerceLedger } = freshRequire(SERVICE)
+    const report = await buildDailyEcommerceLedger({ date: '2026-09-24' })
+    const expenses = report.sections.expenses
+    assert.equal(expenses.opening, 480)
+    assert.equal(expenses.closing, 500)
+    assert.equal(expenses.rows[0].notes, '')
+    assert.ok(expenses.warnings.some((w) => w.includes('Expense notes unavailable')))
   })
 
   it('credits the expense day row when a category nets negative', async () => {

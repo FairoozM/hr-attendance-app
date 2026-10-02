@@ -180,4 +180,40 @@ describe('buildSectionSheetRows', () => {
     expect(rows[1]).toEqual(['Opening', '', '', '', '', 611.28])
     expect(rows[2]).toEqual(['4265011000042381037', 'INV-044034', 'Damage Reimbursement', 220, 0, 831.28])
   })
+
+  it('adds a Notes column for the Expenses section', () => {
+    const rows = buildSectionSheetRows({
+      title: 'Expenses',
+      opening: 1000,
+      closing: 1166.49,
+      columns: ['reference', 'description', 'notes', 'debit', 'credit', 'balance'],
+      rows: [
+        {
+          reference: '4265011000003071795',
+          description: 'Warehouse Expense',
+          notes: 'A4 Papers & Stationery for Warehouse; Stretch Film for Warehouse',
+          debit: 166.49,
+          credit: 0,
+          balance: 1166.49,
+        },
+      ],
+    })
+    expect(rows[0]).toEqual([
+      'Reference',
+      'Description',
+      'Notes',
+      'DR (AED)',
+      'CR (AED)',
+      'Balance (AED)',
+    ])
+    expect(rows[1]).toEqual(['Opening', '', '', '', '', 1000])
+    expect(rows[2]).toEqual([
+      '4265011000003071795',
+      'Warehouse Expense',
+      'A4 Papers & Stationery for Warehouse; Stretch Film for Warehouse',
+      166.49,
+      0,
+      1166.49,
+    ])
+  })
 })

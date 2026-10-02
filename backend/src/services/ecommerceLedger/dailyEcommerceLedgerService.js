@@ -21,6 +21,7 @@ const {
   fetchAccountDetail,
   fetchBankTransactionsSince,
   fetchAccountTransactionNumbers,
+  fetchExpenseNotesByAccount,
   fetchExpensesByCategory,
   fetchPnlExpenseAccountIds,
 } = require('../ecommerceAccounting/zohoBooksReads')
@@ -326,10 +327,15 @@ function totalExpensesByCategory(rows, groupMap, expenseAccountIds) {
  */
 async function buildExpenseSection(reportDate) {
   const yearStart = yearStartYmd(reportDate)
-  const [expenseAccountIds, categoryThrough, categoryToday] = await Promise.all([
+  const warnings = []
+  const [expenseAccountIds, categoryThrough, categoryToday, notesByAccount] = await Promise.all([
     fetchPnlExpenseAccountIds(yearStart, reportDate),
     fetchExpensesByCategory(yearStart, reportDate),
     fetchExpensesByCategory(reportDate, reportDate),
+    fetchExpenseNotesByAccount(reportDate).catch((err) => {
+      warnings.push(`Expense notes unavailable: ${clean(err?.message) || 'Zoho expenses read failed'}`)
+      return new Map()
+    }),
   ])
 
   const groupMap = buildExpenseGroupMap()
@@ -343,6 +349,7 @@ async function buildExpenseSection(reportDate) {
   const dayRowsRaw = today.included.map((row) => ({
     reference: row.accountId,
     description: row.accountName,
+    notes: (notesByAccount.get(row.accountId) || []).join('; '),
     debit: row.amount > 0 ? row.amount : 0,
     credit: row.amount < 0 ? round2(-row.amount) : 0,
     sale: null,
@@ -351,7 +358,6 @@ async function buildExpenseSection(reportDate) {
   }))
 
   const rows = attachRunningBalances(opening, dayRowsRaw)
-  const warnings = []
   if (through.excluded.length) {
     const names = through.excluded
       .slice(0, 5)
@@ -372,7 +378,7 @@ async function buildExpenseSection(reportDate) {
     closing,
     netMovement: dayExpenseTotal,
     rows,
-    columns: ['reference', 'description', 'debit', 'credit', 'balance'],
+    columns: ['reference', 'description', 'notes', 'debit', 'credit', 'balance'],
     configMissing: false,
     warnings,
     accountId: '',

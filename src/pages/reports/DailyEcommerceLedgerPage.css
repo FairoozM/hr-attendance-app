@@ -198,6 +198,13 @@
   font-variant-numeric: tabular-nums;
 }
 
+.del-table .del-cell--notes {
+  max-width: 28rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  color: var(--del-muted);
+}
+
 .del-table .neg {
   color: var(--del-danger);
 }
