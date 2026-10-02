@@ -20,6 +20,7 @@ const {
   fetchCreditNotesForDay,
   fetchAccountDetail,
   fetchBankTransactionsSince,
+  fetchAccountTransactionNumbers,
   fetchExpensesByCategory,
   fetchPnlExpenseAccountIds,
 } = require('../ecommerceAccounting/zohoBooksReads')
@@ -33,6 +34,8 @@ const {
   foreignCurrencyInfo,
 } = require('../ecommerceAccounting/baseCurrency')
 
+const BANK_STYLE_COLUMNS = ['reference', 'transactionNumber', 'description', 'debit', 'credit', 'balance']
+
 function emptySection(title, extras = {}) {
   return {
     key: extras.key || title,
@@ -41,7 +44,7 @@ function emptySection(title, extras = {}) {
     closing: 0,
     netMovement: 0,
     rows: [],
-    columns: extras.columns || ['reference', 'description', 'debit', 'credit', 'balance'],
+    columns: extras.columns || BANK_STYLE_COLUMNS,
     configMissing: Boolean(extras.configMissing),
     warnings: extras.warnings || [],
     accountId: extras.accountId || '',
@@ -69,7 +72,7 @@ async function buildBankStyleSection({
       key,
       configMissing: true,
       warnings: ['Account ID not configured'],
-      columns: ['reference', 'description', 'debit', 'credit', 'balance'],
+      columns: BANK_STYLE_COLUMNS,
     })
   }
 
@@ -101,6 +104,16 @@ async function buildBankStyleSection({
       nature
     )
   }
+  const warnings = []
+  let transactionNumbers = new Map()
+  if (onDay.length) {
+    try {
+      transactionNumbers = await fetchAccountTransactionNumbers(id, reportDate, reportDate)
+    } catch (err) {
+      warnings.push(`Transaction# unavailable: ${clean(err?.message) || 'Zoho Account Transactions report failed'}`)
+    }
+  }
+
   let daySum = 0
   const dayRowsRaw = []
   for (const t of onDay) {
@@ -117,6 +130,7 @@ async function buildBankStyleSection({
     const amt = Math.abs(toNumber(t.amount))
     dayRowsRaw.push({
       reference: clean(t.transaction_id || t.imported_transaction_id || ''),
+      transactionNumber: transactionNumbers.get(clean(t.transaction_id)) || '',
       description: clean(t.payee || t.description || t.reference_number || t.transaction_type || ''),
       debit: side === 'debit' ? amt : 0,
       credit: side === 'credit' ? amt : 0,
@@ -139,9 +153,9 @@ async function buildBankStyleSection({
     closing,
     netMovement: round2(daySum),
     rows,
-    columns: ['reference', 'description', 'debit', 'credit', 'balance'],
+    columns: BANK_STYLE_COLUMNS,
     configMissing: false,
-    warnings: [],
+    warnings,
     accountId: id,
     accountName: accountName || title,
     accountCode,
@@ -407,7 +421,7 @@ async function buildDailyEcommerceLedger(opts = {}) {
           warnings: [
             'Purchase & Payments account ID not configured (DAILY_LEDGER_PURCHASE_PAYMENTS_ACCOUNT_ID). No Zoho account matched legacy opening 541,492.02 during probe.',
           ],
-          columns: ['reference', 'description', 'debit', 'credit', 'balance'],
+          columns: BANK_STYLE_COLUMNS,
         })
       )
   const banksP = Promise.all(

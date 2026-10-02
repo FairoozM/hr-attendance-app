@@ -248,6 +248,53 @@ async function fetchBankTransactionsSince(accountId, sinceYmd) {
   return kept
 }
 
+/**
+ * Zoho "Account Transactions" report rows for one account, keyed by transaction_id
+ * → entity_number (the Transaction# column in Zoho: invoice, payment or journal number).
+ * The report ignores a plain account_id param; only the `rule` filter narrows it.
+ */
+async function fetchAccountTransactionNumbers(accountId, fromYmd, toYmd) {
+  const id = clean(accountId)
+  const from = clean(fromYmd)
+  const to = clean(toYmd) || from
+  const numbers = new Map()
+  if (!id || !from) return numbers
+  const rule = JSON.stringify({
+    columns: [{ index: 1, field: 'account_id', value: [id], comparator: 'in', group: 'report' }],
+    criteria_string: '1',
+  })
+  let page = 1
+  while (page <= 20) {
+    const sp = new URLSearchParams({
+      from_date: from,
+      to_date: to,
+      rule,
+      page: String(page),
+      per_page: '200',
+    })
+    const json = await zohoBooksJsonRequest(
+      `${BOOKS_V3}/reports/accounttransaction`,
+      sp,
+      'GET',
+      undefined,
+      { source: 'ecommerce_accounting_account_tx_numbers', skipCache: true }
+    )
+    const groups = Array.isArray(json?.account_transactions) ? json.account_transactions : []
+    for (const group of groups) {
+      const lines = Array.isArray(group?.account_transactions) ? group.account_transactions : []
+      for (const line of lines) {
+        const txId = clean(line?.transaction_id)
+        if (!txId || clean(line?.account_id) !== id) continue
+        const number = clean(line?.entity_number)
+        if (number && !numbers.has(txId)) numbers.set(txId, number)
+      }
+    }
+    if (!json?.page_context?.has_more_page) break
+    page += 1
+  }
+  return numbers
+}
+
 /** @deprecated prefer fetchBankTransactionsSince — kept for callers that need full history */
 async function fetchAllBankTransactions(accountId) {
   return fetchBankTransactionsSince(accountId, '2000-01-01')
@@ -465,6 +512,7 @@ module.exports = {
   fetchCreditNotesForDay,
   fetchAllBankTransactions,
   fetchBankTransactionsSince,
+  fetchAccountTransactionNumbers,
   fetchExpensesForDay,
   fetchOperatingExpenseTotal,
   fetchExpenseTotalsByAccountIds,

@@ -151,4 +151,33 @@ describe('buildSectionSheetRows', () => {
     expect(rows[1]).toEqual(['Opening', '', '', '', 100])
     expect(rows[2]).toEqual(['JV-1', 'Deposit', 50, 0, 150])
   })
+
+  it('adds a Transaction# column when the section carries it', () => {
+    const rows = buildSectionSheetRows({
+      title: 'Cash In Hand',
+      opening: 611.28,
+      closing: 831.28,
+      columns: ['reference', 'transactionNumber', 'description', 'debit', 'credit', 'balance'],
+      rows: [
+        {
+          reference: '4265011000042381037',
+          transactionNumber: 'INV-044034',
+          description: 'Damage Reimbursement',
+          debit: 220,
+          credit: 0,
+          balance: 831.28,
+        },
+      ],
+    })
+    expect(rows[0]).toEqual([
+      'Reference',
+      'Transaction#',
+      'Description',
+      'DR (AED)',
+      'CR (AED)',
+      'Balance (AED)',
+    ])
+    expect(rows[1]).toEqual(['Opening', '', '', '', '', 611.28])
+    expect(rows[2]).toEqual(['4265011000042381037', 'INV-044034', 'Damage Reimbursement', 220, 0, 831.28])
+  })
 })

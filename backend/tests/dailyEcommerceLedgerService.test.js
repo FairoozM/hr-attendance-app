@@ -28,6 +28,8 @@ function stubReads(stubs) {
         fetchCreditNotesForDay: stubs.fetchCreditNotesForDay,
         fetchAccountDetail: stubs.fetchAccountDetail,
         fetchBankTransactionsSince: stubs.fetchBankTransactionsSince,
+        fetchAccountTransactionNumbers:
+          stubs.fetchAccountTransactionNumbers || (async () => new Map()),
         fetchExpensesByCategory: stubs.fetchExpensesByCategory || (async () => []),
         fetchPnlExpenseAccountIds: stubs.fetchPnlExpenseAccountIds || (async () => new Set()),
       }
@@ -315,6 +317,59 @@ describe('dailyEcommerceLedgerService (mocked Zoho)', () => {
     assert.equal(b.opening, 197106.32)
     assert.equal(b.netMovement, 10668.5)
     assert.equal(b.closing, 207774.82)
+  })
+
+  it('bank-style rows carry the Zoho Transaction# for their transaction_id', async () => {
+    const lookups = []
+    restore = stubReads({
+      fetchSalesByCustomerTotal: async () => ({ salesWithTax: 0 }),
+      fetchInvoicesForDay: async () => ({ rows: [], truncated: false }),
+      fetchCreditNotesForDay: async () => ({ rows: [], truncated: false }),
+      fetchAccountDetail: async () => ({ account_name: 'Cash In Hand', account_type: 'cash', closing_balance: 831.28 }),
+      fetchBankTransactionsSince: async (id) => {
+        if (id !== '4265011000000706735') return []
+        return [
+          { date: '2026-09-21', amount: 220, debit_or_credit: 'debit', transaction_id: 'p1', payee: 'Damage Reimbursement' },
+          { date: '2026-09-21', amount: 6, debit_or_credit: 'credit', transaction_id: 'x1', reference_number: 'Sufra' },
+        ]
+      },
+      fetchAccountTransactionNumbers: async (id, from, to) => {
+        lookups.push([id, from, to])
+        return new Map([['p1', 'INV-044034']])
+      },
+    })
+
+    const { buildDailyEcommerceLedger } = freshRequire(SERVICE)
+    const report = await buildDailyEcommerceLedger({ date: '2026-09-21' })
+    const cash = report.sections.cashInHand
+    assert.ok(cash.columns.includes('transactionNumber'))
+    assert.equal(cash.rows[0].transactionNumber, 'INV-044034')
+    assert.equal(cash.rows[1].transactionNumber, '')
+    assert.deepEqual(lookups, [['4265011000000706735', '2026-09-21', '2026-09-21']])
+  })
+
+  it('keeps bank balances when the Transaction# lookup fails', async () => {
+    restore = stubReads({
+      fetchSalesByCustomerTotal: async () => ({ salesWithTax: 0 }),
+      fetchInvoicesForDay: async () => ({ rows: [], truncated: false }),
+      fetchCreditNotesForDay: async () => ({ rows: [], truncated: false }),
+      fetchAccountDetail: async () => ({ account_name: 'Cash In Hand', account_type: 'cash', closing_balance: 831.28 }),
+      fetchBankTransactionsSince: async (id) => {
+        if (id !== '4265011000000706735') return []
+        return [{ date: '2026-09-21', amount: 220, debit_or_credit: 'debit', transaction_id: 'p1', payee: 'X' }]
+      },
+      fetchAccountTransactionNumbers: async () => {
+        throw new Error('Zoho API HTTP 429')
+      },
+    })
+
+    const { buildDailyEcommerceLedger } = freshRequire(SERVICE)
+    const report = await buildDailyEcommerceLedger({ date: '2026-09-21' })
+    const cash = report.sections.cashInHand
+    assert.equal(cash.opening, 611.28)
+    assert.equal(cash.closing, 831.28)
+    assert.equal(cash.rows[0].transactionNumber, '')
+    assert.ok(cash.warnings.some((w) => w.includes('Transaction# unavailable')))
   })
 
   it('marks purchase section configMissing when unset', async () => {
