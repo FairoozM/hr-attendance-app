@@ -65,7 +65,7 @@ function makeItemsPageParams(page, per, warehouseId = null, options = {}) {
  * @param {number} page
  * @param {number} per
  * @param {string|null} [warehouseId]
- * @param {{ includeInactive?: boolean }} [options]
+ * @param {{ includeInactive?: boolean, skipCache?: boolean }} [options] - skipCache: always call Zoho (the fresh page still refreshes the shared cache)
  */
 async function fetchItemsPage(page, per, warehouseId = null, options = {}) {
   const includeInactive = Boolean(options.includeInactive) || itemsIncludeInactive()
@@ -74,6 +74,7 @@ async function fetchItemsPage(page, per, warehouseId = null, options = {}) {
     cacheCategory: 'items_list',
     cacheKey: `zoho:items_list:p${page}:per${per}:wh${warehouseId || 'all'}:${scope}`,
     source: 'inventory_items_page',
+    skipCache: Boolean(options.skipCache),
   }
   const json = await zohoInventoryJsonRequest(
     `${INVENTORY_V1}/items`,
@@ -99,7 +100,7 @@ async function fetchItemsPage(page, per, warehouseId = null, options = {}) {
 
 /**
  * @param {string|null} [warehouseId]
- * @param {{ includeInactive?: boolean }} [options]
+ * @param {{ includeInactive?: boolean, skipCache?: boolean }} [options]
  */
 async function listItemsPaged(warehouseId = null, options = {}) {
   const c = readZohoConfig()
@@ -118,7 +119,8 @@ async function listItemsPaged(warehouseId = null, options = {}) {
     : `[zoho-items] scope=${scopeLabel}`
 
   console.log(`${label} fetching page 1/${MAX_ITEMS_PAGES}…`)
-  const first = await fetchItemsPage(1, per, warehouseId, { includeInactive })
+  const skipCache = Boolean(options.skipCache)
+  const first = await fetchItemsPage(1, per, warehouseId, { includeInactive, skipCache })
   all.push(...first.items)
 
   if (!first.hasMore || first.items.length === 0 || first.items.length < per) {
@@ -139,7 +141,7 @@ async function listItemsPaged(warehouseId = null, options = {}) {
     }
     console.log(`${label} fetching pages ${pages[0]}-${pages[pages.length - 1]}/${estimatedPages}…`)
     const results = await Promise.all(
-      pages.map((p) => fetchItemsPage(p, per, warehouseId, { includeInactive }))
+      pages.map((p) => fetchItemsPage(p, per, warehouseId, { includeInactive, skipCache }))
     )
 
     let stop = false
@@ -299,7 +301,7 @@ async function fetchZohoItemImageBuffer(itemId) {
 
 /**
  * @param {string} warehouseId
- * @param {{ includeInactive?: boolean }} [options]
+ * @param {{ includeInactive?: boolean, skipCache?: boolean }} [options]
  */
 async function listItemsForWarehouse(warehouseId, options = {}) {
   const wid = String(warehouseId).trim()

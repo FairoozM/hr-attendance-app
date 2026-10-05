@@ -218,7 +218,7 @@ function getControlTower() {
     },
     zoho: {
       resolveLifeSmileWarehouse: warehouseService.resolveLifeSmileWarehouse,
-      fetchItemsRawForWarehouse: zohoAdapter.fetchItemsRawForWarehouse,
+      fetchItemsRawForWarehouse: (warehouseId: string) => zohoAdapter.fetchItemsRawForWarehouse(warehouseId, { skipCache: true }),
     },
   })
   const runner = createRefreshRunner({

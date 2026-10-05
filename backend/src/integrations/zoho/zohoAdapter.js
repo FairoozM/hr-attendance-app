@@ -129,17 +129,18 @@ const _warehouseItemsCache = new Map()
  * Active-only and include-inactive fetches use separate cache keys.
  *
  * @param {string} warehouseId
- * @param {{ includeInactive?: boolean }} [options]
+ * @param {{ includeInactive?: boolean, skipCache?: boolean }} [options] - skipCache: bypass both the in-memory and the DB response cache
  * @returns {Promise<object[]>}
  */
 async function fetchItemsRawForWarehouse(warehouseId, options = {}) {
   const wid = String(warehouseId || '').trim()
   if (!wid) return []
   const includeInactive = Boolean(options.includeInactive)
+  const skipCache = Boolean(options.skipCache)
   const cacheKey = includeInactive ? `${wid}:all` : wid
   const hit = _warehouseItemsCache.get(cacheKey)
-  if (hit && Date.now() < hit.expiresAt) return hit.items
-  const items = await listItemsForWarehouse(wid, { includeInactive })
+  if (!skipCache && hit && Date.now() < hit.expiresAt) return hit.items
+  const items = await listItemsForWarehouse(wid, { includeInactive, skipCache })
   if (ITEMS_CACHE_TTL_MS > 0) {
     _warehouseItemsCache.set(cacheKey, { items, expiresAt: Date.now() + ITEMS_CACHE_TTL_MS })
   }
