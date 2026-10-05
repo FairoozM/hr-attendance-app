@@ -99,6 +99,13 @@ describe('Control Tower daily sales rollup', () => {
     assert.equal(rows[0].netSalesExVat, 200)
   })
 
+  it('item-tax blank on every line (amazon.sa) → item_tax NULL, not 0; net still VAT-inclusive', () => {
+    const { rows } = rollupDailySales([line({ item_price: '925', item_tax: '' })], KSA)
+    assert.equal(rows[0].itemTax, null)
+    assert.equal(rows[0].grossItemSales, 925)
+    assert.equal(rows[0].netSalesExVat, 804.3478)
+  })
+
   it('promotions reduce net sales (sign-agnostic)', () => {
     const { rows } = rollupDailySales(
       [line({ item_price: '230', item_promotion_discount: '23' }), line({ amazon_order_id: '403-4', item_price: '115', item_promotion_discount: '-11.5' })],

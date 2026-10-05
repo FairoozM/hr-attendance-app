@@ -8,6 +8,10 @@
  * matching entry in `item.warehouses[]` / `item.locations[]`) win; organisation-level fields are
  * only used when no warehouse-scoped value exists, and the row is then tagged
  * stock_scope='organization'. A figure Zoho did not send is null.
+ *
+ * `GET /items?warehouse_id=…` returns the generic field names (`stock_on_hand`, `available_for_sale`)
+ * already filtered to that warehouse, so with `listFilteredByWarehouse` those count as warehouse-scoped.
+ * That list response carries no committed figure; committed_stock then stays null.
  */
 
 type WarehouseStockRow = {
@@ -79,10 +83,12 @@ const SCOPED_COMMITTED = [
   'location_actual_committed_stock',
 ]
 const ORG_ON_HAND = ['stock_on_hand']
-const ORG_AVAILABLE_FOR_SALE = ['available_for_sale_stock', 'actual_available_for_sale_stock']
+const ORG_AVAILABLE_FOR_SALE = ['available_for_sale_stock', 'available_for_sale', 'actual_available_for_sale_stock']
 const ORG_COMMITTED = ['committed_stock', 'actual_committed_stock']
 
-function parseWarehouseStockItem(raw: unknown, warehouseId: string | null): WarehouseStockRow | null {
+type ParseOptions = { listFilteredByWarehouse?: boolean }
+
+function parseWarehouseStockItem(raw: unknown, warehouseId: string | null, options: ParseOptions = {}): WarehouseStockRow | null {
   if (!raw || typeof raw !== 'object') return null
   const item = raw as Record<string, any>
   const zohoItemId = textOrNull(item.item_id ?? item.id)
@@ -104,7 +110,8 @@ function parseWarehouseStockItem(raw: unknown, warehouseId: string | null): Ware
       availableForSale: pick(item, ORG_AVAILABLE_FOR_SALE),
       committedStock: pick(item, ORG_COMMITTED),
     }
-    stockScope = figures.onHand != null || figures.availableForSale != null || figures.committedStock != null ? 'organization' : 'unknown'
+    const hasGeneric = figures.onHand != null || figures.availableForSale != null || figures.committedStock != null
+    stockScope = !hasGeneric ? 'unknown' : options.listFilteredByWarehouse && warehouseId ? 'warehouse' : 'organization'
   }
 
   return {

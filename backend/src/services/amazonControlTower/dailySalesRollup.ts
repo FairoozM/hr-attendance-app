@@ -9,7 +9,7 @@
  *
  * Money (from the flat-file order report):
  *   gross_item_sales = Σ item-price as reported
- *   item_tax         = Σ item-tax as reported (often blank on amazon.sa / amazon.ae)
+ *   item_tax         = Σ item-tax as reported (often blank on amazon.sa / amazon.ae → NULL)
  *   promotions       = Σ |item-promotion-discount|
  *   net_sales_ex_vat = Σ per line:
  *     - item-tax ≈ vatRate × (price − promotion)  → price is VAT-exclusive: price − promotion
@@ -164,7 +164,7 @@ function rollupDailySales(
     else vatInclusiveLines += 1
     acc._priced += 1
     acc.grossItemSales = (acc.grossItemSales ?? 0) + price
-    acc.itemTax = (acc.itemTax ?? 0) + (tax ?? 0)
+    if (tax != null) acc.itemTax = (acc.itemTax ?? 0) + tax
     acc.promotions = (acc.promotions ?? 0) + promotion
     acc.netSalesExVat = (acc.netSalesExVat ?? 0) + net
   }
@@ -176,7 +176,7 @@ function rollupDailySales(
     row.cancelledOrderCount = [..._cancelledOrders].filter((id) => !_orders.has(id)).length
     if (_priced > 0) {
       row.grossItemSales = round4(row.grossItemSales as number)
-      row.itemTax = round4(row.itemTax as number)
+      row.itemTax = row.itemTax == null ? null : round4(row.itemTax)
       row.promotions = round4(row.promotions as number)
       row.netSalesExVat = round4(row.netSalesExVat as number)
     }

@@ -67,6 +67,27 @@ describe('Control Tower warehouse stock parser', () => {
     assert.equal(r.stockScope, 'organization')
   })
 
+  it('warehouse-filtered items list (real Zoho shape): generic fields are warehouse-scoped, available_for_sale read', () => {
+    const listItem = {
+      item_id: '4265011000014299255',
+      sku: '729402100459',
+      name: 'Pan',
+      status: 'active',
+      stock_on_hand: 870,
+      available_for_sale: 870,
+      available_stock: 870,
+      actual_available_stock: 724,
+    }
+    const r = parseWarehouseStockItem(listItem, WH, { listFilteredByWarehouse: true })
+    assert.equal(r.onHand, 870)
+    assert.equal(r.availableForSale, 870)
+    assert.equal(r.committedStock, null, 'the list response has no committed figure')
+    assert.equal(r.stockScope, 'warehouse')
+    const unfiltered = parseWarehouseStockItem(listItem, WH)
+    assert.equal(unfiltered.availableForSale, 870)
+    assert.equal(unfiltered.stockScope, 'organization', 'without the warehouse filter it stays organisation-level')
+  })
+
   it('no stock fields at all → nulls with unknown scope; no item id → skipped', () => {
     const r = parseWarehouseStockItem({ item_id: '9005', name: 'No stock fields' }, WH)
     assert.equal(r.onHand, null)

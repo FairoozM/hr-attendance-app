@@ -245,6 +245,24 @@ describe('Control Tower job handlers', () => {
     assert.equal(out.metadata.autoMatch.AUTO_MATCHED, 1)
   })
 
+  it('warehouse_stock: generic fields from the warehouse-filtered list are warehouse-scoped', async () => {
+    const store = fakeStore()
+    const jobs = makeJobs(store, {
+      zoho: {
+        fetchItemsRawForWarehouse: async () => [
+          { item_id: 'z1', sku: '629', name: 'SKU-A', stock_on_hand: 870, available_for_sale: 870, actual_available_stock: 724 },
+        ],
+      },
+    })
+    const out = await jobs.handlers.warehouse_stock(ctxFor())
+    const row = store.calls.writeWarehouseSnapshot[0].rows[0]
+    assert.equal(row.onHand, 870)
+    assert.equal(row.availableForSale, 870)
+    assert.equal(row.committedStock, null)
+    assert.equal(row.stockScope, 'warehouse')
+    assert.equal(out.metadata.stockScope.warehouse, 1)
+  })
+
   it('sales_backfill: skips covered windows, never deletes, waits between report creations', async () => {
     const store = fakeStore()
     const synced: any[] = []

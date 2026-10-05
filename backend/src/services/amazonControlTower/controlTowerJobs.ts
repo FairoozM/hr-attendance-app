@@ -328,7 +328,7 @@ function createControlTowerJobs(deps: JobDeps) {
     const items = await deps.zoho.fetchItemsRawForWarehouse(warehouse.warehouseId)
     const byId = new Map<string, any>()
     for (const item of Array.isArray(items) ? items : []) {
-      const parsed = parseWarehouseStockItem(item, warehouse.warehouseId)
+      const parsed = parseWarehouseStockItem(item, warehouse.warehouseId, { listFilteredByWarehouse: true })
       if (parsed && !byId.has(parsed.zohoItemId)) byId.set(parsed.zohoItemId, parsed)
     }
     const rows = [...byId.values()]
