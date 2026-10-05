@@ -67,6 +67,14 @@ async function startServer() {
       console.error('[noon-payment-clearing] interrupted job cleanup failed (non-fatal):', err.message || err)
     }
 
+    try {
+      const { getControlTower } = require('./services/amazonControlTower/controlTowerService.ts')
+      const interrupted = await getControlTower().runner.recoverInterruptedRuns()
+      if (interrupted) console.log(`[control-tower] marked ${interrupted} interrupted refresh run(s)`)
+    } catch (err) {
+      console.error('[control-tower] interrupted run cleanup failed (non-fatal):', err.message || err)
+    }
+
     if (/^(1|true|yes)$/i.test(String(process.env.ZOHO_AUTO_SYNC_ON_START || ''))) {
       console.log('[zoho] ZOHO_AUTO_SYNC_ON_START=1 — background items refresh scheduled')
       setImmediate(() => {
@@ -162,6 +170,21 @@ async function startServer() {
         })
       }, MS_PER_DAY)
     })
+
+    try {
+      // No-op unless AMAZON_CONTROL_TOWER_SCHEDULER_ENABLED=1 (default 0).
+      const { getControlTower } = require('./services/amazonControlTower/controlTowerService.ts')
+      const { startControlTowerScheduler, createAdvisoryLock } = require('./services/amazonControlTower/refreshScheduler.ts')
+      const ct = getControlTower()
+      startControlTowerScheduler({
+        runner: ct.runner,
+        store: ct.refreshStore,
+        withLock: createAdvisoryLock(ct.db.pool),
+        getSettings: (mk) => ct.store.getSettings(mk),
+      })
+    } catch (err) {
+      console.error('[control-tower] scheduler setup failed (non-fatal):', err.message || err)
+    }
 
     const opt = getOptionalFlagDecision()
     if (opt.effective) {

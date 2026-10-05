@@ -676,7 +676,12 @@ function mapInventorySummary(row) {
     toNumber(row.reservedQuantity)
   const totalFromApi = toNumber(row?.totalQuantity, NaN)
   const fulfillable = toNumber(details.fulfillableQuantity, 0)
-  const unfulfillable = toNumber(details.unfulfillableQuantity)
+  // FBA Inventory API returns { totalUnfulfillableQuantity, ...breakdown }; older payloads a number.
+  const unfulfillableRaw = details.unfulfillableQuantity
+  const unfulfillable =
+    unfulfillableRaw && typeof unfulfillableRaw === 'object'
+      ? toNumber(unfulfillableRaw.totalUnfulfillableQuantity)
+      : toNumber(unfulfillableRaw)
   const onHand = Number.isFinite(totalFromApi)
     ? totalFromApi
     : fulfillable + inbound + reservedQty

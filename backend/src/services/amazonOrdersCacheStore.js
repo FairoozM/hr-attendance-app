@@ -585,9 +585,12 @@ function reportLineNumber(value) {
  * @param {{ start: Date, end: Date }} window purchase-date range the report covered
  * @param {object[]} lines parsed report lines
  * @param {string|null} reportId
+ * @param {{ removeMissing?: boolean }} [options] removeMissing=false keeps rows the report did not
+ *   return (historical backfill, where Amazon may hand back less than we already hold).
  * @returns {Promise<{ saved: number, removed: number }>}
  */
-async function replaceOrderReportLines(marketplaceKey, window, lines, reportId = null) {
+async function replaceOrderReportLines(marketplaceKey, window, lines, reportId = null, options = {}) {
+  const removeMissing = options.removeMissing !== false
   let saved = 0
   // Kept as two parallel arrays rather than one joined key: PostgreSQL `text` cannot hold a NUL byte,
   // so any separator-based key risks an "invalid byte sequence for encoding UTF8" on the delete.
@@ -653,6 +656,8 @@ async function replaceOrderReportLines(marketplaceKey, window, lines, reportId =
     seenOrderIds.push(orderId)
     seenItemIds.push(orderItemId)
   }
+
+  if (!removeMissing) return { saved, removed: 0 }
 
   const del = await query(
     `DELETE FROM amazon_order_report_lines t

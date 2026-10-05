@@ -144,6 +144,8 @@ import { AmazonZohoStockPage } from './pages/AmazonZohoStockPage'
 import { SkuChannelCoveragePage } from './pages/SkuChannelCoveragePage'
 import { AmazonOutOfStockClearancePage } from './pages/AmazonOutOfStockClearancePage'
 import { AmazonKsaRtoLabelingPage } from './pages/AmazonKsaRtoLabelingPage'
+import AmazonKsaCommandCenterPage from './pages/amazonKsa/AmazonKsaCommandCenterPage'
+import AmazonKsaSkuMappingPage from './pages/amazonKsa/AmazonKsaSkuMappingPage'
 import { AmazonKsaRtoAgentViewPage } from './pages/AmazonKsaRtoAgentViewPage'
 import { AmazonFlatFileBulkGenerator } from './pages/AmazonFlatFileBulkGenerator'
 import { AmazonReturnReportPage } from './pages/agent/AmazonReturnReportPage'
@@ -839,6 +841,23 @@ function AppContent() {
           path="amazon/ksa-rto-labeling"
           element={<AmazonKsaRtoLabelingPage />}
         />
+        <Route
+          path="amazon-ksa/command-center"
+          element={
+            <AdminOnly>
+              <AmazonKsaCommandCenterPage />
+            </AdminOnly>
+          }
+        />
+        <Route
+          path="amazon-ksa/settings/sku-mapping"
+          element={
+            <AdminOnly>
+              <AmazonKsaSkuMappingPage />
+            </AdminOnly>
+          }
+        />
+        <Route path="amazon-ksa" element={<Navigate to="/amazon-ksa/command-center" replace />} />
         <Route
           path="ai/amazon-listing"
           element={

@@ -401,6 +401,7 @@ export function Layout() {
   const isPricesActive = location.pathname.startsWith('/prices')
   const isReportsActive = location.pathname.startsWith('/reports')
   const isZohoActive = location.pathname.startsWith('/admin/zoho')
+  const isAmazonKsaActive = location.pathname.startsWith('/amazon-ksa')
   const isAmazonActive =
     location.pathname.startsWith('/ai/amazon') ||
     location.pathname.startsWith('/ai/listing-batches')
@@ -503,6 +504,8 @@ export function Layout() {
     if (location.pathname.startsWith('/taxation/ksa-vat')) return 'KSA VAT Tax'
     if (location.pathname.startsWith('/admin/zoho/bulk-quantity-adjustment')) return 'Bulk Quantity Adjustment'
     if (location.pathname.startsWith('/admin/zoho/bulk-invoice')) return 'Bulk Zoho Invoice'
+    if (location.pathname.startsWith('/amazon-ksa/command-center')) return 'Amazon KSA Command Center'
+    if (location.pathname.startsWith('/amazon-ksa/settings')) return 'Amazon KSA SKU Mapping'
     if (location.pathname.startsWith('/ai/amazon-zoho-stock')) return 'Amazon + Zoho Stock'
     if (location.pathname.startsWith('/ai/amazon-out-of-stock-clearance')) return 'Amazon Out of Stock Clearance'
     if (location.pathname.startsWith('/admin/ai-budget')) return 'AI Budget Settings'
@@ -558,6 +561,10 @@ export function Layout() {
   const zohoItems = [
     isAdmin && { label: 'Bulk Zoho Invoice', to: '/admin/zoho/bulk-invoice' },
     isAdmin && { label: 'Bulk Quantity Adjustment', to: '/admin/zoho/bulk-quantity-adjustment' },
+  ].filter(Boolean)
+  const amazonKsaItems = [
+    isAdmin && { label: 'Command Center', to: '/amazon-ksa/command-center' },
+    isAdmin && { label: 'Settings / SKU Mapping', to: '/amazon-ksa/settings/sku-mapping' },
   ].filter(Boolean)
   const listsItems = [
     can('sim_cards', 'view') && { label: 'Sim Cards List', to: '/lists/sim-cards' },
@@ -742,6 +749,7 @@ export function Layout() {
       prices: { title: 'Prices', items: withIcons(pricesItems) },
       reports: { title: 'Reports', items: withIcons(REPORTS_ITEMS) },
       zoho: { title: 'Zoho', items: withIcons(zohoItems) },
+      amazonKsa: { title: 'Amazon KSA', items: withIcons(amazonKsaItems) },
     }
     return sections[focusedSection] || null
   }, [
@@ -761,6 +769,7 @@ export function Layout() {
     pricesItems,
     REPORTS_ITEMS,
     zohoItems,
+    amazonKsaItems,
   ])
 
   // Flat list of every link shown in the sidebar (sidebar + topbar search). Keep in sync with nav groups above.
@@ -865,6 +874,14 @@ export function Layout() {
       group: 'Zoho',
       searchHint: 'bulk zoho invoice sku customer warehouse line items inventory bulk quantity adjustment stock',
     })),
+    ...amazonKsaItems.map(i => ({
+      ...i,
+      group: 'Amazon KSA',
+      searchHint:
+        i.to === '/amazon-ksa/command-center'
+          ? 'amazon ksa control tower command center sales sar fba inventory out of stock low stock freshness refresh'
+          : 'amazon ksa sku mapping zoho item pack multiplier carton settings low stock threshold backfill',
+    })),
     ...adminNavItems.map(i => ({
       ...i,
       group: 'Admin',
@@ -876,7 +893,7 @@ export function Layout() {
             : '',
     })),
     { label: 'My Account', to: '/account', group: 'Account' },
-  ], [hrItems, adminNavItems, listsItems, INFLUENCER_ITEMS, isAdmin, hasPlannerAccess, hasAiHubAccess, aiHubNavItems, hasAmazonAccess, amazonNavItems, managementItems, ISO_QMS_ALL_ITEMS, pricesItems, REPORTS_ITEMS, TAXATION_ITEMS, zohoItems])
+  ], [hrItems, adminNavItems, listsItems, INFLUENCER_ITEMS, isAdmin, hasPlannerAccess, hasAiHubAccess, aiHubNavItems, hasAmazonAccess, amazonNavItems, managementItems, ISO_QMS_ALL_ITEMS, pricesItems, REPORTS_ITEMS, TAXATION_ITEMS, zohoItems, amazonKsaItems])
 
   const showSidebarBackdrop = isSidebarOpen && navMode === 'full'
 
@@ -1177,6 +1194,27 @@ export function Layout() {
                           to={item.to}
                           className={subLinkClass(item, amazonNavItems)}
                           onClick={() => openFocusedSection('amazon')}
+                        >
+                          <span className="nav-group__link-dot" aria-hidden />
+                          {item.label}
+                        </NavLink>
+                      ))}
+                    </NavGroup>
+                  </>
+                )}
+
+                {amazonKsaItems.length > 0 && (
+                  <>
+                    <div className="app-sidebar__section-label" role="presentation">
+                      Amazon KSA
+                    </div>
+                    <NavGroup label="Amazon KSA" hint="Control Tower" isActive={isAmazonKsaActive}>
+                      {amazonKsaItems.map(item => (
+                        <NavLink
+                          key={item.to}
+                          to={item.to}
+                          className={subLinkClass(item, amazonKsaItems)}
+                          onClick={() => openFocusedSection('amazonKsa')}
                         >
                           <span className="nav-group__link-dot" aria-hidden />
                           {item.label}

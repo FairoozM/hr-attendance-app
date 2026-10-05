@@ -188,8 +188,8 @@ async function findReusableReport(marketplaceKey, dataStartTime, dataEndTime) {
   return null
 }
 
-async function waitForReport(marketplaceKey, reportId) {
-  const deadline = Date.now() + REPORT_TIMEOUT_MS
+async function waitForReport(marketplaceKey, reportId, timeoutMs = REPORT_TIMEOUT_MS) {
+  const deadline = Date.now() + timeoutMs
   let polls = 0
   while (Date.now() < deadline) {
     await sleep(REPORT_POLL_INTERVAL_MS)
@@ -207,7 +207,7 @@ async function waitForReport(marketplaceKey, reportId) {
     }
   }
   const err = new Error(
-    `Amazon order report ${reportId} did not finish within ${Math.round(REPORT_TIMEOUT_MS / 1000)}s`,
+    `Amazon order report ${reportId} did not finish within ${Math.round(timeoutMs / 1000)}s`,
   )
   err.code = 'AMAZON_ORDER_REPORT_TIMEOUT'
   throw err
@@ -232,9 +232,19 @@ async function downloadReport(marketplaceKey, reportDocumentId) {
  * The sync is logged in `amazon_sync_log` under `orders_report`, so the report can tell a day with
  * genuinely no report money from a day the report was never asked about.
  *
- * @param {{ marketplaceKey: 'uae'|'ksa', dataStartTime: Date, dataEndTime: Date }} params
+ * `preserveExisting` keeps cached lines the report did not return (historical backfill: an old window
+ * Amazon answers with less data must never erase what we already hold). `reportTimeoutMs` lets
+ * wide backfill windows wait longer than a same-day refresh.
+ *
+ * @param {{ marketplaceKey: 'uae'|'ksa', dataStartTime: Date, dataEndTime: Date, preserveExisting?: boolean, reportTimeoutMs?: number }} params
  */
-async function syncAmazonOrderReport({ marketplaceKey, dataStartTime, dataEndTime } = {}) {
+async function syncAmazonOrderReport({
+  marketplaceKey,
+  dataStartTime,
+  dataEndTime,
+  preserveExisting = false,
+  reportTimeoutMs = REPORT_TIMEOUT_MS,
+} = {}) {
   const mk = String(marketplaceKey || 'uae').toLowerCase() === 'ksa' ? 'ksa' : 'uae'
   const start = dataStartTime instanceof Date ? dataStartTime : new Date(dataStartTime)
   const end = dataEndTime instanceof Date ? dataEndTime : new Date(dataEndTime)
@@ -277,7 +287,7 @@ async function syncAmazonOrderReport({ marketplaceKey, dataStartTime, dataEndTim
         err.code = 'AMAZON_ORDER_REPORT_NO_ID'
         throw err
       }
-      const finished = await waitForReport(mk, reportId)
+      const finished = await waitForReport(mk, reportId, reportTimeoutMs)
       reportDocumentId = finished.reportDocumentId
       polls = finished.polls
     }
@@ -291,6 +301,7 @@ async function syncAmazonOrderReport({ marketplaceKey, dataStartTime, dataEndTim
       { start, end },
       lines,
       reportId,
+      { removeMissing: !preserveExisting },
     )
 
     const uniqueOrders = new Set(lines.map((l) => l.amazonOrderId)).size

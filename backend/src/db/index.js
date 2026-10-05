@@ -1236,6 +1236,12 @@ async function testConnection() {
     console.error('[db] ensurePosSettlementTables skipped/failed (non-fatal):', e.message || e)
   }
   try {
+    const { ensureAmazonControlTowerTables } = require('../services/amazonControlTower/controlTowerSchema.ts')
+    await ensureAmazonControlTowerTables(query)
+  } catch (e) {
+    console.error('[db] ensureAmazonControlTowerTables skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
     const { ensureZohoAccountWatchlistTable } = require('../services/zohoAccountWatchlistStore')
     await ensureZohoAccountWatchlistTable()
   } catch (e) {

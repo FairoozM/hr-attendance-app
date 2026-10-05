@@ -64,4 +64,10 @@ router.use('/out-of-stock-clearance', amazonOutOfStockClearanceRoutes)
 router.use('/payment-clearing', amazonPaymentClearingRoutes)
 router.use('/ksa-rto-labeling', amazonKsaRtoLabelingRoutes)
 
+try {
+  router.use('/control-tower', require('./amazonControlTower.routes.ts'))
+} catch (err) {
+  console.error('[routes] /api/amazon/control-tower not mounted:', err.message || err)
+}
+
 module.exports = router
