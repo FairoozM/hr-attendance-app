@@ -237,7 +237,15 @@ test('command center + freshness read the stored data', { skip }, async () => {
   await runner.drain()
   assert.equal((await runnerStore.getRun(started.runIds[0])).status, 'succeeded')
 
+  const before = await service.getCommandCenter('ksa')
+  assert.equal(before.listingStatus.operationalBasis, 'LISTING_STATUS_NOT_REFRESHED')
+  assert.equal(before.kpis.activeSkus, null, 'no listing status yet: the active universe is unknown, not guessed')
+  assert.equal(before.kpis.fbaFulfillableUnits, null)
+  assert.equal(before.tables.outOfStock.total, 0)
+  await pool.query(`UPDATE amazon_sku_master SET amazon_listing_status = CASE WHEN seller_sku IN ('SKU-A', 'SKU-B') THEN 'ACTIVE' ELSE 'INACTIVE' END WHERE marketplace_key = 'ksa'`)
+
   const cc = await service.getCommandCenter('ksa')
+  assert.equal(cc.listingStatus.operationalBasis, 'AMAZON_LISTING_STATUS_ACTIVE')
   assert.equal(cc.currency, 'SAR')
   assert.equal(cc.today, '2026-10-05')
   assert.equal(cc.kpis.todaySales, 100)

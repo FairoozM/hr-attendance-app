@@ -58,19 +58,6 @@ const HEALTH_FILTERS: { value: HealthFilter; label: string }[] = [
 
 const HEALTH_STATUSES: HealthStatus[] = ['ZERO_SALES', 'AGED', 'EXCESS', 'OUT_ZERO_FBA', 'SLOW', 'WATCH', 'DATA_INCOMPLETE', 'HEALTHY']
 
-const AGE_LABEL: Record<string, string> = {
-  inv_age_0_to_30_days: '0–30 d',
-  inv_age_31_to_60_days: '31–60 d',
-  inv_age_61_to_90_days: '61–90 d',
-  inv_age_0_to_90_days: '0–90 d',
-  inv_age_91_to_180_days: '91–180 d',
-  inv_age_181_to_270_days: '181–270 d',
-  inv_age_181_to_330_days: '181–330 d',
-  inv_age_271_to_365_days: '271–365 d',
-  inv_age_331_to_365_days: '331–365 d',
-  inv_age_365_plus_days: '365+ d',
-}
-
 const REASON_LABEL: Record<string, string> = {
   INACTIVE_LISTING_WITH_AMAZON_STOCK: 'INACTIVE LISTING WITH AMAZON STOCK',
   UNFULFILLABLE: 'UNFULFILLABLE',
@@ -122,8 +109,7 @@ function FilterButtons<T extends string>({ options, value, onChange, counts }: {
 
 function ageText(r: HealthRow): string {
   if (!r.oldestAgeBucket) return r.physicalFbaUnits > 0 ? 'Unknown' : DASH
-  const label = AGE_LABEL[r.oldestAgeBucket] || r.oldestAgeBucket
-  return r.agedUnits ? `${label} · ${fmtInt(r.agedUnits)} aged` : label
+  return r.agedUnits ? `${r.oldestAgeBucket} · ${fmtInt(r.agedUnits)} aged` : r.oldestAgeBucket
 }
 
 function capacityText(r: HealthRow): string {
@@ -301,7 +287,11 @@ function InactiveTab({ refreshKey }: { refreshKey: number }) {
                   <th className="text-right">Reserved</th>
                   <th className="text-right">Unfulfillable</th>
                   <th className="text-right">Inbound</th>
-                  <th className="text-right">Capacity Used</th>
+                  <th>Inventory Age</th>
+                  <th>Last Sale</th>
+                  <th className="text-right">30D Sales</th>
+                  <th className="text-right">90D Sales</th>
+                  <th className="text-right">Potential Capacity Used</th>
                   <th>Mapping</th>
                   <th>Recommended Action</th>
                 </tr>
@@ -322,7 +312,11 @@ function InactiveTab({ refreshKey }: { refreshKey: number }) {
                     <td className="text-right">{fmtInt(r.reserved)}</td>
                     <td className="text-right">{fmtInt(r.unfulfillable)}</td>
                     <td className="text-right">{fmtInt(r.inbound)}</td>
-                    <td className="text-right text-xs">{capacityText(r)}</td>
+                    <td className="text-xs" title={r.ageSnapshotDate ? `Amazon age snapshot ${r.ageSnapshotDate}` : undefined}>{ageText(r)}</td>
+                    <td>{r.lastSaleDate ? fmtDate(r.lastSaleDate) : DASH}</td>
+                    <td className="text-right" title={r.sales30Source ? SALES_SOURCE_LABEL[r.sales30Source] : 'Unknown'}>{fmtInt(r.units30d)}</td>
+                    <td className="text-right" title={r.sales90Source ? SALES_SOURCE_LABEL[r.sales90Source] : 'Unknown — insufficient history'}>{fmtInt(r.units90d)}</td>
+                    <td className="text-right text-xs" title={r.volumeSource ? `Volume source: ${humanize(r.volumeSource)}` : undefined}>{capacityText(r)}</td>
                     <td><MappingIndicatorBadge indicator={r.mappingIndicator} /></td>
                     <td className="max-w-xs text-xs">{r.recommendedAction}</td>
                   </tr>

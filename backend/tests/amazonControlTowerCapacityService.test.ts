@@ -146,6 +146,7 @@ describe('active Amazon KSA inventory only', () => {
     assert.equal(s.activeFbaSkus, 1)
     assert.equal(s.activeMfnSkus, 1)
     assert.equal(s.activeFbaFulfillable, 50, 'INA/SUP/UNK fulfillable units are not operational stock')
+    assert.equal(s.activeAmazonStockUnits, 50 + 5 + 10, 'ACTIVE AMAZON KSA STOCK = physical + inbound of ACTIVE listings only')
     assert.equal(s.activeFbaReserved, 5)
     assert.equal(s.activeFbaInbound, 10)
     assert.equal(s.activeFbaUnfulfillable, 0)
@@ -162,6 +163,7 @@ describe('active Amazon KSA inventory only', () => {
     assert.equal(s.listingStatusRefreshed, false)
     assert.equal(s.activeSkus, null)
     assert.equal(s.activeFbaFulfillable, null)
+    assert.equal(s.activeAmazonStockUnits, null)
     assert.equal((await service.getInventoryHealth('ksa')).rows.length, 0, 'not-refreshed is not ACTIVE')
   })
 
@@ -265,18 +267,21 @@ describe('Command Center operational KPIs', () => {
       row({ id: 2, sellerSku: 'I', amazonListingStatus: 'INACTIVE', active: false, fbaFulfillable: 0, unfulfillable: 2 }),
       row({ id: 3, sellerSku: 'S', amazonListingStatus: 'SUPPRESSED', fbaFulfillable: 27 }),
       row({ id: 4, sellerSku: 'L', fbaFulfillable: 3 }),
+      row({ id: 5, sellerSku: 'U', amazonListingStatus: 'UNKNOWN', fbaFulfillable: 11, reserved: 4 }),
     ]
     const svc = createControlTowerService({
       store: ccStore(rows),
       refreshStore,
       now: () => NOW,
-      activeInventory: async () => ({ listingStatusRefreshedAt: '2026-10-05T08:00:00.000Z', statusCounts: { ACTIVE: 2 }, inactiveSkusWithFbaStock: 2, unitsInInactiveSkus: 29, estimatedCapacityWastedByInactive: { volumeCm3: 1000 } }),
+      activeInventory: async () => ({ listingStatusRefreshedAt: '2026-10-05T08:00:00.000Z', statusCounts: { ACTIVE: 2 }, activeAmazonStockUnits: 68, inactiveSkusWithFbaStock: 2, unitsInInactiveSkus: 29, estimatedCapacityWastedByInactive: { volumeCm3: 1000 } }),
     })
     const cc = await svc.getCommandCenter('ksa')
     assert.equal(cc.listingStatus.operationalBasis, 'AMAZON_LISTING_STATUS_ACTIVE')
     assert.equal(cc.kpis.activeSkus, 2)
     assert.equal(cc.kpis.activeFbaSkus, 2)
-    assert.equal(cc.kpis.fbaFulfillableUnits, 53, 'suppressed 27 units are not operational stock')
+    assert.equal(cc.kpis.activeAmazonStockUnits, 68, 'headline ACTIVE AMAZON KSA STOCK')
+    assert.equal(cc.kpis.fbaFulfillableUnits, 53, 'suppressed 27 and unknown 11 units are not operational stock')
+    assert.equal(cc.kpis.reservedUnits, 5, 'unknown reserved units excluded')
     assert.equal(cc.kpis.unfulfillableUnits, 0)
     assert.equal(cc.physicalAllListings.fulfillable, 77, 'combined total is reported separately, not as the primary figure')
     assert.equal(cc.kpis.inactiveSkusWithFbaStock, 2)
@@ -286,13 +291,18 @@ describe('Command Center operational KPIs', () => {
     assert.equal(cc.tables.lowStock.rows[0].listingStatus, 'ACTIVE')
   })
 
-  it('before the first listing-status refresh the open-listings basis is labelled', async () => {
-    const svc = createControlTowerService({ store: ccStore([row({ amazonListingStatus: null, fbaFulfillable: 4 })]), refreshStore, now: () => NOW })
+  it('before the first listing-status refresh nothing is treated as active (no open-listings guess)', async () => {
+    const svc = createControlTowerService({ store: ccStore([row({ amazonListingStatus: null, active: true, fbaFulfillable: 4 }), row({ id: 2, sellerSku: 'Z', amazonListingStatus: null, active: true, fbaFulfillable: 0 })]), refreshStore, now: () => NOW })
     const cc = await svc.getCommandCenter('ksa')
     assert.equal(cc.listingStatus.known, false)
-    assert.equal(cc.listingStatus.operationalBasis, 'OPEN_LISTINGS_REPORT')
-    assert.equal(cc.kpis.activeFbaSkus, null)
+    assert.equal(cc.listingStatus.operationalBasis, 'LISTING_STATUS_NOT_REFRESHED')
+    for (const k of ['activeSkus', 'activeFbaSkus', 'activeMfnSkus', 'activeAmazonStockUnits', 'fbaFulfillableUnits', 'inboundUnits', 'reservedUnits', 'unfulfillableUnits', 'outOfStockSkus', 'lowStockSkus', 'unmappedSkus']) {
+      assert.equal(cc.kpis[k], null, `${k} must be unknown, not guessed`)
+    }
+    assert.equal(cc.tables.outOfStock.total, 0)
+    assert.equal(cc.tables.lowStock.total, 0)
     assert.equal(cc.kpis.inactiveSkusWithFbaStock, null)
+    assert.equal(cc.physicalAllListings.fulfillable, 77, 'physical totals stay available for capacity')
   })
 })
 

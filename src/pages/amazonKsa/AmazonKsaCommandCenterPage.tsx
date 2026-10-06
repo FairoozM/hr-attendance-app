@@ -92,7 +92,7 @@ export default function AmazonKsaCommandCenterPage() {
   const lowStockTitle = fbaUnverified ? 'Low FBA Fulfillable' : 'Low Stock'
   const salesLabel = (base: string) => `${base} (${cur})${data?.salesProvisional ? ' · provisional' : ''}`
   const statusKnown = data?.listingStatus?.known === true
-  const activeBasisHint = statusKnown ? 'Amazon listing status ACTIVE' : 'Open-listings report (status not refreshed)'
+  const activeBasisHint = statusKnown ? 'Amazon listing status ACTIVE' : 'Needs listing status refresh'
 
   return (
     <div className="ainv-page mx-auto flex max-w-[120rem] flex-col gap-6 px-4 pb-16 pt-4 md:px-6">
@@ -131,6 +131,43 @@ export default function AmazonKsaCommandCenterPage() {
               Stock source: {data.inventorySource.source}. {data.inventorySource.caveat}
             </div>
           ) : null}
+          {!statusKnown ? (
+            <div className="ainv-banner ainv-banner--amber" role="note">
+              Amazon listing status has not been refreshed yet, so active stock is unknown and no SKU is treated as active. Run
+              Refresh Capacity &amp; Health (Capacity page) or Refresh listing status (Settings).
+            </div>
+          ) : null}
+
+          <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-label="Active Amazon KSA stock and inactive listing warnings">
+            <Kpi
+              label="Active Amazon KSA Stock"
+              value={fmtInt(k.activeAmazonStockUnits)}
+              hint="Units at or inbound to Amazon for ACTIVE listings only (fulfillable + reserved + researching + unfulfillable + inbound)"
+            />
+            <Kpi
+              label="Inactive SKUs with FBA Stock"
+              value={fmtInt(k.inactiveSkusWithFbaStock)}
+              tone={k.inactiveSkusWithFbaStock ? 'warn' : undefined}
+              hint={statusKnown ? 'Not ACTIVE on Amazon but holding FBA units' : 'Needs listing status refresh'}
+            />
+            <Kpi
+              label="Units in Inactive SKUs"
+              value={fmtInt(k.unitsInInactiveSkus)}
+              tone={k.unitsInInactiveSkus ? 'warn' : undefined}
+              hint="Same unit definition — excluded from every active figure"
+            />
+            <Kpi
+              label="Estimated Capacity Wasted by Inactive Stock"
+              value={k.estimatedCapacityWastedByInactive ? fmtVolume(k.estimatedCapacityWastedByInactive.volumeCm3) : DASH}
+              tone={k.estimatedCapacityWastedByInactive?.volumeCm3 ? 'warn' : undefined}
+              hint={k.estimatedCapacityWastedByInactive ? `Volume coverage ${fmtPct(k.estimatedCapacityWastedByInactive.coveragePct)}` : undefined}
+              meta={
+                k.estimatedCapacityWastedByInactive ? (
+                  <SourceMeta source={k.estimatedCapacityWastedByInactive.source} asOf={k.estimatedCapacityWastedByInactive.asOf} confidence={k.estimatedCapacityWastedByInactive.confidence} />
+                ) : null
+              }
+            />
+          </section>
 
           <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
             <Kpi label={salesLabel('Today Sales')} value={fmtMoney(k.todaySales, cur)} hint={salesHint || `Riyadh date ${data.today}`} />
@@ -162,35 +199,10 @@ export default function AmazonKsaCommandCenterPage() {
             <Kpi label="Unmapped SKUs" value={fmtInt(k.unmappedSkus)} hint="Unmapped or review required" />
           </section>
 
-          <section className="grid gap-3 sm:grid-cols-3" aria-label="Inactive listing warnings">
-            <Kpi
-              label="Inactive SKUs with FBA Stock"
-              value={fmtInt(k.inactiveSkusWithFbaStock)}
-              tone={k.inactiveSkusWithFbaStock ? 'warn' : undefined}
-              hint={statusKnown ? 'Not ACTIVE on Amazon but holding FBA units' : 'Needs listing status refresh'}
-            />
-            <Kpi
-              label="Units in Inactive SKUs"
-              value={fmtInt(k.unitsInInactiveSkus)}
-              tone={k.unitsInInactiveSkus ? 'warn' : undefined}
-              hint="Excluded from the active KPIs above"
-            />
-            <Kpi
-              label="Estimated Capacity Wasted by Inactive Stock"
-              value={k.estimatedCapacityWastedByInactive ? fmtVolume(k.estimatedCapacityWastedByInactive.volumeCm3) : DASH}
-              tone={k.estimatedCapacityWastedByInactive?.volumeCm3 ? 'warn' : undefined}
-              hint={k.estimatedCapacityWastedByInactive ? `Volume coverage ${fmtPct(k.estimatedCapacityWastedByInactive.coveragePct)}` : undefined}
-              meta={
-                k.estimatedCapacityWastedByInactive ? (
-                  <SourceMeta source={k.estimatedCapacityWastedByInactive.source} asOf={k.estimatedCapacityWastedByInactive.asOf} confidence={k.estimatedCapacityWastedByInactive.confidence} />
-                ) : null
-              }
-            />
-          </section>
           <p className="text-xs" style={{ color: 'var(--text-dim)' }}>
             {statusKnown
               ? `Operational KPIs count ACTIVE Amazon listings only (listing status refreshed ${fmtDateTime(data.listingStatus?.refreshedAt)}). UNKNOWN is never treated as active.`
-              : 'Listing status has not been refreshed yet: active counts use the open-listings report until Refresh Capacity & Health runs.'}{' '}
+              : 'Listing status has not been refreshed yet: active KPIs and tables stay empty until it runs.'}{' '}
             {data.physicalAllListings
               ? `All listings, physical at Amazon (capacity view): ${fmtInt(data.physicalAllListings.fulfillable)} fulfillable · ${fmtInt(data.physicalAllListings.reserved)} reserved · ${fmtInt(data.physicalAllListings.unfulfillable)} unfulfillable · ${fmtInt(data.physicalAllListings.inbound)} inbound.`
               : ''}{' '}

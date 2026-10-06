@@ -127,7 +127,9 @@ describe('Amazon KSA Command Center', () => {
     expect(screen.getByText('SAR 300.00')).toBeTruthy()
 
     // Unverified fulfillment model: never a confident "Out of Stock" label.
-    expect(screen.getByRole('note').textContent).toMatch(/Seller Flex/)
+    const notes = screen.getAllByRole('note').map((n) => n.textContent)
+    expect(notes.some((t) => /Seller Flex/.test(t || ''))).toBe(true)
+    expect(notes.some((t) => /active stock is unknown/.test(t || ''))).toBe(true)
     expect(screen.getByText('Zero FBA Fulfillable (unverified)')).toBeTruthy()
     expect(screen.queryByText('Out of Stock')).toBeNull()
     expect(screen.queryByText('Out-of-Stock SKUs')).toBeNull()
@@ -185,6 +187,7 @@ describe('Amazon KSA Command Center', () => {
             activeSkus: 18,
             activeFbaSkus: 18,
             activeMfnSkus: 0,
+            activeAmazonStockUnits: 140,
             fbaFulfillableUnits: 120,
             inactiveSkusWithFbaStock: 3,
             unitsInInactiveSkus: 45,
@@ -204,6 +207,8 @@ describe('Amazon KSA Command Center', () => {
     render(<MemoryRouter><AmazonKsaCommandCenterPage /></MemoryRouter>)
     const card = (label: string) => screen.getByText(label, { selector: '.ainv-summary-card__label' }).closest('.ainv-summary-card') as HTMLElement
     await screen.findByText('Active KSA SKUs')
+    expect(within(card('Active Amazon KSA Stock')).getByText('140')).toBeTruthy()
+    expect(screen.queryByText(/active stock is unknown/)).toBeNull()
     expect(within(card('Active KSA SKUs')).getByText('18')).toBeTruthy()
     expect(within(card('Active FBA Fulfillable')).getByText('120')).toBeTruthy()
     expect(within(card('Inactive SKUs with FBA Stock')).getByText('3')).toBeTruthy()
@@ -215,6 +220,28 @@ describe('Amazon KSA Command Center', () => {
     expect(screen.getByText(/All listings, physical at Amazon \(capacity view\): 500 fulfillable/)).toBeTruthy()
     const oosRow = screen.getByText('LIFEP17-OOS').closest('tr') as HTMLElement
     expect(within(oosRow).getByText('ACTIVE')).toBeTruthy()
+  })
+
+  it('before the first listing-status refresh shows active stock as unknown instead of guessing', async () => {
+    const cc = commandCenter()
+    get.mockImplementation(async (path: string) => {
+      if (path === `${BASE}/command-center`) {
+        return {
+          ...cc,
+          kpis: { ...cc.kpis, activeSkus: null, activeAmazonStockUnits: null, outOfStockSkus: null, inactiveSkusWithFbaStock: null, unitsInInactiveSkus: null },
+          listingStatus: { known: false, operationalBasis: 'LISTING_STATUS_NOT_REFRESHED', refreshedAt: null, statusCounts: null, source: 'x', error: null },
+          tables: { ...cc.tables, outOfStock: { total: 0, rows: [] } },
+        }
+      }
+      if (path.startsWith(`${BASE}/runs`)) return { runs: [] }
+      throw new Error(`unexpected GET ${path}`)
+    })
+    render(<MemoryRouter><AmazonKsaCommandCenterPage /></MemoryRouter>)
+    const card = (label: string) => screen.getByText(label, { selector: '.ainv-summary-card__label' }).closest('.ainv-summary-card') as HTMLElement
+    await screen.findByText(/active stock is unknown and no SKU is treated as active/)
+    expect(within(card('Active Amazon KSA Stock')).getByText('—')).toBeTruthy()
+    expect(within(card('Active KSA SKUs')).getByText('—')).toBeTruthy()
+    expect(within(card('Active KSA SKUs')).getByText('Needs listing status refresh')).toBeTruthy()
   })
 
   it('picks up a refresh that is already running when the page opens', async () => {
@@ -412,6 +439,13 @@ describe('Amazon KSA Capacity', () => {
     expect(screen.getByText(/volume = unit volume/)).toBeTruthy()
     const planning = screen.getByText('Amazon planning storage volume').closest('.ainv-summary-card') as HTMLElement
     expect(within(planning).getByText(/Amazon report/)).toBeTruthy()
+    const capCard = (label: string) => screen.getByText(label, { selector: '.ainv-summary-card__label' }).closest('.ainv-summary-card') as HTMLElement
+    expect(screen.getByText('Physical Capacity Used (calculated)')).toBeTruthy()
+    expect(within(capCard('Physical capacity used — total')).getByText(/needs an ALL-storage limit/)).toBeTruthy()
+    expect(within(capCard('Active listings')).getByText(/50 units · 62\.5% of physical volume/)).toBeTruthy()
+    expect(within(capCard('Inactive listings')).getByText(/40 units · 27\.5% of physical volume/)).toBeTruthy()
+    expect(within(capCard('Unfulfillable')).getByText(/10 units · 10\.0% of physical volume/)).toBeTruthy()
+    expect(within(capCard('Other / status unknown')).getByText(/0 units/)).toBeTruthy()
 
     fireEvent.change(screen.getByLabelText('Period start'), { target: { value: '2026-10-01' } })
     fireEvent.change(screen.getByLabelText('Period end'), { target: { value: '2026-12-31' } })
@@ -470,6 +504,10 @@ describe('Amazon KSA Capacity', () => {
     expect(within(used).getByText('Calculated estimate: ≥ 28.25 ft³')).toBeTruthy()
     expect(within(used).getByText('ESTIMATE')).toBeTruthy()
     expect(within(used).getByText(/Seller Central \(manual entry\)/)).toBeTruthy()
+    const capCard = (label: string) => screen.getByText(label, { selector: '.ainv-summary-card__label' }).closest('.ainv-summary-card') as HTMLElement
+    expect(within(capCard('Physical capacity used — total')).getByText(/28\.3% of official limit/)).toBeTruthy()
+    expect(within(capCard('Active listings')).getByText(/17\.7% of official limit/)).toBeTruthy()
+    expect(within(capCard('Inactive listings')).getByText(/7\.8% of official limit/)).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: 'Revise' }))
     await screen.findByText('Revise capacity period #5')
@@ -505,7 +543,7 @@ function healthRow(overrides: Record<string, unknown> = {}) {
     velocity7d: 0.29,
     velocity30d: 0.3,
     daysOfCover: 33,
-    oldestAgeBucket: 'inv_age_0_to_90_days',
+    oldestAgeBucket: '0–30 days',
     agedUnits: 0,
     ageSnapshotDate: '2026-10-03',
     lastSaleDate: '2026-10-04',
@@ -549,7 +587,7 @@ function healthResponse(filter: string, rows: unknown[]) {
 }
 
 describe('Amazon KSA Inventory Health', () => {
-  const inactiveRow = healthRow({ id: 2, sellerSku: 'INACT-1', title: 'Inactive pan', listingStatus: 'INACTIVE', listingStatusRaw: 'Inactive', healthStatus: 'ZERO_SALES', recommendedAction: 'Listing is not ACTIVE but holds FBA stock — fix the listing or remove the stock (Seller Central)', replenishment: { eligible: false, reason: 'Amazon listing is INACTIVE' } })
+  const inactiveRow = healthRow({ id: 2, sellerSku: 'INACT-1', title: 'Inactive pan', listingStatus: 'INACTIVE', listingStatusRaw: 'Inactive', healthStatus: 'ZERO_SALES', oldestAgeBucket: '181–270 days', agedUnits: 6, lastSaleDate: '2026-04-02', units30d: 0, units90d: 0, recommendedAction: 'Listing is not ACTIVE but holds FBA stock — fix the listing or remove the stock (Seller Central)', replenishment: { eligible: false, reason: 'Amazon listing is INACTIVE' } })
 
   function mockHealthReads() {
     get.mockImplementation(async (path: string) => {
@@ -614,6 +652,12 @@ describe('Amazon KSA Inventory Health', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Inactive with FBA Stock' }))
     await screen.findByText(/High-priority removal candidates/)
     expect(screen.getByText('INACT-1')).toBeTruthy()
+    for (const header of ['SKU', 'ASIN', 'Product', 'Listing status', 'Fulfillable', 'Reserved', 'Inbound', 'Unfulfillable', 'Inventory Age', 'Last Sale', '30D Sales', '90D Sales', 'Potential Capacity Used']) {
+      expect(screen.getByRole('columnheader', { name: header })).toBeTruthy()
+    }
+    const inactiveTr = screen.getByText('INACT-1').closest('tr') as HTMLElement
+    expect(within(inactiveTr).getByText('181–270 days · 6 aged')).toBeTruthy()
+    expect(within(inactiveTr).getByText('2026-04-02')).toBeTruthy()
 
     fireEvent.click(screen.getByRole('tab', { name: 'Removal Orders' }))
     await screen.findByText('RMV-1')

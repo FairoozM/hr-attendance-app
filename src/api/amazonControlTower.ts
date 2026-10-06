@@ -149,16 +149,17 @@ export interface CommandCenterResponse {
     last7DaysSales: number | null
     last30DaysSales: number | null
     unitsSold30d: number | null
-    activeSkus: number
+    activeSkus: number | null
     activeFbaSkus: number | null
     activeMfnSkus: number | null
+    activeAmazonStockUnits: number | null
     fbaFulfillableUnits: number | null
     inboundUnits: number | null
     reservedUnits: number | null
     unfulfillableUnits: number | null
     outOfStockSkus: number | null
     lowStockSkus: number | null
-    unmappedSkus: number
+    unmappedSkus: number | null
     activeSkusWithoutFbaData: number | null
     inactiveSkusWithFbaStock: number | null
     unitsInInactiveSkus: number | null
@@ -172,7 +173,7 @@ export interface CommandCenterResponse {
   }
   listingStatus: {
     known: boolean
-    operationalBasis: 'AMAZON_LISTING_STATUS_ACTIVE' | 'OPEN_LISTINGS_REPORT'
+    operationalBasis: 'AMAZON_LISTING_STATUS_ACTIVE' | 'LISTING_STATUS_NOT_REFRESHED'
     refreshedAt: string | null
     statusCounts: Record<string, number> | null
     source: string

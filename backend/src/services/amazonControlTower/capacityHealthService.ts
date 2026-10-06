@@ -588,6 +588,7 @@ function createCapacityHealthService({ store, chStore, now = () => new Date() }:
       activeSkus: refreshed ? active.length : null,
       activeFbaSkus: refreshed ? active.filter((s: any) => s.fulfillmentChannel === 'AMAZON').length : null,
       activeMfnSkus: refreshed ? active.filter((s: any) => s.fulfillmentChannel === 'DEFAULT').length : null,
+      activeAmazonStockUnits: total(active, (s) => physicalFbaUnits(s) + (Number(s.inbound) || 0)),
       activeFbaFulfillable: total(active, (s) => s.fulfillable),
       activeFbaInbound: total(active, (s) => s.inbound),
       activeFbaReserved: total(active, (s) => s.reserved),

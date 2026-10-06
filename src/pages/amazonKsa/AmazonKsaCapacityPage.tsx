@@ -33,6 +33,7 @@ import {
   fmtPct,
   fmtVolume,
   humanize,
+  CM3_PER_CUBIC_FOOT,
   CM3_PER_CUBIC_METER,
 } from './controlTowerUi'
 import '../../styles/amazonInventoryPage.css'
@@ -70,6 +71,51 @@ function amount(value: number | null | undefined, unit: CapacityUnit | null, lab
   if (value == null) return DASH
   const digits = unit === 'UNITS' ? 0 : 2
   return `${fmtNum(value, digits)} ${unitText(unit, label)}`.trim()
+}
+
+const CM3_PER_UNIT: Partial<Record<CapacityUnit, number>> = { CUBIC_FEET: CM3_PER_CUBIC_FOOT, CUBIC_METERS: CM3_PER_CUBIC_METER }
+const PHYSICAL_CLASSES = [
+  { key: 'ACTIVE', label: 'Active listings' },
+  { key: 'INACTIVE', label: 'Inactive listings' },
+  { key: 'UNFULFILLABLE', label: 'Unfulfillable' },
+  { key: 'OTHER_UNKNOWN', label: 'Other / status unknown' },
+] as const
+
+function PhysicalCapacityUsed({ usage, kpis }: { usage: CapacityResponse['usage']; kpis: CapacityKpi[] }) {
+  const period = kpis.find((k) => k.storageType === 'ALL')?.period ?? null
+  const perUnit = period?.capacityUnit ? CM3_PER_UNIT[period.capacityUnit] : undefined
+  const limitCm3 = period?.capacityLimit != null && perUnit ? period.capacityLimit * perUnit : null
+  const total = usage.onHand.volumeCm3
+  const volumeText = (t: UsageTally) => (t.unitsWithVolume > 0 ? `${t.isLowerBound ? '≥ ' : ''}${fmtVolume(t.volumeCm3)}` : t.units ? 'VOLUME DATA MISSING' : DASH)
+  const ofLimit = (cm3: number) => (limitCm3 ? ` · ${fmtPct((cm3 / limitCm3) * 100)} of official limit` : '')
+  return (
+    <section className="flex flex-col gap-3" aria-label="Physical capacity used">
+      <SectionHeader
+        title="Physical Capacity Used (calculated)"
+        note="All units physically at Amazon, whatever the listing status. Operational (active-only) stock is on the Command Center."
+      />
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <Kpi
+          label="Physical capacity used — total"
+          value={volumeText(usage.onHand)}
+          hint={`${fmtInt(usage.onHand.units)} units on hand${ofLimit(total)}${limitCm3 ? '' : ' · % of limit needs an ALL-storage limit in ft³ or m³'}`}
+          meta={<SourceMeta source="CALCULATED" asOf={usage.asOf} confidence="ESTIMATE" />}
+        />
+        {PHYSICAL_CLASSES.map(({ key, label }) => {
+          const t = usage.byListingClass[key]
+          return (
+            <Kpi
+              key={key}
+              label={label}
+              value={volumeText(t)}
+              tone={key !== 'ACTIVE' && t.units > 0 ? 'warn' : undefined}
+              hint={`${fmtInt(t.units)} units · ${total > 0 ? fmtPct((t.volumeCm3 / total) * 100) : DASH} of physical volume${ofLimit(t.volumeCm3)} · coverage ${fmtPct(t.coveragePct)}`}
+            />
+          )
+        })}
+      </div>
+    </section>
+  )
 }
 
 function changeText(value: unknown): string {
@@ -557,6 +603,8 @@ export default function AmazonKsaCapacityPage() {
           {data.kpis.map((kpi) => (
             <KpiGroup key={`${kpi.storageType}-${kpi.periodId ?? 'none'}`} kpi={kpi} thresholds={data.thresholds} />
           ))}
+
+          <PhysicalCapacityUsed usage={usage} kpis={data.kpis} />
 
           <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Kpi

@@ -102,11 +102,12 @@ function createControlTowerService({ store, refreshStore, now = () => new Date()
     const skus = await store.skuStockView(marketplaceKey, { from7, from30, toDate: today })
 
     const threshold = settings.lowStockUnitsThreshold
-    // Operational stock = ACTIVE Amazon listings only. Until listing status has been refreshed once, the
-    // open-listings report is the only basis available (labelled as such); UNKNOWN is never ACTIVE.
+    // Operational stock = ACTIVE Amazon listings only. Until listing status has been refreshed once there is
+    // no trustworthy active universe, so operational KPIs and tables stay empty (null) instead of guessing.
     const listingStatusKnown = skus.some((s: any) => s.amazonListingStatus)
-    const active = listingStatusKnown ? skus.filter((s: any) => s.amazonListingStatus === 'ACTIVE') : skus.filter((s: any) => s.active)
-    const operationalBasis = listingStatusKnown ? 'AMAZON_LISTING_STATUS_ACTIVE' : 'OPEN_LISTINGS_REPORT'
+    const active = listingStatusKnown ? skus.filter((s: any) => s.amazonListingStatus === 'ACTIVE') : []
+    const operationalBasis = listingStatusKnown ? 'AMAZON_LISTING_STATUS_ACTIVE' : 'LISTING_STATUS_NOT_REFRESHED'
+    const known = <T,>(value: T): T | null => (listingStatusKnown ? value : null)
     let inactive: any = null
     let inactiveError: string | null = null
     if (activeInventory) {
@@ -179,17 +180,18 @@ function createControlTowerService({ store, refreshStore, now = () => new Date()
         last7DaysSales: money(last7),
         last30DaysSales: money(last30),
         unitsSold30d: rollupEverSucceeded ? last30.units : null,
-        activeSkus: active.length,
-        activeFbaSkus: listingStatusKnown ? active.filter((s: any) => s.fulfillmentChannel === 'AMAZON').length : null,
-        activeMfnSkus: listingStatusKnown ? active.filter((s: any) => s.fulfillmentChannel === 'DEFAULT').length : null,
-        fbaFulfillableUnits: inventorySnapshotAt ? sumKnown(active, 'fbaFulfillable') : null,
-        inboundUnits: inventorySnapshotAt ? sumKnown(active, 'inbound') : null,
-        reservedUnits: inventorySnapshotAt ? sumKnown(active, 'reserved') : null,
-        unfulfillableUnits: inventorySnapshotAt ? sumKnown(active, 'unfulfillable') : null,
-        outOfStockSkus: inventorySnapshotAt ? outOfStock.length : null,
-        lowStockSkus: inventorySnapshotAt ? lowStock.length : null,
-        unmappedSkus: unmapped.length,
-        activeSkusWithoutFbaData: inventorySnapshotAt ? activeWithoutFba : null,
+        activeSkus: known(active.length),
+        activeFbaSkus: known(active.filter((s: any) => s.fulfillmentChannel === 'AMAZON').length),
+        activeMfnSkus: known(active.filter((s: any) => s.fulfillmentChannel === 'DEFAULT').length),
+        activeAmazonStockUnits: inactive && inventorySnapshotAt ? inactive.activeAmazonStockUnits : null,
+        fbaFulfillableUnits: inventorySnapshotAt ? known(sumKnown(active, 'fbaFulfillable')) : null,
+        inboundUnits: inventorySnapshotAt ? known(sumKnown(active, 'inbound')) : null,
+        reservedUnits: inventorySnapshotAt ? known(sumKnown(active, 'reserved')) : null,
+        unfulfillableUnits: inventorySnapshotAt ? known(sumKnown(active, 'unfulfillable')) : null,
+        outOfStockSkus: inventorySnapshotAt ? known(outOfStock.length) : null,
+        lowStockSkus: inventorySnapshotAt ? known(lowStock.length) : null,
+        unmappedSkus: known(unmapped.length),
+        activeSkusWithoutFbaData: inventorySnapshotAt ? known(activeWithoutFba) : null,
         inactiveSkusWithFbaStock: inactive ? inactive.inactiveSkusWithFbaStock : null,
         unitsInInactiveSkus: inactive ? inactive.unitsInInactiveSkus : null,
         estimatedCapacityWastedByInactive: inactive ? inactive.estimatedCapacityWastedByInactive : null,
