@@ -8,6 +8,7 @@
 const { isSupportedMarketplace, getControlTower } = require('../services/amazonControlTower/controlTowerService.ts')
 const { JOB_TYPES } = require('../services/amazonControlTower/refreshRunner.ts')
 const { isSchedulerEnabled } = require('../services/amazonControlTower/refreshScheduler.ts')
+const { HEALTH_SETTING_DEFAULTS } = require('../services/amazonControlTower/controlTowerStore.ts')
 
 type Req = any
 type Res = any
@@ -26,12 +27,24 @@ function setDeps(next: any) {
 
 const MANUAL_JOB_TYPES = [
   JOB_TYPES.REFRESH_ALL,
+  JOB_TYPES.REFRESH_HEALTH,
   JOB_TYPES.LISTINGS,
+  JOB_TYPES.LISTING_STATUS,
   JOB_TYPES.SALES,
   JOB_TYPES.ROLLUP,
   JOB_TYPES.FBA_INVENTORY,
   JOB_TYPES.WAREHOUSE_STOCK,
+  JOB_TYPES.INVENTORY_REPORTS,
+  JOB_TYPES.REMOVAL_ORDERS,
 ]
+
+const STORAGE_TYPES = ['ALL', 'STANDARD', 'OVERSIZE', 'APPAREL', 'FOOTWEAR', 'OTHER']
+const CAPACITY_UNITS = ['CUBIC_FEET', 'CUBIC_METERS', 'UNITS', 'OTHER']
+/** Sources a person may record; AMAZON_API and CALCULATED are reserved for system-produced rows. */
+const MANUAL_CAPACITY_SOURCES = ['SELLER_CENTRAL_MANUAL', 'IMPORT']
+const HEALTH_FILTERS = ['active', 'inactive_with_stock', 'suppressed', 'all']
+const HEALTH_STATUSES = ['HEALTHY', 'WATCH', 'SLOW', 'EXCESS', 'AGED', 'ZERO_SALES', 'OUT_ZERO_FBA', 'DATA_INCOMPLETE']
+const REMOVAL_STATUS_FILTERS = ['OPEN', 'COMPLETED', 'CANCELLED', 'ALL']
 
 function httpError(status: number, code: string, message: string) {
   const err: any = new Error(message)
@@ -292,12 +305,39 @@ async function updateSettings(req: Req, res: Res) {
       if (!Number.isFinite(v) || v < 0 || v >= 0.5) throw httpError(400, 'INVALID_FIELD', 'vatRate must be between 0 and 0.5 (e.g. 0.15).')
       patch.vatRate = v
     }
+    if (body.healthAgedMinDays !== undefined) {
+      const v = Number(body.healthAgedMinDays)
+      if (![91, 181, 271, 366].includes(v)) throw httpError(400, 'INVALID_FIELD', 'healthAgedMinDays must be 91, 181, 271 or 366 (Amazon age bucket boundaries).')
+      patch.healthAgedMinDays = v
+    }
+    const intSettings: [string, number, number][] = [
+      ['healthExcessCoverDays', 1, 1000],
+      ['healthLowCoverDays', 0, 365],
+      ['healthSlowUnitsPer30d', 0, 100000],
+      ['healthVeryLowUnitsPer30d', 0, 100000],
+      ['removalStuckDays', 1, 365],
+      ['capacityWarnPct', 1, 200],
+      ['capacityHighPct', 1, 200],
+      ['capacityCriticalPct', 1, 300],
+      ['usageCoverageMinPct', 0, 100],
+    ]
+    for (const [field, min, maxValue] of intSettings) {
+      const v = optionalInt(body[field], field, min, maxValue)
+      if (v !== undefined) patch[field] = v
+    }
     const { store } = getDeps()
     const current = await store.getSettings(mk)
     if (!current) throw httpError(404, 'SETTINGS_NOT_FOUND', 'Settings not found.')
     const nextTarget = (patch.targetCoverDays as number) ?? current.targetCoverDays
     const nextMax = (patch.maxCoverDays as number) ?? current.maxCoverDays
     if (nextMax < nextTarget) throw httpError(400, 'INVALID_FIELD', 'maxCoverDays must be greater than or equal to targetCoverDays.')
+    const next = (k: string) => (patch[k] as number) ?? current[k] ?? HEALTH_SETTING_DEFAULTS[k]
+    if (!(next('capacityWarnPct') < next('capacityHighPct') && next('capacityHighPct') <= next('capacityCriticalPct'))) {
+      throw httpError(400, 'INVALID_FIELD', 'Capacity thresholds must satisfy warn < high ≤ critical.')
+    }
+    if (next('healthVeryLowUnitsPer30d') > next('healthSlowUnitsPer30d')) {
+      throw httpError(400, 'INVALID_FIELD', 'healthVeryLowUnitsPer30d must not exceed healthSlowUnitsPer30d.')
+    }
     const settings = await store.updateSettings(mk, patch)
     return res.json({ settings })
   } catch (err) {
@@ -305,8 +345,216 @@ async function updateSettings(req: Req, res: Res) {
   }
 }
 
+// ---------- capacity, inventory health, removals ----------
+
+function isDateString(v: unknown): v is string {
+  if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return false
+  const d = new Date(`${v}T00:00:00Z`)
+  return Number.isFinite(d.getTime()) && d.toISOString().slice(0, 10) === v
+}
+
+function optionalText(value: unknown, field: string, maxLen: number): string | null | undefined {
+  if (value === undefined) return undefined
+  if (value === null) return null
+  const s = String(value).trim()
+  if (s.length > maxLen) throw httpError(400, 'INVALID_FIELD', `${field} must be at most ${maxLen} characters.`)
+  return s || null
+}
+
+function optionalNumber(value: unknown, field: string, { min = 0, max = 1e9, nullable = true } = {}): number | null | undefined {
+  if (value === undefined) return undefined
+  if (value === null || value === '') {
+    if (nullable) return null
+    throw httpError(400, 'INVALID_FIELD', `${field} is required.`)
+  }
+  const n = Number(value)
+  if (!Number.isFinite(n) || n < min || n > max) throw httpError(400, 'INVALID_FIELD', `${field} must be a number between ${min} and ${max}.`)
+  return Math.round(n * 10000) / 10000
+}
+
+/** Validated capacity-period fields from a request body; `partial` for revisions. */
+function capacityPeriodInput(body: any, partial: boolean): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  const b = body || {}
+  for (const field of ['periodStart', 'periodEnd']) {
+    if (b[field] === undefined) {
+      if (!partial) throw httpError(400, 'INVALID_FIELD', `${field} (YYYY-MM-DD) is required.`)
+      continue
+    }
+    if (!isDateString(b[field])) throw httpError(400, 'INVALID_FIELD', `${field} must be a date (YYYY-MM-DD).`)
+    out[field] = b[field]
+  }
+  if (b.storageType !== undefined || !partial) {
+    const st = String(b.storageType ?? 'ALL').toUpperCase()
+    if (!STORAGE_TYPES.includes(st)) throw httpError(400, 'INVALID_FIELD', `storageType must be one of: ${STORAGE_TYPES.join(', ')}.`)
+    out.storageType = st
+  }
+  if (b.capacityUnit !== undefined || !partial) {
+    const unit = String(b.capacityUnit ?? '').toUpperCase()
+    if (!CAPACITY_UNITS.includes(unit)) throw httpError(400, 'INVALID_FIELD', `capacityUnit must be one of: ${CAPACITY_UNITS.join(', ')}.`)
+    out.capacityUnit = unit
+  }
+  const limit = optionalNumber(b.capacityLimit, 'capacityLimit', { min: 0.0001, nullable: false })
+  if (limit === undefined && !partial) throw httpError(400, 'INVALID_FIELD', 'capacityLimit is required.')
+  if (limit !== undefined) out.capacityLimit = limit
+  const usage = optionalNumber(b.amazonReportedUsage, 'amazonReportedUsage')
+  if (usage !== undefined) out.amazonReportedUsage = usage
+  if (b.source !== undefined || !partial) {
+    const source = String(b.source ?? 'SELLER_CENTRAL_MANUAL').toUpperCase()
+    if (!MANUAL_CAPACITY_SOURCES.includes(source)) throw httpError(400, 'INVALID_FIELD', `source must be one of: ${MANUAL_CAPACITY_SOURCES.join(', ')}.`)
+    out.source = source
+  }
+  const texts: [string, number][] = [
+    ['storageTypeLabel', 100],
+    ['capacityUnitLabel', 50],
+    ['sourceReference', 500],
+    ['notes', 2000],
+  ]
+  for (const [field, maxLen] of texts) {
+    const v = optionalText(b[field], field, maxLen)
+    if (v !== undefined) out[field] = v
+  }
+  return out
+}
+
+function checkPeriodConsistency(p: Record<string, any>) {
+  if (p.periodStart && p.periodEnd && p.periodEnd < p.periodStart) throw httpError(400, 'INVALID_FIELD', 'periodEnd must be on or after periodStart.')
+  if (p.storageType === 'OTHER' && !p.storageTypeLabel) throw httpError(400, 'INVALID_FIELD', 'storageTypeLabel is required when storageType is OTHER.')
+  if (p.capacityUnit === 'OTHER' && !p.capacityUnitLabel) throw httpError(400, 'INVALID_FIELD', 'capacityUnitLabel is required when capacityUnit is OTHER.')
+}
+
+function periodIdOf(req: Req): number {
+  const id = Number(req.params.id)
+  if (!Number.isInteger(id) || id <= 0) throw httpError(400, 'INVALID_PERIOD_ID', 'Invalid capacity period id.')
+  return id
+}
+
+async function getCapacity(req: Req, res: Res) {
+  try {
+    const mk = marketplaceOf(req)
+    return res.json(await getDeps().capacityHealth.getCapacity(mk))
+  } catch (err) {
+    return sendError(res, err, 'capacity')
+  }
+}
+
+async function listCapacityPeriods(req: Req, res: Res) {
+  try {
+    const mk = marketplaceOf(req)
+    const { chStore } = getDeps()
+    const [periods, events] = await Promise.all([chStore.listCapacityPeriods(mk), chStore.listCapacityEvents(mk)])
+    return res.json({ periods, events })
+  } catch (err) {
+    return sendError(res, err, 'capacity periods')
+  }
+}
+
+async function createCapacityPeriod(req: Req, res: Res) {
+  try {
+    const mk = marketplaceOf(req)
+    const input = capacityPeriodInput(req.body, false)
+    checkPeriodConsistency(input)
+    const period = await getDeps().capacityHealth.createCapacityPeriod(mk, input, actorOf(req))
+    return res.status(201).json({ period })
+  } catch (err) {
+    return sendError(res, err, 'capacity period create')
+  }
+}
+
+async function reviseCapacityPeriod(req: Req, res: Res) {
+  try {
+    const mk = marketplaceOf(req)
+    const id = periodIdOf(req)
+    const patch = capacityPeriodInput(req.body, true)
+    if (!Object.keys(patch).length) throw httpError(400, 'NOTHING_TO_UPDATE', 'Send at least one capacity field to revise.')
+    const existing = await getDeps().chStore.getCapacityPeriod(mk, id)
+    if (!existing) throw httpError(404, 'PERIOD_NOT_FOUND', 'Capacity period not found.')
+    checkPeriodConsistency({ ...existing, ...patch })
+    const result = await getDeps().capacityHealth.reviseCapacityPeriod(mk, id, patch, actorOf(req))
+    if (result.error === 'NOT_FOUND') throw httpError(404, 'PERIOD_NOT_FOUND', 'Capacity period not found.')
+    if (result.error === 'SUPERSEDED') throw httpError(409, 'PERIOD_SUPERSEDED', `This period was already revised (current version ${result.supersededById}). Revise the current version.`)
+    if (result.error === 'NO_CHANGES') throw httpError(400, 'NO_CHANGES', 'Nothing changed.')
+    return res.json(result)
+  } catch (err) {
+    return sendError(res, err, 'capacity period revise')
+  }
+}
+
+async function verifyCapacityPeriod(req: Req, res: Res) {
+  try {
+    const mk = marketplaceOf(req)
+    const id = periodIdOf(req)
+    const period = await getDeps().capacityHealth.verifyCapacityPeriod(mk, id, actorOf(req))
+    if (!period) throw httpError(404, 'PERIOD_NOT_FOUND', 'Capacity period not found or already superseded.')
+    return res.json({ period })
+  } catch (err) {
+    return sendError(res, err, 'capacity period verify')
+  }
+}
+
+async function getInventoryHealth(req: Req, res: Res) {
+  try {
+    const mk = marketplaceOf(req)
+    const filter = String(req.query.filter || 'active').toLowerCase()
+    if (!HEALTH_FILTERS.includes(filter)) throw httpError(400, 'INVALID_FILTER', `filter must be one of: ${HEALTH_FILTERS.join(', ')}.`)
+    const healthStatus = req.query.healthStatus ? String(req.query.healthStatus).toUpperCase() : undefined
+    if (healthStatus && !HEALTH_STATUSES.includes(healthStatus)) throw httpError(400, 'INVALID_FILTER', 'Unknown health status.')
+    return res.json(
+      await getDeps().capacityHealth.getInventoryHealth(mk, {
+        filter,
+        healthStatus,
+        search: req.query.search ? String(req.query.search).slice(0, 100) : undefined,
+        limit: Number(req.query.limit) || undefined,
+      })
+    )
+  } catch (err) {
+    return sendError(res, err, 'inventory health')
+  }
+}
+
+async function getInactiveWithStock(req: Req, res: Res) {
+  try {
+    const mk = marketplaceOf(req)
+    return res.json(await getDeps().capacityHealth.getInactiveWithStock(mk))
+  } catch (err) {
+    return sendError(res, err, 'inactive listings with stock')
+  }
+}
+
+async function getRemovalOrders(req: Req, res: Res) {
+  try {
+    const mk = marketplaceOf(req)
+    const status = String(req.query.status || 'ALL').toUpperCase()
+    if (!REMOVAL_STATUS_FILTERS.includes(status)) throw httpError(400, 'INVALID_FILTER', `status must be one of: ${REMOVAL_STATUS_FILTERS.join(', ')}.`)
+    return res.json(await getDeps().capacityHealth.getRemovalOrders(mk, status === 'ALL' ? null : status))
+  } catch (err) {
+    return sendError(res, err, 'removal orders')
+  }
+}
+
+async function getCapacityRelease(req: Req, res: Res) {
+  try {
+    const mk = marketplaceOf(req)
+    return res.json(await getDeps().capacityHealth.getCapacityRelease(mk))
+  } catch (err) {
+    return sendError(res, err, 'capacity release')
+  }
+}
+
+async function getActions(req: Req, res: Res) {
+  try {
+    const mk = marketplaceOf(req)
+    const status = String(req.query.status || 'OPEN').toUpperCase()
+    if (!['OPEN', 'RESOLVED', 'ALL'].includes(status)) throw httpError(400, 'INVALID_FILTER', 'status must be OPEN, RESOLVED or ALL.')
+    return res.json(await getDeps().capacityHealth.getActions(mk, status === 'ALL' ? null : status))
+  } catch (err) {
+    return sendError(res, err, 'actions')
+  }
+}
+
 module.exports = {
   setDeps,
+  MANUAL_JOB_TYPES,
   startRefresh,
   startBackfill,
   getRun,
@@ -321,4 +569,14 @@ module.exports = {
   searchZohoItems,
   getSettings,
   updateSettings,
+  getCapacity,
+  listCapacityPeriods,
+  createCapacityPeriod,
+  reviseCapacityPeriod,
+  verifyCapacityPeriod,
+  getInventoryHealth,
+  getInactiveWithStock,
+  getRemovalOrders,
+  getCapacityRelease,
+  getActions,
 }

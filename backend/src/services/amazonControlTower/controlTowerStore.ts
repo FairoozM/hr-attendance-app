@@ -41,8 +41,29 @@ function chunks<T>(items: T[], size = BATCH_SIZE): T[][] {
   return out
 }
 
+/** Migration 062 defaults, used when a column is not present yet. */
+const HEALTH_SETTING_DEFAULTS = {
+  healthAgedMinDays: 181,
+  healthExcessCoverDays: 180,
+  healthLowCoverDays: 14,
+  healthSlowUnitsPer30d: 3,
+  healthVeryLowUnitsPer30d: 1,
+  removalStuckDays: 14,
+  capacityWarnPct: 80,
+  capacityHighPct: 90,
+  capacityCriticalPct: 100,
+  usageCoverageMinPct: 95,
+}
+
+function numberOr(value: unknown, fallback: number): number {
+  if (value == null) return fallback
+  const n = Number(value)
+  return Number.isFinite(n) ? n : fallback
+}
+
 function mapSettings(row: any) {
   if (!row) return null
+  const d = HEALTH_SETTING_DEFAULTS
   return {
     marketplaceKey: row.marketplace_key,
     timezone: row.timezone,
@@ -53,6 +74,16 @@ function mapSettings(row: any) {
     defaultLeadTimeDays: Number(row.default_lead_time_days),
     defaultCartonQuantity: row.default_carton_quantity == null ? null : Number(row.default_carton_quantity),
     schedulerEnabled: Boolean(row.scheduler_enabled),
+    healthAgedMinDays: numberOr(row.health_aged_min_days, d.healthAgedMinDays),
+    healthExcessCoverDays: numberOr(row.health_excess_cover_days, d.healthExcessCoverDays),
+    healthLowCoverDays: numberOr(row.health_low_cover_days, d.healthLowCoverDays),
+    healthSlowUnitsPer30d: numberOr(row.health_slow_units_per_30d, d.healthSlowUnitsPer30d),
+    healthVeryLowUnitsPer30d: numberOr(row.health_very_low_units_per_30d, d.healthVeryLowUnitsPer30d),
+    removalStuckDays: numberOr(row.removal_stuck_days, d.removalStuckDays),
+    capacityWarnPct: numberOr(row.capacity_warn_pct, d.capacityWarnPct),
+    capacityHighPct: numberOr(row.capacity_high_pct, d.capacityHighPct),
+    capacityCriticalPct: numberOr(row.capacity_critical_pct, d.capacityCriticalPct),
+    usageCoverageMinPct: numberOr(row.usage_coverage_min_pct, d.usageCoverageMinPct),
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
   }
@@ -69,6 +100,11 @@ function mapSkuMaster(row: any) {
     amazonTitle: row.amazon_title,
     fulfillmentChannel: row.fulfillment_channel,
     listingStatus: row.listing_status,
+    amazonListingStatus: row.amazon_listing_status ?? null,
+    amazonListingStatusRaw: row.amazon_listing_status_raw ?? null,
+    amazonListingStatusReason: row.amazon_listing_status_reason ?? null,
+    amazonListingStatusAt: iso(row.amazon_listing_status_at),
+    searchSuppressed: row.search_suppressed == null ? null : Boolean(row.search_suppressed),
     zohoItemId: row.zoho_item_id,
     zohoItemCode: row.zoho_item_code,
     zohoItemName: row.zoho_item_name,
@@ -101,6 +137,16 @@ const SETTINGS_COLUMNS: Record<string, string> = {
   defaultLeadTimeDays: 'default_lead_time_days',
   defaultCartonQuantity: 'default_carton_quantity',
   vatRate: 'vat_rate',
+  healthAgedMinDays: 'health_aged_min_days',
+  healthExcessCoverDays: 'health_excess_cover_days',
+  healthLowCoverDays: 'health_low_cover_days',
+  healthSlowUnitsPer30d: 'health_slow_units_per_30d',
+  healthVeryLowUnitsPer30d: 'health_very_low_units_per_30d',
+  removalStuckDays: 'removal_stuck_days',
+  capacityWarnPct: 'capacity_warn_pct',
+  capacityHighPct: 'capacity_high_pct',
+  capacityCriticalPct: 'capacity_critical_pct',
+  usageCoverageMinPct: 'usage_coverage_min_pct',
 }
 
 function createControlTowerStore(db: DbLike) {
@@ -763,6 +809,7 @@ function createControlTowerStore(db: DbLike) {
          GROUP BY seller_sku
        )
        SELECT m.id, m.seller_sku, m.normalized_sku, m.asin, m.amazon_title, m.active,
+              m.amazon_listing_status, m.fulfillment_channel,
               m.mapping_status, m.mapping_method, m.mapping_confidence, m.mapping_candidates,
               m.zoho_item_id, m.zoho_item_code, m.zoho_item_name, m.pack_multiplier,
               inv.snapshot_at AS inventory_snapshot_at,
@@ -787,6 +834,8 @@ function createControlTowerStore(db: DbLike) {
         asin: row.asin,
         title: row.amazon_title,
         active: Boolean(row.active),
+        amazonListingStatus: row.amazon_listing_status ?? null,
+        fulfillmentChannel: row.fulfillment_channel ?? null,
         mappingStatus: row.mapping_status,
         mappingMethod: row.mapping_method,
         mappingConfidence: numOrNull(row.mapping_confidence),
@@ -841,4 +890,4 @@ function createControlTowerStore(db: DbLike) {
   }
 }
 
-module.exports = { createControlTowerStore, _internals: { mapSkuMaster, mapSettings, dateOnly } }
+module.exports = { createControlTowerStore, HEALTH_SETTING_DEFAULTS, _internals: { mapSkuMaster, mapSettings, dateOnly } }

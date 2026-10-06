@@ -846,6 +846,34 @@ async function createAmazonOrdersReport(params = {}) {
   });
 }
 
+/**
+ * Requests any Reports API report (createReport). Report generation is the only Amazon POST the
+ * Control Tower may cause; the data window is optional and only sent when given.
+ *
+ * @param {{ marketplaceKey?: string, marketplaceId?: string, reportType: string,
+ *           dataStartTime?: Date|string, dataEndTime?: Date|string }} params
+ */
+async function createAmazonReport(params = {}) {
+  const p = params && typeof params === 'object' ? params : {};
+  const mk = normalizeMarketplaceKey(p.marketplaceKey != null ? p.marketplaceKey : 'uae');
+  const marketplaceId = String(p.marketplaceId || marketplaceIdForKey(mk)).trim();
+  const reportType = String(p.reportType || '').trim();
+  if (!/^GET_[A-Z0-9_]+$/.test(reportType)) {
+    const err = new Error('createAmazonReport requires a GET_* reportType');
+    err.code = 'AMAZON_REPORT_TYPE_REQUIRED';
+    throw err;
+  }
+  const data = { reportType, marketplaceIds: [marketplaceId] };
+  if (p.dataStartTime != null) data.dataStartTime = iso8601Z(p.dataStartTime);
+  if (p.dataEndTime != null) data.dataEndTime = iso8601Z(p.dataEndTime);
+  return callAmazonSpApi(REPORTS_2021_PATH, {
+    method: 'POST',
+    marketplaceKey: mk,
+    data,
+    amazonOperation: 'createReport',
+  });
+}
+
 async function getAmazonReport(reportId, options = {}) {
   const opts = options && typeof options === 'object' ? options : {};
   const mk = normalizeMarketplaceKey(opts.marketplaceKey != null ? opts.marketplaceKey : 'uae');
@@ -960,6 +988,7 @@ module.exports = {
   marketplaceIdForKey,
   createAmazonListingsReport,
   createAmazonOrdersReport,
+  createAmazonReport,
   listAmazonReports,
   getAmazonReport,
   getAmazonReportDocument,

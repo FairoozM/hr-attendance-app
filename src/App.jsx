@@ -146,6 +146,8 @@ import { AmazonOutOfStockClearancePage } from './pages/AmazonOutOfStockClearance
 import { AmazonKsaRtoLabelingPage } from './pages/AmazonKsaRtoLabelingPage'
 import AmazonKsaCommandCenterPage from './pages/amazonKsa/AmazonKsaCommandCenterPage'
 import AmazonKsaSkuMappingPage from './pages/amazonKsa/AmazonKsaSkuMappingPage'
+import AmazonKsaCapacityPage from './pages/amazonKsa/AmazonKsaCapacityPage'
+import AmazonKsaInventoryHealthPage from './pages/amazonKsa/AmazonKsaInventoryHealthPage'
 import { AmazonKsaRtoAgentViewPage } from './pages/AmazonKsaRtoAgentViewPage'
 import { AmazonFlatFileBulkGenerator } from './pages/AmazonFlatFileBulkGenerator'
 import { AmazonReturnReportPage } from './pages/agent/AmazonReturnReportPage'
@@ -846,6 +848,22 @@ function AppContent() {
           element={
             <AdminOnly>
               <AmazonKsaCommandCenterPage />
+            </AdminOnly>
+          }
+        />
+        <Route
+          path="amazon-ksa/capacity"
+          element={
+            <AdminOnly>
+              <AmazonKsaCapacityPage />
+            </AdminOnly>
+          }
+        />
+        <Route
+          path="amazon-ksa/inventory-health"
+          element={
+            <AdminOnly>
+              <AmazonKsaInventoryHealthPage />
             </AdminOnly>
           }
         />

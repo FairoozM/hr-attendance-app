@@ -56,6 +56,7 @@ function minSpacingMs(operation) {
   if (operation === 'getFbaInventorySummaries') return GET_FBA_INVENTORY_MIN_MS
   if (
     operation === 'createListingsReport' ||
+    operation === 'createReport' ||
     operation === 'getListingsReport' ||
     operation === 'getListingsReportDocument'
   ) return REPORTS_MIN_MS

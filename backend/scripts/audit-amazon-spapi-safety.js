@@ -99,8 +99,17 @@ if (exists(cachePath)) {
 // --- Amazon Control Tower: read-only toward Amazon and Zoho ---
 // Only these external functions may be wired in; every one is a GET or the existing report creation.
 const controlTowerAllowedCalls = {
-  spApi: ['getAmazonFbaInventorySummaries', 'throwAmazonSpApiIfFailed', 'marketplaceIdForKey'],
-  listingsService: ['fetchActiveAmazonListings'],
+  spApi: [
+    'getAmazonFbaInventorySummaries',
+    'throwAmazonSpApiIfFailed',
+    'marketplaceIdForKey',
+    'createAmazonReport',
+    'getAmazonReport',
+    'listAmazonReports',
+    'getAmazonReportDocument',
+    'downloadAmazonReportDocument',
+  ],
+  listingsService: ['fetchActiveAmazonListings', 'parseDelimitedReport'],
   orderReport: ['syncAmazonOrderReport', 'findSuccessfulReportRunCoveringRange'],
   warehouseService: ['resolveLifeSmileWarehouse'],
   zohoAdapter: ['fetchItemsRawForWarehouse'],
@@ -119,6 +128,17 @@ const controlTowerAllowedRequires = new Set([
   'express',
   'crypto',
   'os',
+])
+/** Report types Control Tower may request: every one is a read-only data export. */
+const controlTowerReadOnlyReportTypes = new Set([
+  'GET_MERCHANT_LISTINGS_DATA',
+  'GET_MERCHANT_LISTINGS_ALL_DATA',
+  'GET_MERCHANTS_LISTINGS_FYP_REPORT',
+  'GET_FBA_INVENTORY_PLANNING_DATA',
+  'GET_FBA_ESTIMATED_FBA_FEES_TXT_DATA',
+  'GET_FBA_MYI_ALL_INVENTORY_DATA',
+  'GET_FBA_FULFILLMENT_REMOVAL_ORDER_DETAIL_DATA',
+  'GET_FLAT_FILE_ALL_ORDERS_DATA_BY_ORDER_DATE_GENERAL',
 ])
 const controlTowerFiles = []
 walkSourceFiles(path.join(backendRoot, 'src/services/amazonControlTower'), ['.ts', '.js'], controlTowerFiles)
@@ -151,6 +171,38 @@ for (const file of controlTowerFiles) {
   }
   if (/paymentClearing|PaymentClearing|zohoBooksWrite|createPurchaseOrder|createJournal|createCustomerPayment|createInvoice/.test(text)) {
     warnings.push(`Control Tower ${name} references Zoho write code`)
+  }
+  for (const m of text.matchAll(/\b(GET_[A-Z0-9_]+)\b/g)) {
+    if (!controlTowerReadOnlyReportTypes.has(m[1])) warnings.push(`Control Tower ${name} references report type ${m[1]} that is not on the read-only report allowlist`)
+  }
+  if (/\brouter\.delete\s*\(/.test(text)) {
+    warnings.push(`Control Tower ${name} exposes a DELETE route — Control Tower data (listings, history, capacity periods) is never deleted`)
+  }
+  if (/DELETE\s+FROM\s+amazon_sku_master\b|DELETE\s+FROM\s+amazon_listing_status_history\b/i.test(text)) {
+    warnings.push(`Control Tower ${name} deletes SKU master / listing status history rows — inactive listings and their history must be kept`)
+  }
+}
+
+// Capacity / inventory-health / removals persistence is append-or-upsert only.
+for (const relPath of [
+  'src/services/amazonControlTower/capacityHealthStore.ts',
+  'migrations/062_amazon_control_tower_capacity_health.sql',
+]) {
+  const p = path.join(backendRoot, relPath)
+  if (!exists(p)) {
+    warnings.push(`Missing ${relPath}`)
+    continue
+  }
+  if (/\b(DELETE\s+FROM|TRUNCATE|DROP\s+(TABLE|COLUMN|INDEX|CONSTRAINT))\b/i.test(readUtf8(p))) {
+    warnings.push(`${relPath} contains DELETE/TRUNCATE/DROP — capacity history, removals and listing history must never be deleted`)
+  }
+}
+const ctSchemaPath = path.join(backendRoot, 'src/services/amazonControlTower/controlTowerSchema.ts')
+if (exists(ctSchemaPath)) {
+  const schemaText = readUtf8(ctSchemaPath)
+  const healthDdl = schemaText.slice(schemaText.indexOf('CAPACITY_HEALTH_DDL'))
+  if (/\b(DELETE\s+FROM|TRUNCATE|DROP\s+(TABLE|COLUMN|INDEX))\b/i.test(healthDdl)) {
+    warnings.push('CAPACITY_HEALTH_DDL contains DELETE/TRUNCATE/DROP')
   }
 }
 const spForCt = exists(spPath) ? readUtf8(spPath) : ''

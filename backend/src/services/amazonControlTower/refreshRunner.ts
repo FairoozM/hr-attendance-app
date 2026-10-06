@@ -18,21 +18,43 @@ const { RUN_STATUS } = require('./refreshRunStore.ts')
 
 const JOB_TYPES = Object.freeze({
   REFRESH_ALL: 'refresh_all',
+  REFRESH_HEALTH: 'refresh_health',
   LISTINGS: 'listings',
+  LISTING_STATUS: 'listing_status',
   SALES: 'sales',
   ROLLUP: 'rollup',
   FBA_INVENTORY: 'fba_inventory',
   WAREHOUSE_STOCK: 'warehouse_stock',
+  INVENTORY_REPORTS: 'inventory_reports',
+  REMOVAL_ORDERS: 'removal_orders',
   SALES_BACKFILL: 'sales_backfill',
 })
 
 const REFRESH_ALL_STEPS: { key: string; label: string }[] = [
   { key: JOB_TYPES.LISTINGS, label: 'Listings / SKU sync' },
+  { key: JOB_TYPES.LISTING_STATUS, label: 'Amazon listing status' },
   { key: JOB_TYPES.SALES, label: 'Sales (order report) sync' },
   { key: JOB_TYPES.ROLLUP, label: 'Daily sales rollup' },
   { key: JOB_TYPES.FBA_INVENTORY, label: 'FBA inventory' },
   { key: JOB_TYPES.WAREHOUSE_STOCK, label: 'Warehouse stock' },
 ]
+
+const REFRESH_HEALTH_STEPS: { key: string; label: string }[] = [
+  { key: JOB_TYPES.LISTING_STATUS, label: 'Amazon listing status' },
+  { key: JOB_TYPES.FBA_INVENTORY, label: 'FBA inventory' },
+  { key: JOB_TYPES.INVENTORY_REPORTS, label: 'Inventory age, volumes and capacity usage' },
+  { key: JOB_TYPES.REMOVAL_ORDERS, label: 'Removal orders' },
+]
+
+/** Composite jobs: one parent run with one claimed child run per step. */
+const COMPOSITE_STEPS: Record<string, { key: string; label: string }[]> = {
+  [JOB_TYPES.REFRESH_ALL]: REFRESH_ALL_STEPS,
+  [JOB_TYPES.REFRESH_HEALTH]: REFRESH_HEALTH_STEPS,
+}
+
+function isCompositeJob(jobType: string): boolean {
+  return Object.prototype.hasOwnProperty.call(COMPOSITE_STEPS, jobType)
+}
 const FRESHNESS_STEP = { key: 'freshness', label: 'Data freshness' }
 
 const DEFAULT_HEARTBEAT_MS = 20_000
@@ -129,7 +151,7 @@ function createRefreshRunner(options: RunnerOptions) {
   }
 
   function isKnownJob(jobType: string) {
-    return jobType === JOB_TYPES.REFRESH_ALL || typeof handlers[jobType] === 'function'
+    return isCompositeJob(jobType) || typeof handlers[jobType] === 'function'
   }
 
   /** Executes one claimed run to a terminal status. Never throws. */
@@ -192,6 +214,7 @@ function createRefreshRunner(options: RunnerOptions) {
       finalPatch = {
         status: RUN_STATUS.FAILED,
         errorMessage: errorText(err),
+        metadata: err?.metadata,
         recordsProcessed: latest.recordsProcessed,
         currentStep: latest.currentStep ? `Failed during: ${latest.currentStep}` : 'Failed',
       }
@@ -203,12 +226,13 @@ function createRefreshRunner(options: RunnerOptions) {
     return store.finishRun(run.id, finalPatch)
   }
 
-  async function startRefreshAll(input: StartParams): Promise<StartResult> {
+  async function startComposite(input: StartParams): Promise<StartResult> {
+    const compositeSteps = COMPOSITE_STEPS[input.jobType]
     const parentId = newId()
     const claim = await store.claimRun({
       id: parentId,
       marketplaceKey: input.marketplaceKey,
-      jobType: JOB_TYPES.REFRESH_ALL,
+      jobType: input.jobType,
       triggerSource: input.trigger || 'manual',
       requestedBy: input.requestedBy || null,
       processTag,
@@ -227,7 +251,7 @@ function createRefreshRunner(options: RunnerOptions) {
 
     const steps: StepState[] = []
     const childRuns: Run[] = []
-    for (const step of REFRESH_ALL_STEPS) {
+    for (const step of compositeSteps) {
       const childInput = {
         id: newId(),
         marketplaceKey: input.marketplaceKey,
@@ -314,7 +338,7 @@ function createRefreshRunner(options: RunnerOptions) {
       }
       fStep.finishedAt = new Date().toISOString()
     } catch (err) {
-      log.error('[control-tower] refresh_all crashed:', errorText(err))
+      log.error(`[control-tower] ${parent.jobType} crashed:`, errorText(err))
       const running = steps.find((s) => s.status === RUN_STATUS.RUNNING)
       if (running) {
         running.status = RUN_STATUS.FAILED
@@ -343,7 +367,7 @@ function createRefreshRunner(options: RunnerOptions) {
       throw err
     }
     await store.markStaleRunsInterrupted({ staleMs })
-    if (input.jobType === JOB_TYPES.REFRESH_ALL) return startRefreshAll(input)
+    if (isCompositeJob(input.jobType)) return startComposite(input)
 
     const claim = await store.claimRun({
       id: newId(),
@@ -374,12 +398,12 @@ function createRefreshRunner(options: RunnerOptions) {
     return store.markStaleRunsInterrupted({ staleMs })
   }
 
-  /** Run + its children (refresh_all steps) for polling. */
+  /** Run + its children (composite steps) for polling. */
   async function getRunWithChildren(id: string) {
     await sweepStaleRuns()
     const run = await store.getRun(id)
     if (!run) return null
-    const children = run.jobType === JOB_TYPES.REFRESH_ALL ? await store.listChildRuns(run.id) : []
+    const children = isCompositeJob(run.jobType) ? await store.listChildRuns(run.id) : []
     return { ...run, children }
   }
 
@@ -398,6 +422,9 @@ function createRefreshRunner(options: RunnerOptions) {
 module.exports = {
   JOB_TYPES,
   REFRESH_ALL_STEPS,
+  REFRESH_HEALTH_STEPS,
+  COMPOSITE_STEPS,
+  isCompositeJob,
   FRESHNESS_STEP,
   createRefreshRunner,
 }

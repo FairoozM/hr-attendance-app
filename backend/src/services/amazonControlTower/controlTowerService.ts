@@ -19,9 +19,16 @@ type ServiceDeps = {
   store: any
   refreshStore: any
   now?: () => Date
+  /** Inactive-with-FBA-stock warnings (capacity/health service); optional so the Command Center works without it. */
+  activeInventory?: (marketplaceKey: string) => Promise<any>
 }
 
-function createControlTowerService({ store, refreshStore, now = () => new Date() }: ServiceDeps) {
+function sumKnown(rows: any[], field: string): number | null {
+  const known = rows.filter((r) => r[field] != null)
+  return known.length ? known.reduce((a, r) => a + Number(r[field]), 0) : null
+}
+
+function createControlTowerService({ store, refreshStore, now = () => new Date(), activeInventory }: ServiceDeps) {
   async function computeFreshness(marketplaceKey: string) {
     const current = now()
     const summaries = await refreshStore.summarizeJobRuns(
@@ -95,7 +102,20 @@ function createControlTowerService({ store, refreshStore, now = () => new Date()
     const skus = await store.skuStockView(marketplaceKey, { from7, from30, toDate: today })
 
     const threshold = settings.lowStockUnitsThreshold
-    const active = skus.filter((s: any) => s.active)
+    // Operational stock = ACTIVE Amazon listings only. Until listing status has been refreshed once, the
+    // open-listings report is the only basis available (labelled as such); UNKNOWN is never ACTIVE.
+    const listingStatusKnown = skus.some((s: any) => s.amazonListingStatus)
+    const active = listingStatusKnown ? skus.filter((s: any) => s.amazonListingStatus === 'ACTIVE') : skus.filter((s: any) => s.active)
+    const operationalBasis = listingStatusKnown ? 'AMAZON_LISTING_STATUS_ACTIVE' : 'OPEN_LISTINGS_REPORT'
+    let inactive: any = null
+    let inactiveError: string | null = null
+    if (activeInventory) {
+      try {
+        inactive = await activeInventory(marketplaceKey)
+      } catch (err: any) {
+        inactiveError = err?.message || String(err)
+      }
+    }
     const outOfStock = active
       .filter((s: any) => s.hasInventorySnapshot && s.fbaFulfillable === 0)
       .sort((a: any, b: any) => b.units30d - a.units30d || a.sellerSku.localeCompare(b.sellerSku))
@@ -113,6 +133,7 @@ function createControlTowerService({ store, refreshStore, now = () => new Date()
       sellerSku: s.sellerSku,
       asin: s.asin,
       title: s.title,
+      listingStatus: s.amazonListingStatus,
       fbaFulfillable: s.fbaFulfillable,
       inbound: s.inbound,
       warehouseAvailable: s.warehouseAvailable,
@@ -159,15 +180,37 @@ function createControlTowerService({ store, refreshStore, now = () => new Date()
         last30DaysSales: money(last30),
         unitsSold30d: rollupEverSucceeded ? last30.units : null,
         activeSkus: active.length,
-        fbaFulfillableUnits: inv ? inv.fulfillable : null,
-        inboundUnits: inv ? inv.inbound : null,
-        reservedUnits: inv ? inv.reserved : null,
-        unfulfillableUnits: inv ? inv.unfulfillable : null,
+        activeFbaSkus: listingStatusKnown ? active.filter((s: any) => s.fulfillmentChannel === 'AMAZON').length : null,
+        activeMfnSkus: listingStatusKnown ? active.filter((s: any) => s.fulfillmentChannel === 'DEFAULT').length : null,
+        fbaFulfillableUnits: inventorySnapshotAt ? sumKnown(active, 'fbaFulfillable') : null,
+        inboundUnits: inventorySnapshotAt ? sumKnown(active, 'inbound') : null,
+        reservedUnits: inventorySnapshotAt ? sumKnown(active, 'reserved') : null,
+        unfulfillableUnits: inventorySnapshotAt ? sumKnown(active, 'unfulfillable') : null,
         outOfStockSkus: inventorySnapshotAt ? outOfStock.length : null,
         lowStockSkus: inventorySnapshotAt ? lowStock.length : null,
         unmappedSkus: unmapped.length,
         activeSkusWithoutFbaData: inventorySnapshotAt ? activeWithoutFba : null,
+        inactiveSkusWithFbaStock: inactive ? inactive.inactiveSkusWithFbaStock : null,
+        unitsInInactiveSkus: inactive ? inactive.unitsInInactiveSkus : null,
+        estimatedCapacityWastedByInactive: inactive ? inactive.estimatedCapacityWastedByInactive : null,
       },
+      listingStatus: {
+        known: listingStatusKnown,
+        operationalBasis,
+        refreshedAt: inactive ? inactive.listingStatusRefreshedAt : null,
+        statusCounts: inactive ? inactive.statusCounts : null,
+        source: 'Amazon all-listings report status + search-suppressed (FYP) report',
+        error: inactiveError,
+      },
+      physicalAllListings: inv
+        ? {
+            note: 'All FBA units physically at Amazon regardless of listing status (capacity view, not operational stock).',
+            fulfillable: inv.fulfillable,
+            inbound: inv.inbound,
+            reserved: inv.reserved,
+            unfulfillable: inv.unfulfillable,
+          }
+        : null,
       tables: {
         outOfStock: { total: outOfStock.length, rows: outOfStock.slice(0, TABLE_ROW_LIMIT).map(stockRow) },
         lowStock: { total: lowStock.length, threshold, rows: lowStock.slice(0, TABLE_ROW_LIMIT).map(stockRow) },
@@ -201,9 +244,26 @@ function getControlTower() {
   const warehouseService = require('../zohoLifeSmileWarehouseService')
   const zohoAdapter = require('../../integrations/zoho/zohoAdapter')
 
+  const { createCapacityHealthStore } = require('./capacityHealthStore.ts')
+  const { createCapacityHealthService } = require('./capacityHealthService.ts')
+  const { createCapacityHealthJobs } = require('./capacityHealthJobs.ts')
+  const { createReportFetcher } = require('./reportFetcher.ts')
+
   const refreshStore = createPgRefreshStore(db)
   const store = createControlTowerStore(db)
-  const service = createControlTowerService({ store, refreshStore })
+  const chStore = createCapacityHealthStore(db)
+  const capacityHealth = createCapacityHealthService({ store, chStore })
+  const service = createControlTowerService({ store, refreshStore, activeInventory: capacityHealth.activeInventorySummary })
+  const fetcher = createReportFetcher({
+    createAmazonReport: spApi.createAmazonReport,
+    getAmazonReport: spApi.getAmazonReport,
+    listAmazonReports: spApi.listAmazonReports,
+    getAmazonReportDocument: spApi.getAmazonReportDocument,
+    downloadAmazonReportDocument: spApi.downloadAmazonReportDocument,
+    parseDelimitedReport: listingsService.parseDelimitedReport,
+    marketplaceIdForKey: spApi.marketplaceIdForKey,
+  })
+  const healthJobs = createCapacityHealthJobs({ chStore, capacityHealth, fetcher })
   const jobs = createControlTowerJobs({
     store,
     amazon: {
@@ -223,10 +283,10 @@ function getControlTower() {
   })
   const runner = createRefreshRunner({
     store: refreshStore,
-    handlers: jobs.handlers,
+    handlers: { ...jobs.handlers, ...healthJobs.handlers },
     computeFreshness: service.computeFreshness,
   })
-  singleton = { db, refreshStore, store, service, jobs, runner }
+  singleton = { db, refreshStore, store, chStore, capacityHealth, service, jobs, healthJobs, runner }
   return singleton
 }
 

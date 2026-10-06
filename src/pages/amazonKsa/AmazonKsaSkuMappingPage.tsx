@@ -17,7 +17,7 @@ import {
   type ZohoItemOption,
 } from '../../api/amazonControlTower'
 import { useRefreshRun } from './useRefreshRun'
-import { DASH, MappingBadge, RunProgress, fmtDateTime, fmtInt } from './controlTowerUi'
+import { DASH, ListingStatusBadge, MappingBadge, RunProgress, fmtDateTime, fmtInt } from './controlTowerUi'
 import '../../styles/amazonInventoryPage.css'
 
 const PAGE_SIZE = 100
@@ -27,6 +27,31 @@ const STATUS_FILTERS: { value: MappingStatus | ''; label: string }[] = [
   { value: 'UNMAPPED', label: 'Unmapped' },
   { value: 'AUTO_MATCHED', label: 'Auto matched' },
   { value: 'CONFIRMED', label: 'Confirmed' },
+]
+
+type ThresholdKey =
+  | 'healthAgedMinDays'
+  | 'healthExcessCoverDays'
+  | 'healthLowCoverDays'
+  | 'healthSlowUnitsPer30d'
+  | 'healthVeryLowUnitsPer30d'
+  | 'removalStuckDays'
+  | 'capacityWarnPct'
+  | 'capacityHighPct'
+  | 'capacityCriticalPct'
+  | 'usageCoverageMinPct'
+
+const THRESHOLD_FIELDS: { key: ThresholdKey; label: string; hint?: string }[] = [
+  { key: 'healthAgedMinDays', label: 'Aged from (days)' },
+  { key: 'healthExcessCoverDays', label: 'Excess cover (days)', hint: 'Days of cover above this = EXCESS' },
+  { key: 'healthLowCoverDays', label: 'Low cover (days)', hint: 'Below this = WATCH' },
+  { key: 'healthSlowUnitsPer30d', label: 'Slow seller (units / 30d)', hint: 'Below this = SLOW' },
+  { key: 'healthVeryLowUnitsPer30d', label: 'Very low velocity (units / 30d)', hint: 'Capacity release candidate' },
+  { key: 'removalStuckDays', label: 'Removal stuck after (days)' },
+  { key: 'capacityWarnPct', label: 'Capacity warning (%)' },
+  { key: 'capacityHighPct', label: 'Capacity high (%)' },
+  { key: 'capacityCriticalPct', label: 'Capacity critical (%)' },
+  { key: 'usageCoverageMinPct', label: 'Min volume coverage (%)', hint: 'Below this, usage is flagged' },
 ]
 
 const METHOD_LABEL: Record<string, string> = {
@@ -187,6 +212,7 @@ function SettingsPanel() {
       defaultLeadTimeDays: String(s.defaultLeadTimeDays),
       defaultCartonQuantity: s.defaultCartonQuantity == null ? '' : String(s.defaultCartonQuantity),
       vatRate: String(s.vatRate),
+      ...Object.fromEntries(THRESHOLD_FIELDS.map((f) => [f.key, s[f.key] == null ? '' : String(s[f.key])])),
     })
   }
 
@@ -206,6 +232,7 @@ function SettingsPanel() {
         defaultLeadTimeDays: Number(form.defaultLeadTimeDays),
         defaultCartonQuantity: form.defaultCartonQuantity.trim() === '' ? null : Number(form.defaultCartonQuantity),
         vatRate: Number(form.vatRate),
+        ...Object.fromEntries(THRESHOLD_FIELDS.filter((f) => (form[f.key] ?? '').trim() !== '').map((f) => [f.key, Number(form[f.key])])),
       }
       const settings = await updateKsaSettings(patch)
       if (data) fill({ ...data, settings })
@@ -243,6 +270,17 @@ function SettingsPanel() {
             {field('defaultLeadTimeDays', 'Default lead time (days)')}
             {field('defaultCartonQuantity', 'Default carton quantity', 'Blank = not set')}
             {field('vatRate', 'VAT rate', 'e.g. 0.15 — used to compute sales excluding VAT')}
+          </div>
+          <h3 className="mt-5 text-sm font-semibold">Inventory health &amp; capacity thresholds</h3>
+          <div className="mt-2 grid gap-3 md:grid-cols-3 xl:grid-cols-5">
+            <label className="ainv-label">
+              Aged from (days)
+              <select className="ainv-input" value={form.healthAgedMinDays ?? ''} onChange={(e) => setForm((f) => ({ ...f, healthAgedMinDays: e.target.value }))}>
+                {[91, 181, 271, 366].map((d) => <option key={d} value={String(d)}>{d}+ days</option>)}
+              </select>
+              <span className="text-xs font-normal opacity-70">Amazon age bucket boundary</span>
+            </label>
+            {THRESHOLD_FIELDS.filter((f) => f.key !== 'healthAgedMinDays').map((f) => field(f.key, f.label, f.hint))}
           </div>
           <div className="mt-3 flex items-center gap-3">
             <button type="button" className="ainv-btn ainv-btn--primary-emerald" onClick={() => void save()} disabled={saving}>
@@ -295,7 +333,7 @@ export default function AmazonKsaSkuMappingPage() {
   }, [load])
 
   const jobs = useRefreshRun({
-    watchJobTypes: ['listings', 'warehouse_stock', 'fba_inventory', 'sales_backfill', 'rollup'],
+    watchJobTypes: ['listings', 'warehouse_stock', 'fba_inventory', 'sales_backfill', 'rollup', 'listing_status', 'inventory_reports', 'removal_orders'],
     onFinished: () => void load(),
   })
 
@@ -350,6 +388,9 @@ export default function AmazonKsaSkuMappingPage() {
           <button type="button" className="ainv-btn" disabled={jobs.busy} onClick={() => void jobs.start('warehouse_stock')}>Refresh warehouse stock</button>
           <button type="button" className="ainv-btn" disabled={jobs.busy} onClick={() => void jobs.start('fba_inventory')}>Refresh FBA inventory</button>
           <button type="button" className="ainv-btn" disabled={jobs.busy} onClick={() => void jobs.start('rollup')}>Rebuild daily sales</button>
+          <button type="button" className="ainv-btn" disabled={jobs.busy} onClick={() => void jobs.start('listing_status')}>Refresh listing status</button>
+          <button type="button" className="ainv-btn" disabled={jobs.busy} onClick={() => void jobs.start('inventory_reports')}>Refresh inventory reports</button>
+          <button type="button" className="ainv-btn" disabled={jobs.busy} onClick={() => void jobs.start('removal_orders')}>Refresh removal orders</button>
           <label className="ainv-label ml-auto">
             Sales history backfill (days)
             <input className="ainv-input w-28" inputMode="numeric" value={backfillDays} onChange={(e) => setBackfillDays(e.target.value)} />
@@ -417,6 +458,9 @@ export default function AmazonKsaSkuMappingPage() {
                     <td className="ainv-table__sku font-mono">
                       {r.sellerSku}
                       {!r.active ? <div className="text-xs opacity-60">not in active listings</div> : null}
+                      {r.amazonListingStatus ? (
+                        <div className="mt-1"><ListingStatusBadge status={r.amazonListingStatus} title={r.amazonListingStatusReason} /></div>
+                      ) : null}
                     </td>
                     <td className="font-mono">{r.asin || DASH}</td>
                     <td className="max-w-xs truncate" title={r.amazonTitle || ''}>{r.amazonTitle || DASH}</td>

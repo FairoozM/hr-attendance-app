@@ -86,7 +86,7 @@ function makeDeps(calls: Call[] = []) {
   const ok = async () => { await gate; return { recordsProcessed: 1 } }
   const runner = createRefreshRunner({
     store: refreshStore,
-    handlers: { listings: ok, sales: ok, rollup: ok, fba_inventory: ok, warehouse_stock: ok, sales_backfill: ok },
+    handlers: { listings: ok, listing_status: ok, sales: ok, rollup: ok, fba_inventory: ok, warehouse_stock: ok, sales_backfill: ok },
     computeFreshness: async () => ({ sources: [] }),
     heartbeatMs: 1000,
     log: quietLog,
@@ -131,7 +131,7 @@ test('Refresh All answers 202 with run ids, a second click reuses the running jo
     assert.equal(first.status, 202)
     assert.equal(first.body.status, 'queued')
     assert.equal(first.body.jobType, 'refresh_all')
-    assert.equal(first.body.runIds.length, 6, 'parent run first, then one run per step')
+    assert.equal(first.body.runIds.length, 7, 'parent run first, then one run per step')
 
     const second = await call(base, 'POST', '/ksa/refresh', {})
     assert.equal(second.status, 202)
@@ -142,7 +142,7 @@ test('Refresh All answers 202 with run ids, a second click reuses the running jo
     assert.equal(poll.status, 200)
     assert.equal(poll.body.run.jobType, 'refresh_all')
     assert.equal(poll.body.run.requestedBy, 'user:42')
-    assert.equal(poll.body.run.children.length, 5)
+    assert.equal(poll.body.run.children.length, 6)
 
     deps.release()
     await deps.runner.drain()
@@ -223,5 +223,130 @@ test('settings: ranges are validated and max cover cannot be below target cover'
     const ok = await call(base, 'PUT', '/ksa/settings', { lowStockUnitsThreshold: 12, schedulerEnabled: true, timezone: 'UTC' })
     assert.equal(ok.status, 200)
     assert.deepEqual(calls.at(-1)!.args[1], { lowStockUnitsThreshold: 12 }, 'scheduler flag and timezone are not editable here')
+
+    assert.equal((await call(base, 'PUT', '/ksa/settings', { healthAgedMinDays: 100 })).status, 400, 'aged threshold must be an Amazon bucket boundary')
+    assert.equal((await call(base, 'PUT', '/ksa/settings', { capacityWarnPct: 95, capacityHighPct: 90 })).status, 400)
+    const thresholds = await call(base, 'PUT', '/ksa/settings', { healthAgedMinDays: 271, healthExcessCoverDays: 200, capacityWarnPct: 75 })
+    assert.equal(thresholds.status, 200)
+    assert.deepEqual(calls.at(-1)!.args[1], { healthAgedMinDays: 271, healthExcessCoverDays: 200, capacityWarnPct: 75 })
   })
+})
+
+function fakeCapacityHealth(calls: Call[]) {
+  const record = (method: string, value: any) => async (...args: unknown[]) => {
+    calls.push({ method, args })
+    return typeof value === 'function' ? value(...args) : value
+  }
+  return {
+    getCapacity: record('getCapacity', { kpis: [] }),
+    createCapacityPeriod: record('createCapacityPeriod', (_mk: string, input: any) => ({ id: 1, ...input })),
+    reviseCapacityPeriod: record('reviseCapacityPeriod', (_mk: string, id: number) => (id === 1 ? { period: { id: 2 }, previous: { id: 1 } } : { error: 'SUPERSEDED', supersededById: 9 })),
+    verifyCapacityPeriod: record('verifyCapacityPeriod', (_mk: string, id: number) => (id === 1 ? { id: 1 } : null)),
+    getInventoryHealth: record('getInventoryHealth', { rows: [] }),
+    getInactiveWithStock: record('getInactiveWithStock', { rows: [] }),
+    getRemovalOrders: record('getRemovalOrders', { rows: [] }),
+    getCapacityRelease: record('getCapacityRelease', { rows: [] }),
+    getActions: record('getActions', { actions: [] }),
+  }
+}
+
+function capacityDeps(calls: Call[]) {
+  const deps: any = makeDeps(calls)
+  deps.capacityHealth = fakeCapacityHealth(calls)
+  deps.chStore = {
+    getCapacityPeriod: async (_mk: string, id: number) =>
+      id === 1 || id === 5 ? { id, periodStart: '2026-10-01', periodEnd: '2026-12-31', storageType: 'ALL', capacityUnit: 'CUBIC_FEET', capacityLimit: 100 } : null,
+    listCapacityPeriods: async () => [],
+    listCapacityEvents: async () => [],
+  }
+  return deps
+}
+
+const PERIOD = { periodStart: '2026-10-01', periodEnd: '2026-12-31', storageType: 'ALL', capacityLimit: 1500, capacityUnit: 'CUBIC_FEET' }
+
+test('capacity / health / removal endpoints are admin-only and KSA-only', async () => {
+  const calls: Call[] = []
+  const deps = capacityDeps(calls)
+  await withServer('employee', deps, async (base) => {
+    assert.equal((await call(base, 'GET', '/ksa/capacity')).status, 403)
+    assert.equal((await call(base, 'POST', '/ksa/capacity/periods', PERIOD)).status, 403)
+  })
+  await withServer('admin', deps, async (base) => {
+    for (const path of ['/capacity', '/capacity/periods', '/capacity-release', '/inventory-health', '/inventory-health/inactive-with-stock', '/removal-orders', '/actions']) {
+      const uae = await call(base, 'GET', `/uae${path}`)
+      assert.equal(uae.status, 400, `/uae${path}`)
+      assert.equal(uae.body.code, 'UNSUPPORTED_MARKETPLACE')
+      assert.equal((await call(base, 'GET', `/ksa${path}`)).status, 200, `/ksa${path}`)
+    }
+    assert.equal((await call(base, 'POST', '/uae/capacity/periods', PERIOD)).status, 400)
+  })
+  assert.ok(!calls.some((c) => c.args[0] === 'uae'), 'nothing reaches the service for UAE')
+})
+
+test('manual capacity entry is validated; revisions never overwrite (409 on a superseded version)', async () => {
+  const calls: Call[] = []
+  await withServer('admin', capacityDeps(calls), async (base) => {
+    const bad = async (body: any) => (await call(base, 'POST', '/ksa/capacity/periods', body)).status
+    assert.equal(await bad({ ...PERIOD, capacityLimit: 0 }), 400)
+    assert.equal(await bad({ ...PERIOD, capacityLimit: undefined }), 400)
+    assert.equal(await bad({ ...PERIOD, periodEnd: '2026-09-01' }), 400)
+    assert.equal(await bad({ ...PERIOD, periodStart: '2026-02-30' }), 400)
+    assert.equal(await bad({ ...PERIOD, capacityUnit: 'LITRES' }), 400)
+    assert.equal(await bad({ ...PERIOD, storageType: 'OTHER' }), 400, 'OTHER needs a label')
+    assert.equal(await bad({ ...PERIOD, source: 'AMAZON_API' }), 400, 'people cannot record AMAZON_API figures')
+    assert.equal(await bad({ ...PERIOD, source: 'CALCULATED' }), 400)
+    assert.equal(await bad({ ...PERIOD, amazonReportedUsage: -1 }), 400)
+
+    const created = await call(base, 'POST', '/ksa/capacity/periods', { ...PERIOD, amazonReportedUsage: 900, notes: 'From Seller Central capacity monitor' })
+    assert.equal(created.status, 201)
+    const input = calls.at(-1)!.args[1] as any
+    assert.equal(input.source, 'SELLER_CENTRAL_MANUAL', 'manual source by default')
+    assert.equal(input.amazonReportedUsage, 900)
+    assert.equal(calls.at(-1)!.args[2], 'user:42')
+
+    assert.equal((await call(base, 'PUT', '/ksa/capacity/periods/1', {})).body.code, 'NOTHING_TO_UPDATE')
+    assert.equal((await call(base, 'PUT', '/ksa/capacity/periods/1', { periodEnd: '2026-01-01' })).status, 400, 'merged with the stored start date')
+    assert.equal((await call(base, 'PUT', '/ksa/capacity/periods/77', { capacityLimit: 10 })).status, 404)
+    const revised = await call(base, 'PUT', '/ksa/capacity/periods/1', { capacityLimit: 1600 })
+    assert.equal(revised.status, 200)
+    assert.equal(revised.body.period.id, 2)
+    const stale = await call(base, 'PUT', '/ksa/capacity/periods/5', { capacityLimit: 1700 })
+    assert.equal(stale.status, 409)
+    assert.equal(stale.body.code, 'PERIOD_SUPERSEDED')
+
+    assert.equal((await call(base, 'POST', '/ksa/capacity/periods/1/verify')).status, 200)
+    assert.equal((await call(base, 'POST', '/ksa/capacity/periods/3/verify')).status, 404)
+    assert.equal((await call(base, 'POST', '/ksa/capacity/periods/x/verify')).body.code, 'INVALID_PERIOD_ID')
+  })
+})
+
+test('inventory health defaults to ACTIVE; filters and removal status are validated', async () => {
+  const calls: Call[] = []
+  await withServer('admin', capacityDeps(calls), async (base) => {
+    await call(base, 'GET', '/ksa/inventory-health')
+    assert.equal((calls.at(-1)!.args[1] as any).filter, 'active')
+    await call(base, 'GET', '/ksa/inventory-health?filter=inactive_with_stock&healthStatus=aged&search=brush')
+    assert.deepEqual(calls.at(-1)!.args[1], { filter: 'inactive_with_stock', healthStatus: 'AGED', search: 'brush', limit: undefined })
+    assert.equal((await call(base, 'GET', '/ksa/inventory-health?filter=everything')).status, 400)
+    assert.equal((await call(base, 'GET', '/ksa/inventory-health?healthStatus=GREAT')).status, 400)
+
+    await call(base, 'GET', '/ksa/removal-orders')
+    assert.equal(calls.at(-1)!.args[1], null)
+    await call(base, 'GET', '/ksa/removal-orders?status=open')
+    assert.equal(calls.at(-1)!.args[1], 'OPEN')
+    assert.equal((await call(base, 'GET', '/ksa/removal-orders?status=create')).status, 400)
+    await call(base, 'GET', '/ksa/actions')
+    assert.equal(calls.at(-1)!.args[1], 'OPEN')
+    assert.equal((await call(base, 'GET', '/ksa/actions?status=bogus')).status, 400)
+  })
+})
+
+test('new manual job types are accepted; there is no route that creates removals, shipments or listing changes', async () => {
+  for (const jobType of ['refresh_health', 'listing_status', 'inventory_reports', 'removal_orders']) {
+    assert.ok(ctrl.MANUAL_JOB_TYPES.includes(jobType), jobType)
+  }
+  const paths = router.stack.filter((l: any) => l.route).map((l: any) => `${Object.keys(l.route.methods)[0].toUpperCase()} ${l.route.path}`)
+  assert.ok(!paths.some((p: string) => p.startsWith('DELETE')), 'no deletes')
+  assert.ok(!paths.some((p: string) => /removal-orders/.test(p) && !p.startsWith('GET')), 'removal orders are read-only')
+  assert.ok(!paths.some((p: string) => /shipment|listing-update|price/i.test(p)))
 })

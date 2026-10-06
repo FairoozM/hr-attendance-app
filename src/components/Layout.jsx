@@ -505,6 +505,8 @@ export function Layout() {
     if (location.pathname.startsWith('/admin/zoho/bulk-quantity-adjustment')) return 'Bulk Quantity Adjustment'
     if (location.pathname.startsWith('/admin/zoho/bulk-invoice')) return 'Bulk Zoho Invoice'
     if (location.pathname.startsWith('/amazon-ksa/command-center')) return 'Amazon KSA Command Center'
+    if (location.pathname.startsWith('/amazon-ksa/capacity')) return 'Amazon KSA Capacity'
+    if (location.pathname.startsWith('/amazon-ksa/inventory-health')) return 'Amazon KSA Inventory Health'
     if (location.pathname.startsWith('/amazon-ksa/settings')) return 'Amazon KSA SKU Mapping'
     if (location.pathname.startsWith('/ai/amazon-zoho-stock')) return 'Amazon + Zoho Stock'
     if (location.pathname.startsWith('/ai/amazon-out-of-stock-clearance')) return 'Amazon Out of Stock Clearance'
@@ -564,6 +566,8 @@ export function Layout() {
   ].filter(Boolean)
   const amazonKsaItems = [
     isAdmin && { label: 'Command Center', to: '/amazon-ksa/command-center' },
+    isAdmin && { label: 'Capacity', to: '/amazon-ksa/capacity' },
+    isAdmin && { label: 'Inventory Health', to: '/amazon-ksa/inventory-health' },
     isAdmin && { label: 'Settings / SKU Mapping', to: '/amazon-ksa/settings/sku-mapping' },
   ].filter(Boolean)
   const listsItems = [
@@ -877,10 +881,11 @@ export function Layout() {
     ...amazonKsaItems.map(i => ({
       ...i,
       group: 'Amazon KSA',
-      searchHint:
-        i.to === '/amazon-ksa/command-center'
-          ? 'amazon ksa control tower command center sales sar fba inventory out of stock low stock freshness refresh'
-          : 'amazon ksa sku mapping zoho item pack multiplier carton settings low stock threshold backfill',
+      searchHint: {
+        '/amazon-ksa/command-center': 'amazon ksa control tower command center sales sar fba inventory out of stock low stock freshness refresh',
+        '/amazon-ksa/capacity': 'amazon ksa fba capacity limit usage utilization storage volume seller central',
+        '/amazon-ksa/inventory-health': 'amazon ksa inventory health aged excess slow zero sales inactive listings removal orders capacity release daily actions',
+      }[i.to] || 'amazon ksa sku mapping zoho item pack multiplier carton settings low stock threshold backfill',
     })),
     ...adminNavItems.map(i => ({
       ...i,

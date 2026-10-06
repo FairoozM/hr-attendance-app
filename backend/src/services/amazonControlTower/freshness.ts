@@ -32,6 +32,9 @@ const FRESHNESS_SOURCES: FreshnessSourceDef[] = [
   { key: 'daily_sales', label: 'Daily sales rollup', jobType: 'rollup', warnAfterMs: 2 * HOUR, staleAfterMs: 6 * HOUR },
   { key: 'fba_inventory', label: 'FBA inventory', jobType: 'fba_inventory', warnAfterMs: 2 * HOUR, staleAfterMs: 6 * HOUR },
   { key: 'warehouse_inventory', label: 'Warehouse inventory (Zoho)', jobType: 'warehouse_stock', warnAfterMs: 4 * HOUR, staleAfterMs: 12 * HOUR },
+  { key: 'listing_status', label: 'Amazon listing status', jobType: 'listing_status', warnAfterMs: 26 * HOUR, staleAfterMs: 50 * HOUR },
+  { key: 'inventory_reports', label: 'Inventory age / volumes / capacity usage', jobType: 'inventory_reports', warnAfterMs: 26 * HOUR, staleAfterMs: 50 * HOUR },
+  { key: 'removal_orders', label: 'Removal orders', jobType: 'removal_orders', warnAfterMs: 26 * HOUR, staleAfterMs: 50 * HOUR },
 ]
 
 type FreshnessInput = {

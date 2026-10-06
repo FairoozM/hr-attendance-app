@@ -1,6 +1,48 @@
-import type { FreshnessStatus, MappingStatus, RefreshRun, RefreshStep, RunStatus } from '../../api/amazonControlTower'
+import type { ReactNode } from 'react'
+import type {
+  AmazonListingStatus,
+  Confidence,
+  FreshnessStatus,
+  HealthStatus,
+  MappingIndicator,
+  MappingStatus,
+  RefreshRun,
+  RefreshStep,
+  RunStatus,
+} from '../../api/amazonControlTower'
 
 export const DASH = '—'
+export const CM3_PER_CUBIC_METER = 1_000_000
+export const CM3_PER_CUBIC_FOOT = 28_316.846592
+
+export function fmtNum(value: number | null | undefined, digits = 2): string {
+  if (value == null || !Number.isFinite(value)) return DASH
+  return value.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: digits })
+}
+
+export function fmtPct(value: number | null | undefined, digits = 1): string {
+  if (value == null || !Number.isFinite(value)) return DASH
+  return `${value.toFixed(digits)}%`
+}
+
+/** cm³ shown as m³ and ft³ (the units Seller Central uses for capacity). */
+export function fmtVolume(cm3: number | null | undefined): string {
+  if (cm3 == null || !Number.isFinite(cm3)) return DASH
+  return `${fmtNum(cm3 / CM3_PER_CUBIC_METER, 3)} m³ · ${fmtNum(cm3 / CM3_PER_CUBIC_FOOT, 1)} ft³`
+}
+
+export function fmtDate(value: string | null | undefined): string {
+  if (!value) return DASH
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value
+  const d = new Date(value)
+  return Number.isNaN(d.getTime()) ? DASH : d.toLocaleDateString()
+}
+
+export function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
+}
+
+export const humanize = (value: string | null | undefined): string => (value ? value.replace(/_/g, ' ') : DASH)
 
 export function fmtInt(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return DASH
@@ -58,6 +100,117 @@ export function MappingBadge({ status }: { status: MappingStatus }) {
   return <span className={`ainv-badge ${MAPPING_BADGE[status] || 'ainv-badge--neutral'}`}>{status.replace('_', ' ')}</span>
 }
 
+const LISTING_BADGE: Record<AmazonListingStatus, string> = {
+  ACTIVE: 'ainv-badge--ok',
+  INACTIVE: 'ainv-badge--danger',
+  SUPPRESSED: 'ainv-badge--danger',
+  INCOMPLETE: 'ainv-badge--warn',
+  CLOSED: 'ainv-badge--neutral',
+  UNKNOWN: 'ainv-badge--neutral',
+}
+
+export function ListingStatusBadge({ status, title }: { status: AmazonListingStatus | null; title?: string | null }) {
+  if (!status) return <span className="ainv-badge ainv-badge--neutral" title="Listing status not refreshed yet">NOT REFRESHED</span>
+  return <span className={`ainv-badge ${LISTING_BADGE[status] || 'ainv-badge--neutral'}`} title={title || undefined}>{status}</span>
+}
+
+const HEALTH_BADGE: Record<HealthStatus, string> = {
+  HEALTHY: 'ainv-badge--ok',
+  WATCH: 'ainv-badge--warn',
+  SLOW: 'ainv-badge--warn',
+  EXCESS: 'ainv-badge--warn',
+  AGED: 'ainv-badge--danger',
+  ZERO_SALES: 'ainv-badge--danger',
+  OUT_ZERO_FBA: 'ainv-badge--danger',
+  DATA_INCOMPLETE: 'ainv-badge--neutral',
+}
+
+export const HEALTH_LABEL: Record<HealthStatus, string> = {
+  HEALTHY: 'HEALTHY',
+  WATCH: 'WATCH',
+  SLOW: 'SLOW',
+  EXCESS: 'EXCESS',
+  AGED: 'AGED',
+  ZERO_SALES: 'ZERO SALES',
+  OUT_ZERO_FBA: 'OUT / ZERO FBA',
+  DATA_INCOMPLETE: 'DATA INCOMPLETE',
+}
+
+export function HealthBadge({ status, title }: { status: HealthStatus; title?: string }) {
+  return <span className={`ainv-badge ${HEALTH_BADGE[status] || 'ainv-badge--neutral'}`} title={title}>{HEALTH_LABEL[status] || status}</span>
+}
+
+const INDICATOR_BADGE: Record<MappingIndicator, string> = {
+  MAPPED: 'ainv-badge--ok',
+  AMBIGUOUS: 'ainv-badge--warn',
+  UNMAPPED: 'ainv-badge--danger',
+}
+
+export function MappingIndicatorBadge({ indicator }: { indicator: MappingIndicator }) {
+  return <span className={`ainv-badge ${INDICATOR_BADGE[indicator] || 'ainv-badge--neutral'}`}>{indicator}</span>
+}
+
+const SOURCE_LABEL: Record<string, string> = {
+  SELLER_CENTRAL_MANUAL: 'Seller Central (manual entry)',
+  IMPORT: 'Import',
+  AMAZON_API: 'Amazon API',
+  CALCULATED: 'Calculated',
+  AMAZON_REPORT: 'Amazon report',
+}
+
+/** Source · as of · confidence line every capacity number carries. Estimates are always labelled. */
+export function SourceMeta({ source, asOf, confidence }: { source: string | null | undefined; asOf: string | null | undefined; confidence: Confidence | string | null | undefined }) {
+  const estimate = source === 'CALCULATED'
+  return (
+    <span className="text-xs" style={{ color: 'var(--text-dim)' }}>
+      {estimate ? <span className="ainv-badge ainv-badge--warn mr-1">ESTIMATE</span> : null}
+      Source: {source ? SOURCE_LABEL[source] || humanize(source) : DASH} · As of {fmtDateTime(asOf)} · Confidence: {confidence ? humanize(String(confidence)) : DASH}
+    </span>
+  )
+}
+
+export function Kpi({ label, value, hint, meta, tone }: { label: string; value: string; hint?: ReactNode; meta?: ReactNode; tone?: 'warn' | 'danger' }) {
+  const border = tone === 'danger' ? 'var(--danger, #e11d48)' : tone === 'warn' ? '#f59e0b' : undefined
+  return (
+    <div className="ainv-summary-card" style={border ? { borderColor: border } : undefined}>
+      <p className="ainv-summary-card__label">{label}</p>
+      <p className="ainv-summary-card__value">{value}</p>
+      {hint ? <p className="ainv-summary-card__hint">{hint}</p> : null}
+      {meta ? <div className="mt-1">{meta}</div> : null}
+    </div>
+  )
+}
+
+export function SectionHeader({ title, total, shown, note }: { title: string; total?: number; shown?: number; note?: ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-baseline justify-between gap-2 px-4 pt-4">
+      <h2 className="ainv-section-title">
+        {title} {total != null ? <span className="text-sm font-normal opacity-70">({fmtInt(total)})</span> : null}
+      </h2>
+      <p className="text-xs" style={{ color: 'var(--text-dim)' }}>
+        {total != null && shown != null && shown < total ? `Showing first ${shown} of ${total}. ` : ''}
+        {note}
+      </p>
+    </div>
+  )
+}
+
+export function Empty({ text }: { text: string }) {
+  return (
+    <div className="p-6 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
+      {text}
+    </div>
+  )
+}
+
+const JOB_LABEL: Record<string, string> = {
+  refresh_all: 'Refresh All',
+  refresh_health: 'Refresh Capacity & Health',
+  listing_status: 'Listing status',
+  inventory_reports: 'Inventory reports',
+  removal_orders: 'Removal orders',
+}
+
 const RUN_BADGE: Record<RunStatus, string> = {
   queued: 'ainv-badge--neutral',
   running: 'ainv-badge--warn',
@@ -96,7 +249,7 @@ export function RunProgress({ run }: { run: RefreshRun }) {
     <div className="ainv-panel" aria-live="polite">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm font-semibold">
-          {run.jobType === 'refresh_all' ? 'Refresh All' : run.jobType} <RunBadge status={run.status} />
+          {JOB_LABEL[run.jobType] || run.jobType} <RunBadge status={run.status} />
         </p>
         <p className="text-xs" style={{ color: 'var(--text-dim)' }}>
           Started {fmtDateTime(run.startedAt || run.queuedAt)}

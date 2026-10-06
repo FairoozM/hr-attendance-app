@@ -3,7 +3,7 @@
 const { describe, it } = require('node:test')
 const assert = require('node:assert/strict')
 const { createMemoryRefreshStore } = require('../src/services/amazonControlTower/refreshRunStore.ts')
-const { createRefreshRunner, REFRESH_ALL_STEPS } = require('../src/services/amazonControlTower/refreshRunner.ts')
+const { createRefreshRunner, REFRESH_ALL_STEPS, REFRESH_HEALTH_STEPS } = require('../src/services/amazonControlTower/refreshRunner.ts')
 const { startControlTowerScheduler, isSchedulerEnabled } = require('../src/services/amazonControlTower/refreshScheduler.ts')
 
 const quietLog = { info() {}, error() {} }
@@ -190,14 +190,14 @@ describe('Control Tower refresh runner', () => {
     const started = await runner.start({ marketplaceKey: 'ksa', jobType: 'refresh_all' })
     assert.equal(started.runIds.length, 1 + REFRESH_ALL_STEPS.length)
     await runner.drain()
-    assert.deepEqual(order, ['listings', 'sales', 'rollup', 'fba_inventory', 'warehouse_stock'])
+    assert.deepEqual(order, ['listings', 'listing_status', 'sales', 'rollup', 'fba_inventory', 'warehouse_stock'])
     const parent = await runner.getRunWithChildren(started.runIds[0])
     assert.equal(parent.status, 'succeeded')
-    assert.equal(parent.recordsProcessed, 5)
-    assert.equal(parent.children.length, 5)
+    assert.equal(parent.recordsProcessed, 6)
+    assert.equal(parent.children.length, 6)
     assert.ok(parent.children.every((c: any) => c.status === 'succeeded' && c.triggerSource === 'parent'))
     const steps = parent.metadata.steps
-    assert.deepEqual(steps.map((s: any) => s.key), ['listings', 'sales', 'rollup', 'fba_inventory', 'warehouse_stock', 'freshness'])
+    assert.deepEqual(steps.map((s: any) => s.key), ['listings', 'listing_status', 'sales', 'rollup', 'fba_inventory', 'warehouse_stock', 'freshness'])
     assert.ok(steps.every((s: any) => s.status === 'succeeded'))
     assert.equal(parent.metadata.freshness.sources[0].status, 'FRESH')
   })
@@ -214,7 +214,7 @@ describe('Control Tower refresh runner', () => {
     const { runner } = makeRunner(handlers)
     const started = await runner.start({ marketplaceKey: 'ksa', jobType: 'refresh_all' })
     await runner.drain()
-    assert.equal(order.length, 5)
+    assert.equal(order.length, REFRESH_ALL_STEPS.length)
     const parent = await runner.getRunWithChildren(started.runIds[0])
     assert.equal(parent.status, 'failed')
     assert.match(parent.errorMessage, /Sales \(order report\) sync: report FATAL/)
@@ -227,6 +227,7 @@ describe('Control Tower refresh runner', () => {
     let fbaCalls = 0
     const handlers: Record<string, any> = {
       listings: async () => {},
+      listing_status: async () => {},
       sales: async () => {},
       rollup: async () => {},
       warehouse_stock: async () => {},
@@ -249,6 +250,42 @@ describe('Control Tower refresh runner', () => {
     assert.equal(fbaStep.status, 'skipped')
     assert.ok(fbaStep.error.includes(standalone.runIds[0]))
     assert.equal(parent.status, 'succeeded')
+  })
+
+  it('refresh_health runs listing status, FBA inventory, inventory reports and removals as one composite', async () => {
+    const order: string[] = []
+    const handlers: Record<string, any> = {}
+    for (const step of REFRESH_HEALTH_STEPS) {
+      handlers[step.key] = async () => {
+        order.push(step.key)
+        return { recordsProcessed: 2 }
+      }
+    }
+    const { runner } = makeRunner(handlers)
+    const started = await runner.start({ marketplaceKey: 'ksa', jobType: 'refresh_health' })
+    assert.equal(started.runIds.length, 1 + REFRESH_HEALTH_STEPS.length)
+    await runner.drain()
+    assert.deepEqual(order, ['listing_status', 'fba_inventory', 'inventory_reports', 'removal_orders'])
+    const parent = await runner.getRunWithChildren(started.runIds[0])
+    assert.equal(parent.jobType, 'refresh_health')
+    assert.equal(parent.status, 'succeeded')
+    assert.equal(parent.children.length, 4)
+    assert.equal(parent.recordsProcessed, 8)
+  })
+
+  it('a failed job keeps the error metadata (e.g. Amazon report outcomes with request ids)', async () => {
+    const { runner } = makeRunner({
+      inventory_reports: async () => {
+        const err: any = new Error('No inventory report was usable')
+        err.metadata = { reports: { planning: { status: 'FATAL', amazonRequestId: 'req-1' } } }
+        throw err
+      },
+    })
+    const started = await runner.start({ marketplaceKey: 'ksa', jobType: 'inventory_reports' })
+    await runner.drain()
+    const run = await runner.getRunWithChildren(started.runIds[0])
+    assert.equal(run.status, 'failed')
+    assert.equal(run.metadata.reports.planning.amazonRequestId, 'req-1')
   })
 })
 
