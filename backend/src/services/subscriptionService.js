@@ -113,7 +113,7 @@ function enrichRow(row) {
 async function create(payload, userId) {
   const status = computeStatus(payload.expiry_date)
   const result = await query(
-    `INSERT INTO subscriptions (
+    `INSERT INTO subscriptions AS s (
       name, vendor, category, status, billing_cycle, cost, currency,
       start_date, expiry_date, auto_renew, responsible_person,
       invoice_required, invoice_status, payment_status, notes,
@@ -147,13 +147,13 @@ async function create(payload, userId) {
 async function update(id, payload, userId) {
   const status = computeStatus(payload.expiry_date)
   const result = await query(
-    `UPDATE subscriptions SET
+    `UPDATE subscriptions AS s SET
       name = $2, vendor = $3, category = $4, status = $5, billing_cycle = $6,
       cost = $7, currency = $8, start_date = $9, expiry_date = $10,
       auto_renew = $11, responsible_person = $12, invoice_required = $13,
       invoice_status = $14, payment_status = $15, notes = $16,
       updated_by = $17, updated_at = NOW()
-     WHERE id = $1 AND deleted_at IS NULL
+     WHERE s.id = $1 AND s.deleted_at IS NULL
      RETURNING ${SUBSCRIPTION_FIELDS}`,
     [
       id,

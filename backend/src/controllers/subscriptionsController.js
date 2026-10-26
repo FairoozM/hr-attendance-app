@@ -110,6 +110,14 @@ function userDisplayName(user) {
   return user?.full_name || user?.username || user?.email || 'Unknown'
 }
 
+function sendWriteError(res, err, logLabel, fallback) {
+  console.error(logLabel, err)
+  if (err && err.code === '23505') {
+    return res.status(409).json({ error: 'A subscription with this name already exists' })
+  }
+  return res.status(500).json({ error: fallback })
+}
+
 async function list(req, res) {
   try {
     const rows = await svc.findAll()
@@ -150,8 +158,7 @@ async function create(req, res) {
     const row = await svc.create(payload.value, req.user?.id)
     res.status(201).json(mapRow(row))
   } catch (err) {
-    console.error('[subscriptions] create error:', err)
-    res.status(500).json({ error: 'Failed to create subscription' })
+    sendWriteError(res, err, '[subscriptions] create error:', 'Failed to create subscription')
   }
 }
 
@@ -166,8 +173,7 @@ async function update(req, res) {
     const row = await svc.update(id, payload.value, req.user?.id)
     res.json(mapRow(row))
   } catch (err) {
-    console.error('[subscriptions] update error:', err)
-    res.status(500).json({ error: 'Failed to update subscription' })
+    sendWriteError(res, err, '[subscriptions] update error:', 'Failed to update subscription')
   }
 }
 

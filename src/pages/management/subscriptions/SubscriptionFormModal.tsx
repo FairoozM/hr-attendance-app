@@ -68,8 +68,9 @@ export function SubscriptionFormModal({ open, onClose, onSave, editTarget, savin
       title={editTarget ? 'Edit Subscription' : 'Add Subscription'}
       open={open}
       onClose={onClose}
+      panelClassName="sub-form-modal"
     >
-      <form onSubmit={handleSubmit} className="form-stack">
+      <form onSubmit={handleSubmit} className="sub-form">
         {error && <div className="sub-error-banner">{error}</div>}
 
         <label>
@@ -82,7 +83,7 @@ export function SubscriptionFormModal({ open, onClose, onSave, editTarget, savin
           <input value={form.vendor} onChange={(e) => set('vendor', e.target.value)} />
         </label>
 
-        <div className="form-row">
+        <div className="sub-form__row">
           <label>
             Category
             <select value={form.category} onChange={(e) => set('category', e.target.value)}>
@@ -101,7 +102,7 @@ export function SubscriptionFormModal({ open, onClose, onSave, editTarget, savin
           </label>
         </div>
 
-        <div className="form-row">
+        <div className="sub-form__row">
           <label>
             Cost
             <input
@@ -114,11 +115,11 @@ export function SubscriptionFormModal({ open, onClose, onSave, editTarget, savin
           </label>
           <label>
             Currency
-            <input value={form.currency} onChange={(e) => set('currency', e.target.value)} />
+            <input value={form.currency} onChange={(e) => set('currency', e.target.value)} maxLength={10} />
           </label>
         </div>
 
-        <div className="form-row">
+        <div className="sub-form__row">
           <label>
             Start Date
             <input type="date" value={form.startDate} onChange={(e) => set('startDate', e.target.value)} />
@@ -134,7 +135,7 @@ export function SubscriptionFormModal({ open, onClose, onSave, editTarget, savin
           <input value={form.responsiblePerson} onChange={(e) => set('responsiblePerson', e.target.value)} />
         </label>
 
-        <label className="checkbox-label">
+        <label className="sub-form__check">
           <input
             type="checkbox"
             checked={form.autoRenew}
@@ -143,7 +144,7 @@ export function SubscriptionFormModal({ open, onClose, onSave, editTarget, savin
           Auto-renew
         </label>
 
-        <label className="checkbox-label">
+        <label className="sub-form__check">
           <input
             type="checkbox"
             checked={form.invoiceRequired}
@@ -157,7 +158,7 @@ export function SubscriptionFormModal({ open, onClose, onSave, editTarget, savin
           <textarea rows={3} value={form.notes} onChange={(e) => set('notes', e.target.value)} />
         </label>
 
-        <div className="modal-actions">
+        <div className="sub-form__actions">
           <button type="button" className="btn btn--ghost" onClick={onClose}>Cancel</button>
           <button type="submit" className="btn btn--primary" disabled={saving}>
             {saving ? 'Saving…' : editTarget ? 'Save Changes' : 'Add Subscription'}
