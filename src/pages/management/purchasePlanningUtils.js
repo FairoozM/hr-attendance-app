@@ -189,13 +189,27 @@ export function isEditablePlanStatus(status) {
   return status === 'draft' || status === 'failed'
 }
 
+/** Not yet in Zoho: editable drafts/failed sends, plus a send that is in flight. */
+export function isOpenPlanStatus(status) {
+  return isEditablePlanStatus(status) || status === 'sending'
+}
+
+/** Matches the server: a send older than this is treated as interrupted and may be finished. */
+export const PO_SEND_STALE_MS = 10 * 60 * 1000
+
+export function isPlanSendStale(plan, now = Date.now()) {
+  if (plan?.status !== 'sending') return false
+  const started = plan.sendStartedAt ? new Date(plan.sendStartedAt).getTime() : Number.NaN
+  return !Number.isFinite(started) || now - started >= PO_SEND_STALE_MS
+}
+
 export function getLatestDraftPlan(plans) {
   return (plans || []).find((p) => p.status === 'draft') || null
 }
 
-/** Newest draft, or a failed send that still needs a retry. */
+/** Newest plan that has not reached Zoho yet (draft, failed send, or send in flight). */
 export function getLatestOpenPlan(plans) {
-  return (plans || []).find((p) => isEditablePlanStatus(p.status)) || null
+  return (plans || []).find((p) => isOpenPlanStatus(p.status)) || null
 }
 
 export function getLatestSentPlan(plans) {
@@ -256,6 +270,15 @@ export function getDefaultPurchasePlanningView(ctx) {
   const latestSent = getLatestSentPlan(plans)
 
   if (selectedPlan?.id) {
+    if (selectedPlan.status === 'sending') {
+      return {
+        activeStep: 6,
+        mode: 'draft_review',
+        selectedPlanId: selectedPlan.id,
+        showLatestSentPanel: false,
+        reason: 'Purchase order send in progress',
+      }
+    }
     if (isEditablePlanStatus(selectedPlan.status)) {
       return {
         activeStep: 5,
@@ -287,12 +310,16 @@ export function getDefaultPurchasePlanningView(ctx) {
   }
 
   if (latestOpen) {
+    const reasons = {
+      failed: 'Last Zoho send failed and can be retried',
+      sending: 'Purchase order send in progress',
+    }
     return {
-      activeStep: 5,
+      activeStep: latestOpen.status === 'sending' ? 6 : 5,
       mode: 'draft_review',
       selectedPlanId: latestOpen.id,
       showLatestSentPanel: false,
-      reason: latestOpen.status === 'failed' ? 'Last Zoho send failed and can be retried' : 'Active draft plan exists',
+      reason: reasons[latestOpen.status] || 'Active draft plan exists',
     }
   }
 
@@ -369,9 +396,10 @@ export function computeWorkflow(ctx) {
   const hasVigil = uploads.length > 0
   const hasPendingUpload = pending.length > 0
   const openFromList = getLatestOpenPlan(plans)
-  const activeIsOpen = isEditablePlanStatus(activePlan?.status)
+  const activeIsOpen = isOpenPlanStatus(activePlan?.status)
   const openPlan = activeIsOpen ? activePlan : openFromList
   const hasOpenPlan = Boolean(openPlan)
+  const planSending = openPlan?.status === 'sending'
   const hasDraft = (plans || []).some((plan) => plan.status === 'draft') || activePlan?.status === 'draft'
   const planSent = activePlan?.status === 'sent_to_zoho'
   const batchConsumed = !hasPendingUpload && (hasOpenPlan || planSent)
@@ -449,7 +477,12 @@ export function computeWorkflow(ctx) {
   let step6 = 'blocked'
   if (planSent) step6 = 'completed'
   else if (!hasOpenPlan) blockers[6] = 'Open a draft plan before creating a purchase order.'
-  else if (poReady) step6 = 'ready'
+  else if (planSending) {
+    step6 = 'in_progress'
+    blockers[6] = isPlanSendStale(openPlan)
+      ? 'The last send was interrupted. Open this step to finish it safely.'
+      : 'Sending the purchase order to Zoho…'
+  } else if (poReady) step6 = 'ready'
   else {
     blockers[6] = poReadiness?.reasons?.[0] || 'Review quantities and prices before creating a purchase order.'
   }
@@ -463,6 +496,7 @@ export function computeWorkflow(ctx) {
   let suggestedStep = 1
   if (!hasVigil) suggestedStep = 1
   else if (enrichmentActive || (hasPendingUpload && (pendingWithoutZoho.length > 0 || enrichmentError))) suggestedStep = 3
+  else if (planSending) suggestedStep = 6
   else if (hasOpenPlan) suggestedStep = stepNum === 6 ? 6 : 5
   else if (hasPendingUpload) suggestedStep = 4
   else if (planSent) suggestedStep = 5
@@ -529,7 +563,8 @@ export function computePoReadiness(plan, options = {}) {
   const reasons = []
   if (!plan) reasons.push('Open a draft plan before creating a purchase order.')
   if (plan?.status === 'sent_to_zoho') reasons.push('This plan was already sent to Zoho.')
-  if (plan && !isEditablePlanStatus(plan.status) && plan.status !== 'sent_to_zoho') {
+  if (plan?.status === 'sending') reasons.push('This plan is being sent to Zoho.')
+  if (plan && !isOpenPlanStatus(plan.status) && plan.status !== 'sent_to_zoho') {
     reasons.push('Only draft plans can create a purchase order.')
   }
   if (plan && includedLines.length === 0) reasons.push('No included lines with quantity greater than zero.')

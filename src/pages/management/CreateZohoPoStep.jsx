@@ -1,11 +1,18 @@
 import { Badge } from './PurchasePlanningBadges'
-import { computePoReadiness, fmtPrice, isEditablePlanStatus } from './purchasePlanningUtils'
+import {
+  computePoReadiness,
+  fmtPrice,
+  formatUploadDate,
+  isEditablePlanStatus,
+  isPlanSendStale,
+} from './purchasePlanningUtils'
 
 export function CreateZohoPoStep({
   plan,
   purchaseOrderNumber,
   onPurchaseOrderNumberChange,
   onCreatePo,
+  onReload,
   busy,
   vendorLabel,
   pricesReady = true,
@@ -38,6 +45,33 @@ export function CreateZohoPoStep({
           </div>
         </dl>
         <p className="pp-hint">This plan is locked. Duplicate PO creation is blocked by the server.</p>
+      </div>
+    )
+  }
+
+  if (plan.status === 'sending') {
+    const stale = isPlanSendStale(plan)
+    const poLabel = plan.purchaseOrderNumber ? `PO ${plan.purchaseOrderNumber}` : 'The purchase order'
+    return (
+      <div className="pp-step-content">
+        <div className="pp-readonly-banner" role="status">
+          {stale
+            ? `${poLabel} did not finish sending (started ${formatUploadDate(plan.sendStartedAt)}). Finishing checks Zoho first, so it links an existing PO instead of creating a second one.`
+            : `${poLabel} is being sent to Zoho (started ${formatUploadDate(plan.sendStartedAt)}). Lines are locked until it finishes.`}
+        </div>
+        <div className="pp-step-primary-actions">
+          {stale ? (
+            <button type="button" className="btn btn--primary" disabled={busy} onClick={onCreatePo}>
+              {busy ? 'Checking Zoho…' : 'Check Zoho & finish'}
+            </button>
+          ) : (
+            onReload && (
+              <button type="button" className="btn" disabled={busy} onClick={onReload}>
+                Reload status
+              </button>
+            )
+          )}
+        </div>
       </div>
     )
   }
@@ -122,7 +156,10 @@ export function CreateZohoPoStep({
             {busy ? 'Creating in Zoho…' : 'Create Draft PO in Zoho'}
           </button>
         </div>
-        <p className="pp-hint">Prices are taken from your All Prices preferences for included lines.</p>
+        <p className="pp-hint">
+          Prices are taken from your All Prices preferences for included lines. If a send is interrupted, sending
+          again checks Zoho first and never creates a second PO for this plan.
+        </p>
       </div>
     </div>
   )

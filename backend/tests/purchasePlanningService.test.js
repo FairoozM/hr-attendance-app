@@ -259,7 +259,7 @@ test('purchasePlanningService: createZohoPurchaseOrder rejects inactive Zoho ite
   const svc = freshRequire('../src/services/purchasePlanningService')
 
   ctx.responder.nextTxResponse = (text) => {
-    if (/FROM purchase_plans WHERE id = \$1 FOR UPDATE/i.test(text)) {
+    if (/FROM purchase_plans WHERE id = \$1/i.test(text)) {
       return {
         rows: [{
           id: 11,
@@ -347,5 +347,208 @@ test('purchasePlanningService: createZohoPurchaseOrder rejects inactive Zoho ite
     restoreZohoApi()
     restoreAdapter()
     restoreVendor()
+  }
+})
+
+test('purchasePlanningService: assertPlanEligibleForPo blocks a fresh send and allows a stale one', () => {
+  const { svc, restoreAll } = loadServiceWithDb()
+  const { assertPlanEligibleForPo, PO_SEND_STALE_MS } = svc._internals
+  const now = Date.now()
+  assert.throws(
+    () => assertPlanEligibleForPo({ status: 'sending', send_started_at: new Date(now - 1000) }, now),
+    (err) => err.code === 'PO_SEND_IN_PROGRESS'
+  )
+  assert.doesNotThrow(() =>
+    assertPlanEligibleForPo({ status: 'sending', send_started_at: new Date(now - PO_SEND_STALE_MS - 1) }, now)
+  )
+  restoreAll()
+})
+
+function planItemRow(overrides) {
+  return {
+    purchase_plan_id: 11,
+    item_name: 'Item',
+    zoho_item_active: true,
+    current_zoho_stock: 0,
+    wholesale_available_qty: 5,
+    match_type: 'exact',
+    total_sales_last_3_months: 1,
+    total_bundle_usage_last_3_months: 0,
+    total_usage_last_3_months: 1,
+    average_monthly_usage: 0.3,
+    suggested_qty: 2,
+    final_qty: 2,
+    purchase_price: 10,
+    included: true,
+    notes: '',
+    ...overrides,
+  }
+}
+
+function loadSendHarness({ planRow, zohoPurchaseOrders = {}, postResult, postError }) {
+  const prevWarehouse = process.env.PURCHASE_PLANNING_WAREHOUSE_ID
+  process.env.PURCHASE_PLANNING_WAREHOUSE_ID = 'wh-1'
+  const ctx = setupDbMock()
+  const zohoCalls = []
+  const restoreZoho = mockModule('../src/integrations/zoho/zohoConfig', {
+    readZohoConfig: () => ({ code: 'ok', organizationId: 'org-1' }),
+    INVENTORY_V1: '/inventory/v1',
+  })
+  const restoreZohoApi = mockModule('../src/integrations/zoho/zohoInventoryClient', {
+    zohoApiRequest: async (path, searchParams, method, body, meta) => {
+      zohoCalls.push({ path, searchParams, method, body, meta })
+      if (method === 'GET') {
+        const number = searchParams.get('purchaseorder_number')
+        return { purchaseorders: zohoPurchaseOrders[number] || [] }
+      }
+      if (postError) throw postError
+      return postResult || { purchaseorder: { purchaseorder_id: 'Z-NEW', purchaseorder_number: 'PO-NEW' } }
+    },
+    fetchCompositeItemDetail: async () => ({ mapped_items: [] }),
+    fetchCompositeItemsList: async () => ({ composite_items: [] }),
+  })
+  const restoreAdapter = mockModule('../src/integrations/zoho/zohoAdapter', {
+    fetchItemsRawForWarehouse: async () => [
+      { item_id: 'z-a', sku: 'SKU-A', status: 'active' },
+      { item_id: 'z-b', sku: 'SKU-B', status: 'active' },
+    ],
+  })
+  const restoreVendor = mockModule('../src/services/weeklyReportReportVendor', {
+    getResolvedReportVendor: () => ({ vendorId: 'vendor-1', source: 'test' }),
+  })
+  const svc = freshRequire('../src/services/purchasePlanningService')
+
+  ctx.responder.nextTxResponse = (text) => {
+    if (/FROM purchase_plans WHERE id = \$1/i.test(text)) return { rows: [planRow] }
+    if (/FROM purchase_plan_items/i.test(text)) {
+      return {
+        rows: [
+          planItemRow({ id: 1, sku: 'SKU-B', zoho_item_id: 'z-b' }),
+          planItemRow({ id: 2, sku: 'SKU-A', zoho_item_id: 'z-a', final_qty: 3 }),
+        ],
+      }
+    }
+    return { rows: [], rowCount: 1 }
+  }
+
+  return {
+    svc,
+    ctx,
+    zohoCalls,
+    posts: () => zohoCalls.filter((call) => call.method === 'POST'),
+    restoreAll() {
+      if (prevWarehouse == null) delete process.env.PURCHASE_PLANNING_WAREHOUSE_ID
+      else process.env.PURCHASE_PLANNING_WAREHOUSE_ID = prevWarehouse
+      ctx.restore()
+      restoreZoho()
+      restoreZohoApi()
+      restoreAdapter()
+      restoreVendor()
+    },
+  }
+}
+
+const basePlanRow = {
+  id: 11,
+  plan_number: 'PP-1',
+  status: 'draft',
+  zoho_purchase_order_id: null,
+  purchase_order_number: null,
+  zoho_reference_number: null,
+}
+
+test('purchasePlanningService: createZohoPurchaseOrder creates once with a stable reference and no notes', async () => {
+  const h = loadSendHarness({ planRow: { ...basePlanRow } })
+  try {
+    const result = await h.svc.createZohoPurchaseOrder(11, { purchaseOrderNumber: 'PO-NEW' })
+    assert.equal(result.reconciled, false)
+    assert.equal(result.zohoPurchaseOrderId, 'Z-NEW')
+    assert.equal(h.posts().length, 1)
+    const post = h.posts()[0]
+    assert.equal(post.meta.noTransportRetry, true)
+    const payload = JSON.parse(new URLSearchParams(post.body).get('JSONString'))
+    assert.equal(payload.notes, undefined)
+    assert.deepEqual(payload.line_items.map((line) => line.item_id), ['z-a', 'z-b'])
+
+    const reserve = h.ctx.txCalls.find((call) => /SET status = 'sending'/.test(call.text))
+    assert.ok(reserve, 'plan is marked sending before calling Zoho')
+    assert.equal(payload.reference_number, reserve.params[2])
+    const lookupIndex = h.zohoCalls.findIndex((call) => call.method === 'GET')
+    const postIndex = h.zohoCalls.findIndex((call) => call.method === 'POST')
+    assert.ok(lookupIndex >= 0 && lookupIndex < postIndex, 'Zoho is checked before creating')
+    assert.ok(h.ctx.txCalls.some((call) => /SET status = 'sent_to_zoho'/.test(call.text)))
+  } finally {
+    h.restoreAll()
+  }
+})
+
+test('purchasePlanningService: retry links the PO from an earlier attempt instead of creating another', async () => {
+  const h = loadSendHarness({
+    planRow: { ...basePlanRow, status: 'failed', purchase_order_number: 'PO-OLD', zoho_reference_number: 'REF-1' },
+    zohoPurchaseOrders: {
+      'PO-OLD': [{ purchaseorder_id: 'Z-OLD', purchaseorder_number: 'PO-OLD', reference_number: 'REF-1' }],
+    },
+  })
+  try {
+    const result = await h.svc.createZohoPurchaseOrder(11, { purchaseOrderNumber: 'PO-NEW' })
+    assert.equal(result.reconciled, true)
+    assert.equal(result.zohoPurchaseOrderId, 'Z-OLD')
+    assert.equal(result.purchaseOrderNumber, 'PO-OLD')
+    assert.equal(h.posts().length, 0)
+    const finalize = h.ctx.txCalls.find((call) => /SET status = 'sent_to_zoho'/.test(call.text))
+    assert.deepEqual(finalize.params, [11, 'Z-OLD', 'PO-OLD'])
+  } finally {
+    h.restoreAll()
+  }
+})
+
+test('purchasePlanningService: refuses a PO number that already belongs to another Zoho PO', async () => {
+  const h = loadSendHarness({
+    planRow: { ...basePlanRow },
+    zohoPurchaseOrders: {
+      'PO-NEW': [{ purchaseorder_id: 'Z-X', purchaseorder_number: 'po-new', reference_number: 'SOMEONE-ELSE' }],
+    },
+  })
+  try {
+    await assert.rejects(
+      () => h.svc.createZohoPurchaseOrder(11, { purchaseOrderNumber: 'PO-NEW' }),
+      (err) => err.code === 'ZOHO_PO_NUMBER_TAKEN'
+    )
+    assert.equal(h.posts().length, 0)
+    assert.ok(h.ctx.calls.some((call) => /SET status = 'failed'/.test(call.text) && /status = 'sending'/.test(call.text)))
+  } finally {
+    h.restoreAll()
+  }
+})
+
+test('purchasePlanningService: a Zoho timeout marks the plan failed with a safe-retry hint', async () => {
+  const timeout = Object.assign(new Error('Zoho request timed out'), { code: 'ZOHO_API_TIMEOUT' })
+  const h = loadSendHarness({ planRow: { ...basePlanRow }, postError: timeout })
+  try {
+    await assert.rejects(
+      () => h.svc.createZohoPurchaseOrder(11, { purchaseOrderNumber: 'PO-NEW' }),
+      (err) => err.code === 'ZOHO_API_TIMEOUT'
+    )
+    const failed = h.ctx.calls.find((call) => /SET status = 'failed'/.test(call.text))
+    assert.ok(failed)
+    assert.match(failed.params[1], /will not duplicate/)
+    assert.ok(!h.ctx.txCalls.some((call) => /SET status = 'sent_to_zoho'/.test(call.text)))
+  } finally {
+    h.restoreAll()
+  }
+})
+
+test('purchasePlanningService: a send already in progress is rejected without calling Zoho', async () => {
+  const h = loadSendHarness({
+    planRow: { ...basePlanRow, status: 'sending', send_started_at: new Date() },
+  })
+  try {
+    await assert.rejects(
+      () => h.svc.createZohoPurchaseOrder(11, { purchaseOrderNumber: 'PO-NEW' }),
+      (err) => err.code === 'PO_SEND_IN_PROGRESS'
+    )
+    assert.equal(h.zohoCalls.length, 0)
+  } finally {
+    h.restoreAll()
   }
 })

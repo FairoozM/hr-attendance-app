@@ -3,6 +3,8 @@ import {
   computePoReadiness,
   computeWorkflow,
   getDefaultPurchasePlanningView,
+  isPlanSendStale,
+  PO_SEND_STALE_MS,
 } from './purchasePlanningUtils'
 
 const vigil = [{ id: 1, rowsCount: 674, fileName: 'vigil.xlsx' }]
@@ -135,5 +137,47 @@ describe('computePoReadiness', () => {
   it('allows a failed plan to be sent again when the lines are valid', () => {
     const result = computePoReadiness({ status: 'failed', items: [line()] })
     expect(result.ready).toBe(true)
+  })
+
+  it('blocks a normal send while the plan is already sending', () => {
+    const result = computePoReadiness({ status: 'sending', items: [line()] })
+    expect(result.ready).toBe(false)
+    expect(result.reasons).toEqual(['This plan is being sent to Zoho.'])
+  })
+})
+
+describe('sending plans', () => {
+  const sendingPlan = (startedAgoMs) => ({
+    id: 4,
+    status: 'sending',
+    planNumber: 'PP-4',
+    purchaseOrderNumber: 'PO-4',
+    sendStartedAt: new Date(Date.now() - startedAgoMs).toISOString(),
+    items: [line()],
+  })
+
+  it('shows the PO step as in progress and opens it by default', () => {
+    const plan = sendingPlan(1000)
+    const result = computeWorkflow({
+      uploads: vigil,
+      lowStock: [],
+      activePlan: plan,
+      activePlanWithPrices: plan,
+      plans: [plan],
+      currentStep: 6,
+    })
+    expect(result.stepStatuses[6]).toBe('in_progress')
+    expect(result.blockers[6]).toMatch(/Sending/)
+    expect(result.suggestedStep).toBe(6)
+
+    const view = getDefaultPurchasePlanningView({ uploads: vigil, lowStock: [], plans: [plan] })
+    expect(view.activeStep).toBe(6)
+    expect(view.selectedPlanId).toBe(4)
+  })
+
+  it('treats an old send as interrupted', () => {
+    expect(isPlanSendStale(sendingPlan(1000))).toBe(false)
+    expect(isPlanSendStale(sendingPlan(PO_SEND_STALE_MS + 1000))).toBe(true)
+    expect(isPlanSendStale({ status: 'failed' })).toBe(false)
   })
 })

@@ -64,13 +64,20 @@ export function ReviewPlanStep({
 
       {editable && (
         <p className="pp-hint pp-hint--warn">
-          Refresh Zoho Data may overwrite manual quantity edits. It uses the latest Vigil upload.
+          Refresh Zoho Data may overwrite manual quantity edits. Wholesale stock comes from the Vigil upload this plan
+          was built from.
         </p>
       )}
 
       {isSent && (
         <div className="pp-readonly-banner" role="status">
           This purchase plan has already been sent to Zoho and is read-only.
+        </div>
+      )}
+
+      {plan.status === 'sending' && (
+        <div className="pp-readonly-banner" role="status">
+          This plan is being sent to Zoho. Lines are locked until the send finishes — see Step 6.
         </div>
       )}
 

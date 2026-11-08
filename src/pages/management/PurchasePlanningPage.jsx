@@ -26,6 +26,8 @@ import {
   getPendingLowStock,
   ignoreCancelledPurchasePlanningRequest,
   isEditablePlanStatus,
+  isOpenPlanStatus,
+  isPlanSendStale,
   pollLowStockEnrichment,
   resolveAllPriceRows,
 } from './purchasePlanningUtils'
@@ -79,6 +81,11 @@ export function PurchasePlanningPage() {
     () => enrichPlanWithPurchasePrices(activePlan, allPriceRows),
     [activePlan, allPriceRows]
   )
+
+  const attemptedPoNumber = activePlan?.status === 'failed' ? activePlan.purchaseOrderNumber || '' : ''
+  useEffect(() => {
+    if (attemptedPoNumber) setPurchaseOrderNumber((current) => current || attemptedPoNumber)
+  }, [activePlan?.id, attemptedPoNumber])
 
   const workflow = useMemo(
     () =>
@@ -395,6 +402,10 @@ export function PurchasePlanningPage() {
           setActiveStep(5)
           scrollToStep(5)
           setNotice(`Opened sent plan ${plan.planNumber} (read-only).`)
+        } else if (plan.status === 'sending') {
+          setViewMode('draft_review')
+          setActiveStep(6)
+          scrollToStep(6)
         } else if (isEditablePlanStatus(plan.status)) {
           setViewMode('draft_review')
           setActiveStep(5)
@@ -450,9 +461,9 @@ export function PurchasePlanningPage() {
           if (plan?.status === 'sent_to_zoho') {
             setViewMode('sent_review')
             setActiveStep(5)
-          } else if (isEditablePlanStatus(plan?.status)) {
+          } else if (isOpenPlanStatus(plan?.status)) {
             setViewMode('draft_review')
-            if (view.activeStep === 5) setActiveStep(5)
+            setActiveStep(plan.status === 'sending' ? 6 : 5)
           }
         })
         .catch((err) => {
@@ -513,7 +524,7 @@ export function PurchasePlanningPage() {
   const refreshPlanZohoData = useCallback(async () => {
     if (!activePlan || !isEditablePlanStatus(activePlan.status)) return
     const ok = window.confirm(
-      'Refresh Zoho stock, sales, and bundle usage?\n\nThis may overwrite manual quantity edits. Refresh uses the latest Vigil upload, not necessarily the upload stored on this plan.'
+      'Refresh Zoho stock, sales, and bundle usage?\n\nThis may overwrite manual quantity edits. Wholesale availability comes from the Vigil upload this plan was built from.'
     )
     if (!ok) return
     setBusy('refresh-plan-zoho')
@@ -526,7 +537,11 @@ export function PurchasePlanningPage() {
       )
       setActivePlan(res.plan)
       const summary = res.summary || {}
-      setNotice(`Refreshed ${summary.refreshed ?? 0} line(s) from Zoho.`)
+      const vigilNote =
+        summary.vigilSource === 'latest_fallback'
+          ? ' The original Vigil upload is gone, so the latest upload was used.'
+          : ''
+      setNotice(`Refreshed ${summary.refreshed ?? 0} line(s) from Zoho.${vigilNote}`)
     } catch (err) {
       setError(err.message || 'Failed to refresh plan from Zoho')
     } finally {
@@ -536,8 +551,12 @@ export function PurchasePlanningPage() {
 
   const createPo = useCallback(async () => {
     const pricedPlan = activePlanWithPrices
-    if (!pricedPlan || !isEditablePlanStatus(pricedPlan.status)) return
-    const poNumber = purchaseOrderNumber.trim()
+    if (!pricedPlan) return
+    const finishingInterruptedSend = isPlanSendStale(pricedPlan)
+    if (!isEditablePlanStatus(pricedPlan.status) && !finishingInterruptedSend) return
+    const poNumber = finishingInterruptedSend
+      ? String(pricedPlan.purchaseOrderNumber || '').trim()
+      : purchaseOrderNumber.trim()
     if (!poNumber) {
       setError('Enter a PO number before sending to Zoho')
       return
@@ -580,11 +599,16 @@ export function PurchasePlanningPage() {
       setViewMode('sent_review')
       setActiveStep(6)
       setNotice(
-        `Created Zoho purchase order ${res.zohoPurchaseOrderId || ''} (${res.sentLines} lines). Plan is now read-only.`
+        res.reconciled
+          ? `Zoho already had PO ${res.purchaseOrderNumber || poNumber} from an earlier attempt, so it was linked instead of creating a second one. Check its lines in Zoho.`
+          : `Created Zoho purchase order ${res.purchaseOrderNumber || poNumber} (${res.sentLines} lines). Plan is now read-only.`
       )
     } catch (err) {
-      if (err.code === 'DUPLICATE_PO' || err.body?.code === 'DUPLICATE_PO') {
+      const code = err.code || err.body?.code
+      if (code === 'DUPLICATE_PO') {
         setError('This plan was already sent to Zoho. Duplicate PO creation is blocked.')
+      } else if (code === 'PO_SEND_IN_PROGRESS') {
+        setError('This plan is already being sent to Zoho. Reload in a moment to see the result.')
       } else {
         setError(err.message || 'Zoho purchase order failed')
       }
@@ -689,6 +713,9 @@ export function PurchasePlanningPage() {
             purchaseOrderNumber={purchaseOrderNumber}
             onPurchaseOrderNumberChange={setPurchaseOrderNumber}
             onCreatePo={createPo}
+            onReload={() => {
+              if (activePlan?.id) refreshActivePlan(activePlan.id).catch(() => {})
+            }}
             busy={busy === 'po'}
             pricesReady={pricesReady}
           />

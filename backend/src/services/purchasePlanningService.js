@@ -148,6 +148,7 @@ function mapPlanRow(row, items = undefined) {
     zohoPurchaseOrderId: row.zoho_purchase_order_id,
     purchaseOrderNumber: row.purchase_order_number || null,
     zohoError: row.zoho_error,
+    sendStartedAt: row.send_started_at || null,
     sourceUploadId: row.source_upload_id,
     items,
   }
@@ -196,6 +197,28 @@ function calculatePlanQuantities({ totalSales = 0, totalBundle = 0, vigilAvailab
   }
 }
 
+const PURCHASE_PLAN_STATUSES = ['draft', 'reviewed', 'sending', 'sent_to_zoho', 'failed']
+
+async function ensurePurchasePlanStatusConstraint() {
+  const existing = await query(`
+    SELECT conname, pg_get_constraintdef(oid) AS def
+    FROM pg_constraint
+    WHERE conrelid = 'purchase_plans'::regclass
+      AND contype = 'c'
+      AND pg_get_constraintdef(oid) ILIKE '%status%'
+  `)
+  const rows = existing.rows || []
+  if (rows.some((row) => String(row.def || '').includes("'sending'"))) return
+  for (const row of rows) {
+    await query(`ALTER TABLE purchase_plans DROP CONSTRAINT IF EXISTS "${String(row.conname).replace(/"/g, '""')}"`)
+  }
+  const allowed = PURCHASE_PLAN_STATUSES.map((status) => `'${status}'`).join(', ')
+  await query(`
+    ALTER TABLE purchase_plans
+    ADD CONSTRAINT purchase_plans_status_check CHECK (status IN (${allowed}))
+  `)
+}
+
 async function ensurePurchasePlanningTables() {
   await query(`
     CREATE TABLE IF NOT EXISTS purchase_low_stock_items (
@@ -241,7 +264,7 @@ async function ensurePurchasePlanningTables() {
       created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       status VARCHAR(20) NOT NULL DEFAULT 'draft'
-        CHECK (status IN ('draft', 'reviewed', 'sent_to_zoho', 'failed')),
+        CHECK (status IN ('draft', 'reviewed', 'sending', 'sent_to_zoho', 'failed')),
       source_upload_id INTEGER REFERENCES vigil_stock_uploads(id) ON DELETE SET NULL,
       zoho_purchase_order_id VARCHAR(100),
       zoho_error TEXT
@@ -257,6 +280,18 @@ async function ensurePurchasePlanningTables() {
     ALTER TABLE purchase_plans
     ADD COLUMN IF NOT EXISTS purchase_order_number VARCHAR(100)
   `)
+  await query(`ALTER TABLE purchase_plans ADD COLUMN IF NOT EXISTS send_started_at TIMESTAMPTZ`)
+  await query(`ALTER TABLE purchase_plans ADD COLUMN IF NOT EXISTS zoho_reference_number VARCHAR(100)`)
+  await ensurePurchasePlanStatusConstraint()
+  try {
+    await query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_purchase_plans_active_po_number
+      ON purchase_plans (LOWER(purchase_order_number))
+      WHERE purchase_order_number IS NOT NULL AND status IN ('sending', 'sent_to_zoho')
+    `)
+  } catch (err) {
+    console.warn('[purchase-planning] could not create unique PO number index:', err.message || err)
+  }
 
   await query(`
     CREATE TABLE IF NOT EXISTS purchase_plan_items (
@@ -821,6 +856,13 @@ async function listVigilUploads() {
   return result.rows.map((row) => mapUploadRow(row, false))
 }
 
+async function getVigilUploadById(id) {
+  const uploadId = Number(id)
+  if (!Number.isInteger(uploadId) || uploadId <= 0) return null
+  const result = await query(`SELECT * FROM vigil_stock_uploads WHERE id = $1`, [uploadId])
+  return result.rows[0] || null
+}
+
 async function getLatestVigilUpload() {
   const result = await query(`
     SELECT *
@@ -1084,7 +1126,14 @@ function assertPendingSkusZohoReady(lowStock) {
   throw err
 }
 
-function assertPlanEligibleForPo(planRow) {
+const PO_SEND_STALE_MS = 10 * 60 * 1000
+
+function isPlanSendStale(planRow, now = Date.now()) {
+  const started = planRow && planRow.send_started_at ? new Date(planRow.send_started_at).getTime() : NaN
+  return !Number.isFinite(started) || now - started >= PO_SEND_STALE_MS
+}
+
+function assertPlanEligibleForPo(planRow, now = Date.now()) {
   if (clean(planRow.zoho_purchase_order_id)) {
     const err = new Error('This purchase plan already has a Zoho purchase order')
     err.code = 'DUPLICATE_PO'
@@ -1094,6 +1143,14 @@ function assertPlanEligibleForPo(planRow) {
     const err = new Error('This purchase plan was already sent to Zoho')
     err.code = 'DUPLICATE_PO'
     throw err
+  }
+  if (planRow.status === 'sending') {
+    if (!isPlanSendStale(planRow, now)) {
+      const err = new Error('This plan is already being sent to Zoho. Wait a moment and reload.')
+      err.code = 'PO_SEND_IN_PROGRESS'
+      throw err
+    }
+    return
   }
   if (planRow.status !== 'draft' && planRow.status !== 'failed') {
     const err = new Error('Only draft or failed plans without an existing PO can create a Zoho purchase order')
@@ -1256,7 +1313,9 @@ async function refreshDraftPlanZohoData(planId) {
     throw err
   }
 
-  const upload = await getLatestVigilUpload()
+  const pinnedUpload = await getVigilUploadById(plan.sourceUploadId)
+  const upload = pinnedUpload || await getLatestVigilUpload()
+  const vigilSource = pinnedUpload ? 'plan' : upload ? 'latest_fallback' : 'none'
   const vigilRows = coerceVigilRowsFromUpload(upload)
   const vigilIndexes = buildVigilIndexes(vigilRows)
   const enriched = await enrichUploadedLowStockSkus(plan.items.map((item) => item.sku))
@@ -1341,6 +1400,8 @@ async function refreshDraftPlanZohoData(planId) {
       refreshed: plan.items.length,
       matched,
       unmatched,
+      vigilUploadId: upload ? upload.id : null,
+      vigilSource,
     },
   }
 }
@@ -1540,72 +1601,214 @@ async function createZohoPurchaseOrder(planId, options = {}) {
     throw err
   }
 
+  const preview = await withTransaction((client) => loadPlanForSend(client, planId, options.purchasePrices))
+
+  let activeItemIds
+  try {
+    activeItemIds = await assertSelectedZohoItemsActive(preview.selected)
+  } catch (err) {
+    if (err && err.code === 'ZOHO_ITEMS_INACTIVE') await flagInactivePlanItems(planId, err.details?.skus)
+    throw err
+  }
+
+  const reservation = await reservePlanForSend(planId, requestedPoNumber, options.purchasePrices, activeItemIds)
+  const { plan, selected, referenceNumber, previousPoNumber } = reservation
+
+  let po
+  let reconciled = false
+  try {
+    po = await findExistingZohoPurchaseOrder({
+      poNumbers: [requestedPoNumber, previousPoNumber].filter(Boolean),
+      requestedPoNumber,
+      referenceNumber,
+    })
+    if (po) {
+      reconciled = true
+    } else {
+      const payload = {
+        vendor_id: vendor.vendorId,
+        purchaseorder_number: requestedPoNumber,
+        date: todayIso(),
+        reference_number: referenceNumber,
+        line_items: selected.map((item) => ({
+          item_id: item.zohoItemId,
+          quantity: item.finalQty,
+          rate: Number(item.purchasePrice),
+        })),
+      }
+      const json = await zohoApiRequest(
+        `${INVENTORY_V1}/purchaseorders`,
+        new URLSearchParams(),
+        'POST',
+        buildZohoJsonStringBody(payload),
+        { source: 'purchase_planning_create_po', skipCache: true, noTransportRetry: true }
+      )
+      po = (json && json.purchaseorder) || (json && json.purchase_order) || json || {}
+    }
+  } catch (err) {
+    await markPlanSendFailed(planId, err)
+    throw err
+  }
+
+  const zohoPurchaseOrderId = clean(po.purchaseorder_id || po.purchase_order_id || po.purchaseorderId || po.id)
+  const savedPoNumber = clean(po.purchaseorder_number) || requestedPoNumber
+  try {
+    await finalizeSentPlan(plan.id, zohoPurchaseOrderId, savedPoNumber, selected.map((item) => item.sku))
+  } catch (err) {
+    const saveErr = new Error(
+      `Purchase order ${savedPoNumber} exists in Zoho, but saving the result here failed. ` +
+        'Send again in a few minutes to link it — no duplicate will be created.'
+    )
+    saveErr.code = 'PO_SAVE_FAILED'
+    saveErr.cause = err
+    throw saveErr
+  }
+
+  return {
+    success: true,
+    reconciled,
+    zohoPurchaseOrderId,
+    purchaseOrderNumber: savedPoNumber,
+    purchaseOrder: po,
+    sentLines: selected.length,
+    skippedLines: (plan.items || []).length - selected.length,
+  }
+}
+
+async function withTransaction(fn) {
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
-    const planResult = await client.query(
-      `SELECT * FROM purchase_plans WHERE id = $1 FOR UPDATE`,
-      [planId]
-    )
-    const planRow = planResult.rows[0]
-    if (!planRow) {
-      const err = new Error('Purchase plan not found')
-      err.code = 'PLAN_NOT_FOUND'
-      throw err
+    const result = await fn(client)
+    await client.query('COMMIT')
+    return result
+  } catch (err) {
+    try {
+      await client.query('ROLLBACK')
+    } catch (_) {
+      // ignore rollback failure
     }
-    assertPlanEligibleForPo(planRow)
+    throw err
+  } finally {
+    client.release()
+  }
+}
 
-    const itemsResult = await client.query(
+function selectPurchaseOrderLines(items, purchasePrices) {
+  const selected = sortPurchaseOrderLinesBySku(
+    applyPurchasePricesToPlanItems(items, purchasePrices).filter((item) =>
+      item.included &&
+      item.finalQty > 0 &&
+      clean(item.zohoItemId)
+    )
+  )
+  if (selected.length === 0) {
+    const err = new Error('No included rows with finalQty > 0 and Zoho item id were found')
+    err.code = 'NO_PO_LINES'
+    throw err
+  }
+  const missingPrices = selected.filter((item) => !Number.isFinite(Number(item.purchasePrice)) || Number(item.purchasePrice) <= 0)
+  if (missingPrices.length > 0) {
+    const err = new Error(`Purchase price is missing for ${missingPrices.length} selected line(s): ${missingPrices.slice(0, 5).map((item) => item.sku).join(', ')}`)
+    err.code = 'ZOHO_PO_PRICE_REQUIRED'
+    throw err
+  }
+  return selected
+}
+
+async function loadPlanForSend(client, planId, purchasePrices, { lock = false } = {}) {
+  const planResult = await client.query(
+    `SELECT * FROM purchase_plans WHERE id = $1${lock ? ' FOR UPDATE' : ''}`,
+    [planId]
+  )
+  const planRow = planResult.rows[0]
+  if (!planRow) {
+    const err = new Error('Purchase plan not found')
+    err.code = 'PLAN_NOT_FOUND'
+    throw err
+  }
+  assertPlanEligibleForPo(planRow)
+  const itemsResult = await client.query(
+    `
+      SELECT *
+      FROM purchase_plan_items
+      WHERE purchase_plan_id = $1
+      ORDER BY included DESC, suggested_qty DESC, sku ASC
+    `,
+    [planId]
+  )
+  const plan = mapPlanRow(planRow, itemsResult.rows.map(mapPlanItemRow))
+  return { planRow, plan, selected: selectPurchaseOrderLines(plan.items || [], purchasePrices) }
+}
+
+async function assertSelectedZohoItemsActive(selected) {
+  const warehouse = await resolvePurchasePlanningWarehouse()
+  const zohoCatalog = await fetchItemsRawForWarehouse(warehouse.warehouseId, { includeInactive: true })
+  const byItemId = new Map()
+  for (const raw of Array.isArray(zohoCatalog) ? zohoCatalog : []) {
+    const id = clean(raw && (raw.item_id || raw.id))
+    if (!id || byItemId.has(id)) continue
+    byItemId.set(id, raw)
+  }
+  const inactiveSelected = selected.filter((item) => {
+    const raw = byItemId.get(clean(item.zohoItemId))
+    return !raw || !isZohoItemActive(raw)
+  })
+  if (inactiveSelected.length > 0) {
+    const skus = inactiveSelected.map((item) => item.sku)
+    const preview = skus.slice(0, 10).join(', ')
+    const err = new Error(
+      `${inactiveSelected.length} Zoho item(s) are inactive or deleted: ${preview}${skus.length > 10 ? '…' : ''}`
+    )
+    err.code = 'ZOHO_ITEMS_INACTIVE'
+    err.details = { skus, count: inactiveSelected.length }
+    throw err
+  }
+  return new Set(selected.map((item) => clean(item.zohoItemId)))
+}
+
+async function flagInactivePlanItems(planId, skus) {
+  if (!planId || !Array.isArray(skus) || skus.length === 0) return
+  try {
+    await query(
       `
-        SELECT *
-        FROM purchase_plan_items
+        UPDATE purchase_plan_items
+        SET zoho_item_active = false, included = false
         WHERE purchase_plan_id = $1
-        ORDER BY included DESC, suggested_qty DESC, sku ASC
+          AND sku = ANY($2::text[])
       `,
-      [planId]
+      [planId, skus]
     )
-    const plan = mapPlanRow(planRow, itemsResult.rows.map(mapPlanItemRow))
-    const pricedItems = applyPurchasePricesToPlanItems(plan.items || [], options.purchasePrices)
+  } catch (_) {
+    // ignore follow-up flag update failure
+  }
+}
 
-    const selected = sortPurchaseOrderLinesBySku(
-      pricedItems.filter((item) =>
-        item.included &&
-        item.finalQty > 0 &&
-        clean(item.zohoItemId)
-      )
-    )
-    if (selected.length === 0) {
-      const err = new Error('No included rows with finalQty > 0 and Zoho item id were found')
-      err.code = 'NO_PO_LINES'
-      throw err
-    }
-    const missingPrices = selected.filter((item) => !Number.isFinite(Number(item.purchasePrice)) || Number(item.purchasePrice) <= 0)
-    if (missingPrices.length > 0) {
-      const err = new Error(`Purchase price is missing for ${missingPrices.length} selected line(s): ${missingPrices.slice(0, 5).map((item) => item.sku).join(', ')}`)
-      err.code = 'ZOHO_PO_PRICE_REQUIRED'
+async function reservePlanForSend(planId, requestedPoNumber, purchasePrices, activeItemIds) {
+  return withTransaction(async (client) => {
+    const { planRow, plan, selected } = await loadPlanForSend(client, planId, purchasePrices, { lock: true })
+
+    const unchecked = selected.filter((item) => !activeItemIds.has(clean(item.zohoItemId)))
+    if (unchecked.length > 0) {
+      const err = new Error('The plan changed while preparing the purchase order. Review it and send again.')
+      err.code = 'PLAN_CHANGED_DURING_SEND'
       throw err
     }
 
-    const warehouse = await resolvePurchasePlanningWarehouse()
-    const zohoCatalog = await fetchItemsRawForWarehouse(warehouse.warehouseId, { includeInactive: true })
-    const byItemId = new Map()
-    for (const raw of Array.isArray(zohoCatalog) ? zohoCatalog : []) {
-      const id = clean(raw && (raw.item_id || raw.id))
-      if (!id || byItemId.has(id)) continue
-      byItemId.set(id, raw)
-    }
-    const inactiveSelected = selected.filter((item) => {
-      const raw = byItemId.get(clean(item.zohoItemId))
-      return !raw || !isZohoItemActive(raw)
-    })
-    if (inactiveSelected.length > 0) {
-      const skus = inactiveSelected.map((item) => item.sku)
-      const preview = skus.slice(0, 10).join(', ')
-      const err = new Error(
-        `${inactiveSelected.length} Zoho item(s) are inactive or deleted: ${preview}${skus.length > 10 ? '…' : ''}`
-      )
-      err.code = 'ZOHO_ITEMS_INACTIVE'
-      err.details = { skus, count: inactiveSelected.length }
+    const conflict = await client.query(
+      `
+        SELECT plan_number
+        FROM purchase_plans
+        WHERE id <> $1
+          AND LOWER(purchase_order_number) = LOWER($2)
+          AND status IN ('sending', 'sent_to_zoho')
+        LIMIT 1
+      `,
+      [planId, requestedPoNumber]
+    )
+    if (conflict.rows[0]) {
+      const err = new Error(`PO number ${requestedPoNumber} is already used by plan ${conflict.rows[0].plan_number}`)
+      err.code = 'PO_NUMBER_IN_USE'
       throw err
     }
 
@@ -1616,29 +1819,83 @@ async function createZohoPurchaseOrder(planId, options = {}) {
       )
     }
 
-    const zohoReferenceNumber = nextZohoPurchaseOrderReference(plan.planNumber)
-    const payload = {
-      vendor_id: vendor.vendorId,
-      purchaseorder_number: requestedPoNumber,
-      date: todayIso(),
-      reference_number: zohoReferenceNumber,
-      line_items: selected.map((item) => ({
-        item_id: item.zohoItemId,
-        quantity: item.finalQty,
-        rate: Number(item.purchasePrice),
-      })),
-    }
+    const referenceNumber = clean(planRow.zoho_reference_number) || nextZohoPurchaseOrderReference(plan.planNumber)
+    const previous = clean(planRow.purchase_order_number)
+    const previousPoNumber = previous && previous.toLowerCase() !== requestedPoNumber.toLowerCase() ? previous : ''
 
+    await client.query(
+      `
+        UPDATE purchase_plans
+        SET status = 'sending',
+            send_started_at = NOW(),
+            purchase_order_number = $2,
+            zoho_reference_number = $3,
+            zoho_error = NULL,
+            updated_at = NOW()
+        WHERE id = $1
+      `,
+      [plan.id, requestedPoNumber, referenceNumber]
+    )
+    return { plan, selected, referenceNumber, previousPoNumber }
+  })
+}
+
+function normalizePoNumber(value) {
+  return clean(value).toLowerCase()
+}
+
+/**
+ * Finds a PO left behind by an earlier attempt for this plan (same PO number and the plan's
+ * stable reference), so a retry links it instead of creating a duplicate.
+ */
+async function findExistingZohoPurchaseOrder({ poNumbers, requestedPoNumber, referenceNumber }) {
+  for (const number of poNumbers) {
     const json = await zohoApiRequest(
       `${INVENTORY_V1}/purchaseorders`,
-      new URLSearchParams(),
-      'POST',
-      buildZohoJsonStringBody(payload),
-      { source: 'purchase_planning_create_po', skipCache: true }
+      new URLSearchParams({ purchaseorder_number: number, per_page: '50' }),
+      'GET',
+      undefined,
+      { source: 'purchase_planning_po_lookup', skipCache: true }
     )
-    const po = (json && json.purchaseorder) || (json && json.purchase_order) || json || {}
-    const zohoPurchaseOrderId = clean(po.purchaseorder_id || po.purchase_order_id || po.purchaseorderId || po.id)
+    const rows = Array.isArray(json && json.purchaseorders) ? json.purchaseorders : []
+    const sameNumber = rows.filter((row) => normalizePoNumber(row && row.purchaseorder_number) === normalizePoNumber(number))
+    const ours = sameNumber.find((row) => clean(row.reference_number) === referenceNumber)
+    if (ours) return ours
+    if (sameNumber.length > 0 && number === requestedPoNumber) {
+      const err = new Error(`PO number ${number} already exists in Zoho. Use a different PO number.`)
+      err.code = 'ZOHO_PO_NUMBER_TAKEN'
+      throw err
+    }
+  }
+  return null
+}
 
+function sendFailureMessage(err) {
+  const message = (err && err.message) || String(err)
+  const code = err && err.code
+  if (code === 'ZOHO_API_TIMEOUT' || code === 'ZOHO_API_NETWORK_ERROR' || (err && err.httpStatus >= 500)) {
+    return `${message} — Zoho may still have created the PO. Sending again checks Zoho first, so it will not duplicate.`
+  }
+  return message
+}
+
+async function markPlanSendFailed(planId, err) {
+  try {
+    await query(
+      `
+        UPDATE purchase_plans
+        SET status = 'failed', zoho_error = $2, send_started_at = NULL, updated_at = NOW()
+        WHERE id = $1 AND status = 'sending'
+      `,
+      [planId, sendFailureMessage(err)]
+    )
+  } catch (_) {
+    // ignore follow-up status update failure
+  }
+}
+
+async function finalizeSentPlan(planId, zohoPurchaseOrderId, purchaseOrderNumber, skus) {
+  await withTransaction(async (client) => {
     await client.query(
       `
         UPDATE purchase_plans
@@ -1646,10 +1903,11 @@ async function createZohoPurchaseOrder(planId, options = {}) {
             zoho_purchase_order_id = $2,
             purchase_order_number = $3,
             zoho_error = NULL,
+            send_started_at = NULL,
             updated_at = NOW()
         WHERE id = $1
       `,
-      [plan.id, zohoPurchaseOrderId || null, requestedPoNumber]
+      [planId, zohoPurchaseOrderId || null, purchaseOrderNumber]
     )
     await client.query(
       `
@@ -1657,52 +1915,9 @@ async function createZohoPurchaseOrder(planId, options = {}) {
         SET status = 'ordered', updated_at = NOW()
         WHERE sku = ANY($1::text[]) AND status = 'planned'
       `,
-      [selected.map((item) => item.sku)]
+      [skus]
     )
-
-    await client.query('COMMIT')
-    return {
-      success: true,
-      zohoPurchaseOrderId,
-      purchaseOrder: po,
-      sentLines: selected.length,
-      skippedLines: (plan.items || []).length - selected.length,
-    }
-  } catch (err) {
-    try {
-      await client.query('ROLLBACK')
-    } catch (_) {
-      // ignore rollback failure
-    }
-    if (err && err.code === 'ZOHO_ITEMS_INACTIVE' && planId && Array.isArray(err.details?.skus) && err.details.skus.length > 0) {
-      try {
-        await query(
-          `
-            UPDATE purchase_plan_items
-            SET zoho_item_active = false, included = false
-            WHERE purchase_plan_id = $1
-              AND sku = ANY($2::text[])
-          `,
-          [planId, err.details.skus]
-        )
-      } catch (_) {
-        // ignore follow-up flag update failure
-      }
-    }
-    if (planId && err && err.code !== 'DUPLICATE_PO' && err.code !== 'PLAN_NOT_FOUND' && err.code !== 'NO_PO_LINES' && err.code !== 'ZOHO_PO_PRICE_REQUIRED' && err.code !== 'ZOHO_ITEMS_INACTIVE') {
-      try {
-        await query(
-          `UPDATE purchase_plans SET status = 'failed', zoho_error = $2 WHERE id = $1 AND status IN ('draft', 'failed')`,
-          [planId, err.message || String(err)]
-        )
-      } catch (_) {
-        // ignore follow-up status update failure
-      }
-    }
-    throw err
-  } finally {
-    client.release()
-  }
+  })
 }
 
 module.exports = {
@@ -1748,6 +1963,9 @@ module.exports = {
     resolveRefreshUserFields,
     assertPendingSkusZohoReady,
     assertPlanEligibleForPo,
+    isPlanSendStale,
+    PO_SEND_STALE_MS,
+    findExistingZohoPurchaseOrder,
     waitForLowStockEnrichment,
     lowStockEnrichmentJob,
   },

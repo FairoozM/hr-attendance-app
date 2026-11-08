@@ -487,7 +487,8 @@ async function zohoInventoryJsonRequest(path, searchParams, method, body, meta =
   const url = u.toString()
 
   let token = await getZohoAccessToken()
-  const maxTransportRetries = 2
+  // Non-idempotent writes (e.g. creating a PO) must not be replayed after a timeout.
+  const maxTransportRetries = meta.noTransportRetry ? 0 : 2
   let transportAttempt = 0
   let lastErr
 

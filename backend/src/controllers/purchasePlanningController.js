@@ -31,9 +31,17 @@ function errorStatus(err) {
   if (!err) return 500
   if (['PLAN_NOT_FOUND', 'PLAN_ITEM_NOT_FOUND', 'LOW_STOCK_ITEM_NOT_FOUND'].includes(err.code)) return 404
   if (
-    ['ENRICHMENT_RUNNING', 'PLAN_NOT_EDITABLE', 'DUPLICATE_PO', 'LOW_STOCK_ITEM_NOT_REMOVABLE', 'ZOHO_ITEMS_INACTIVE'].includes(
-      err.code
-    )
+    [
+      'ENRICHMENT_RUNNING',
+      'PLAN_NOT_EDITABLE',
+      'DUPLICATE_PO',
+      'LOW_STOCK_ITEM_NOT_REMOVABLE',
+      'ZOHO_ITEMS_INACTIVE',
+      'PO_SEND_IN_PROGRESS',
+      'PO_NUMBER_IN_USE',
+      'ZOHO_PO_NUMBER_TAKEN',
+      'PLAN_CHANGED_DURING_SEND',
+    ].includes(err.code)
   ) {
     return 409
   }

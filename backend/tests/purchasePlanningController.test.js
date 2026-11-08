@@ -309,6 +309,8 @@ test('controller: errorStatus maps conflict and validation codes', () => {
   assert.equal(errorStatus({ code: 'ENRICHMENT_RUNNING' }), 409)
   assert.equal(errorStatus({ code: 'PLAN_NOT_EDITABLE' }), 409)
   assert.equal(errorStatus({ code: 'ZOHO_ITEMS_INACTIVE' }), 409)
+  assert.equal(errorStatus({ code: 'PO_SEND_IN_PROGRESS' }), 409)
+  assert.equal(errorStatus({ code: 'ZOHO_PO_NUMBER_TAKEN' }), 409)
   assert.equal(errorStatus({ code: 'LOW_STOCK_ZOHO_MATCH_INCOMPLETE' }), 400)
   assert.equal(errorStatus({ code: 'PLAN_HAS_NO_ITEMS' }), 400)
 })
