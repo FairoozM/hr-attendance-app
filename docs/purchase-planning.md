@@ -98,7 +98,7 @@ Durable background jobs (currently kind `low_stock_enrichment`). A partial uniqu
 | 5. Review quantities & prices | `ReviewPlanStep` + `PurchasePlanTable` | Edit final qty (saves on blur/Enter), include/exclude lines, refresh from Zoho |
 | 6. Create Zoho PO | `CreateZohoPoStep` | Enter PO number, confirm, send; shows sending/interrupted/sent states |
 
-The step status machine lives in `computeWorkflow()` and the initial view in `getDefaultPurchasePlanningView()`; both are unit tested. Open plans (`draft`, `failed`, `sending`) take priority over the "latest sent PO" panel.
+The step status machine lives in `computeWorkflow()` and the initial view in `getDefaultPurchasePlanningView()`; both are unit tested. Open plans (`draft`, `failed`, `sending`) take priority over the "latest sent PO" panel, except leftovers: a draft or failed plan created before the latest sent PO is never auto-loaded or counted as the open plan (it stays in Recent plans to open or delete). With no pending batch and no current open plan, the page opens on Step 2 with the latest sent PO panel shown.
 
 Destructive or expensive actions (replace batch, remove SKU, delete draft, refresh Zoho data, create PO) use the in-page confirm dialog from `useConfirmDialog.tsx`. There are no `window.confirm` prompts.
 

@@ -259,13 +259,33 @@ export function isPlanSendStale(plan: Pick<PurchasePlan, 'status' | 'sendStarted
   return !Number.isFinite(started) || now - started >= PO_SEND_STALE_MS
 }
 
-/** Newest plan that has not reached Zoho yet (draft, failed send, or send in flight). */
-export function getLatestOpenPlan(plans: PurchasePlan[] | null | undefined): PurchasePlan | null {
-  return (plans || []).find((p) => isOpenPlanStatus(p.status)) || null
-}
-
 export function getLatestSentPlan(plans: PurchasePlan[] | null | undefined): PurchasePlan | null {
   return (plans || []).find((p) => p.status === 'sent_to_zoho') || null
+}
+
+function planCreatedMs(plan: Pick<PurchasePlan, 'createdAt'>): number {
+  const ms = plan.createdAt ? new Date(plan.createdAt).getTime() : Number.NaN
+  return Number.isFinite(ms) ? ms : Number.NaN
+}
+
+/**
+ * A draft or failed plan created before the latest sent PO was abandoned: it is still listed
+ * in Recent plans but never treated as the current plan. In-flight sends always stay current.
+ */
+export function isLeftoverPlan(plan: PurchasePlan, plans: PurchasePlan[] | null | undefined): boolean {
+  if (!isEditablePlanStatus(plan.status)) return false
+  const list = plans || []
+  const latestSent = getLatestSentPlan(list)
+  if (!latestSent) return false
+  const planMs = planCreatedMs(plan)
+  const sentMs = planCreatedMs(latestSent)
+  if (Number.isFinite(planMs) && Number.isFinite(sentMs)) return planMs < sentMs
+  return list.indexOf(plan) > list.indexOf(latestSent)
+}
+
+/** Newest current plan that has not reached Zoho yet (draft, failed send, or send in flight); skips leftovers. */
+export function getLatestOpenPlan(plans: PurchasePlan[] | null | undefined): PurchasePlan | null {
+  return (plans || []).find((p) => isOpenPlanStatus(p.status) && !isLeftoverPlan(p, plans)) || null
 }
 
 interface ViewContext {
@@ -370,21 +390,14 @@ export function getDefaultPurchasePlanningView(ctx: ViewContext): PurchasePlanni
   }
 
   if (!pending.length) {
-    if (latestSent) {
-      return {
-        activeStep: 5,
-        mode: 'sent_review',
-        selectedPlanId: latestSent.id,
-        showLatestSentPanel: true,
-        reason: 'Latest plan was sent to Zoho; no active draft',
-      }
-    }
     return {
       activeStep: 2,
       mode: 'workflow',
       selectedPlanId: null,
-      showLatestSentPanel: false,
-      reason: 'Upload low-stock SKUs to start a batch',
+      showLatestSentPanel: Boolean(latestSent),
+      reason: latestSent
+        ? 'Latest PO is in Zoho; ready for a new low-stock batch'
+        : 'Upload low-stock SKUs to start a batch',
     }
   }
 
@@ -430,7 +443,8 @@ export function computeWorkflow(ctx: WorkflowContext): Workflow {
   const openPlan = isOpenPlanStatus(activePlan?.status) ? activePlan : getLatestOpenPlan(plans)
   const hasOpenPlan = Boolean(openPlan)
   const planSending = openPlan?.status === 'sending'
-  const hasDraft = plans.some((plan) => plan.status === 'draft') || activePlan?.status === 'draft'
+  const hasDraft =
+    plans.some((plan) => plan.status === 'draft' && !isLeftoverPlan(plan, plans)) || activePlan?.status === 'draft'
   const planSent = activePlan?.status === 'sent_to_zoho'
   const batchConsumed = !hasPendingUpload && (hasOpenPlan || planSent)
   const enrichmentActive = Boolean(enrichmentRunning && hasPendingUpload)

@@ -3,6 +3,8 @@ import {
   computePoReadiness,
   computeWorkflow,
   getDefaultPurchasePlanningView,
+  getLatestOpenPlan,
+  isLeftoverPlan,
   isPlanSendStale,
   PO_SEND_STALE_MS,
 } from './purchasePlanningUtils'
@@ -141,6 +143,43 @@ describe('getDefaultPurchasePlanningView', () => {
       activeStep: 5,
       mode: 'draft_review',
       selectedPlanId: 3,
+    })
+  })
+
+  it('ignores a draft left over from before the latest sent PO and starts clean', () => {
+    const plans = [
+      plan({ id: 12, status: 'sent_to_zoho', purchaseOrderNumber: '2026300', createdAt: '2026-10-26T05:46:42.000Z' }),
+      plan({ id: 9, status: 'draft', createdAt: '2026-10-23T14:06:44.000Z' }),
+    ]
+    const view = getDefaultPurchasePlanningView({ uploads: vigil, lowStock: [], plans })
+
+    expect(view).toMatchObject({ activeStep: 2, mode: 'workflow', selectedPlanId: null, showLatestSentPanel: true })
+    expect(getLatestOpenPlan(plans)).toBeNull()
+    expect(isLeftoverPlan(plans[1], plans)).toBe(true)
+
+    const result = computeWorkflow({ uploads: vigil, lowStock: [], plans, currentStep: view.activeStep })
+    expect(result.hasOpenPlan).toBe(false)
+    expect(result.stepStatuses[2]).toBe('in_progress')
+    expect(result.stepStatuses[5]).toBe('blocked')
+  })
+
+  it('still restores a draft created after the latest sent PO', () => {
+    const plans = [
+      plan({ id: 13, status: 'draft', createdAt: '2026-10-28T09:00:00.000Z' }),
+      plan({ id: 12, status: 'sent_to_zoho', createdAt: '2026-10-26T05:46:42.000Z' }),
+    ]
+    const view = getDefaultPurchasePlanningView({ uploads: vigil, lowStock: [], plans })
+    expect(view).toMatchObject({ activeStep: 5, selectedPlanId: 13 })
+  })
+
+  it('keeps an older in-flight send current so it can be finished', () => {
+    const plans = [
+      plan({ id: 12, status: 'sent_to_zoho', createdAt: '2026-10-26T05:46:42.000Z' }),
+      plan({ id: 9, status: 'sending', createdAt: '2026-10-23T14:06:44.000Z' }),
+    ]
+    expect(getDefaultPurchasePlanningView({ uploads: vigil, lowStock: [], plans })).toMatchObject({
+      activeStep: 6,
+      selectedPlanId: 9,
     })
   })
 
