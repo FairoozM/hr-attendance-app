@@ -302,6 +302,23 @@ describe('computeVigilFollowUp', () => {
     ])
   })
 
+  it('lists capped lines even when they were excluded from the PO', () => {
+    const followUp = computeVigilFollowUp(
+      plan({
+        id: 21,
+        status: 'sent_to_zoho',
+        items: [
+          line({ id: 1, sku: 'LIFEP20-8-FLCRED', suggestedQty: 22, wholesaleAvailableQty: 6, finalQty: 6, included: false }),
+          line({ id: 2, sku: 'LIFEP18N-20P', suggestedQty: 9, wholesaleAvailableQty: 251, finalQty: 5 }),
+        ],
+      })
+    )
+    expect(followUp.capped.map((l) => [l.sku, l.orderedQty, l.vigilQty, l.shortfallQty])).toEqual([
+      ['LIFEP20-8-FLCRED', 0, 6, 22],
+    ])
+    expect(followUp.unavailable).toEqual([])
+  })
+
   it('exports a CSV with quoted cells where needed', () => {
     const csv = vigilFollowUpToCsv(computeVigilFollowUp(sent)).split('\n')
     expect(csv[0]).toBe('Issue,SKU,Product,Needed,Ordered,Vigil available,Shortfall')

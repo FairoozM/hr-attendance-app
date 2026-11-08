@@ -674,7 +674,7 @@ export function computeVigilFollowUp(plan: PurchasePlan | null | undefined): Vig
       unavailable.push({ ...base, shortfallQty: needed - ordered, reason: 'No Vigil match' })
     } else if (vigil <= 0) {
       unavailable.push({ ...base, shortfallQty: needed - ordered, reason: 'Zero wholesale stock' })
-    } else if (item.included && needed > vigil) {
+    } else if (needed > vigil) {
       capped.push({ ...base, shortfallQty: Math.max(0, needed - ordered), reason: 'Vigil capped' })
     }
   }
@@ -707,7 +707,7 @@ export function getPlanRowBadges(item: PlanItem): RowBadge[] {
   if (item.zohoItemActive === false) badges.push({ key: 'inactive-zoho', label: 'Inactive in Zoho', tone: 'danger' })
   if (item.matchType === 'not_found') badges.push({ key: 'no-vigil', label: 'No Vigil Match', tone: 'danger' })
   if (wholesale <= 0) badges.push({ key: 'zero-wholesale', label: 'Zero Wholesale Stock', tone: 'danger' })
-  if (item.included && Number(item.suggestedQty || 0) > wholesale && wholesale > 0) {
+  if (item.matchType !== 'not_found' && Number(item.suggestedQty || 0) > wholesale && wholesale > 0) {
     badges.push({ key: 'vigil-capped', label: 'Vigil Capped', tone: 'warning' })
   }
   if (item.included && Number(item.finalQty || 0) > 0 && !hasPositivePrice(item.purchasePrice)) {

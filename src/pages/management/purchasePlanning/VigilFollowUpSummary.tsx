@@ -45,6 +45,9 @@ function FollowUpTable({ lines, showReason }: { lines: VigilFollowUpLine[]; show
 export function VigilFollowUpSummary({ plan }: { plan: PurchasePlan }) {
   const followUp = computeVigilFollowUp(plan)
   const total = followUp.capped.length + followUp.unavailable.length
+  const sumShortfall = (lines: VigilFollowUpLine[]) => lines.reduce((sum, line) => sum + line.shortfallQty, 0)
+  const cappedShortfall = sumShortfall(followUp.capped)
+  const unavailableShortfall = sumShortfall(followUp.unavailable)
 
   if (total === 0) {
     return (
@@ -79,10 +82,23 @@ export function VigilFollowUpSummary({ plan }: { plan: PurchasePlan }) {
         </button>
       </div>
 
+      <ul className="pp-follow-up__totals">
+        <li>
+          <Badge tone="warning">Vigil capped</Badge> {followUp.capped.length} line(s), {fmt(cappedShortfall)} units short
+        </li>
+        <li>
+          <Badge tone="danger">Not in Vigil</Badge> {followUp.unavailable.length} line(s),{' '}
+          {fmt(unavailableShortfall)} units short
+        </li>
+        <li>
+          <strong>Total shortfall: {fmt(cappedShortfall + unavailableShortfall)} units</strong>
+        </li>
+      </ul>
+
       {followUp.capped.length > 0 && (
         <div className="pp-follow-up__group">
           <h4>
-            <Badge tone="warning">Vigil capped</Badge> Ordered less than needed ({followUp.capped.length})
+            <Badge tone="warning">Vigil capped</Badge> Vigil had less stock than needed ({followUp.capped.length})
           </h4>
           <FollowUpTable lines={followUp.capped} showReason={false} />
         </div>
