@@ -443,8 +443,8 @@ export function PurchasePlanningPage() {
         const plan = await refreshActivePlan(id)
         if (plan.status === 'sent_to_zoho') {
           setViewMode('sent_review')
-          setActiveStep(5)
-          setNotice(`Opened sent plan ${plan.planNumber} (read-only).`)
+          setActiveStep(6)
+          setNotice(`Opened sent plan ${plan.planNumber} (read-only). Go Back to see all lines.`)
         } else if (plan.status === 'sending') {
           setViewMode('draft_review')
           setActiveStep(6)

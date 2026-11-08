@@ -645,6 +645,62 @@ export function computePoReadiness(
   return { ready: reasons.length === 0, reasons, includedLines, summary }
 }
 
+export interface VigilFollowUpLine {
+  sku: string
+  itemName: string
+  neededQty: number
+  orderedQty: number
+  vigilQty: number
+  shortfallQty: number
+  reason: 'Vigil capped' | 'No Vigil match' | 'Zero wholesale stock'
+}
+
+export interface VigilFollowUp {
+  capped: VigilFollowUpLine[]
+  unavailable: VigilFollowUpLine[]
+}
+
+/** Lines Vigil could not fully cover: ordered short (capped) or not orderable at all. */
+export function computeVigilFollowUp(plan: PurchasePlan | null | undefined): VigilFollowUp {
+  const capped: VigilFollowUpLine[] = []
+  const unavailable: VigilFollowUpLine[] = []
+  for (const item of plan?.items || []) {
+    const needed = Number(item.suggestedQty || 0)
+    const vigil = Number(item.wholesaleAvailableQty || 0)
+    const ordered = item.included ? Number(item.finalQty || 0) : 0
+    const base = { sku: item.sku, itemName: item.itemName, neededQty: needed, orderedQty: ordered, vigilQty: vigil }
+    if (needed <= 0) continue
+    if (item.matchType === 'not_found') {
+      unavailable.push({ ...base, shortfallQty: needed - ordered, reason: 'No Vigil match' })
+    } else if (vigil <= 0) {
+      unavailable.push({ ...base, shortfallQty: needed - ordered, reason: 'Zero wholesale stock' })
+    } else if (item.included && needed > vigil) {
+      capped.push({ ...base, shortfallQty: Math.max(0, needed - ordered), reason: 'Vigil capped' })
+    }
+  }
+  const bySku = (a: VigilFollowUpLine, b: VigilFollowUpLine) => a.sku.localeCompare(b.sku)
+  return { capped: capped.sort(bySku), unavailable: unavailable.sort(bySku) }
+}
+
+function csvCell(value: string | number): string {
+  const text = String(value)
+  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
+}
+
+export function vigilFollowUpToCsv(followUp: VigilFollowUp): string {
+  const header = ['Issue', 'SKU', 'Product', 'Needed', 'Ordered', 'Vigil available', 'Shortfall']
+  const rows = [...followUp.capped, ...followUp.unavailable].map((line) => [
+    line.reason,
+    line.sku,
+    line.itemName,
+    line.neededQty,
+    line.orderedQty,
+    line.vigilQty,
+    line.shortfallQty,
+  ])
+  return [header, ...rows].map((row) => row.map(csvCell).join(',')).join('\n')
+}
+
 export function getPlanRowBadges(item: PlanItem): RowBadge[] {
   const badges: RowBadge[] = []
   const wholesale = Number(item.wholesaleAvailableQty || 0)

@@ -1,4 +1,5 @@
 import { PlanStatusBadge } from './PurchasePlanningBadges'
+import { VigilFollowUpSummary } from './VigilFollowUpSummary'
 import type { PurchasePlan } from './purchasePlanningTypes'
 import {
   computePoReadiness,
@@ -61,6 +62,7 @@ export function CreateZohoPoStep({
           </div>
         </dl>
         <p className="pp-hint">This plan is locked. Duplicate PO creation is blocked by the server.</p>
+        <VigilFollowUpSummary plan={plan} />
       </div>
     )
   }

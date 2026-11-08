@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   computePoReadiness,
+  computeVigilFollowUp,
   computeWorkflow,
   getCurrentVigilUpload,
   getDefaultPurchasePlanningView,
@@ -8,6 +9,7 @@ import {
   isLeftoverPlan,
   isPlanSendStale,
   PO_SEND_STALE_MS,
+  vigilFollowUpToCsv,
 } from './purchasePlanningUtils'
 import type { LowStockItem, PlanItem, PurchasePlan, VigilUpload } from './purchasePlanningTypes'
 
@@ -274,5 +276,36 @@ describe('sending plans', () => {
     expect(isPlanSendStale(sendingPlan(1000))).toBe(false)
     expect(isPlanSendStale(sendingPlan(PO_SEND_STALE_MS + 1000))).toBe(true)
     expect(isPlanSendStale({ status: 'failed' })).toBe(false)
+  })
+})
+
+describe('computeVigilFollowUp', () => {
+  const sent = plan({
+    id: 20,
+    status: 'sent_to_zoho',
+    items: [
+      line({ id: 1, sku: 'ZDS-2-10L', itemName: 'Bin, 10L', suggestedQty: 11, wholesaleAvailableQty: 10, finalQty: 10 }),
+      line({ id: 2, sku: 'SPF6FP-20-GRAY', suggestedQty: 1, wholesaleAvailableQty: 0, finalQty: 0, included: false, matchType: 'not_found' }),
+      line({ id: 3, sku: 'TOOL-45-BLUE', suggestedQty: 7, wholesaleAvailableQty: 0, finalQty: 0, included: false }),
+      line({ id: 4, sku: 'OK-1', suggestedQty: 4, wholesaleAvailableQty: 40, finalQty: 4 }),
+    ],
+  })
+
+  it('lists capped lines with their shortfall and unavailable lines with the reason', () => {
+    const followUp = computeVigilFollowUp(sent)
+    expect(followUp.capped).toEqual([
+      expect.objectContaining({ sku: 'ZDS-2-10L', neededQty: 11, orderedQty: 10, vigilQty: 10, shortfallQty: 1 }),
+    ])
+    expect(followUp.unavailable.map((l) => [l.sku, l.reason, l.shortfallQty])).toEqual([
+      ['SPF6FP-20-GRAY', 'No Vigil match', 1],
+      ['TOOL-45-BLUE', 'Zero wholesale stock', 7],
+    ])
+  })
+
+  it('exports a CSV with quoted cells where needed', () => {
+    const csv = vigilFollowUpToCsv(computeVigilFollowUp(sent)).split('\n')
+    expect(csv[0]).toBe('Issue,SKU,Product,Needed,Ordered,Vigil available,Shortfall')
+    expect(csv[1]).toBe('Vigil capped,ZDS-2-10L,"Bin, 10L",11,10,10,1')
+    expect(csv).toHaveLength(4)
   })
 })

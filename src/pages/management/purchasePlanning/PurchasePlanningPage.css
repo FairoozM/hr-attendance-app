@@ -1159,3 +1159,42 @@
   gap: 0.5rem;
   margin-top: 0.25rem;
 }
+
+.pp-follow-up {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--theme-border);
+  text-align: left;
+}
+
+.pp-follow-up h3 {
+  margin: 0 0 0.25rem;
+  font-size: 1rem;
+}
+
+.pp-follow-up__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.pp-follow-up__head .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.pp-follow-up__group {
+  margin-top: 1rem;
+}
+
+.pp-follow-up__group h4 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
