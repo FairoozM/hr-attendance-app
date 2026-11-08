@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   computePoReadiness,
   computeWorkflow,
+  getCurrentVigilUpload,
   getDefaultPurchasePlanningView,
   getLatestOpenPlan,
   isLeftoverPlan,
@@ -10,7 +11,7 @@ import {
 } from './purchasePlanningUtils'
 import type { LowStockItem, PlanItem, PurchasePlan, VigilUpload } from './purchasePlanningTypes'
 
-const vigil: VigilUpload[] = [{ id: 1, rowsCount: 674, fileName: 'vigil.xlsx', uploadedAt: '2026-09-15T14:00:00.000Z' }]
+const vigil: VigilUpload[] = [{ id: 1, rowsCount: 674, fileName: 'vigil.xlsx', uploadedAt: '2026-10-27T08:00:00.000Z' }]
 
 function line(overrides: Partial<PlanItem> = {}): PlanItem {
   return {
@@ -161,6 +162,28 @@ describe('getDefaultPurchasePlanningView', () => {
     expect(result.hasOpenPlan).toBe(false)
     expect(result.stepStatuses[2]).toBe('in_progress')
     expect(result.stepStatuses[5]).toBe('blocked')
+  })
+
+  it('asks for a fresh Vigil upload when the latest file predates the last sent PO', () => {
+    const plans = [plan({ id: 12, status: 'sent_to_zoho', createdAt: '2026-10-26T05:46:42.000Z', updatedAt: '2026-10-28T10:00:00.000Z' })]
+    expect(getCurrentVigilUpload(vigil, plans)).toBeNull()
+
+    const view = getDefaultPurchasePlanningView({ uploads: vigil, lowStock: [], plans })
+    expect(view).toMatchObject({ activeStep: 1, selectedPlanId: null, showLatestSentPanel: true })
+
+    const result = computeWorkflow({ uploads: vigil, lowStock: [], plans, currentStep: 1 })
+    expect(result.stepStatuses[1]).toBe('in_progress')
+    expect(result.stepStatuses[2]).toBe('blocked')
+    expect(result.blockers[1]).toMatch(/this cycle/)
+  })
+
+  it('keeps an uploaded batch moving but locks generation until fresh Vigil stock is uploaded', () => {
+    const plans = [plan({ id: 12, status: 'sent_to_zoho', createdAt: '2026-10-26T05:46:42.000Z', updatedAt: '2026-10-28T10:00:00.000Z' })]
+    const result = computeWorkflow({ uploads: vigil, lowStock: [pendingSku('A', 'z1')], plans, currentStep: 3 })
+    expect(result.stepStatuses[2]).toBe('completed')
+    expect(result.stepStatuses[3]).toBe('completed')
+    expect(result.stepStatuses[4]).toBe('blocked')
+    expect(result.blockers[4]).toMatch(/Vigil/)
   })
 
   it('still restores a draft created after the latest sent PO', () => {

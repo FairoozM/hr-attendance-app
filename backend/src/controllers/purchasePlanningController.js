@@ -48,6 +48,7 @@ function errorStatus(err) {
   if (
     [
       'NO_VIGIL_UPLOAD',
+      'VIGIL_UPLOAD_STALE',
       'NO_LOW_STOCK_ITEMS',
       'LOW_STOCK_ZOHO_MATCH_INCOMPLETE',
       'NO_PO_LINES',

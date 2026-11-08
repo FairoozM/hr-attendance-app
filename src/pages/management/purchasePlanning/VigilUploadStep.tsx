@@ -2,25 +2,27 @@ import { useCallback, useState } from 'react'
 import { api } from '../../../api/client'
 import { Badge } from './PurchasePlanningBadges'
 import { UploadPreviewTable } from './UploadPreviewTable'
-import { asApiError, type StepStatus, type UploadPreview, type VigilUpload } from './purchasePlanningTypes'
-import { PP_REQUEST_OPTS, fmt, formatUploadDate, getLatestVigilUpload } from './purchasePlanningUtils'
+import { asApiError, type PurchasePlan, type StepStatus, type UploadPreview, type VigilUpload } from './purchasePlanningTypes'
+import { PP_REQUEST_OPTS, fmt, formatUploadDate, getCurrentVigilUpload, getLatestVigilUpload } from './purchasePlanningUtils'
 
 const UPLOAD_ACCEPT =
   '.csv,.xls,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 
 interface VigilUploadStepProps {
   uploads: VigilUpload[]
+  plans: PurchasePlan[]
   onUploaded: () => Promise<void> | void
   status: StepStatus
 }
 
-export function VigilUploadStep({ uploads, onUploaded, status }: VigilUploadStepProps) {
+export function VigilUploadStep({ uploads, plans, onUploaded, status }: VigilUploadStepProps) {
   const [file, setFile] = useState<File | null>(null)
   const [preview, setPreview] = useState<UploadPreview | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [replaceMode, setReplaceMode] = useState(false)
-  const latest = getLatestVigilUpload(uploads)
+  const latest = getCurrentVigilUpload(uploads, plans)
+  const previous = latest ? null : getLatestVigilUpload(uploads)
 
   const submit = useCallback(
     async (save: boolean) => {
@@ -92,6 +94,12 @@ export function VigilUploadStep({ uploads, onUploaded, status }: VigilUploadStep
 
       {showUploader && (
         <div className="pp-upload-card">
+          {previous && (
+            <p className="pp-hint pp-hint--warn">
+              Upload this cycle&apos;s Vigil stock. The previous file ({previous.fileName},{' '}
+              {formatUploadDate(previous.uploadedAt)}) was used for an earlier purchase order.
+            </p>
+          )}
           <p className="pp-hint">
             Upload a CSV or Excel file with <strong>item code</strong> and <strong>available wholesale quantity</strong>.
             Preview validates headers and rows before save.

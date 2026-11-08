@@ -1,7 +1,7 @@
 import { Trash2 } from 'lucide-react'
 import { PlanStatusBadge } from './PurchasePlanningBadges'
 import type { PurchasePlan, StepId, VigilUpload, Workflow } from './purchasePlanningTypes'
-import { formatUploadDate, getLatestVigilUpload } from './purchasePlanningUtils'
+import { formatUploadDate, getCurrentVigilUpload } from './purchasePlanningUtils'
 
 interface ChecklistItem {
   label: string
@@ -34,7 +34,7 @@ export function GeneratePlanStep({
   onDeletePlan,
   onGoToStep,
 }: GeneratePlanStepProps) {
-  const latestVigil = getLatestVigilUpload(uploads)
+  const latestVigil = getCurrentVigilUpload(uploads, plans)
   const blocker = workflow.blockers[4]
   const canGenerate =
     workflow.hasVigil &&

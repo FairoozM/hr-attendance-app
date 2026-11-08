@@ -37,7 +37,7 @@ import {
   getDefaultPurchasePlanningView,
   getLatestOpenPlan,
   getLatestSentPlan,
-  getLatestVigilUpload,
+  getCurrentVigilUpload,
   getPendingLowStock,
   ignoreCancelledPurchasePlanningRequest,
   isEditablePlanStatus,
@@ -473,7 +473,7 @@ export function PurchasePlanningPage() {
     setFilters(EMPTY_FILTERS)
     setPurchaseOrderNumber('')
     setViewMode('workflow')
-    const hasVigil = Boolean(getLatestVigilUpload(uploads))
+    const hasVigil = Boolean(getCurrentVigilUpload(uploads, plans))
     setActiveStep(hasVigil ? 2 : 1)
     setNotice(
       hasVigil
@@ -481,7 +481,7 @@ export function PurchasePlanningPage() {
         : 'Upload Vigil wholesale stock in Step 1 to begin a new purchase plan.'
     )
     scrollToStep()
-  }, [uploads, scrollToStep])
+  }, [uploads, plans, scrollToStep])
 
   useEffect(() => {
     if (loading || loadingLowStock || initialViewAppliedRef.current) return
@@ -665,7 +665,7 @@ export function PurchasePlanningPage() {
   }, [confirm, activePlanWithPrices, load, purchaseOrderNumber, refreshActivePlan])
 
   const stepSummaries = useMemo((): Partial<Record<StepId, string | null>> => {
-    const latest = getLatestVigilUpload(uploads)
+    const latest = getCurrentVigilUpload(uploads, plans)
     const pending = workflow.pending.length
     let enrichment: string | null = null
     if (enrichmentRunning) enrichment = 'Enrichment running…'
@@ -681,14 +681,14 @@ export function PurchasePlanningPage() {
         : null,
       6: activePlan?.status === 'sent_to_zoho' ? activePlan.purchaseOrderNumber || activePlan.zohoPurchaseOrderId : null,
     }
-  }, [uploads, workflow, enrichmentRunning, activePlan, activePlanWithPrices, poReadiness.includedLines.length])
+  }, [uploads, plans, workflow, enrichmentRunning, activePlan, activePlanWithPrices, poReadiness.includedLines.length])
 
   const deleteBusy = busy.startsWith('delete-plan')
 
   const renderStepContent = (stepId: StepId) => {
     switch (stepId) {
       case 1:
-        return <VigilUploadStep uploads={uploads} onUploaded={load} status={workflow.stepStatuses[1]} />
+        return <VigilUploadStep uploads={uploads} plans={plans} onUploaded={load} status={workflow.stepStatuses[1]} />
       case 2:
         return (
           <LowStockUploadStep

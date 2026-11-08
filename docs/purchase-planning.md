@@ -64,6 +64,7 @@ stateDiagram-v2
 
 - Parsed rows stored as JSONB (`parsed_rows`).
 - New plans use the latest upload and record it as `source_upload_id`.
+- Each purchase cycle needs its own upload: `generate-plan` rejects the latest upload with `VIGIL_UPLOAD_STALE` when it is not newer than the last sent PO (`updated_at` of the newest `sent_to_zoho` plan). The UI applies the same rule via `getCurrentVigilUpload()`.
 
 ### `purchase_plans`
 
@@ -91,7 +92,7 @@ Durable background jobs (currently kind `low_stock_enrichment`). A partial uniqu
 
 | Step | UI component | What happens |
 |------|--------------|--------------|
-| 1. Upload Vigil stock | `VigilUploadStep` | Preview validates item code + stock columns; save requires zero invalid rows |
+| 1. Upload Vigil stock | `VigilUploadStep` | Required fresh every cycle: an upload older than the last sent PO no longer counts. Preview validates item code + stock columns; save requires zero invalid rows |
 | 2. Upload low-stock SKUs | `LowStockUploadStep` | Saving replaces the current batch (confirm dialog), creates `pending` rows and queues enrichment |
 | 3. Match & enrich from Zoho | `ZohoEnrichmentStep` | Background job matches SKUs, loads stock, sales and bundle usage; unmatched rows can be removed |
 | 4. Generate draft plan | `GeneratePlanStep` | Readiness checklist; generation marks pending SKUs `planned` |
@@ -195,7 +196,7 @@ All routes are under `/api/purchase-planning`, require an admin session, and the
 
 | HTTP | Codes |
 |------|-------|
-| 400 | `NO_VIGIL_UPLOAD`, `NO_LOW_STOCK_ITEMS`, `LOW_STOCK_ZOHO_MATCH_INCOMPLETE`, `NO_PO_LINES`, `ZOHO_PO_NUMBER_REQUIRED`, `ZOHO_PO_PRICE_REQUIRED`, `ZOHO_VENDOR_NOT_CONFIGURED`, `PLAN_NOT_DRAFT`, `PLAN_HAS_NO_ITEMS`, `INVALID_*`, parse errors |
+| 400 | `NO_VIGIL_UPLOAD`, `VIGIL_UPLOAD_STALE`, `NO_LOW_STOCK_ITEMS`, `LOW_STOCK_ZOHO_MATCH_INCOMPLETE`, `NO_PO_LINES`, `ZOHO_PO_NUMBER_REQUIRED`, `ZOHO_PO_PRICE_REQUIRED`, `ZOHO_VENDOR_NOT_CONFIGURED`, `PLAN_NOT_DRAFT`, `PLAN_HAS_NO_ITEMS`, `INVALID_*`, parse errors |
 | 404 | `PLAN_NOT_FOUND`, `PLAN_ITEM_NOT_FOUND`, `LOW_STOCK_ITEM_NOT_FOUND` |
 | 409 | `ENRICHMENT_RUNNING`, `PLAN_NOT_EDITABLE`, `DUPLICATE_PO`, `LOW_STOCK_ITEM_NOT_REMOVABLE`, `ZOHO_ITEMS_INACTIVE`, `PO_SEND_IN_PROGRESS`, `PO_NUMBER_IN_USE`, `ZOHO_PO_NUMBER_TAKEN`, `PLAN_CHANGED_DURING_SEND` |
 | 503 | `ZOHO_NOT_CONFIGURED` |

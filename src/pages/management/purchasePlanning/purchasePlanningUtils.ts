@@ -283,6 +283,25 @@ export function isLeftoverPlan(plan: PurchasePlan, plans: PurchasePlan[] | null 
   return list.indexOf(plan) > list.indexOf(latestSent)
 }
 
+/**
+ * Vigil stock is uploaded fresh for every purchase cycle: the latest upload only counts if it was
+ * made after the last PO was sent to Zoho (sent plans are locked, so `updatedAt` is the send time).
+ */
+export function getCurrentVigilUpload(
+  uploads: VigilUpload[] | null | undefined,
+  plans: PurchasePlan[] | null | undefined
+): VigilUpload | null {
+  const latest = getLatestVigilUpload(uploads)
+  if (!latest) return null
+  const lastSent = (plans || [])
+    .filter((p) => p.status === 'sent_to_zoho')
+    .map((p) => new Date(p.updatedAt || p.createdAt).getTime())
+    .filter(Number.isFinite)
+  if (lastSent.length === 0) return latest
+  const uploadedMs = new Date(latest.uploadedAt).getTime()
+  return Number.isFinite(uploadedMs) && uploadedMs > Math.max(...lastSent) ? latest : null
+}
+
 /** Newest current plan that has not reached Zoho yet (draft, failed send, or send in flight); skips leftovers. */
 export function getLatestOpenPlan(plans: PurchasePlan[] | null | undefined): PurchasePlan | null {
   return (plans || []).find((p) => isOpenPlanStatus(p.status) && !isLeftoverPlan(p, plans)) || null
@@ -315,7 +334,7 @@ export function getDefaultPurchasePlanningView(ctx: ViewContext): PurchasePlanni
   const pending = getPendingLowStock(lowStock)
   const pendingWithoutZoho = pending.filter((item) => !hasZohoItem(item))
   const enrichmentActive = Boolean(enrichmentRunning && pending.length > 0)
-  const hasVigil = uploads.length > 0
+  const hasVigil = Boolean(getCurrentVigilUpload(uploads, plans))
   const latestOpen = getLatestOpenPlan(plans)
   const latestSent = getLatestSentPlan(plans)
 
@@ -438,7 +457,7 @@ export function computeWorkflow(ctx: WorkflowContext): Workflow {
   const pending = getPendingLowStock(lowStock)
   const pendingWithZoho = pending.filter(hasZohoItem)
   const pendingWithoutZoho = pending.filter((item) => !hasZohoItem(item))
-  const hasVigil = uploads.length > 0
+  const hasVigil = Boolean(getCurrentVigilUpload(uploads, plans))
   const hasPendingUpload = pending.length > 0
   const openPlan = isOpenPlanStatus(activePlan?.status) ? activePlan : getLatestOpenPlan(plans)
   const hasOpenPlan = Boolean(openPlan)
@@ -459,21 +478,24 @@ export function computeWorkflow(ctx: WorkflowContext): Workflow {
 
   let step1: StepStatus = hasVigil ? 'completed' : 'not_started'
   if (!hasVigil && stepNum === 1) step1 = 'in_progress'
+  if (!hasVigil) {
+    blockers[1] = uploads.length
+      ? 'Upload this cycle\'s Vigil stock — the previous file belongs to an earlier PO.'
+      : 'Upload Vigil stock to start.'
+  }
 
   let step2: StepStatus
-  if (!hasVigil) {
+  if (hasPendingUpload || batchConsumed) {
+    step2 = 'completed'
+  } else if (!hasVigil) {
     step2 = 'blocked'
     blockers[2] = 'Upload Vigil stock first.'
-  } else if (hasPendingUpload || batchConsumed) {
-    step2 = 'completed'
   } else {
     step2 = 'ready'
   }
 
   let step3: StepStatus
-  if (!hasVigil) {
-    step3 = 'blocked'
-  } else if (batchConsumed) {
+  if (batchConsumed) {
     step3 = 'completed'
   } else if (!hasPendingUpload) {
     step3 = 'blocked'
@@ -495,7 +517,7 @@ export function computeWorkflow(ctx: WorkflowContext): Workflow {
   let step4: StepStatus
   if (!hasVigil) {
     step4 = 'blocked'
-    blockers[4] = 'Upload Vigil stock first.'
+    blockers[4] = 'Upload this cycle\'s Vigil stock in Step 1 first.'
   } else if (batchConsumed) {
     step4 = 'completed'
   } else if (!hasPendingUpload) {

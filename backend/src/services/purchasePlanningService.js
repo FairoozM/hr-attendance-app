@@ -1120,6 +1120,22 @@ function assertPlanEligibleForPo(planRow, now = Date.now()) {
   }
 }
 
+/** Each purchase cycle needs Vigil stock uploaded after the last PO was sent to Zoho. */
+async function assertVigilUploadIsCurrent(upload) {
+  const result = await query(`
+    SELECT MAX(updated_at) AS last_sent_at
+    FROM purchase_plans
+    WHERE status = 'sent_to_zoho'
+  `)
+  const lastSentAt = result.rows[0]?.last_sent_at
+  if (!lastSentAt) return
+  if (new Date(upload.uploaded_at).getTime() <= new Date(lastSentAt).getTime()) {
+    const err = new Error('Upload a new Vigil stock file for this purchase cycle before generating a plan')
+    err.code = 'VIGIL_UPLOAD_STALE'
+    throw err
+  }
+}
+
 async function generatePlan({ createdBy }) {
   const upload = await getLatestVigilUpload()
   if (!upload) {
@@ -1127,6 +1143,7 @@ async function generatePlan({ createdBy }) {
     err.code = 'NO_VIGIL_UPLOAD'
     throw err
   }
+  await assertVigilUploadIsCurrent(upload)
 
   let lowStock = (await listLowStock()).filter((item) => item.status === 'pending')
   if (lowStock.length === 0) {

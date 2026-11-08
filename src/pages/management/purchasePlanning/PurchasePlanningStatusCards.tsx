@@ -4,6 +4,7 @@ import {
   formatUploadDate,
   getLatestOpenPlan,
   getLatestSentPlan,
+  getCurrentVigilUpload,
   getLatestVigilUpload,
   getPendingLowStock,
   isOpenPlanStatus,
@@ -39,7 +40,8 @@ export function PurchasePlanningStatusCards({
   onOpenLatestSent,
   onStartNewPlan,
 }: StatusCardsProps) {
-  const latestVigil = getLatestVigilUpload(uploads)
+  const latestVigil = getCurrentVigilUpload(uploads, plans)
+  const previousVigil = latestVigil ? null : getLatestVigilUpload(uploads)
   const pending = getPendingLowStock(lowStock)
   const pendingMatched = pending.filter((item) => String(item.zohoItemId || '').trim()).length
   const latestOpen = (isOpenPlanStatus(activePlan?.status) ? activePlan : null) || getLatestOpenPlan(plans)
@@ -79,9 +81,15 @@ export function PurchasePlanningStatusCards({
     <div className="pp-status-cards">
       <div className="pp-status-card">
         <span className="pp-status-card__label">Latest Vigil Upload</span>
-        <strong className="pp-status-card__value">{latestVigil ? `${latestVigil.rowsCount} rows` : 'None'}</strong>
+        <strong className="pp-status-card__value">
+          {latestVigil ? `${latestVigil.rowsCount} rows` : previousVigil ? 'Upload needed' : 'None'}
+        </strong>
         <span className="pp-status-card__meta">
-          {latestVigil ? formatUploadDate(latestVigil.uploadedAt) : 'Upload wholesale stock first'}
+          {latestVigil
+            ? formatUploadDate(latestVigil.uploadedAt)
+            : previousVigil
+              ? `Last file ${formatUploadDate(previousVigil.uploadedAt)} was for an earlier PO`
+              : 'Upload wholesale stock first'}
         </span>
       </div>
       <div className="pp-status-card">
@@ -121,7 +129,7 @@ export function PurchasePlanningStatusCards({
           {latestSent && <span className="pp-status-card__open-hint">Open sent plan →</span>}
         </span>
       </button>
-      {latestSent && !latestOpen && (
+      {latestSent && !latestOpen && pending.length === 0 && !enrichmentRunning && (
         <div className="pp-status-card pp-status-card--cta">
           <span className="pp-status-card__label">Next action</span>
           <button type="button" className="btn btn--primary btn--sm" onClick={onStartNewPlan}>

@@ -97,9 +97,11 @@ export function LowStockUploadStep({
     [file, pending.length, hasOpenDraft, onUploaded, confirm]
   )
 
-  if (!hasVigil) {
+  if (!hasVigil && pending.length === 0) {
     return (
-      <p className="pp-hint pp-hint--warn">Upload Vigil wholesale stock in Step 1 before uploading low-stock SKUs.</p>
+      <p className="pp-hint pp-hint--warn">
+        Upload this cycle&apos;s Vigil wholesale stock in Step 1 before uploading low-stock SKUs.
+      </p>
     )
   }
 

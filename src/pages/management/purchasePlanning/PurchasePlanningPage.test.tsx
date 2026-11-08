@@ -67,7 +67,7 @@ vi.mock('../../../api/client', () => ({
         }
       }
       if (String(path).includes('vigil-uploads')) {
-        return { uploads: [{ id: 1, fileName: 'vigil.xlsx', rowsCount: 674, uploadedAt: '2026-09-15T14:00:00.000Z' }] }
+        return { uploads: [{ id: 1, fileName: 'vigil.xlsx', rowsCount: 674, uploadedAt: '2026-10-20T14:00:00.000Z' }] }
       }
       if (String(path).includes('low-stock')) return { items: [] }
       return {}
