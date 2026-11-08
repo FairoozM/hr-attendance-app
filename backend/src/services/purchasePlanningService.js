@@ -373,45 +373,60 @@ async function persistLowStockItems(items) {
     return { uploaded: 0, items: [], uploadedKeys: [] }
   }
 
-  await query(`
-    UPDATE purchase_low_stock_items
-    SET status = 'ignored', updated_at = NOW()
-    WHERE status IN ('pending', 'planned')
-  `)
-
+  const client = await pool.connect()
   const savedRows = []
   let upserted = 0
-  for (const item of rows) {
-    const result = await query(
-      `
-        INSERT INTO purchase_low_stock_items
-          (sku, item_name, zoho_item_id, zoho_item_active, current_zoho_stock, total_sales_last_3_months, total_bundle_usage_last_3_months, low_stock_detected_at, status, updated_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), 'pending', NOW())
-        ON CONFLICT (sku) DO UPDATE SET
-          item_name = EXCLUDED.item_name,
-          zoho_item_id = EXCLUDED.zoho_item_id,
-          zoho_item_active = EXCLUDED.zoho_item_active,
-          current_zoho_stock = EXCLUDED.current_zoho_stock,
-          total_sales_last_3_months = EXCLUDED.total_sales_last_3_months,
-          total_bundle_usage_last_3_months = EXCLUDED.total_bundle_usage_last_3_months,
-          low_stock_detected_at = NOW(),
-          status = 'pending',
-          updated_at = NOW()
-        RETURNING *
-      `,
-      [
-        item.sku,
-        item.itemName || '',
-        item.zohoItemId || '',
-        item.zohoItemActive == null ? null : Boolean(item.zohoItemActive),
-        item.currentZohoStock || 0,
-        item.totalSalesLast3Months || 0,
-        item.totalBundleUsageLast3Months || 0,
-      ]
-    )
-    upserted += result.rowCount
-    if (result.rows[0]) savedRows.push(mapLowStockRow(result.rows[0]))
+  try {
+    await client.query('BEGIN')
+    await client.query(`
+      UPDATE purchase_low_stock_items
+      SET status = 'ignored', updated_at = NOW()
+      WHERE status IN ('pending', 'planned')
+    `)
+
+    for (const item of rows) {
+      const result = await client.query(
+        `
+          INSERT INTO purchase_low_stock_items
+            (sku, item_name, zoho_item_id, zoho_item_active, current_zoho_stock, total_sales_last_3_months, total_bundle_usage_last_3_months, low_stock_detected_at, status, updated_at)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), 'pending', NOW())
+          ON CONFLICT (sku) DO UPDATE SET
+            item_name = EXCLUDED.item_name,
+            zoho_item_id = EXCLUDED.zoho_item_id,
+            zoho_item_active = EXCLUDED.zoho_item_active,
+            current_zoho_stock = EXCLUDED.current_zoho_stock,
+            total_sales_last_3_months = EXCLUDED.total_sales_last_3_months,
+            total_bundle_usage_last_3_months = EXCLUDED.total_bundle_usage_last_3_months,
+            low_stock_detected_at = NOW(),
+            status = 'pending',
+            updated_at = NOW()
+          RETURNING *
+        `,
+        [
+          item.sku,
+          item.itemName || '',
+          item.zohoItemId || '',
+          item.zohoItemActive == null ? null : Boolean(item.zohoItemActive),
+          item.currentZohoStock || 0,
+          item.totalSalesLast3Months || 0,
+          item.totalBundleUsageLast3Months || 0,
+        ]
+      )
+      upserted += result.rowCount
+      if (result.rows[0]) savedRows.push(mapLowStockRow(result.rows[0]))
+    }
+    await client.query('COMMIT')
+  } catch (err) {
+    try {
+      await client.query('ROLLBACK')
+    } catch (_) {
+      // ignore rollback failure
+    }
+    throw err
+  } finally {
+    client.release()
   }
+
   const upload = await getLatestVigilUpload()
   const persisted = applyVigilMatchesToLowStockRows(savedRows, coerceVigilRowsFromUpload(upload))
   return {
@@ -1230,7 +1245,7 @@ async function refreshDraftPlanZohoData(planId) {
     err.code = 'PLAN_NOT_FOUND'
     throw err
   }
-  if (plan.status !== 'draft') {
+  if (plan.status !== 'draft' && plan.status !== 'failed') {
     const err = new Error('Only draft plans can be refreshed from Zoho')
     err.code = 'PLAN_NOT_DRAFT'
     throw err
@@ -1426,7 +1441,7 @@ async function updatePlanItem(planId, itemId, patch) {
     err.code = 'PLAN_NOT_FOUND'
     throw err
   }
-  if (planRow.rows[0].status !== 'draft') {
+  if (planRow.rows[0].status !== 'draft' && planRow.rows[0].status !== 'failed') {
     const err = new Error('Only draft plans can be edited')
     err.code = 'PLAN_NOT_EDITABLE'
     throw err
@@ -1640,7 +1655,7 @@ async function createZohoPurchaseOrder(planId, options = {}) {
       `
         UPDATE purchase_low_stock_items
         SET status = 'ordered', updated_at = NOW()
-        WHERE sku = ANY($1::text[])
+        WHERE sku = ANY($1::text[]) AND status = 'planned'
       `,
       [selected.map((item) => item.sku)]
     )

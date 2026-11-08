@@ -13,6 +13,7 @@ export function ZohoEnrichmentStep({
   removingLowStockId,
   refreshBusy,
   hasPending,
+  batchConsumed = false,
 }) {
   const [showMatched, setShowMatched] = useState(true)
   const pending = getPendingLowStock(lowStock)
@@ -35,13 +36,16 @@ export function ZohoEnrichmentStep({
 
   const processed = enrichmentSummary?.refreshed ?? matched.length + unmatched.length
   const total = pending.length
-  const showAsRunning =
-    enrichmentRunning && pending.length > 0 && matched.length === 0 && unmatched.length === pending.length
+  const showAsRunning = Boolean(enrichmentRunning && pending.length > 0)
+  const runningDetail =
+    matched.length > 0
+      ? 'Items are matched. Sales and bundle usage are still loading.'
+      : 'Matching uploaded SKUs in Zoho.'
 
   let statusLabel = 'Idle'
   let statusTone = 'muted'
   if (showAsRunning) {
-    statusLabel = 'Running'
+    statusLabel = matched.length > 0 ? 'Loading usage' : 'Matching'
     statusTone = 'warning'
   } else if (enrichmentError) {
     statusLabel = 'Failed'
@@ -53,7 +57,11 @@ export function ZohoEnrichmentStep({
 
   if (!hasPending) {
     return (
-      <p className="pp-hint pp-hint--warn">Upload low-stock SKUs in Step 2 before enriching from Zoho.</p>
+      <p className={batchConsumed ? 'pp-hint' : 'pp-hint pp-hint--warn'}>
+        {batchConsumed
+          ? 'This batch was already matched and turned into a plan. Upload a new low-stock file to enrich another batch.'
+          : 'Upload low-stock SKUs in Step 2 before enriching from Zoho.'}
+      </p>
     )
   }
 
@@ -109,7 +117,9 @@ export function ZohoEnrichmentStep({
           </button>
         </div>
         {showAsRunning && (
-          <p className="pp-hint pp-hint--warn">Plan generation and other heavy actions are disabled while enrichment runs.</p>
+          <p className="pp-hint pp-hint--warn">
+            {runningDetail} Plan generation stays locked until this finishes.
+          </p>
         )}
       </div>
 

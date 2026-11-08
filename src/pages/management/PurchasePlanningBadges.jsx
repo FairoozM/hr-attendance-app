@@ -44,9 +44,9 @@ export function StepStatusBadge({ status }) {
     not_started: 'Not started',
     ready: 'Ready',
     in_progress: 'In progress',
-    completed: 'Completed',
-    blocked: 'Blocked',
-    error: 'Error',
+    completed: 'Done',
+    blocked: 'Locked',
+    error: 'Needs attention',
   }
   const tones = {
     not_started: 'muted',

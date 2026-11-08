@@ -1,6 +1,6 @@
 import { Badge } from './PurchasePlanningBadges'
 import { PurchasePlanTable } from './PurchasePlanTable'
-import { computePlanReviewSummary, computePoReadiness, fmtPrice } from './purchasePlanningUtils'
+import { computePlanReviewSummary, computePoReadiness, fmtPrice, isEditablePlanStatus } from './purchasePlanningUtils'
 
 export function ReviewPlanStep({
   plan,
@@ -16,9 +16,11 @@ export function ReviewPlanStep({
   deleteBusy,
   onContinueToPo,
   currentStep,
+  pricesReady = true,
 }) {
   const summary = computePlanReviewSummary(plan)
-  const poReadiness = computePoReadiness(plan)
+  const poReadiness = computePoReadiness(plan, { pricesReady })
+  const editable = isEditablePlanStatus(plan?.status)
   const draftPlans = (plans || []).filter((p) => p.status === 'draft')
 
   if (!plan) {
@@ -41,7 +43,7 @@ export function ReviewPlanStep({
   }
 
   const isSent = plan.status === 'sent_to_zoho'
-  const isReadOnly = readOnly || isSent
+  const isReadOnly = readOnly || !editable
 
   return (
     <div className="pp-step-content">
@@ -51,7 +53,7 @@ export function ReviewPlanStep({
           <Badge tone={isSent ? 'success' : plan.status === 'failed' ? 'danger' : 'warning'}>{plan.status}</Badge>
           {plan.zohoPurchaseOrderId && <span className="pp-hint">Zoho PO: {plan.zohoPurchaseOrderId}</span>}
         </div>
-        {plan.status === 'draft' && onRefreshZohoData && (
+        {editable && onRefreshZohoData && (
           <div className="pp-secondary-actions">
             <button type="button" className="btn" disabled={refreshBusy} onClick={onRefreshZohoData}>
               {refreshBusy ? 'Refreshing…' : 'Refresh Zoho Data'}
@@ -60,10 +62,9 @@ export function ReviewPlanStep({
         )}
       </div>
 
-      {plan.status === 'draft' && (
+      {editable && (
         <p className="pp-hint pp-hint--warn">
-          Refresh Zoho Data may overwrite manual quantity edits. Refresh currently uses the <strong>latest</strong> Vigil
-          upload, not necessarily the upload stored on this plan.
+          Refresh Zoho Data may overwrite manual quantity edits. It uses the latest Vigil upload.
         </p>
       )}
 
@@ -114,9 +115,11 @@ export function ReviewPlanStep({
         </div>
       )}
 
-      {summary.missingPricesCount > 0 && (
+      {!pricesReady && <p className="pp-hint">Purchase prices are still loading from All Prices.</p>}
+
+      {pricesReady && summary.missingPricesCount > 0 && (
         <p className="pp-hint pp-hint--warn">
-          {summary.missingPricesCount} included line(s) need purchase price in All Prices before creating a PO.
+          {summary.missingPricesCount} included line(s) need a purchase price in All Prices before creating a PO.
         </p>
       )}
 
@@ -131,10 +134,9 @@ export function ReviewPlanStep({
         </p>
       )}
 
-      {plan.status === 'draft' && (
+      {editable && (
         <p className="pp-hint">
-          Quantity and include/exclude changes save automatically when you edit a field (no separate Save button). When
-          ready, continue to Step 6 to enter a PO number and send to Zoho.
+          Quantity and include changes save when you leave a field. Continue when the lines look right.
         </p>
       )}
 
@@ -146,7 +148,7 @@ export function ReviewPlanStep({
         readOnly={isReadOnly}
       />
 
-      {plan.status === 'draft' && onContinueToPo && (
+      {editable && onContinueToPo && (
         <div className="pp-continue-po-card">
           <div>
             <strong>Ready for Zoho?</strong>
@@ -169,7 +171,7 @@ export function ReviewPlanStep({
             disabled={!poReadiness.ready}
             onClick={onContinueToPo}
           >
-            {currentStep === 6 ? 'On Step 6 — create PO below' : 'Continue to Step 6 — Create Zoho PO'}
+            {currentStep === 6 ? 'PO step is open' : 'Continue to create Zoho PO'}
           </button>
         </div>
       )}
@@ -179,8 +181,8 @@ export function ReviewPlanStep({
           <button type="button" className="btn" disabled={deleteBusy} onClick={() => onDeletePlan(plan)}>
             Delete draft plan
           </button>
-          <p className="pp-hint pp-hint--warn">
-            Deleting this draft will not return planned SKUs to pending.
+          <p className="pp-hint">
+            Deleting this draft puts its planned SKUs back in the pending batch.
           </p>
         </div>
       )}

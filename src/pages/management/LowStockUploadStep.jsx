@@ -4,7 +4,15 @@ import { PP_REQUEST_OPTS, getPendingLowStock } from './purchasePlanningUtils'
 import { Badge } from './PurchasePlanningBadges'
 import { UnmatchedLowStockTable } from './UnmatchedLowStockTable'
 
-export function LowStockUploadStep({ lowStock, loading, onUploaded, hasVigil, onRemoveUnmatched, removingLowStockId }) {
+export function LowStockUploadStep({
+  lowStock,
+  loading,
+  onUploaded,
+  hasVigil,
+  hasOpenDraft = false,
+  onRemoveUnmatched,
+  removingLowStockId,
+}) {
   const fileInputRef = useRef(null)
   const [file, setFile] = useState(null)
   const [preview, setPreview] = useState(null)
@@ -20,10 +28,9 @@ export function LowStockUploadStep({ lowStock, loading, onUploaded, hasVigil, on
     async (save) => {
       if (!file) return
       if (save) {
-        const existingPending = lowStock.filter((i) => i.status === 'pending' || i.status === 'planned').length
-        if (existingPending > 0) {
+        if (pending.length > 0 || hasOpenDraft) {
           const ok = window.confirm(
-            'Re-uploading low-stock SKUs will mark all current pending and planned rows as ignored and start a new batch.\n\nContinue?'
+            'A new file replaces the current low-stock batch. SKUs that are not in the file are ignored. An existing draft stays until you delete it.\n\nContinue?'
           )
           if (!ok) return
         }
@@ -59,7 +66,7 @@ export function LowStockUploadStep({ lowStock, loading, onUploaded, hasVigil, on
         setBusy(false)
       }
     },
-    [file, lowStock, onUploaded]
+    [file, pending.length, hasOpenDraft, onUploaded]
   )
 
   if (!hasVigil) {

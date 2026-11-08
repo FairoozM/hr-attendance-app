@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Badge, FilterChip, RowBadgeList, SortHeader } from './PurchasePlanningBadges'
 import {
   EMPTY_FILTERS,
@@ -20,16 +20,30 @@ export function PurchasePlanTable({ plan, filters, onFiltersChange, onItemChange
   const [qtyDrafts, setQtyDrafts] = useState({})
   const [editedIds, setEditedIds] = useState(() => new Set())
   const [savingItemId, setSavingItemId] = useState(null)
+  const editedIdsRef = useRef(editedIds)
+  editedIdsRef.current = editedIds
+
+  const serverQtyKey = useMemo(
+    () => (plan?.items || []).map((item) => `${item.id}:${item.finalQty}`).join('|'),
+    [plan?.items]
+  )
 
   useEffect(() => {
-    const next = {}
-    for (const item of plan?.items || []) {
-      next[item.id] = String(item.finalQty ?? 0)
-    }
-    setQtyDrafts(next)
+    editedIdsRef.current = new Set()
     setEditedIds(new Set())
-    setSavingItemId(null)
   }, [plan?.id])
+
+  useEffect(() => {
+    setQtyDrafts((prev) => {
+      const next = {}
+      const edited = editedIdsRef.current
+      for (const item of plan?.items || []) {
+        next[item.id] = edited.has(item.id) ? (prev[item.id] ?? String(item.finalQty ?? 0)) : String(item.finalQty ?? 0)
+      }
+      return next
+    })
+    setSavingItemId(null)
+  }, [plan?.id, plan?.items, serverQtyKey])
 
   const commitFinalQty = useCallback(
     async (item) => {

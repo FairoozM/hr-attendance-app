@@ -21,28 +21,35 @@ export function GeneratePlanStep({
     !workflow.pendingWithoutZoho?.length &&
     workflow.stepStatuses[3] === 'completed'
 
-  const checklist = [
-    {
-      label: 'Vigil stock uploaded',
-      ok: workflow.hasVigil,
-      step: 1,
-    },
-    {
-      label: 'Low-stock SKUs uploaded',
-      ok: workflow.hasPendingUpload,
-      step: 2,
-    },
-    {
-      label: 'Zoho enrichment completed (all pending SKUs have Zoho item IDs)',
-      ok: workflow.hasPendingUpload && workflow.pendingWithoutZoho?.length === 0,
-      step: 3,
-    },
-    {
-      label: `${workflow.pendingWithZoho?.length ?? 0} pending SKU(s) ready for plan`,
-      ok: (workflow.pendingWithZoho?.length ?? 0) > 0,
-      step: 3,
-    },
-  ]
+  const batchAlreadyPlanned = Boolean(workflow.batchConsumed && !workflow.hasPendingUpload)
+  const checklist = batchAlreadyPlanned
+    ? [
+        { label: 'Vigil stock uploaded', ok: true, step: 1 },
+        { label: 'Low-stock batch already planned', ok: true, step: 2 },
+        { label: 'Zoho enrichment already finished for that batch', ok: true, step: 3 },
+      ]
+    : [
+        {
+          label: 'Vigil stock uploaded',
+          ok: workflow.hasVigil,
+          step: 1,
+        },
+        {
+          label: 'Low-stock SKUs uploaded',
+          ok: workflow.hasPendingUpload,
+          step: 2,
+        },
+        {
+          label: 'Zoho enrichment completed (all pending SKUs have Zoho item IDs)',
+          ok: workflow.hasPendingUpload && workflow.pendingWithoutZoho?.length === 0,
+          step: 3,
+        },
+        {
+          label: `${workflow.pendingWithZoho?.length ?? 0} pending SKU(s) ready for plan`,
+          ok: (workflow.pendingWithZoho?.length ?? 0) > 0,
+          step: 3,
+        },
+      ]
 
   const draftPlans = (plans || []).filter((p) => p.status === 'draft')
 
@@ -76,9 +83,14 @@ export function GeneratePlanStep({
           </button>
         </div>
         <p className="pp-hint">
-          Generating a plan marks all pending low-stock SKUs as <strong>planned</strong>. They will no longer appear in the
-          pending upload batch.
+          Generating a plan marks the pending SKUs as planned. They leave the upload batch and stay on the draft until you
+          delete it or send the purchase order.
         </p>
+        {batchAlreadyPlanned && (
+          <p className="pp-hint">
+            This batch is already on a draft. Upload a new low-stock file when you want another plan.
+          </p>
+        )}
         {latestVigil && (
           <p className="pp-hint">Source Vigil upload: {latestVigil.fileName} · {formatUploadDate(latestVigil.uploadedAt)}</p>
         )}
@@ -124,9 +136,8 @@ export function GeneratePlanStep({
             ))}
           </div>
         )}
-        <p className="pp-hint pp-hint--warn">
-          Deleting a draft will not return planned SKUs to pending. You must upload a new low-stock file to start another
-          batch.
+        <p className="pp-hint">
+          Deleting a draft returns its planned SKUs to the pending batch. Sent plans stay in history.
         </p>
       </div>
     </div>

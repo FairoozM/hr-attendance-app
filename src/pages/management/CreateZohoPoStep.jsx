@@ -1,5 +1,5 @@
 import { Badge } from './PurchasePlanningBadges'
-import { computePoReadiness, fmtPrice } from './purchasePlanningUtils'
+import { computePoReadiness, fmtPrice, isEditablePlanStatus } from './purchasePlanningUtils'
 
 export function CreateZohoPoStep({
   plan,
@@ -8,8 +8,9 @@ export function CreateZohoPoStep({
   onCreatePo,
   busy,
   vendorLabel,
+  pricesReady = true,
 }) {
-  const readiness = computePoReadiness(plan)
+  const readiness = computePoReadiness(plan, { pricesReady })
   const summary = readiness.summary
   const isSent = plan?.status === 'sent_to_zoho'
 
@@ -41,7 +42,7 @@ export function CreateZohoPoStep({
     )
   }
 
-  if (plan.status !== 'draft' && plan.status !== 'failed') {
+  if (!isEditablePlanStatus(plan.status)) {
     return (
       <div className="pp-step-content">
         <p className="pp-hint pp-hint--warn">

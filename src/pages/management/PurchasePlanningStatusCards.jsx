@@ -1,10 +1,11 @@
 import { Badge } from './PurchasePlanningBadges'
 import {
   formatUploadDate,
-  getLatestDraftPlan,
+  getLatestOpenPlan,
   getLatestSentPlan,
   getLatestVigilUpload,
   getPendingLowStock,
+  isEditablePlanStatus,
 } from './purchasePlanningUtils'
 
 export function PurchasePlanningStatusCards({
@@ -20,7 +21,8 @@ export function PurchasePlanningStatusCards({
   const latestVigil = getLatestVigilUpload(uploads)
   const pending = getPendingLowStock(lowStock)
   const pendingMatched = pending.filter((item) => String(item.zohoItemId || '').trim()).length
-  const latestDraft = getLatestDraftPlan(plans) || (activePlan?.status === 'draft' ? activePlan : null)
+  const latestOpen =
+    (isEditablePlanStatus(activePlan?.status) ? activePlan : null) || getLatestOpenPlan(plans)
   const latestSent = getLatestSentPlan(plans) || (activePlan?.status === 'sent_to_zoho' ? activePlan : null)
 
   let enrichLabel = 'Idle'
@@ -28,7 +30,7 @@ export function PurchasePlanningStatusCards({
   if (enrichmentRunning) {
     enrichLabel = 'Running'
     enrichTone = 'warning'
-  } else if (enrichmentError) {
+  } else if (enrichmentError && pending.length > 0) {
     enrichLabel = 'Failed'
     enrichTone = 'danger'
   } else if (pending.length > 0 && pendingMatched === pending.length) {
@@ -37,13 +39,24 @@ export function PurchasePlanningStatusCards({
   } else if (pending.length > 0) {
     enrichLabel = 'Needs attention'
     enrichTone = 'warning'
+  } else if (latestOpen || latestSent) {
+    enrichLabel = 'Done'
+    enrichTone = 'success'
   }
 
   let draftValue = '—'
   let draftMeta = 'No active draft'
-  if (latestDraft) {
-    draftValue = latestDraft.planNumber
-    draftMeta = `${latestDraft.itemsCount ?? latestDraft.items?.length ?? '—'} lines · draft`
+  if (latestOpen) {
+    const items = Array.isArray(latestOpen.items) ? latestOpen.items : null
+    const total = items ? items.length : (latestOpen.itemsCount ?? '—')
+    const included = items ? items.filter((item) => item.included).length : latestOpen.includedCount
+    draftValue = latestOpen.planNumber
+    draftMeta =
+      latestOpen.status === 'failed'
+        ? 'Zoho send failed — open the plan to retry'
+        : included != null
+          ? `${included} included · ${total} lines`
+          : `${total} lines · draft`
   } else if (latestSent) {
     draftMeta = `Latest sent: ${latestSent.planNumber}`
   } else if (!latestVigil) {
@@ -85,7 +98,9 @@ export function PurchasePlanningStatusCards({
           <Badge tone={enrichTone}>{enrichLabel}</Badge>
         </strong>
         <span className="pp-status-card__meta">
-          {enrichmentRunning ? 'Background job in progress' : enrichmentError || 'Life Smile stock & 3M usage'}
+          {enrichmentRunning
+            ? 'Matching items, then loading sales and bundle usage'
+            : enrichmentError || (pending.length === 0 && (latestOpen || latestSent) ? 'No batch waiting' : 'Life Smile stock and 3-month usage')}
         </span>
       </div>
       <div className="pp-status-card">
@@ -112,7 +127,7 @@ export function PurchasePlanningStatusCards({
           )}
         </span>
       </button>
-      {latestSent && !latestDraft && onStartNewPlan && (
+      {latestSent && !latestOpen && onStartNewPlan && (
         <div className="pp-status-card pp-status-card--cta">
           <span className="pp-status-card__label">Next action</span>
           <button type="button" className="btn btn--primary btn--sm" onClick={onStartNewPlan}>

@@ -1,14 +1,25 @@
-import { PP_STEPS } from './purchasePlanningUtils'
 import { StepStatusBadge } from './PurchasePlanningBadges'
+import { PP_STEPS } from './purchasePlanningUtils'
 
-export function PurchasePlanningStepper({ activeStep, stepStatuses, onStepClick }) {
+const STATUS_LABELS = {
+  not_started: 'Not started',
+  ready: 'Ready',
+  in_progress: 'In progress',
+  completed: 'Done',
+  blocked: 'Locked',
+  error: 'Needs attention',
+}
+
+export function PurchasePlanningStepper({ activeStep, stepStatuses, blockers = {}, onStepClick }) {
   return (
     <nav className="pp-stepper" aria-label="Purchase planning workflow">
       <ol className="pp-stepper__list">
         {PP_STEPS.map((step) => {
           const status = stepStatuses[step.id] || 'not_started'
           const isActive = activeStep === step.id
-          const isClickable = status === 'completed' || status === 'ready' || status === 'in_progress' || isActive
+          const isClickable =
+            isActive || status === 'completed' || status === 'ready' || status === 'in_progress' || status === 'error'
+          const detail = blockers[step.id] || STATUS_LABELS[status] || status
           return (
             <li
               key={step.id}
@@ -17,14 +28,17 @@ export function PurchasePlanningStepper({ activeStep, stepStatuses, onStepClick 
               <button
                 type="button"
                 className="pp-stepper__button"
-                disabled={!isClickable && !isActive}
+                disabled={!isClickable}
                 onClick={() => onStepClick(step.id)}
                 aria-current={isActive ? 'step' : undefined}
+                title={detail}
               >
-                <span className="pp-stepper__index">{step.id}</span>
+                <span className="pp-stepper__index" aria-hidden>
+                  {status === 'completed' ? '✓' : step.id}
+                </span>
                 <span className="pp-stepper__text">
-                  <span className="pp-stepper__title">{step.title}</span>
-                  <StepStatusBadge status={status} />
+                  <span className="pp-stepper__title">{step.shortTitle || step.title}</span>
+                  <span className={`pp-stepper__status pp-stepper__status--${status}`}>{STATUS_LABELS[status] || status}</span>
                 </span>
               </button>
             </li>

@@ -29,36 +29,42 @@ export const PP_STEPS = [
   {
     id: 1,
     key: 'vigil',
+    shortTitle: 'Vigil',
     title: 'Upload Vigil Stock',
     description: 'Upload wholesale availability (item code + available quantity). Required before generating a plan.',
   },
   {
     id: 2,
     key: 'lowStock',
+    shortTitle: 'Low stock',
     title: 'Upload Low Stock SKUs',
     description: 'Upload the team’s low-stock SKU list. Saving creates pending rows for Zoho enrichment.',
   },
   {
     id: 3,
     key: 'enrich',
+    shortTitle: 'Zoho',
     title: 'Match & Enrich from Zoho',
     description: 'Life Smile warehouse stock, 3-month sales, and bundle usage from Zoho Inventory.',
   },
   {
     id: 4,
     key: 'generate',
+    shortTitle: 'Draft',
     title: 'Generate Draft Plan',
     description: 'Build a draft purchase plan from pending SKUs, Vigil caps, and usage calculations.',
   },
   {
     id: 5,
     key: 'review',
+    shortTitle: 'Review',
     title: 'Review Quantities & Prices',
-    description: 'Adjust final quantities, include/exclude lines, and verify All Prices purchase costs.',
+    description: 'Adjust final quantities, include or exclude lines, and verify All Prices purchase costs.',
   },
   {
     id: 6,
     key: 'po',
+    shortTitle: 'Send PO',
     title: 'Create Zoho PO',
     description: 'Confirm totals and send a draft purchase order to Zoho Inventory.',
   },
@@ -179,8 +185,17 @@ export function getLatestVigilUpload(uploads) {
   return uploads && uploads.length > 0 ? uploads[0] : null
 }
 
+export function isEditablePlanStatus(status) {
+  return status === 'draft' || status === 'failed'
+}
+
 export function getLatestDraftPlan(plans) {
   return (plans || []).find((p) => p.status === 'draft') || null
+}
+
+/** Newest draft, or a failed send that still needs a retry. */
+export function getLatestOpenPlan(plans) {
+  return (plans || []).find((p) => isEditablePlanStatus(p.status)) || null
 }
 
 export function getLatestSentPlan(plans) {
@@ -235,14 +250,13 @@ export function getDefaultPurchasePlanningView(ctx) {
 
   const pending = getPendingLowStock(lowStock)
   const pendingWithoutZoho = pending.filter((item) => !String(item.zohoItemId || '').trim())
-  const pendingAllUnmatched = pending.length > 0 && pendingWithoutZoho.length === pending.length
-  const enrichmentActive = enrichmentRunning && pendingAllUnmatched
+  const enrichmentActive = Boolean(enrichmentRunning && pending.length > 0)
   const hasVigil = uploads.length > 0
-  const latestDraft = getLatestDraftPlan(plans)
+  const latestOpen = getLatestOpenPlan(plans)
   const latestSent = getLatestSentPlan(plans)
 
   if (selectedPlan?.id) {
-    if (selectedPlan.status === 'draft') {
+    if (isEditablePlanStatus(selectedPlan.status)) {
       return {
         activeStep: 5,
         mode: 'draft_review',
@@ -262,13 +276,23 @@ export function getDefaultPurchasePlanningView(ctx) {
     }
   }
 
-  if (latestDraft) {
+  if (enrichmentActive) {
+    return {
+      activeStep: 3,
+      mode: 'workflow',
+      selectedPlanId: latestOpen?.id || null,
+      showLatestSentPanel: false,
+      reason: 'Zoho enrichment is still running',
+    }
+  }
+
+  if (latestOpen) {
     return {
       activeStep: 5,
       mode: 'draft_review',
-      selectedPlanId: latestDraft.id,
+      selectedPlanId: latestOpen.id,
       showLatestSentPanel: false,
-      reason: 'Active draft plan exists',
+      reason: latestOpen.status === 'failed' ? 'Last Zoho send failed and can be retried' : 'Active draft plan exists',
     }
   }
 
@@ -336,6 +360,7 @@ export function computeWorkflow(ctx) {
     activePlanWithPrices = null,
     plans = [],
     currentStep = null,
+    pricesReady = true,
   } = ctx
 
   const pending = getPendingLowStock(lowStock)
@@ -343,91 +368,105 @@ export function computeWorkflow(ctx) {
   const pendingWithoutZoho = pending.filter((item) => !String(item.zohoItemId || '').trim())
   const hasVigil = uploads.length > 0
   const hasPendingUpload = pending.length > 0
-  const draftPlans = (plans || []).filter((p) => p.status === 'draft')
-  const hasDraft = draftPlans.length > 0 || activePlan?.status === 'draft'
-  const latestSent = getLatestSentPlan(plans)
-  const hasSentHistory = Boolean(latestSent)
+  const openFromList = getLatestOpenPlan(plans)
+  const activeIsOpen = isEditablePlanStatus(activePlan?.status)
+  const openPlan = activeIsOpen ? activePlan : openFromList
+  const hasOpenPlan = Boolean(openPlan)
+  const hasDraft = (plans || []).some((plan) => plan.status === 'draft') || activePlan?.status === 'draft'
   const planSent = activePlan?.status === 'sent_to_zoho'
-  const poReadiness =
-    activePlanWithPrices || activePlan ? computePoReadiness(activePlanWithPrices || activePlan) : null
-  const poReady = Boolean(poReadiness?.ready)
+  const batchConsumed = !hasPendingUpload && (hasOpenPlan || planSent)
+  const enrichmentActive = Boolean(enrichmentRunning && hasPendingUpload)
+  const poSource = activePlanWithPrices || activePlan
+  const poReadiness = poSource ? computePoReadiness(poSource, { pricesReady }) : null
+  const poReady = Boolean(hasOpenPlan && poReadiness?.ready)
   const stepNum = Number(currentStep) > 0 ? Number(currentStep) : 0
-
   const blockers = {}
 
+  const focus = (status, stepId) =>
+    stepNum === stepId && (status === 'ready' || status === 'not_started') ? 'in_progress' : status
+
   let step1 = hasVigil ? 'completed' : 'not_started'
-  let step2 = !hasVigil ? 'blocked' : hasPendingUpload ? 'completed' : 'ready'
-  const pendingAllUnmatched =
-    hasPendingUpload && pending.length > 0 && pendingWithZoho.length === 0
-  const enrichmentActive = enrichmentRunning && pendingAllUnmatched
+  if (!hasVigil && stepNum === 1) step1 = 'in_progress'
+
+  let step2 = 'not_started'
+  if (!hasVigil) {
+    step2 = 'blocked'
+    blockers[2] = 'Upload Vigil stock first.'
+  } else if (hasPendingUpload || batchConsumed) {
+    step2 = 'completed'
+  } else {
+    step2 = 'ready'
+  }
 
   let step3 = 'not_started'
-  if (!hasVigil) step3 = 'blocked'
-  else if (!hasPendingUpload) step3 = 'blocked'
-  else if (enrichmentActive) step3 = 'in_progress'
-  else if (enrichmentError) step3 = 'error'
-  else if (pendingWithoutZoho.length > 0) step3 = 'blocked'
-  else step3 = 'completed'
+  if (!hasVigil) {
+    step3 = 'blocked'
+  } else if (batchConsumed && !hasPendingUpload) {
+    step3 = 'completed'
+  } else if (!hasPendingUpload) {
+    step3 = 'blocked'
+    blockers[3] = 'Upload low-stock SKUs in Step 2.'
+  } else if (enrichmentActive) {
+    step3 = 'in_progress'
+    blockers[3] = pendingWithZoho.length
+      ? 'Zoho items are matched. Sales and bundle usage are still loading.'
+      : 'Zoho enrichment is still running.'
+  } else if (enrichmentError || pendingWithoutZoho.length > 0) {
+    step3 = enrichmentError ? 'error' : 'blocked'
+    blockers[3] = pendingWithoutZoho.length
+      ? `${pendingWithoutZoho.length} SKU(s) still need a Zoho match. Remove them or refresh Zoho.`
+      : 'Zoho enrichment failed. Refresh and try again.'
+  } else {
+    step3 = 'completed'
+  }
 
   let step4 = 'not_started'
   if (!hasVigil) {
     step4 = 'blocked'
-    blockers[4] = 'Upload Vigil stock first (Step 1).'
+    blockers[4] = 'Upload Vigil stock first.'
+  } else if (batchConsumed && !hasPendingUpload) {
+    step4 = 'completed'
   } else if (!hasPendingUpload) {
     step4 = 'blocked'
-    blockers[4] = 'Upload low-stock SKUs first (Step 2).'
+    blockers[4] = 'Upload low-stock SKUs first.'
   } else if (enrichmentActive) {
     step4 = 'blocked'
-    blockers[4] = 'Wait for Zoho enrichment to finish (Step 3).'
-  } else if (pendingWithoutZoho.length > 0) {
+    blockers[4] = 'Wait until Zoho enrichment finishes.'
+  } else if (pendingWithoutZoho.length > 0 || enrichmentError) {
     step4 = 'blocked'
-    blockers[4] = `${pendingWithoutZoho.length} SKU(s) still unmatched in Zoho (Step 3).`
-  } else if (hasDraft || planSent || (hasSentHistory && !hasPendingUpload)) {
+    blockers[4] = blockers[3] || 'Finish Zoho matching before generating a plan.'
+  } else if (hasOpenPlan) {
     step4 = 'completed'
-  } else if (hasSentHistory && hasPendingUpload) {
-    step4 = 'ready'
   } else {
     step4 = 'ready'
   }
 
-  let step5 = 'not_started'
+  let step5 = 'blocked'
   if (planSent) step5 = 'completed'
-  else if (activePlan?.status === 'draft') {
-    step5 = stepNum === 5 ? 'in_progress' : stepNum === 6 ? 'completed' : 'completed'
-  } else if (hasDraft) step5 = 'ready'
-  else step5 = 'blocked'
+  else if (hasOpenPlan) step5 = stepNum === 6 ? 'completed' : 'ready'
+  else blockers[5] = 'Generate a draft plan before reviewing lines.'
 
-  let step6 = 'not_started'
+  let step6 = 'blocked'
   if (planSent) step6 = 'completed'
-  else if (poReady) step6 = stepNum === 6 ? 'in_progress' : 'ready'
-  else if (activePlan?.status === 'draft') {
-    step6 = 'blocked'
-    if (poReadiness?.reasons?.length) {
-      blockers[6] = poReadiness.reasons[0]
-    }
-  } else step6 = 'blocked'
-
-  if (!hasVigil) blockers[2] = 'Complete Step 1 first.'
-  if (!hasPendingUpload && hasVigil) blockers[3] = 'Upload low-stock SKUs in Step 2.'
-  if (enrichmentActive) blockers[3] = 'Enrichment in progress…'
-  if (pendingWithoutZoho.length > 0 && !enrichmentRunning) {
-    blockers[3] = `${pendingWithoutZoho.length} SKU(s) need Zoho match or manual review.`
+  else if (!hasOpenPlan) blockers[6] = 'Open a draft plan before creating a purchase order.'
+  else if (poReady) step6 = 'ready'
+  else {
+    blockers[6] = poReadiness?.reasons?.[0] || 'Review quantities and prices before creating a purchase order.'
   }
+
+  step2 = focus(step2, 2)
+  step3 = step3 === 'in_progress' ? 'in_progress' : focus(step3, 3)
+  step4 = focus(step4, 4)
+  step5 = focus(step5, 5)
+  step6 = focus(step6, 6)
 
   let suggestedStep = 1
   if (!hasVigil) suggestedStep = 1
-  else if (!hasPendingUpload) {
-    if (hasDraft || activePlan?.status === 'draft') suggestedStep = 5
-    else if (planSent || latestSent) suggestedStep = 5
-    else suggestedStep = 2
-  } else if (enrichmentActive || pendingWithoutZoho.length > 0 || enrichmentError) suggestedStep = 3
-  else if (hasDraft || activePlan?.status === 'draft') {
-    if (activePlan?.status === 'draft' && poReady) suggestedStep = 6
-    else suggestedStep = 5
-  } else if (planSent || latestSent) suggestedStep = 5
-  else if (!hasDraft && hasPendingUpload) suggestedStep = 4
-  else if (hasDraft) suggestedStep = 5
-  else suggestedStep = 4
+  else if (enrichmentActive || (hasPendingUpload && (pendingWithoutZoho.length > 0 || enrichmentError))) suggestedStep = 3
+  else if (hasOpenPlan) suggestedStep = stepNum === 6 ? 6 : 5
+  else if (hasPendingUpload) suggestedStep = 4
+  else if (planSent) suggestedStep = 5
+  else suggestedStep = 2
 
   return {
     stepStatuses: { 1: step1, 2: step2, 3: step3, 4: step4, 5: step5, 6: step6 },
@@ -439,6 +478,9 @@ export function computeWorkflow(ctx) {
     hasVigil,
     hasPendingUpload,
     hasDraft,
+    hasOpenPlan,
+    batchConsumed,
+    poReadiness,
   }
 }
 
@@ -477,20 +519,24 @@ export function computePlanReviewSummary(plan) {
   }
 }
 
-export function computePoReadiness(plan) {
+export function computePoReadiness(plan, options = {}) {
+  const pricesReady = options.pricesReady !== false
   const summary = computePlanReviewSummary(plan)
   const includedLines = (plan?.items || []).filter(
     (item) => item.included && Number(item.finalQty || 0) > 0 && String(item.zohoItemId || '').trim()
   )
   const invalidQty = includedLines.filter((item) => Number(item.finalQty || 0) <= 0)
   const reasons = []
+  if (!plan) reasons.push('Open a draft plan before creating a purchase order.')
   if (plan?.status === 'sent_to_zoho') reasons.push('This plan was already sent to Zoho.')
-  if (plan?.status !== 'draft' && plan?.status !== 'failed') {
+  if (plan && !isEditablePlanStatus(plan.status) && plan.status !== 'sent_to_zoho') {
     reasons.push('Only draft plans can create a purchase order.')
   }
-  if (includedLines.length === 0) reasons.push('No included lines with quantity greater than zero.')
+  if (plan && includedLines.length === 0) reasons.push('No included lines with quantity greater than zero.')
   if (invalidQty.length > 0) reasons.push('Some included lines have invalid quantity.')
-  if (summary.missingPricesCount > 0) {
+  if (!pricesReady) {
+    reasons.push('Purchase prices are still loading.')
+  } else if (summary.missingPricesCount > 0) {
     reasons.push(`${summary.missingPricesCount} included line(s) missing purchase price in All Prices.`)
   }
   if (summary.inactiveCount > 0) {
@@ -518,9 +564,6 @@ export function getPlanRowBadges(item) {
   }
   if (item.included && Number(item.finalQty || 0) > 0 && (!Number.isFinite(Number(item.purchasePrice)) || Number(item.purchasePrice) <= 0)) {
     badges.push({ key: 'missing-price', label: 'Missing Price', tone: 'danger' })
-  }
-  if (badges.length === 0 && item.included && Number(item.finalQty || 0) > 0) {
-    badges.push({ key: 'ready', label: 'Ready', tone: 'success' })
   }
   return badges
 }
