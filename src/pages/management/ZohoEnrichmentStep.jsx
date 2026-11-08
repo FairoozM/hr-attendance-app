@@ -8,6 +8,7 @@ export function ZohoEnrichmentStep({
   enrichmentRunning,
   enrichmentError,
   enrichmentSummary,
+  enrichmentProgress = null,
   onRefreshZoho,
   onRemoveUnmatched,
   removingLowStockId,
@@ -38,9 +39,10 @@ export function ZohoEnrichmentStep({
   const total = pending.length
   const showAsRunning = Boolean(enrichmentRunning && pending.length > 0)
   const runningDetail =
-    matched.length > 0
+    enrichmentProgress ||
+    (matched.length > 0
       ? 'Items are matched. Sales and bundle usage are still loading.'
-      : 'Matching uploaded SKUs in Zoho.'
+      : 'Matching uploaded SKUs in Zoho.')
 
   let statusLabel = 'Idle'
   let statusTone = 'muted'
@@ -118,7 +120,8 @@ export function ZohoEnrichmentStep({
         </div>
         {showAsRunning && (
           <p className="pp-hint pp-hint--warn">
-            {runningDetail} Plan generation stays locked until this finishes.
+            {runningDetail} Plan generation stays locked until this finishes. It keeps running on the server if you
+            leave this page.
           </p>
         )}
       </div>

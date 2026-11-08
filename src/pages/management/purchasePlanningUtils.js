@@ -612,17 +612,24 @@ export function formatUploadDate(value) {
   }
 }
 
-export async function pollLowStockEnrichment({ onTick, deadlineMs = 180_000 }) {
+/** The server gives up on a run after 20 minutes; allow for one queued run ahead of it. */
+const ENRICHMENT_POLL_DEADLINE_MS = 25 * 60 * 1000
+
+export async function pollLowStockEnrichment({ onTick, signal, deadlineMs = ENRICHMENT_POLL_DEADLINE_MS }) {
   const deadline = Date.now() + deadlineMs
   while (Date.now() < deadline) {
+    if (signal?.aborted) return null
     const statusRes = await api.get('/api/purchase-planning/low-stock/enrichment-status', PP_REQUEST_OPTS)
     const listRes = await api.get('/api/purchase-planning/low-stock', PP_REQUEST_OPTS)
     const result = {
       running: Boolean(statusRes.running),
+      progress: statusRes.progress || null,
+      resumed: Number(statusRes.attempts || 0) > 1,
       lastError: statusRes.lastError || null,
       lastSummary: statusRes.lastSummary || null,
       items: listRes.items || [],
     }
+    if (signal?.aborted) return null
     if (onTick) await onTick(result)
     if (!result.running) return result
     await new Promise((resolve) => setTimeout(resolve, 2500))

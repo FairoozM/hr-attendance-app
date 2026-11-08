@@ -229,7 +229,7 @@ async function uploadLowStockSkus(req, res) {
       })
     }
     const result = await service.saveLowStockUpload({ rows: preview.rows })
-    service.queueLowStockZohoEnrichment()
+    await service.queueLowStockZohoEnrichment()
     res.status(201).json({
       saved: true,
       summary: result,
@@ -252,11 +252,11 @@ async function refreshLowStockZoho(req, res) {
         code: 'NO_LOW_STOCK_ITEMS',
       })
     }
-    service.queueLowStockZohoEnrichment()
+    const status = await service.queueLowStockZohoEnrichment()
     res.json({
       ok: true,
       enrichmentQueued: true,
-      status: service.getLowStockEnrichmentStatus(),
+      status,
     })
   } catch (err) {
     logPurchasePlanningError('refreshLowStockZoho', err, req)
@@ -266,7 +266,7 @@ async function refreshLowStockZoho(req, res) {
 
 async function getLowStockEnrichmentStatus(req, res) {
   try {
-    res.json(service.getLowStockEnrichmentStatus())
+    res.json(await service.getLowStockEnrichmentStatus())
   } catch (err) {
     logPurchasePlanningError('getLowStockEnrichmentStatus', err, req)
     sendError(res, err, 'Failed to read low-stock enrichment status', 'LOW_STOCK_ENRICHMENT_STATUS_FAILED')

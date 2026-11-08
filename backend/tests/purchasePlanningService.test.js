@@ -120,15 +120,16 @@ test('purchasePlanningService: assertPendingSkusZohoReady throws when unmatched'
 })
 
 test('purchasePlanningService: waitForLowStockEnrichment throws ENRICHMENT_RUNNING', async () => {
-  const { svc, restoreAll } = loadServiceWithDb()
-  const { waitForLowStockEnrichment, lowStockEnrichmentJob } = svc._internals
+  const { svc, responder, restoreAll } = loadServiceWithDb()
+  const { waitForLowStockEnrichment } = svc._internals
 
-  lowStockEnrichmentJob.running = true
+  responder.nextResponse = (text) =>
+    /status IN \('queued', 'running'\) LIMIT 1/.test(text) ? { rows: [{ '?column?': 1 }] } : null
   await assert.rejects(
     () => waitForLowStockEnrichment(20, 5),
     (err) => err.code === 'ENRICHMENT_RUNNING'
   )
-  lowStockEnrichmentJob.running = false
+  responder.nextResponse = null
   restoreAll()
 })
 

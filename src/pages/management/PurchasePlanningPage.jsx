@@ -50,12 +50,14 @@ export function PurchasePlanningPage() {
   const [enrichmentRunning, setEnrichmentRunning] = useState(false)
   const [enrichmentError, setEnrichmentError] = useState(null)
   const [enrichmentSummary, setEnrichmentSummary] = useState(null)
+  const [enrichmentProgress, setEnrichmentProgress] = useState(null)
   const [activeStep, setActiveStep] = useState(null)
   const [viewMode, setViewMode] = useState('workflow')
   const [removingLowStockId, setRemovingLowStockId] = useState(null)
   const loadAbortRef = useRef(null)
   const initialViewAppliedRef = useRef(false)
   const itemWriteSeqRef = useRef(new Map())
+  const enrichmentPollRef = useRef(null)
 
   const scrollToStep = useCallback(() => {
     requestAnimationFrame(() => {
@@ -191,15 +193,25 @@ export function PurchasePlanningPage() {
   }, [])
 
   const runEnrichmentPoll = useCallback(async () => {
+    enrichmentPollRef.current?.abort()
+    const controller = new AbortController()
+    enrichmentPollRef.current = controller
     setEnrichmentRunning(true)
     setEnrichmentError(null)
     try {
       const result = await pollLowStockEnrichment({
+        signal: controller.signal,
         onTick: async (tick) => {
           setLowStock(tick.items || [])
           if (tick.lastSummary) setEnrichmentSummary(tick.lastSummary)
+          setEnrichmentProgress(
+            tick.running && tick.progress
+              ? `${tick.resumed ? 'Resumed after a server restart. ' : ''}${tick.progress}…`
+              : null
+          )
         },
       })
+      if (!result) return
       setLowStock(result.items)
       if (result.lastError) {
         setEnrichmentError(result.lastError)
@@ -215,12 +227,19 @@ export function PurchasePlanningPage() {
         }
       }
     } catch (err) {
+      if (controller.signal.aborted) return
       setEnrichmentError(err.message || String(err))
       setError(err.message || 'Enrichment timed out')
     } finally {
-      setEnrichmentRunning(false)
+      if (enrichmentPollRef.current === controller) {
+        enrichmentPollRef.current = null
+        setEnrichmentRunning(false)
+        setEnrichmentProgress(null)
+      }
     }
   }, [])
+
+  useEffect(() => () => enrichmentPollRef.current?.abort(), [])
 
   useEffect(() => {
     api
@@ -662,6 +681,7 @@ export function PurchasePlanningPage() {
             enrichmentRunning={enrichmentRunning}
             enrichmentError={enrichmentError}
             enrichmentSummary={enrichmentSummary}
+            enrichmentProgress={enrichmentProgress}
             onRefreshZoho={refreshLowStockZoho}
             onRemoveUnmatched={removePendingLowStockSku}
             removingLowStockId={removingLowStockId}

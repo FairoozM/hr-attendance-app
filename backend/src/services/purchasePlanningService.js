@@ -21,6 +21,11 @@ const { readZohoConfig, INVENTORY_V1 } = require('../integrations/zoho/zohoConfi
 const { fetchCompositeItemDetail, fetchCompositeItemsList, zohoApiRequest } = require('../integrations/zoho/zohoInventoryClient')
 const { fetchWarehouses } = require('../integrations/zoho/zohoWarehouses')
 const { getResolvedReportVendor } = require('./weeklyReportReportVendor')
+const {
+  ensurePurchasePlanningJobsTable,
+  createPgJobStore,
+  createJobRunner,
+} = require('./purchasePlanningJobs.ts')
 
 const DEFAULT_PURCHASE_PLANNING_WAREHOUSE_NAME = 'LIFE SMILE'
 const DEFAULT_PURCHASE_PLANNING_REPORT_GROUP = 'default'
@@ -330,6 +335,7 @@ async function ensurePurchasePlanningTables() {
   `)
   await query(`CREATE INDEX IF NOT EXISTS idx_purchase_plan_items_plan_id ON purchase_plan_items(purchase_plan_id)`)
   await query(`CREATE INDEX IF NOT EXISTS idx_purchase_plan_items_sku ON purchase_plan_items(sku)`)
+  await ensurePurchasePlanningJobsTable(query)
 }
 
 function isZohoItemActive(raw) {
@@ -504,79 +510,29 @@ async function saveUploadedLowStockSkus(skus) {
   }
 }
 
-const ENRICHMENT_STALE_MS = 20 * 60 * 1000
 const emptySalesAggregate = () => ({ byItemId: new Map(), bySku: new Map() })
 const emptyBundleUsage = () => ({ byItemId: new Map(), bySku: new Map() })
 
-const lowStockEnrichmentJob = {
-  running: false,
-  queuedAgain: false,
-  startedAt: null,
-  lastError: null,
-  lastCompletedAt: null,
-  lastSummary: null,
-}
-
-function maybeResetStaleEnrichmentJob() {
-  if (!lowStockEnrichmentJob.running || !lowStockEnrichmentJob.startedAt) return
-  if (Date.now() - lowStockEnrichmentJob.startedAt > ENRICHMENT_STALE_MS) {
-    lowStockEnrichmentJob.running = false
-    lowStockEnrichmentJob.queuedAgain = false
-    if (!lowStockEnrichmentJob.lastError) {
-      lowStockEnrichmentJob.lastError =
-        'Enrichment timed out on the server (likely Zoho sales report). Click Refresh Zoho Data to retry.'
-    }
-  }
-}
+const lowStockEnrichmentJobs = createJobRunner({
+  store: createPgJobStore(query, 'low_stock_enrichment'),
+  run: async ({ onProgress }) => {
+    const summary = await refreshLowStockZohoEnrichment({ onProgress })
+    return { refreshed: summary.refreshed, matched: summary.matched, unmatched: summary.unmatched }
+  },
+})
 
 function getLowStockEnrichmentStatus() {
-  maybeResetStaleEnrichmentJob()
-  return {
-    running: lowStockEnrichmentJob.running,
-    queuedAgain: lowStockEnrichmentJob.queuedAgain,
-    lastError: lowStockEnrichmentJob.lastError,
-    lastCompletedAt: lowStockEnrichmentJob.lastCompletedAt,
-    lastSummary: lowStockEnrichmentJob.lastSummary
-      ? {
-          refreshed: lowStockEnrichmentJob.lastSummary.refreshed,
-          matched: lowStockEnrichmentJob.lastSummary.matched,
-          unmatched: lowStockEnrichmentJob.lastSummary.unmatched,
-        }
-      : null,
-  }
+  return lowStockEnrichmentJobs.getStatus()
 }
 
-async function runLowStockEnrichmentJobOnce() {
-  lowStockEnrichmentJob.running = true
-  lowStockEnrichmentJob.startedAt = Date.now()
-  lowStockEnrichmentJob.lastError = null
-  try {
-    const summary = await refreshLowStockZohoEnrichment()
-    lowStockEnrichmentJob.lastSummary = summary
-    lowStockEnrichmentJob.lastCompletedAt = new Date().toISOString()
-  } catch (err) {
-    lowStockEnrichmentJob.lastError = (err && err.message) || String(err)
-    console.error('[purchase-planning] background Zoho enrichment failed:', err)
-  } finally {
-    lowStockEnrichmentJob.running = false
-    lowStockEnrichmentJob.startedAt = null
-    if (lowStockEnrichmentJob.queuedAgain) {
-      lowStockEnrichmentJob.queuedAgain = false
-      await runLowStockEnrichmentJobOnce()
-    }
-  }
-}
-
+/** Queues enrichment of pending SKUs; a run already in progress is followed by one more run. */
 function queueLowStockZohoEnrichment() {
-  if (lowStockEnrichmentJob.running) {
-    lowStockEnrichmentJob.queuedAgain = true
-    return
-  }
-  runLowStockEnrichmentJobOnce().catch((err) => {
-    lowStockEnrichmentJob.running = false
-    lowStockEnrichmentJob.lastError = (err && err.message) || String(err)
-    console.error('[purchase-planning] background Zoho enrichment failed:', err)
-  })
+  return lowStockEnrichmentJobs.queue()
+}
+
+/** Called on boot: resumes jobs a restart interrupted and starts any queued run. */
+function resumeBackgroundJobs() {
+  return lowStockEnrichmentJobs.kick()
 }
 
 async function fetchEnrichmentUsageAggregates() {
@@ -596,7 +552,7 @@ async function fetchEnrichmentUsageAggregates() {
   }
 }
 
-async function refreshLowStockZohoEnrichment() {
+async function refreshLowStockZohoEnrichment({ onProgress = () => {} } = {}) {
   const current = await query(`
     SELECT id, sku
     FROM purchase_low_stock_items
@@ -609,6 +565,7 @@ async function refreshLowStockZohoEnrichment() {
     throw err
   }
 
+  await onProgress(`Matching ${current.rows.length} SKU(s) in Zoho`)
   const enriched = await enrichUploadedLowStockSkus(current.rows.map((row) => row.sku))
   let matched = 0
   let unmatched = 0
@@ -643,6 +600,7 @@ async function refreshLowStockZohoEnrichment() {
   // Phase 2: 3-month direct sales + composite/bundle consumption (cached, bounded concurrency).
   let salesAggregate = emptySalesAggregate()
   let bundleUsageAggregate = emptyBundleUsage()
+  await onProgress('Loading 3-month sales and bundle usage from Zoho')
   try {
     const fetched = await fetchEnrichmentUsageAggregates()
     salesAggregate = fetched.salesAggregate
@@ -651,6 +609,7 @@ async function refreshLowStockZohoEnrichment() {
     console.error('[purchase-planning] enrichment sales fetch failed (Zoho matches saved):', err)
   }
 
+  await onProgress('Saving sales and bundle usage')
   for (let i = 0; i < current.rows.length; i += 1) {
     const row = current.rows[i]
     const item = enriched[i]
@@ -1102,12 +1061,14 @@ function resolveRefreshUserFields(item, autoFinalQty, autoIncluded, autoNotes) {
   }
 }
 
-async function waitForLowStockEnrichment(maxWaitMs = 120_000, pollMs = 500) {
+async function waitForLowStockEnrichment(maxWaitMs = 120_000, pollMs = 1000) {
   const deadline = Date.now() + maxWaitMs
-  while (lowStockEnrichmentJob.running && Date.now() < deadline) {
+  let active = await lowStockEnrichmentJobs.isActive()
+  while (active && Date.now() < deadline) {
     await sleep(pollMs)
+    active = await lowStockEnrichmentJobs.isActive()
   }
-  if (lowStockEnrichmentJob.running) {
+  if (active) {
     const err = new Error('Zoho enrichment is still running; try again in a moment')
     err.code = 'ENRICHMENT_RUNNING'
     throw err
@@ -1173,9 +1134,7 @@ async function generatePlan({ createdBy }) {
     err.code = 'NO_LOW_STOCK_ITEMS'
     throw err
   }
-  if (lowStockEnrichmentJob.running) {
-    await waitForLowStockEnrichment()
-  }
+  await waitForLowStockEnrichment()
   if (lowStock.some((item) => !clean(item.zohoItemId))) {
     await refreshLowStockZohoEnrichment()
     lowStock = (await listLowStock()).filter((item) => item.status === 'pending')
@@ -1927,6 +1886,7 @@ module.exports = {
   refreshLowStockZohoEnrichment,
   queueLowStockZohoEnrichment,
   getLowStockEnrichmentStatus,
+  resumeBackgroundJobs,
   listLowStock,
   removePendingLowStockItem,
   previewLowStockUpload,
@@ -1967,6 +1927,6 @@ module.exports = {
     PO_SEND_STALE_MS,
     findExistingZohoPurchaseOrder,
     waitForLowStockEnrichment,
-    lowStockEnrichmentJob,
+    lowStockEnrichmentJobs,
   },
 }

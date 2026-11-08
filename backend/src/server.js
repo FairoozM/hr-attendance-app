@@ -75,6 +75,15 @@ async function startServer() {
       console.error('[control-tower] interrupted run cleanup failed (non-fatal):', err.message || err)
     }
 
+    try {
+      const { resumeBackgroundJobs } = require('./services/purchasePlanningService')
+      resumeBackgroundJobs().catch((err) => {
+        console.error('[purchase-planning] resuming background jobs failed (non-fatal):', err.message || err)
+      })
+    } catch (err) {
+      console.error('[purchase-planning] background job resume setup failed (non-fatal):', err.message || err)
+    }
+
     if (/^(1|true|yes)$/i.test(String(process.env.ZOHO_AUTO_SYNC_ON_START || ''))) {
       console.log('[zoho] ZOHO_AUTO_SYNC_ON_START=1 — background items refresh scheduled')
       setImmediate(() => {
