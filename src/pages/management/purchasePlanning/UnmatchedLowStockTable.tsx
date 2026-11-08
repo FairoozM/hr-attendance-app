@@ -1,8 +1,15 @@
 import { Trash2 } from 'lucide-react'
 import { Badge } from './PurchasePlanningBadges'
+import type { LowStockItem } from './purchasePlanningTypes'
 
-export function UnmatchedLowStockTable({ items, onRemove, removingId }) {
-  if (!items?.length) return null
+interface UnmatchedLowStockTableProps {
+  items: LowStockItem[]
+  onRemove: (item: LowStockItem) => void
+  removingId: number | null
+}
+
+export function UnmatchedLowStockTable({ items, onRemove, removingId }: UnmatchedLowStockTableProps) {
+  if (!items.length) return null
 
   return (
     <div className="pp-enrichment-list pp-enrichment-list--unmatched">

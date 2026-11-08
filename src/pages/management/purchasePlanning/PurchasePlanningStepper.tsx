@@ -1,25 +1,26 @@
+import type { ReactNode } from 'react'
 import { StepStatusBadge } from './PurchasePlanningBadges'
-import { PP_STEPS } from './purchasePlanningUtils'
+import type { StepBlockers, StepDefinition, StepId, StepStatus, StepStatuses } from './purchasePlanningTypes'
+import { PP_STEPS, STEP_STATUS_LABELS } from './purchasePlanningUtils'
 
-const STATUS_LABELS = {
-  not_started: 'Not started',
-  ready: 'Ready',
-  in_progress: 'In progress',
-  completed: 'Done',
-  blocked: 'Locked',
-  error: 'Needs attention',
+const CLICKABLE_STATUSES: StepStatus[] = ['completed', 'ready', 'in_progress', 'error']
+
+interface StepperProps {
+  activeStep: StepId
+  stepStatuses: StepStatuses
+  blockers?: StepBlockers
+  onStepClick: (stepId: StepId) => void
 }
 
-export function PurchasePlanningStepper({ activeStep, stepStatuses, blockers = {}, onStepClick }) {
+export function PurchasePlanningStepper({ activeStep, stepStatuses, blockers = {}, onStepClick }: StepperProps) {
   return (
     <nav className="pp-stepper" aria-label="Purchase planning workflow">
       <ol className="pp-stepper__list">
         {PP_STEPS.map((step) => {
           const status = stepStatuses[step.id] || 'not_started'
           const isActive = activeStep === step.id
-          const isClickable =
-            isActive || status === 'completed' || status === 'ready' || status === 'in_progress' || status === 'error'
-          const detail = blockers[step.id] || STATUS_LABELS[status] || status
+          const isClickable = isActive || CLICKABLE_STATUSES.includes(status)
+          const label = STEP_STATUS_LABELS[status] || status
           return (
             <li
               key={step.id}
@@ -31,14 +32,14 @@ export function PurchasePlanningStepper({ activeStep, stepStatuses, blockers = {
                 disabled={!isClickable}
                 onClick={() => onStepClick(step.id)}
                 aria-current={isActive ? 'step' : undefined}
-                title={detail}
+                title={blockers[step.id] || label}
               >
                 <span className="pp-stepper__index" aria-hidden>
                   {status === 'completed' ? '✓' : step.id}
                 </span>
                 <span className="pp-stepper__text">
-                  <span className="pp-stepper__title">{step.shortTitle || step.title}</span>
-                  <span className={`pp-stepper__status pp-stepper__status--${status}`}>{STATUS_LABELS[status] || status}</span>
+                  <span className="pp-stepper__title">{step.shortTitle}</span>
+                  <span className={`pp-stepper__status pp-stepper__status--${status}`}>{label}</span>
                 </span>
               </button>
             </li>
@@ -49,31 +50,20 @@ export function PurchasePlanningStepper({ activeStep, stepStatuses, blockers = {
   )
 }
 
-export function StepPanel({ step, status, blocker, children, collapsed, onExpand, summary, id }) {
-  if (collapsed) {
-    return (
-      <section id={id} className="pp-step-panel pp-step-panel--collapsed">
-        <div className="pp-step-panel__collapsed-head">
-          <div>
-            <h2>
-              <span className="pp-step-panel__step-num">Step {step.id}</span> {step.title}
-            </h2>
-            <StepStatusBadge status={status} />
-            {summary && <p className="pp-step-panel__summary">{summary}</p>}
-          </div>
-          <button type="button" className="btn btn--sm" onClick={onExpand}>
-            Open step
-          </button>
-        </div>
-      </section>
-    )
-  }
+interface StepPanelProps {
+  id: string
+  step: StepDefinition
+  status: StepStatus
+  blocker?: string
+  children: ReactNode
+}
 
+export function StepPanel({ id, step, status, blocker, children }: StepPanelProps) {
   return (
     <section id={id} className="pp-step-panel pp-step-panel--active">
       <header className="pp-step-panel__head">
         <div>
-          <p className="pp-step-panel__eyebrow">Step {step.id} of 6</p>
+          <p className="pp-step-panel__eyebrow">Step {step.id} of {PP_STEPS.length}</p>
           <h2>{step.title}</h2>
           <p className="pp-step-panel__desc">{step.description}</p>
           <div className="pp-step-panel__status-row">

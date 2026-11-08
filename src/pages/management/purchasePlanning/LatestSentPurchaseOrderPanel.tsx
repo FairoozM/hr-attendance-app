@@ -1,15 +1,19 @@
 import { Badge } from './PurchasePlanningBadges'
+import type { PlanReviewSummary, PurchasePlan } from './purchasePlanningTypes'
 import { computePlanReviewSummary, fmtPrice, formatUploadDate } from './purchasePlanningUtils'
 
-export function LatestSentPurchaseOrderPanel({ plan, summary, onOpenSentPlan, onStartNew }) {
-  if (!plan || plan.status !== 'sent_to_zoho') return null
+interface LatestSentPurchaseOrderPanelProps {
+  plan: PurchasePlan
+  summary?: PlanReviewSummary | null
+  onOpenSentPlan: (planId: number) => void
+  onStartNew: () => void
+}
 
-  const review = summary || computePlanReviewSummary(plan)
-  const poLabel =
-    plan.purchaseOrderNumber?.trim() ||
-    plan.zohoPurchaseOrderId?.trim() ||
-    '—'
-  const sentWhen = plan.updatedAt || plan.createdAt
+export function LatestSentPurchaseOrderPanel({ plan, summary, onOpenSentPlan, onStartNew }: LatestSentPurchaseOrderPanelProps) {
+  if (plan.status !== 'sent_to_zoho') return null
+
+  const review = summary || (plan.items?.length ? computePlanReviewSummary(plan) : null)
+  const poLabel = plan.purchaseOrderNumber?.trim() || plan.zohoPurchaseOrderId?.trim() || '—'
 
   return (
     <section className="pp-latest-sent-panel" aria-labelledby="pp-latest-sent-title">
@@ -33,19 +37,19 @@ export function LatestSentPurchaseOrderPanel({ plan, summary, onOpenSentPlan, on
         </div>
         <div>
           <dt>Sent / updated</dt>
-          <dd>{formatUploadDate(sentWhen)}</dd>
+          <dd>{formatUploadDate(plan.updatedAt || plan.createdAt)}</dd>
         </div>
         <div>
           <dt>Included lines</dt>
-          <dd>{review.includedCount ?? plan.includedCount ?? '—'}</dd>
+          <dd>{review?.includedCount ?? plan.includedCount ?? '—'}</dd>
         </div>
         <div>
           <dt>Total final qty</dt>
-          <dd>{review.totalFinalQty ?? plan.totalFinalQty ?? '—'}</dd>
+          <dd>{review?.totalFinalQty ?? plan.totalFinalQty ?? '—'}</dd>
         </div>
         <div>
           <dt>Est. value</dt>
-          <dd>{fmtPrice(review.estimatedValue ?? plan.estimatedTotalValue)}</dd>
+          <dd>{fmtPrice(review?.estimatedValue ?? plan.estimatedTotalValue)}</dd>
         </div>
       </dl>
       <div className="pp-latest-sent-panel__actions">

@@ -1,10 +1,31 @@
-import { api, PURCHASE_PLANNING_TIMEOUT_MS } from '../../api/client'
-import { resolveAllPricesRowsFromBundle } from './allPricesEcommerceUtils'
-import { getAllPricesPrefsScope } from './allPricesMarketScope'
+import { api, PURCHASE_PLANNING_TIMEOUT_MS } from '../../../api/client'
+import { resolveAllPricesRowsFromBundle } from '../allPricesEcommerceUtils'
+import { getAllPricesPrefsScope } from '../allPricesMarketScope'
+import type {
+  BadgeTone,
+  EnrichmentPollResult,
+  EnrichmentStatus,
+  LowStockItem,
+  PlanFilters,
+  PlanItem,
+  PlanReviewSummary,
+  PlanStatus,
+  PoReadiness,
+  PurchasePlan,
+  PurchasePlanningView,
+  RowBadge,
+  SortState,
+  StepBlockers,
+  StepDefinition,
+  StepId,
+  StepStatus,
+  VigilUpload,
+  Workflow,
+} from './purchasePlanningTypes'
 
 export const PP_REQUEST_OPTS = { timeoutMs: PURCHASE_PLANNING_TIMEOUT_MS }
 
-export const EMPTY_FILTERS = {
+export const EMPTY_FILTERS: PlanFilters = {
   search: '',
   matchStatus: '',
   includedStatus: '',
@@ -17,15 +38,13 @@ export const EMPTY_FILTERS = {
   salesMax: '',
   bundleMin: '',
   bundleMax: '',
-  avgMin: '',
-  avgMax: '',
   suggestedMin: '',
   suggestedMax: '',
   finalMin: '',
   finalMax: '',
 }
 
-export const PP_STEPS = [
+export const PP_STEPS: StepDefinition[] = [
   {
     id: 1,
     key: 'vigil',
@@ -70,22 +89,49 @@ export const PP_STEPS = [
   },
 ]
 
-export function ignoreCancelledPurchasePlanningRequest(err, signal) {
-  return Boolean(signal?.aborted && err?.code !== 'REQUEST_TIMEOUT')
+export const STEP_STATUS_LABELS: Record<StepStatus, string> = {
+  not_started: 'Not started',
+  ready: 'Ready',
+  in_progress: 'In progress',
+  completed: 'Done',
+  blocked: 'Locked',
+  error: 'Needs attention',
 }
 
-export function fmt(n) {
+export const STEP_STATUS_TONES: Record<StepStatus, BadgeTone> = {
+  not_started: 'muted',
+  ready: 'warning',
+  in_progress: 'warning',
+  completed: 'success',
+  blocked: 'danger',
+  error: 'danger',
+}
+
+export function ignoreCancelledPurchasePlanningRequest(err: unknown, signal: AbortSignal | null | undefined): boolean {
+  return Boolean(signal?.aborted && (err as { code?: string } | null)?.code !== 'REQUEST_TIMEOUT')
+}
+
+export function fmt(n: number | string | null | undefined): string {
   const value = Number(n || 0)
   return Number.isInteger(value) ? String(value) : value.toFixed(1)
 }
 
-export function fmtPrice(n) {
+export function fmtPrice(n: number | string | null | undefined): string {
   const value = Number(n)
   if (!Number.isFinite(value) || value <= 0) return '-'
   return value.toFixed(2)
 }
 
-export function normalizePriceLookupKey(value) {
+function hasPositivePrice(value: number | null | undefined): boolean {
+  const price = Number(value)
+  return Number.isFinite(price) && price > 0
+}
+
+function hasZohoItem(item: { zohoItemId?: string | null }): boolean {
+  return String(item.zohoItemId || '').trim() !== ''
+}
+
+export function normalizePriceLookupKey(value: unknown): string {
   return String(value || '')
     .trim()
     .replace(/\u00A0/g, ' ')
@@ -96,8 +142,13 @@ export function normalizePriceLookupKey(value) {
     .toUpperCase()
 }
 
-export function buildPurchasePriceLookup(priceRows) {
-  const lookup = new Map()
+interface AllPricesRow {
+  itemNo?: string
+  purchasePrice?: number | string | null
+}
+
+export function buildPurchasePriceLookup(priceRows: AllPricesRow[] | null | undefined): Map<string, number> {
+  const lookup = new Map<string, number>()
   for (const row of Array.isArray(priceRows) ? priceRows : []) {
     const key = normalizePriceLookupKey(row.itemNo)
     const price = Number(row.purchasePrice)
@@ -107,18 +158,19 @@ export function buildPurchasePriceLookup(priceRows) {
   return lookup
 }
 
-export function findPurchasePriceForItem(item, lookup) {
+export function findPurchasePriceForItem(item: PlanItem, lookup: Map<string, number>): number | null {
   const candidates = [item.sku, item.vigilCode, item.itemName]
   for (const candidate of candidates) {
     const key = normalizePriceLookupKey(candidate)
-    if (key && lookup.has(key)) return lookup.get(key)
+    if (key && lookup.has(key)) return lookup.get(key) ?? null
   }
-  return Number.isFinite(Number(item.purchasePrice)) && Number(item.purchasePrice) > 0
-    ? Number(item.purchasePrice)
-    : null
+  return hasPositivePrice(item.purchasePrice) ? Number(item.purchasePrice) : null
 }
 
-export function enrichPlanWithPurchasePrices(plan, priceRows) {
+export function enrichPlanWithPurchasePrices(
+  plan: PurchasePlan | null,
+  priceRows: AllPricesRow[]
+): PurchasePlan | null {
   if (!plan) return plan
   const lookup = buildPurchasePriceLookup(priceRows)
   return {
@@ -130,26 +182,30 @@ export function enrichPlanWithPurchasePrices(plan, priceRows) {
   }
 }
 
-export function resolveAllPriceRows(getPref, prefsReady, prefsVersion) {
+export function resolveAllPriceRows(
+  getPref: (key: string, fallback: unknown) => unknown,
+  prefsReady: boolean,
+  prefsVersion: unknown
+): AllPricesRow[] {
   void prefsVersion
   if (!prefsReady) return []
   const bundle = getPref(getAllPricesPrefsScope().ec, null)
-  return resolveAllPricesRowsFromBundle(bundle) || []
+  return (resolveAllPricesRowsFromBundle(bundle) as AllPricesRow[] | null) || []
 }
 
-export function getStockRemark(item) {
+export function getStockRemark(item: Pick<PlanItem, 'currentZohoStock'> & { vigilStock?: number; wholesaleAvailableQty?: number }): string {
   const vigilStock = Number(item.vigilStock ?? item.wholesaleAvailableQty ?? 0)
   const zohoStock = Number(item.currentZohoStock || 0)
   return vigilStock <= 0 && zohoStock <= 3 ? 'Out of stock' : ''
 }
 
-export function includesAnyText(values, filter) {
+export function includesAnyText(values: unknown[], filter: string): boolean {
   const needle = String(filter || '').trim().toLowerCase()
   if (!needle) return true
   return values.some((value) => String(value || '').toLowerCase().includes(needle))
 }
 
-export function inNumberRange(value, min, max) {
+export function inNumberRange(value: number | null | undefined, min: string, max: string): boolean {
   const n = Number(value || 0)
   const minValue = String(min || '').trim() === '' ? null : Number(min)
   const maxValue = String(max || '').trim() === '' ? null : Number(max)
@@ -158,101 +214,75 @@ export function inNumberRange(value, min, max) {
   return true
 }
 
-export function nextSort(current, key) {
+export function nextSort(current: SortState, key: string): SortState {
   if (current.key !== key) return { key, direction: 'asc' }
   return { key, direction: current.direction === 'asc' ? 'desc' : 'asc' }
 }
 
-export function compareSortValues(a, b) {
+export function compareSortValues(a: unknown, b: unknown): number {
   const aNumber = typeof a === 'number' ? a : Number.NaN
   const bNumber = typeof b === 'number' ? b : Number.NaN
   if (Number.isFinite(aNumber) && Number.isFinite(bNumber)) return aNumber - bNumber
   return String(a || '').localeCompare(String(b || ''), undefined, { numeric: true, sensitivity: 'base' })
 }
 
-export function sortRows(rows, sort, accessors) {
+export function sortRows<T>(rows: T[], sort: SortState, accessors: Record<string, (row: T) => unknown>): T[] {
   const accessor = accessors[sort.key]
   if (!accessor) return rows
   const direction = sort.direction === 'desc' ? -1 : 1
   return [...rows].sort((a, b) => compareSortValues(accessor(a), accessor(b)) * direction)
 }
 
-export function getPendingLowStock(lowStock) {
+export function getPendingLowStock(lowStock: LowStockItem[] | null | undefined): LowStockItem[] {
   return (lowStock || []).filter((item) => item.status === 'pending')
 }
 
-export function getLatestVigilUpload(uploads) {
+export function getLatestVigilUpload(uploads: VigilUpload[] | null | undefined): VigilUpload | null {
   return uploads && uploads.length > 0 ? uploads[0] : null
 }
 
-export function isEditablePlanStatus(status) {
+export function isEditablePlanStatus(status: PlanStatus | null | undefined): boolean {
   return status === 'draft' || status === 'failed'
 }
 
 /** Not yet in Zoho: editable drafts/failed sends, plus a send that is in flight. */
-export function isOpenPlanStatus(status) {
+export function isOpenPlanStatus(status: PlanStatus | null | undefined): boolean {
   return isEditablePlanStatus(status) || status === 'sending'
 }
 
 /** Matches the server: a send older than this is treated as interrupted and may be finished. */
 export const PO_SEND_STALE_MS = 10 * 60 * 1000
 
-export function isPlanSendStale(plan, now = Date.now()) {
+export function isPlanSendStale(plan: Pick<PurchasePlan, 'status' | 'sendStartedAt'> | null | undefined, now = Date.now()): boolean {
   if (plan?.status !== 'sending') return false
   const started = plan.sendStartedAt ? new Date(plan.sendStartedAt).getTime() : Number.NaN
   return !Number.isFinite(started) || now - started >= PO_SEND_STALE_MS
 }
 
-export function getLatestDraftPlan(plans) {
-  return (plans || []).find((p) => p.status === 'draft') || null
-}
-
 /** Newest plan that has not reached Zoho yet (draft, failed send, or send in flight). */
-export function getLatestOpenPlan(plans) {
+export function getLatestOpenPlan(plans: PurchasePlan[] | null | undefined): PurchasePlan | null {
   return (plans || []).find((p) => isOpenPlanStatus(p.status)) || null
 }
 
-export function getLatestSentPlan(plans) {
+export function getLatestSentPlan(plans: PurchasePlan[] | null | undefined): PurchasePlan | null {
   return (plans || []).find((p) => p.status === 'sent_to_zoho') || null
 }
 
-/** @deprecated Use getLatestSentPlan */
-export function getLastSentPlan(plans) {
-  return getLatestSentPlan(plans)
+interface ViewContext {
+  uploads?: VigilUpload[]
+  lowStock?: LowStockItem[]
+  enrichmentRunning?: boolean
+  enrichmentError?: string | null
+  plans?: PurchasePlan[]
+  selectedPlan?: PurchasePlan | null
 }
 
-export function enrichPlanListSummary(plan, priceRows) {
-  if (!plan) return plan
-  if (!priceRows?.length) return plan
-  const lookup = buildPurchasePriceLookup(priceRows)
-  const items = Array.isArray(plan.items) ? plan.items : []
-  let estimatedTotalValue = Number(plan.estimatedTotalValue || 0)
-  if (items.length > 0) {
-    estimatedTotalValue = items
-      .filter((item) => item.included)
-      .reduce((sum, item) => {
-        const price = findPurchasePriceForItem(item, lookup) ?? Number(item.purchasePrice || 0)
-        return sum + Number(item.finalQty || 0) * price
-      }, 0)
-  }
-  return { ...plan, estimatedTotalValue }
+const OPEN_PLAN_REASONS: Partial<Record<PlanStatus, string>> = {
+  failed: 'Last Zoho send failed and can be retried',
+  sending: 'Purchase order send in progress',
 }
 
-/**
- * @typedef {'workflow'|'draft_review'|'sent_review'|'history'} PurchasePlanningViewMode
- */
-
-/**
- * @param {object} ctx
- * @returns {{
- *   activeStep: number,
- *   mode: PurchasePlanningViewMode,
- *   selectedPlanId: number|null,
- *   showLatestSentPanel: boolean,
- *   reason: string
- * }}
- */
-export function getDefaultPurchasePlanningView(ctx) {
+export function getDefaultPurchasePlanningView(ctx: ViewContext): PurchasePlanningView {
   const {
     uploads = [],
     lowStock = [],
@@ -263,7 +293,7 @@ export function getDefaultPurchasePlanningView(ctx) {
   } = ctx
 
   const pending = getPendingLowStock(lowStock)
-  const pendingWithoutZoho = pending.filter((item) => !String(item.zohoItemId || '').trim())
+  const pendingWithoutZoho = pending.filter((item) => !hasZohoItem(item))
   const enrichmentActive = Boolean(enrichmentRunning && pending.length > 0)
   const hasVigil = uploads.length > 0
   const latestOpen = getLatestOpenPlan(plans)
@@ -310,16 +340,12 @@ export function getDefaultPurchasePlanningView(ctx) {
   }
 
   if (latestOpen) {
-    const reasons = {
-      failed: 'Last Zoho send failed and can be retried',
-      sending: 'Purchase order send in progress',
-    }
     return {
       activeStep: latestOpen.status === 'sending' ? 6 : 5,
       mode: 'draft_review',
       selectedPlanId: latestOpen.id,
       showLatestSentPanel: false,
-      reason: reasons[latestOpen.status] || 'Active draft plan exists',
+      reason: OPEN_PLAN_REASONS[latestOpen.status] || 'Active draft plan exists',
     }
   }
 
@@ -333,7 +359,7 @@ export function getDefaultPurchasePlanningView(ctx) {
     }
   }
 
-  if (enrichmentActive || enrichmentError || pendingWithoutZoho.length > 0) {
+  if (enrichmentError || pendingWithoutZoho.length > 0) {
     return {
       activeStep: 3,
       mode: 'workflow',
@@ -371,13 +397,19 @@ export function getDefaultPurchasePlanningView(ctx) {
   }
 }
 
-/** @typedef {'not_started'|'ready'|'in_progress'|'completed'|'blocked'|'error'} StepStatus */
+interface WorkflowContext {
+  uploads?: VigilUpload[]
+  lowStock?: LowStockItem[]
+  enrichmentRunning?: boolean
+  enrichmentError?: string | null
+  activePlan?: PurchasePlan | null
+  activePlanWithPrices?: PurchasePlan | null
+  plans?: PurchasePlan[]
+  currentStep?: number | null
+  pricesReady?: boolean
+}
 
-/**
- * @param {object} ctx
- * @returns {{ stepStatuses: Record<number, StepStatus>, suggestedStep: number, blockers: Record<number, string> }}
- */
-export function computeWorkflow(ctx) {
+export function computeWorkflow(ctx: WorkflowContext): Workflow {
   const {
     uploads = [],
     lowStock = [],
@@ -391,16 +423,14 @@ export function computeWorkflow(ctx) {
   } = ctx
 
   const pending = getPendingLowStock(lowStock)
-  const pendingWithZoho = pending.filter((item) => String(item.zohoItemId || '').trim())
-  const pendingWithoutZoho = pending.filter((item) => !String(item.zohoItemId || '').trim())
+  const pendingWithZoho = pending.filter(hasZohoItem)
+  const pendingWithoutZoho = pending.filter((item) => !hasZohoItem(item))
   const hasVigil = uploads.length > 0
   const hasPendingUpload = pending.length > 0
-  const openFromList = getLatestOpenPlan(plans)
-  const activeIsOpen = isOpenPlanStatus(activePlan?.status)
-  const openPlan = activeIsOpen ? activePlan : openFromList
+  const openPlan = isOpenPlanStatus(activePlan?.status) ? activePlan : getLatestOpenPlan(plans)
   const hasOpenPlan = Boolean(openPlan)
   const planSending = openPlan?.status === 'sending'
-  const hasDraft = (plans || []).some((plan) => plan.status === 'draft') || activePlan?.status === 'draft'
+  const hasDraft = plans.some((plan) => plan.status === 'draft') || activePlan?.status === 'draft'
   const planSent = activePlan?.status === 'sent_to_zoho'
   const batchConsumed = !hasPendingUpload && (hasOpenPlan || planSent)
   const enrichmentActive = Boolean(enrichmentRunning && hasPendingUpload)
@@ -408,15 +438,15 @@ export function computeWorkflow(ctx) {
   const poReadiness = poSource ? computePoReadiness(poSource, { pricesReady }) : null
   const poReady = Boolean(hasOpenPlan && poReadiness?.ready)
   const stepNum = Number(currentStep) > 0 ? Number(currentStep) : 0
-  const blockers = {}
+  const blockers: StepBlockers = {}
 
-  const focus = (status, stepId) =>
+  const focus = (status: StepStatus, stepId: StepId): StepStatus =>
     stepNum === stepId && (status === 'ready' || status === 'not_started') ? 'in_progress' : status
 
-  let step1 = hasVigil ? 'completed' : 'not_started'
+  let step1: StepStatus = hasVigil ? 'completed' : 'not_started'
   if (!hasVigil && stepNum === 1) step1 = 'in_progress'
 
-  let step2 = 'not_started'
+  let step2: StepStatus
   if (!hasVigil) {
     step2 = 'blocked'
     blockers[2] = 'Upload Vigil stock first.'
@@ -426,10 +456,10 @@ export function computeWorkflow(ctx) {
     step2 = 'ready'
   }
 
-  let step3 = 'not_started'
+  let step3: StepStatus
   if (!hasVigil) {
     step3 = 'blocked'
-  } else if (batchConsumed && !hasPendingUpload) {
+  } else if (batchConsumed) {
     step3 = 'completed'
   } else if (!hasPendingUpload) {
     step3 = 'blocked'
@@ -448,11 +478,11 @@ export function computeWorkflow(ctx) {
     step3 = 'completed'
   }
 
-  let step4 = 'not_started'
+  let step4: StepStatus
   if (!hasVigil) {
     step4 = 'blocked'
     blockers[4] = 'Upload Vigil stock first.'
-  } else if (batchConsumed && !hasPendingUpload) {
+  } else if (batchConsumed) {
     step4 = 'completed'
   } else if (!hasPendingUpload) {
     step4 = 'blocked'
@@ -469,12 +499,12 @@ export function computeWorkflow(ctx) {
     step4 = 'ready'
   }
 
-  let step5 = 'blocked'
+  let step5: StepStatus = 'blocked'
   if (planSent) step5 = 'completed'
   else if (hasOpenPlan) step5 = stepNum === 6 ? 'completed' : 'ready'
   else blockers[5] = 'Generate a draft plan before reviewing lines.'
 
-  let step6 = 'blocked'
+  let step6: StepStatus = 'blocked'
   if (planSent) step6 = 'completed'
   else if (!hasOpenPlan) blockers[6] = 'Open a draft plan before creating a purchase order.'
   else if (planSending) {
@@ -493,7 +523,7 @@ export function computeWorkflow(ctx) {
   step5 = focus(step5, 5)
   step6 = focus(step6, 6)
 
-  let suggestedStep = 1
+  let suggestedStep: StepId
   if (!hasVigil) suggestedStep = 1
   else if (enrichmentActive || (hasPendingUpload && (pendingWithoutZoho.length > 0 || enrichmentError))) suggestedStep = 3
   else if (planSending) suggestedStep = 6
@@ -518,33 +548,26 @@ export function computeWorkflow(ctx) {
   }
 }
 
-export function computePlanReviewSummary(plan) {
+export function computePlanReviewSummary(plan: PurchasePlan | null | undefined): PlanReviewSummary {
   const items = plan?.items || []
   const included = items.filter((item) => item.included)
-  const excluded = items.filter((item) => !item.included)
-  const totalFinalQty = included.reduce((sum, item) => sum + Number(item.finalQty || 0), 0)
-  const missingPrices = included.filter(
-    (item) => Number(item.finalQty || 0) > 0 && (!Number.isFinite(Number(item.purchasePrice)) || Number(item.purchasePrice) <= 0)
-  )
-  const inactiveIncluded = included.filter(
-    (item) => Number(item.finalQty || 0) > 0 && item.zohoItemActive === false
-  )
-  const cappedByVigil = items.filter(
+  const ordered = included.filter((item) => Number(item.finalQty || 0) > 0)
+  const missingPrices = ordered.filter((item) => !hasPositivePrice(item.purchasePrice))
+  const inactiveIncluded = ordered.filter((item) => item.zohoItemActive === false)
+  const cappedByVigil = included.filter(
     (item) =>
-      item.included &&
       Number(item.suggestedQty || 0) > Number(item.wholesaleAvailableQty || 0) &&
       Number(item.wholesaleAvailableQty || 0) > 0
-  )
-  const estimatedValue = included.reduce(
-    (sum, item) => sum + Number(item.finalQty || 0) * Number(item.purchasePrice || 0),
-    0
   )
   return {
     totalSkus: items.length,
     includedCount: included.length,
-    excludedCount: excluded.length,
-    totalFinalQty,
-    estimatedValue,
+    excludedCount: items.length - included.length,
+    totalFinalQty: included.reduce((sum, item) => sum + Number(item.finalQty || 0), 0),
+    estimatedValue: included.reduce(
+      (sum, item) => sum + Number(item.finalQty || 0) * Number(item.purchasePrice || 0),
+      0
+    ),
     missingPricesCount: missingPrices.length,
     missingPrices,
     inactiveCount: inactiveIncluded.length,
@@ -553,14 +576,16 @@ export function computePlanReviewSummary(plan) {
   }
 }
 
-export function computePoReadiness(plan, options = {}) {
+export function computePoReadiness(
+  plan: PurchasePlan | null | undefined,
+  options: { pricesReady?: boolean } = {}
+): PoReadiness {
   const pricesReady = options.pricesReady !== false
   const summary = computePlanReviewSummary(plan)
   const includedLines = (plan?.items || []).filter(
-    (item) => item.included && Number(item.finalQty || 0) > 0 && String(item.zohoItemId || '').trim()
+    (item) => item.included && Number(item.finalQty || 0) > 0 && hasZohoItem(item)
   )
-  const invalidQty = includedLines.filter((item) => Number(item.finalQty || 0) <= 0)
-  const reasons = []
+  const reasons: string[] = []
   if (!plan) reasons.push('Open a draft plan before creating a purchase order.')
   if (plan?.status === 'sent_to_zoho') reasons.push('This plan was already sent to Zoho.')
   if (plan?.status === 'sending') reasons.push('This plan is being sent to Zoho.')
@@ -568,7 +593,6 @@ export function computePoReadiness(plan, options = {}) {
     reasons.push('Only draft plans can create a purchase order.')
   }
   if (plan && includedLines.length === 0) reasons.push('No included lines with quantity greater than zero.')
-  if (invalidQty.length > 0) reasons.push('Some included lines have invalid quantity.')
   if (!pricesReady) {
     reasons.push('Purchase prices are still loading.')
   } else if (summary.missingPricesCount > 0) {
@@ -585,43 +609,49 @@ export function computePoReadiness(plan, options = {}) {
   return { ready: reasons.length === 0, reasons, includedLines, summary }
 }
 
-export function getPlanRowBadges(item) {
-  const badges = []
+export function getPlanRowBadges(item: PlanItem): RowBadge[] {
+  const badges: RowBadge[] = []
+  const wholesale = Number(item.wholesaleAvailableQty || 0)
   if (item.zohoItemActive === false) badges.push({ key: 'inactive-zoho', label: 'Inactive in Zoho', tone: 'danger' })
   if (item.matchType === 'not_found') badges.push({ key: 'no-vigil', label: 'No Vigil Match', tone: 'danger' })
-  if (Number(item.wholesaleAvailableQty || 0) <= 0) badges.push({ key: 'zero-wholesale', label: 'Zero Wholesale Stock', tone: 'danger' })
-  if (
-    item.included &&
-    Number(item.suggestedQty || 0) > Number(item.wholesaleAvailableQty || 0) &&
-    Number(item.wholesaleAvailableQty || 0) > 0
-  ) {
+  if (wholesale <= 0) badges.push({ key: 'zero-wholesale', label: 'Zero Wholesale Stock', tone: 'danger' })
+  if (item.included && Number(item.suggestedQty || 0) > wholesale && wholesale > 0) {
     badges.push({ key: 'vigil-capped', label: 'Vigil Capped', tone: 'warning' })
   }
-  if (item.included && Number(item.finalQty || 0) > 0 && (!Number.isFinite(Number(item.purchasePrice)) || Number(item.purchasePrice) <= 0)) {
+  if (item.included && Number(item.finalQty || 0) > 0 && !hasPositivePrice(item.purchasePrice)) {
     badges.push({ key: 'missing-price', label: 'Missing Price', tone: 'danger' })
   }
   return badges
 }
 
-export function formatUploadDate(value) {
+export function formatUploadDate(value: string | Date | null | undefined): string {
   if (!value) return '—'
-  try {
-    return new Date(value).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
-  } catch {
-    return String(value)
-  }
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return String(value)
+  return date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 }
 
 /** The server gives up on a run after 20 minutes; allow for one queued run ahead of it. */
 const ENRICHMENT_POLL_DEADLINE_MS = 25 * 60 * 1000
 
-export async function pollLowStockEnrichment({ onTick, signal, deadlineMs = ENRICHMENT_POLL_DEADLINE_MS }) {
+interface PollOptions {
+  onTick?: (result: EnrichmentPollResult) => void | Promise<void>
+  signal?: AbortSignal
+  deadlineMs?: number
+}
+
+/** Polls enrichment status until the server job finishes; resolves null if the signal aborts. */
+export async function pollLowStockEnrichment({
+  onTick,
+  signal,
+  deadlineMs = ENRICHMENT_POLL_DEADLINE_MS,
+}: PollOptions): Promise<EnrichmentPollResult | null> {
   const deadline = Date.now() + deadlineMs
   while (Date.now() < deadline) {
     if (signal?.aborted) return null
-    const statusRes = await api.get('/api/purchase-planning/low-stock/enrichment-status', PP_REQUEST_OPTS)
-    const listRes = await api.get('/api/purchase-planning/low-stock', PP_REQUEST_OPTS)
-    const result = {
+    const statusRes: EnrichmentStatus = await api.get('/api/purchase-planning/low-stock/enrichment-status', PP_REQUEST_OPTS)
+    const listRes: { items?: LowStockItem[] } = await api.get('/api/purchase-planning/low-stock', PP_REQUEST_OPTS)
+    const result: EnrichmentPollResult = {
       running: Boolean(statusRes.running),
       progress: statusRes.progress || null,
       resumed: Number(statusRes.attempts || 0) > 1,
@@ -634,7 +664,9 @@ export async function pollLowStockEnrichment({ onTick, signal, deadlineMs = ENRI
     if (!result.running) return result
     await new Promise((resolve) => setTimeout(resolve, 2500))
   }
-  const err = new Error('Zoho enrichment is taking longer than expected. Try Refresh Zoho Data again.')
+  const err = new Error('Zoho enrichment is taking longer than expected. Try Refresh Zoho Data again.') as Error & {
+    code?: string
+  }
   err.code = 'ENRICHMENT_TIMEOUT'
   throw err
 }

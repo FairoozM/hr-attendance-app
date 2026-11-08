@@ -1,19 +1,29 @@
 import { useCallback, useState } from 'react'
-import { api } from '../../api/client'
-import { PP_REQUEST_OPTS, fmt, formatUploadDate, getLatestVigilUpload } from './purchasePlanningUtils'
+import { api } from '../../../api/client'
 import { Badge } from './PurchasePlanningBadges'
+import { UploadPreviewTable } from './UploadPreviewTable'
+import { asApiError, type StepStatus, type UploadPreview, type VigilUpload } from './purchasePlanningTypes'
+import { PP_REQUEST_OPTS, fmt, formatUploadDate, getLatestVigilUpload } from './purchasePlanningUtils'
 
-export function VigilUploadStep({ uploads, onUploaded, status }) {
-  const [file, setFile] = useState(null)
-  const [preview, setPreview] = useState(null)
+const UPLOAD_ACCEPT =
+  '.csv,.xls,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+
+interface VigilUploadStepProps {
+  uploads: VigilUpload[]
+  onUploaded: () => Promise<void> | void
+  status: StepStatus
+}
+
+export function VigilUploadStep({ uploads, onUploaded, status }: VigilUploadStepProps) {
+  const [file, setFile] = useState<File | null>(null)
+  const [preview, setPreview] = useState<UploadPreview | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [replaceMode, setReplaceMode] = useState(false)
   const latest = getLatestVigilUpload(uploads)
-  const hasSaved = Boolean(latest)
 
   const submit = useCallback(
-    async (save) => {
+    async (save: boolean) => {
       if (!file) return
       setBusy(true)
       setError('')
@@ -21,7 +31,11 @@ export function VigilUploadStep({ uploads, onUploaded, status }) {
         const form = new FormData()
         form.append('file', file)
         form.append('save', save ? 'true' : 'false')
-        const res = await api.postForm('/api/purchase-planning/vigil-upload', form, PP_REQUEST_OPTS)
+        const res: { saved: boolean; preview: UploadPreview } = await api.postForm(
+          '/api/purchase-planning/vigil-upload',
+          form,
+          PP_REQUEST_OPTS
+        )
         setPreview(res.preview)
         if (res.saved) {
           setFile(null)
@@ -30,8 +44,9 @@ export function VigilUploadStep({ uploads, onUploaded, status }) {
           await onUploaded()
         }
       } catch (err) {
-        setError(err.message || 'Upload failed')
-        if (err.body?.preview) setPreview(err.body.preview)
+        const apiErr = asApiError(err)
+        setError(apiErr.message || 'Upload failed')
+        if (apiErr.body?.preview) setPreview(apiErr.body.preview)
       } finally {
         setBusy(false)
       }
@@ -39,11 +54,12 @@ export function VigilUploadStep({ uploads, onUploaded, status }) {
     [file, onUploaded]
   )
 
-  const canSave = preview && preview.summary.invalidRows === 0
+  const canSave = Boolean(preview && preview.summary.invalidRows === 0)
+  const showUploader = replaceMode || !latest
 
   return (
     <div className="pp-step-content">
-      {hasSaved && !replaceMode && (
+      {latest && !replaceMode && (
         <div className="pp-summary-card">
           <h3>Latest Vigil upload</h3>
           <dl className="pp-dl">
@@ -65,7 +81,8 @@ export function VigilUploadStep({ uploads, onUploaded, status }) {
             </div>
           </dl>
           <p className="pp-hint">
-            Vigil wholesale stock caps final order quantities. Item code + available quantity columns are required.
+            Vigil wholesale stock caps final order quantities. New plans use the latest upload; existing drafts keep the
+            upload they were built from.
           </p>
           <button type="button" className="btn" onClick={() => setReplaceMode(true)}>
             Replace Vigil stock
@@ -73,7 +90,7 @@ export function VigilUploadStep({ uploads, onUploaded, status }) {
         </div>
       )}
 
-      {(replaceMode || !hasSaved) && (
+      {showUploader && (
         <div className="pp-upload-card">
           <p className="pp-hint">
             Upload a CSV or Excel file with <strong>item code</strong> and <strong>available wholesale quantity</strong>.
@@ -82,7 +99,7 @@ export function VigilUploadStep({ uploads, onUploaded, status }) {
           <div className="pp-upload-actions">
             <input
               type="file"
-              accept=".csv,.xls,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              accept={UPLOAD_ACCEPT}
               onChange={(e) => {
                 setFile(e.target.files?.[0] || null)
                 setPreview(null)
@@ -100,7 +117,7 @@ export function VigilUploadStep({ uploads, onUploaded, status }) {
             >
               Save Vigil upload
             </button>
-            {hasSaved && replaceMode && (
+            {latest && replaceMode && (
               <button type="button" className="btn btn--ghost" onClick={() => setReplaceMode(false)}>
                 Cancel replace
               </button>
@@ -110,51 +127,33 @@ export function VigilUploadStep({ uploads, onUploaded, status }) {
       )}
 
       {error && <div className="page-error">{error}</div>}
-      {preview && (replaceMode || !hasSaved) && (
-        <div className="pp-preview">
-          <div className="pp-preview__meta">
-            <Badge tone={preview.summary.invalidRows ? 'danger' : 'success'}>
-              {preview.summary.validRows} valid / {preview.summary.invalidRows} invalid
-            </Badge>
-            <span>Item code: {preview.summary.itemCodeHeader || 'missing'}</span>
-            <span>Stock: {preview.summary.stockHeader || 'missing'}</span>
-          </div>
-          <div className="doc-table-wrap">
-            <table className="doc-table pp-preview-table">
-              <thead>
-                <tr>
-                  <th>Row</th>
-                  <th>Item code</th>
-                  <th>Available stock</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {preview.rows.slice(0, 12).map((row) => (
-                  <tr key={row.rowNumber} className={!row.valid ? 'pp-row--invalid' : ''}>
-                    <td>{row.rowNumber}</td>
-                    <td>{row.itemCode || '—'}</td>
-                    <td>{fmt(row.availableStock)}</td>
-                    <td>
-                      {row.valid ? (
-                        <Badge tone="success">Valid</Badge>
-                      ) : (
-                        <Badge tone="danger">{row.errors.join(', ')}</Badge>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {!canSave && (
-            <p className="pp-hint pp-hint--warn">Fix invalid rows before saving. Save is disabled until preview has zero invalid rows.</p>
-          )}
-        </div>
+      {preview && showUploader && (
+        <UploadPreviewTable
+          preview={preview}
+          meta={
+            <>
+              <span>Item code: {preview.summary.itemCodeHeader || 'missing'}</span>
+              <span>Stock: {preview.summary.stockHeader || 'missing'}</span>
+            </>
+          }
+          columns={[
+            { label: 'Item code', render: (row) => row.itemCode || '—' },
+            { label: 'Available stock', render: (row) => fmt(row.availableStock) },
+          ]}
+          footer={
+            !canSave ? (
+              <p className="pp-hint pp-hint--warn">
+                Fix invalid rows before saving. Save is disabled until preview has zero invalid rows.
+              </p>
+            ) : null
+          }
+        />
       )}
 
-      {status === 'completed' && hasSaved && !replaceMode && (
-        <p className="pp-step-done-hint">Vigil stock is ready. Continue to Step 2 to upload low-stock SKUs.</p>
+      {status === 'completed' && latest && !replaceMode && (
+        <p className="pp-step-done-hint">
+          <Badge tone="success">Ready</Badge> Vigil stock is in place. Continue to Step 2 to upload low-stock SKUs.
+        </p>
       )}
     </div>
   )

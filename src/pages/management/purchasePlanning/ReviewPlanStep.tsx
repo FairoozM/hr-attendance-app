@@ -1,6 +1,24 @@
-import { Badge } from './PurchasePlanningBadges'
+import { PlanStatusBadge } from './PurchasePlanningBadges'
 import { PurchasePlanTable } from './PurchasePlanTable'
+import type { PlanFilters, PlanItemPatch, PurchasePlan, StepId } from './purchasePlanningTypes'
 import { computePlanReviewSummary, computePoReadiness, fmtPrice, isEditablePlanStatus } from './purchasePlanningUtils'
+
+interface ReviewPlanStepProps {
+  plan: PurchasePlan | null
+  filters: PlanFilters
+  onFiltersChange: (filters: PlanFilters) => void
+  onItemChange: (itemId: number, patch: PlanItemPatch) => void
+  onRefreshZohoData: () => void
+  refreshBusy: boolean
+  readOnly: boolean
+  plans: PurchasePlan[]
+  onOpenPlan: (planId: number) => void
+  onDeletePlan: (plan: PurchasePlan) => void
+  deleteBusy: boolean
+  onContinueToPo: () => void
+  currentStep: StepId
+  pricesReady?: boolean
+}
 
 export function ReviewPlanStep({
   plan,
@@ -17,11 +35,11 @@ export function ReviewPlanStep({
   onContinueToPo,
   currentStep,
   pricesReady = true,
-}) {
+}: ReviewPlanStepProps) {
   const summary = computePlanReviewSummary(plan)
   const poReadiness = computePoReadiness(plan, { pricesReady })
   const editable = isEditablePlanStatus(plan?.status)
-  const draftPlans = (plans || []).filter((p) => p.status === 'draft')
+  const draftPlans = plans.filter((p) => p.status === 'draft')
 
   if (!plan) {
     return (
@@ -33,7 +51,7 @@ export function ReviewPlanStep({
               <button key={p.id} type="button" className="pp-plan-card" onClick={() => onOpenPlan(p.id)}>
                 <strong>{p.planNumber}</strong>
                 <span>{p.itemsCount} items</span>
-                <Badge tone="warning">draft</Badge>
+                <PlanStatusBadge status={p.status} />
               </button>
             ))}
           </div>
@@ -50,10 +68,12 @@ export function ReviewPlanStep({
       <div className="pp-plan-header-bar">
         <div>
           <h3>{plan.planNumber}</h3>
-          <Badge tone={isSent ? 'success' : plan.status === 'failed' ? 'danger' : 'warning'}>{plan.status}</Badge>
-          {plan.zohoPurchaseOrderId && <span className="pp-hint">Zoho PO: {plan.zohoPurchaseOrderId}</span>}
+          <PlanStatusBadge status={plan.status} />
+          {plan.zohoPurchaseOrderId && (
+            <span className="pp-hint">Zoho PO: {plan.purchaseOrderNumber || plan.zohoPurchaseOrderId}</span>
+          )}
         </div>
-        {editable && onRefreshZohoData && (
+        {editable && (
           <div className="pp-secondary-actions">
             <button type="button" className="btn" disabled={refreshBusy} onClick={onRefreshZohoData}>
               {refreshBusy ? 'Refreshing…' : 'Refresh Zoho Data'}
@@ -155,7 +175,7 @@ export function ReviewPlanStep({
         readOnly={isReadOnly}
       />
 
-      {editable && onContinueToPo && (
+      {editable && (
         <div className="pp-continue-po-card">
           <div>
             <strong>Ready for Zoho?</strong>
@@ -183,7 +203,7 @@ export function ReviewPlanStep({
         </div>
       )}
 
-      {plan.status === 'draft' && onDeletePlan && (
+      {plan.status === 'draft' && (
         <div className="pp-secondary-actions pp-secondary-actions--danger">
           <button type="button" className="btn" disabled={deleteBusy} onClick={() => onDeletePlan(plan)}>
             Delete draft plan

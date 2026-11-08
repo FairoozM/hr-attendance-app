@@ -202,33 +202,9 @@
   box-shadow: var(--glass-shadow);
 }
 
-.pp-step-panel--collapsed {
-  opacity: 0.92;
-}
-
 .pp-step-panel--active {
   border-color: color-mix(in srgb, var(--primary) 40%, var(--glass-border));
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 12%, transparent), var(--glass-shadow);
-}
-
-.pp-step-panel__collapsed-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.85rem 1rem;
-  flex-wrap: wrap;
-}
-
-.pp-step-panel__collapsed-head h2 {
-  margin: 0;
-  font-size: 0.95rem;
-}
-
-.pp-step-panel__summary {
-  margin: 0.25rem 0 0;
-  font-size: 0.8rem;
-  color: var(--text-muted);
 }
 
 .pp-step-panel__head {
@@ -1148,4 +1124,38 @@
     flex-basis: 100%;
     text-align: left;
   }
+}
+
+.modal-panel.pp-confirm-dialog {
+  max-width: 460px;
+}
+
+.pp-confirm-dialog__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.pp-confirm-dialog__message {
+  margin: 0;
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.pp-confirm-dialog__details {
+  margin: 0;
+  padding: 0.65rem 0.85rem 0.65rem 1.75rem;
+  border: 1px solid var(--theme-border);
+  border-radius: var(--radius);
+  background: var(--theme-surface-soft);
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.pp-confirm-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
 }

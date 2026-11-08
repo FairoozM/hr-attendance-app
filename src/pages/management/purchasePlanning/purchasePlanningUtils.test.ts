@@ -6,34 +6,67 @@ import {
   isPlanSendStale,
   PO_SEND_STALE_MS,
 } from './purchasePlanningUtils'
+import type { LowStockItem, PlanItem, PurchasePlan, VigilUpload } from './purchasePlanningTypes'
 
-const vigil = [{ id: 1, rowsCount: 674, fileName: 'vigil.xlsx' }]
+const vigil: VigilUpload[] = [{ id: 1, rowsCount: 674, fileName: 'vigil.xlsx', uploadedAt: '2026-09-15T14:00:00.000Z' }]
 
-function line(overrides = {}) {
+function line(overrides: Partial<PlanItem> = {}): PlanItem {
   return {
     id: 1,
     sku: 'A',
+    itemName: 'Item A',
     included: true,
     finalQty: 12,
     zohoItemId: 'z1',
     purchasePrice: 10,
     zohoItemActive: true,
+    currentZohoStock: 0,
     wholesaleAvailableQty: 20,
+    matchType: 'exact',
+    totalSalesLast3Months: 12,
+    totalBundleUsageLast3Months: 0,
+    totalUsageLast3Months: 12,
     suggestedQty: 12,
+    notes: '',
     ...overrides,
+  }
+}
+
+function plan(overrides: Partial<PurchasePlan> & Pick<PurchasePlan, 'id' | 'status'>): PurchasePlan {
+  return {
+    planNumber: `PP-${overrides.id}`,
+    createdAt: '2026-10-01T00:00:00.000Z',
+    zohoPurchaseOrderId: null,
+    purchaseOrderNumber: null,
+    zohoError: null,
+    ...overrides,
+  }
+}
+
+function pendingSku(sku: string, zohoItemId: string): LowStockItem {
+  return {
+    id: sku.charCodeAt(0),
+    sku,
+    itemName: sku,
+    zohoItemId,
+    zohoItemActive: zohoItemId ? true : null,
+    currentZohoStock: 0,
+    totalSalesLast3Months: 0,
+    totalBundleUsageLast3Months: 0,
+    status: 'pending',
   }
 }
 
 describe('computeWorkflow', () => {
   it('keeps finished steps complete after the batch is consumed into a draft', () => {
-    const plan = { id: 9, status: 'draft', planNumber: 'PP-1', items: [line()] }
+    const draft = plan({ id: 9, status: 'draft', planNumber: 'PP-1', items: [line()] })
     const result = computeWorkflow({
       uploads: vigil,
       lowStock: [],
       enrichmentRunning: false,
-      activePlan: plan,
-      activePlanWithPrices: plan,
-      plans: [{ id: 9, status: 'draft' }],
+      activePlan: draft,
+      activePlanWithPrices: draft,
+      plans: [plan({ id: 9, status: 'draft' })],
       currentStep: 5,
     })
 
@@ -54,8 +87,8 @@ describe('computeWorkflow', () => {
     const result = computeWorkflow({
       uploads: vigil,
       lowStock: [
-        { status: 'pending', sku: 'A', zohoItemId: 'z1' },
-        { status: 'pending', sku: 'B', zohoItemId: '' },
+        pendingSku('A', 'z1'),
+        pendingSku('B', ''),
       ],
       enrichmentRunning: true,
       currentStep: 3,
@@ -69,7 +102,7 @@ describe('computeWorkflow', () => {
   it('blocks plan generation while unmatched SKUs remain', () => {
     const result = computeWorkflow({
       uploads: vigil,
-      lowStock: [{ status: 'pending', sku: 'A', zohoItemId: '' }],
+      lowStock: [pendingSku('A', '')],
       enrichmentRunning: false,
       enrichmentError: 'Zoho timeout',
       currentStep: 3,
@@ -101,7 +134,7 @@ describe('getDefaultPurchasePlanningView', () => {
     const view = getDefaultPurchasePlanningView({
       uploads: vigil,
       lowStock: [],
-      plans: [{ id: 3, status: 'failed', planNumber: 'PP-FAILED' }],
+      plans: [plan({ id: 3, status: 'failed', planNumber: 'PP-FAILED' })],
     })
 
     expect(view).toMatchObject({
@@ -114,9 +147,9 @@ describe('getDefaultPurchasePlanningView', () => {
   it('stays on enrichment while a new batch is still running', () => {
     const view = getDefaultPurchasePlanningView({
       uploads: vigil,
-      lowStock: [{ status: 'pending', sku: 'A', zohoItemId: 'z1' }],
+      lowStock: [pendingSku('A', 'z1')],
       enrichmentRunning: true,
-      plans: [{ id: 8, status: 'draft' }],
+      plans: [plan({ id: 8, status: 'draft' })],
     })
 
     expect(view.activeStep).toBe(3)
@@ -127,7 +160,7 @@ describe('getDefaultPurchasePlanningView', () => {
 describe('computePoReadiness', () => {
   it('waits for prices instead of calling every line missing', () => {
     const result = computePoReadiness(
-      { status: 'draft', items: [line({ purchasePrice: null })] },
+      plan({ id: 1, status: 'draft', items: [line({ purchasePrice: null })] }),
       { pricesReady: false }
     )
     expect(result.ready).toBe(false)
@@ -135,42 +168,42 @@ describe('computePoReadiness', () => {
   })
 
   it('allows a failed plan to be sent again when the lines are valid', () => {
-    const result = computePoReadiness({ status: 'failed', items: [line()] })
+    const result = computePoReadiness(plan({ id: 1, status: 'failed', items: [line()] }))
     expect(result.ready).toBe(true)
   })
 
   it('blocks a normal send while the plan is already sending', () => {
-    const result = computePoReadiness({ status: 'sending', items: [line()] })
+    const result = computePoReadiness(plan({ id: 1, status: 'sending', items: [line()] }))
     expect(result.ready).toBe(false)
     expect(result.reasons).toEqual(['This plan is being sent to Zoho.'])
   })
 })
 
 describe('sending plans', () => {
-  const sendingPlan = (startedAgoMs) => ({
-    id: 4,
-    status: 'sending',
-    planNumber: 'PP-4',
-    purchaseOrderNumber: 'PO-4',
-    sendStartedAt: new Date(Date.now() - startedAgoMs).toISOString(),
-    items: [line()],
-  })
+  const sendingPlan = (startedAgoMs: number) =>
+    plan({
+      id: 4,
+      status: 'sending',
+      purchaseOrderNumber: 'PO-4',
+      sendStartedAt: new Date(Date.now() - startedAgoMs).toISOString(),
+      items: [line()],
+    })
 
   it('shows the PO step as in progress and opens it by default', () => {
-    const plan = sendingPlan(1000)
+    const sending = sendingPlan(1000)
     const result = computeWorkflow({
       uploads: vigil,
       lowStock: [],
-      activePlan: plan,
-      activePlanWithPrices: plan,
-      plans: [plan],
+      activePlan: sending,
+      activePlanWithPrices: sending,
+      plans: [sending],
       currentStep: 6,
     })
     expect(result.stepStatuses[6]).toBe('in_progress')
     expect(result.blockers[6]).toMatch(/Sending/)
     expect(result.suggestedStep).toBe(6)
 
-    const view = getDefaultPurchasePlanningView({ uploads: vigil, lowStock: [], plans: [plan] })
+    const view = getDefaultPurchasePlanningView({ uploads: vigil, lowStock: [], plans: [sending] })
     expect(view.activeStep).toBe(6)
     expect(view.selectedPlanId).toBe(4)
   })

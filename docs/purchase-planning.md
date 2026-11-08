@@ -1,341 +1,231 @@
-# Purchase Planning Module — Architecture & Process Guide
+# Purchase Planning — Architecture & Process Guide
 
 ## Purpose
 
-Purchase Planning helps admins turn **reported low-stock SKUs** into a **reviewed draft purchase order** sent to **Zoho Inventory**. It combines three data sources:
+Purchase Planning turns **reported low-stock SKUs** into a **reviewed draft purchase order** in **Zoho Inventory**. It combines four data sources:
 
 | Source | What it provides |
 |--------|------------------|
-| **Uploaded low-stock list** (CSV/XLSX) | Which SKUs need reordering |
-| **Zoho Inventory** | Item names, warehouse stock (Life Smile), 3-month direct sales, composite/bundle usage |
-| **Vigil wholesale stock file** (CSV/XLSX) | Available wholesale qty to cap order sizes |
-| **All Prices** (client user prefs) | Purchase unit prices at PO creation time |
+| **Low-stock list** (CSV/XLSX upload) | Which SKUs need reordering |
+| **Zoho Inventory** | Item names, active flag, Life Smile warehouse stock, 92-day direct sales, composite/bundle usage |
+| **Vigil wholesale stock** (CSV/XLSX upload) | Available wholesale qty, used to cap order sizes |
+| **All Prices** (user preferences) | Purchase unit prices at PO creation time |
 
-Route: `/management/purchase-planning` (Admin only) — `src/App.jsx`
+Route: `/management/purchase-planning` (admin only), registered in `src/App.jsx`.
 
 ---
 
-## High-Level Architecture
-
-```mermaid
-flowchart TB
-  subgraph frontend [Frontend]
-    PP[PurchasePlanningPage.jsx]
-    AP[allPricesEcommerceUtils.js]
-    PP --> AP
-  end
-
-  subgraph api [Express API /api/purchase-planning]
-    Routes[purchasePlanning.js]
-    Ctrl[purchasePlanningController.js]
-    Svc[purchasePlanningService.js]
-    Matcher[purchasePlanningSkuMatcher.js]
-    Routes --> Ctrl --> Svc --> Matcher
-  end
-
-  subgraph db [PostgreSQL]
-    LS[purchase_low_stock_items]
-    VU[vigil_stock_uploads]
-    PP_tbl[purchase_plans]
-    PI[purchase_plan_items]
-  end
-
-  subgraph zoho [Zoho Inventory API]
-    Items[items by warehouse]
-    Sales[salesbyitem report]
-    Composite[composite item details]
-    PO[purchaseorders POST]
-  end
-
-  PP -->|fetch 120s timeout| Routes
-  Svc --> db
-  Svc --> Items
-  Svc --> Sales
-  Svc --> Composite
-  Svc --> PO
-```
-
-### File map
+## File map
 
 | Layer | Path | Role |
 |-------|------|------|
-| Routes | `backend/src/routes/purchasePlanning.js` | 13 endpoints, multer 5MB uploads, `requireAuth` + `requireAdmin` |
-| Controller | `backend/src/controllers/purchasePlanningController.js` | Validation, HTTP codes, error mapping |
-| Service | `backend/src/services/purchasePlanningService.js` | All business logic (~1400 lines) |
-| SKU matcher | `backend/src/utils/purchasePlanningSkuMatcher.js` | Normalize SKUs, match Zoho SKU → Vigil item code |
-| UI | `src/pages/management/PurchasePlanningPage.jsx` | Wizard orchestrator + step components |
-| Step UI | `VigilUploadStep`, `LowStockUploadStep`, `ZohoEnrichmentStep`, `GeneratePlanStep`, `ReviewPlanStep`, `CreateZohoPoStep`, `PurchasePlanTable`, … | Six-step guided workflow |
-| Utils | `src/pages/management/purchasePlanningUtils.js` | Workflow state, pricing, polling |
-| Styles | `src/pages/management/PurchasePlanningPage.css` | |
-| Tests | `backend/tests/purchasePlanningController.test.js`, `backend/tests/purchasePlanningSkuMatcher.test.js` | Controller validation + matcher/unit helpers only |
-| DB bootstrap | `backend/src/db/index.js` | Calls `ensurePurchasePlanningTables()` at startup |
+| Routes | `backend/src/routes/purchasePlanning.js` | 14 endpoints, multer 5 MB uploads, `requireAuth` + `requireAdmin` |
+| Controller | `backend/src/controllers/purchasePlanningController.js` | Validation, HTTP status mapping for error codes |
+| Service | `backend/src/services/purchasePlanningService.js` | Business logic, schema bootstrap, Zoho calls |
+| Jobs | `backend/src/services/purchasePlanningJobs.ts` | Durable background job store + runner (Postgres) |
+| SKU matcher | `backend/src/utils/purchasePlanningSkuMatcher.js` | SKU normalisation, Zoho SKU → Vigil item code matching |
+| UI | `src/pages/management/purchasePlanning/` | Page, six step components, table, badges, confirm dialog |
+| Types | `src/pages/management/purchasePlanning/purchasePlanningTypes.ts` | Shared shapes for API responses and UI state |
+| Utils | `src/pages/management/purchasePlanning/purchasePlanningUtils.ts` | Workflow state machine, pricing, enrichment polling |
+| Tests | `backend/tests/purchasePlanning*.test.*`, `src/pages/management/purchasePlanning/*.test.*` | Service send flow, controller, jobs, matcher, UI workflow |
 
-Tables are created at runtime in `ensurePurchasePlanningTables()` (not only via migrations). Migration `backend/migrations/018_purchase_low_stock_sales.sql` adds sales/bundle columns.
+Tables, columns, constraints and indexes are created idempotently at startup by `ensurePurchasePlanningTables()` (called from `backend/src/db/index.js`). `backend/src/server.js` calls `resumeBackgroundJobs()` once the database is ready.
 
 ---
 
-## Data Model
+## Data model
 
 ```mermaid
 stateDiagram-v2
   direction LR
-  state lowStockStatus {
-    pending --> planned: generatePlan
-    planned --> ordered: createZohoPo success
-    pending --> ignored: re-upload low stock
-    planned --> ignored: re-upload low stock
+  state "Low-stock row" as ls {
+    pending --> planned: generate plan
+    planned --> pending: delete draft
+    planned --> ordered: PO sent
+    pending --> ignored: new low-stock upload
+    planned --> ignored: new low-stock upload
   }
-  state planStatus {
-    draft --> sent_to_zoho: createZohoPo success
-    draft --> failed: createZohoPo error
+  state "Purchase plan" as plan {
+    draft --> sending: create PO (reserved)
+    failed --> sending: retry
+    sending --> sent_to_zoho: Zoho PO created or linked
+    sending --> failed: Zoho error
   }
 ```
 
 ### `purchase_low_stock_items`
 
-- **One row per SKU** (unique on `sku`)
-- Stores Zoho enrichment: `item_name`, `zoho_item_id`, `current_zoho_stock`, `total_sales_last_3_months`, `total_bundle_usage_last_3_months`
-- **Status**: `pending` | `planned` | `ordered` | `ignored`
-- Vigil fields are **not persisted** — recomputed on read from latest Vigil upload
+- One row per SKU (unique on `sku`).
+- Zoho enrichment: `item_name`, `zoho_item_id`, `zoho_item_active`, `current_zoho_stock`, `total_sales_last_3_months`, `total_bundle_usage_last_3_months`.
+- Status: `pending` | `planned` | `ordered` | `ignored`.
+- Vigil availability is not stored here; it is joined from the latest Vigil upload on read.
 
 ### `vigil_stock_uploads`
 
-- Full parsed rows stored as JSONB (`parsed_rows`)
-- Latest upload by `uploaded_at DESC` drives all Vigil matching
+- Parsed rows stored as JSONB (`parsed_rows`).
+- New plans use the latest upload and record it as `source_upload_id`.
 
 ### `purchase_plans`
 
-- `plan_number` (e.g. `PP-20260529061215-MVVZ`)
-- `status`: `draft` | `reviewed`* | `sent_to_zoho` | `failed` (*`reviewed` exists in schema but is never set)
-- `source_upload_id` → Vigil upload used at generation time (stored but refresh currently uses **latest** upload)
-- `zoho_purchase_order_id`, `zoho_error`
+| Column | Notes |
+|--------|-------|
+| `plan_number` | e.g. `PP-20260529061215-MVVZ` |
+| `status` | `draft` \| `reviewed` \| `sending` \| `sent_to_zoho` \| `failed` (`reviewed` is allowed by the constraint but not used) |
+| `source_upload_id` | Vigil upload the plan was built from; draft refresh uses it |
+| `purchase_order_number` | Unique among active plans (`uq_purchase_plans_active_po_number`) |
+| `zoho_reference_number` | Stable Zoho reference for this plan, reused on every retry |
+| `send_started_at` | Set when a send is reserved; used to detect interrupted sends |
+| `zoho_purchase_order_id`, `zoho_error` | Result of the last send |
 
 ### `purchase_plan_items`
 
-- Snapshot per SKU at plan generation (or refresh): stock, sales, bundle, suggested/final qty, Vigil match, included flag, notes, optional `purchase_price`
+Snapshot per SKU at generation (or draft refresh): stock, sales, bundle usage, suggested/final qty, Vigil match, `included`, notes, optional `purchase_price`.
+
+### `purchase_planning_jobs`
+
+Durable background jobs (currently kind `low_stock_enrichment`). A partial unique index allows at most one `queued` and one `running` job per kind. Columns track status, attempts, heartbeat, progress, last error and summary.
 
 ---
 
-## End-to-End Process (Happy Path)
+## Workflow (six steps)
+
+| Step | UI component | What happens |
+|------|--------------|--------------|
+| 1. Upload Vigil stock | `VigilUploadStep` | Preview validates item code + stock columns; save requires zero invalid rows |
+| 2. Upload low-stock SKUs | `LowStockUploadStep` | Saving replaces the current batch (confirm dialog), creates `pending` rows and queues enrichment |
+| 3. Match & enrich from Zoho | `ZohoEnrichmentStep` | Background job matches SKUs, loads stock, sales and bundle usage; unmatched rows can be removed |
+| 4. Generate draft plan | `GeneratePlanStep` | Readiness checklist; generation marks pending SKUs `planned` |
+| 5. Review quantities & prices | `ReviewPlanStep` + `PurchasePlanTable` | Edit final qty (saves on blur/Enter), include/exclude lines, refresh from Zoho |
+| 6. Create Zoho PO | `CreateZohoPoStep` | Enter PO number, confirm, send; shows sending/interrupted/sent states |
+
+The step status machine lives in `computeWorkflow()` and the initial view in `getDefaultPurchasePlanningView()`; both are unit tested. Open plans (`draft`, `failed`, `sending`) take priority over the "latest sent PO" panel.
+
+Destructive or expensive actions (replace batch, remove SKU, delete draft, refresh Zoho data, create PO) use the in-page confirm dialog from `useConfirmDialog.tsx`. There are no `window.confirm` prompts.
+
+---
+
+## Sending a PO safely
+
+`createZohoPurchaseOrderForPlan` is built so a retry, double click, timeout or server crash never creates a second Zoho PO:
+
+1. **Validate outside the lock.** Load the plan and selected lines, and check that every selected Zoho item is still active (inactive items are flagged on the plan and the send is refused with `ZOHO_ITEMS_INACTIVE`).
+2. **Reserve in a transaction.** Lock the plan row, re-check that it is eligible and unchanged, then set `status = 'sending'`, `send_started_at`, the PO number and the stable `zoho_reference_number`. A concurrent send gets `PO_SEND_IN_PROGRESS`; a PO number used by another active plan gets `PO_NUMBER_IN_USE`.
+3. **Look before creating.** Search Zoho for a PO with the same number and reference. If one exists it is **linked** (`reconciled: true`) instead of created.
+4. **Create once.** The Zoho POST runs with `noTransportRetry`, so the client never blindly re-posts after a network error.
+5. **Finalize.** On success the plan becomes `sent_to_zoho` and its SKUs `ordered`. On a Zoho error the plan becomes `failed` with `zoho_error` and can be retried from Step 6.
+
+A send still marked `sending` after 10 minutes (`PO_SEND_STALE_MS`) is treated as interrupted. Step 6 then offers **Check Zoho & finish**, which repeats the lookup-then-create path.
+
+### Zoho payload rules
+
+- Never send app names or internal branding to Zoho (notes, reference, line descriptions, headers). Leave `notes` empty unless the user supplies business text.
+- All calls go through `zohoApiRequest` with the neutral User-Agent; do not raise the shared Zoho request budget.
+
+---
+
+## Background enrichment jobs
 
 ```mermaid
-sequenceDiagram
-  participant Admin
-  participant UI as PurchasePlanningPage
-  participant API as purchasePlanningService
-  participant DB as PostgreSQL
-  participant Zoho as Zoho Inventory
-
-  Admin->>UI: Upload Vigil stock CSV/XLSX
-  UI->>API: POST /vigil-upload?save=true
-  API->>DB: INSERT vigil_stock_uploads
-
-  Admin->>UI: Upload low-stock SKUs CSV/XLSX
-  UI->>API: POST /low-stock-upload?save=true
-  API->>DB: UPSERT pending SKUs, mark old pending/planned ignored
-  API-->>API: queueLowStockZohoEnrichment (background)
-  API->>Zoho: warehouse items + sales + composite usage
-  API->>DB: UPDATE pending rows with Zoho data
-  UI->>API: Poll GET /low-stock/enrichment-status
-
-  Admin->>UI: Generate Purchase Plan
-  UI->>API: POST /generate-plan
-  API->>Zoho: sales + composite (sync again)
-  API->>DB: INSERT plan + items, mark SKUs planned
-
-  Admin->>UI: Review/edit final qty, include/ignore rows
-  UI->>API: PUT /plans/:id/items/:itemId
-
-  Admin->>UI: Enter PO number, Create PO in Zoho
-  UI->>API: POST /plans/:id/create-zoho-po
-  API->>Zoho: POST /purchaseorders
-  API->>DB: plan sent_to_zoho, SKUs ordered
+flowchart LR
+  Save[Low-stock save / Refresh] --> Enqueue[enqueue queued job]
+  Enqueue --> Claim[claim: queued → running]
+  Claim --> Run[refreshLowStockZohoEnrichment]
+  Run -->|every 15s| Heartbeat[heartbeat + progress]
+  Run --> Done[succeeded / failed]
+  Boot[Server start] --> Resume[resumeBackgroundJobs]
+  Resume --> Requeue[stale running → queued, max 3 attempts]
+  UI[pollLowStockEnrichment] --> Status[GET enrichment-status]
 ```
 
-### Step-by-step
-
-**1. Upload Vigil wholesale stock** (`UploadPanel`)
-
-- Parses item code + available stock columns (flexible header names)
-- Preview optional; save requires zero invalid rows
-- Required before plan generation
-
-**2. Upload low-stock SKUs** (`LowStockUploadPanel`)
-
-- Parses SKU from first column or SKU header
-- **Fast save**: writes minimal rows to DB (`status=pending`, zeros for Zoho fields)
-- **Background enrichment**: `queueLowStockZohoEnrichment()` → fetches Zoho data for all `pending` SKUs
-- UI polls `GET /low-stock/enrichment-status` until `running=false`
-- Manual refresh: `POST /low-stock/refresh-zoho`
-
-**3. Generate plan**
-
-- Preconditions: latest Vigil upload + at least one `pending` low-stock SKU
-- If any pending SKU lacks `zoho_item_id`, runs synchronous `refreshLowStockZohoEnrichment()` first
-- Uses sales and bundle usage already stored on pending rows from Step 3 enrichment
-- If every pending row has bundle usage `0`, generate re-pulls 92-day sales + composite BOMs so MIX/kit consumption is not lost
-- For each pending SKU: match Vigil, compute quantities, insert plan line, mark SKU `planned`
-- UI blocks Generate while enrichment runs or SKUs lack Zoho IDs
-
-**4. Review draft** (`PlanTable`)
-
-- Sort/filter columns: stock, wholesale, sales, bundle, suggested/final qty
-- Edit `finalQty`, toggle `included`
-- Purchase prices shown from **All Prices** client prefs (not server DB until PO)
-- Optional: **Refresh Zoho data** on draft → re-pulls Zoho + recalculates all lines (overwrites manual edits)
-
-**5. Create Zoho PO**
-
-- Admin enters PO number; prices sent from All Prices lookup
-- Backend validates: included lines, `finalQty > 0`, `zohoItemId`, price > 0
-- POST to Zoho `/purchaseorders`; on success plan → `sent_to_zoho`, SKUs → `ordered`
+- Jobs are stored in Postgres, so status survives restarts and is shared across instances.
+- A running job heartbeats every 15 s; one without a heartbeat for 60 s is stale and is requeued (up to 3 attempts), otherwise marked failed.
+- A run times out after 20 minutes.
+- Enrichment only updates `pending` rows, so SKUs already on a plan are never changed by it.
+- The UI polls every 2.5 s and shows "Resumed after a server restart" when the job is on a later attempt.
 
 ---
 
-## Quantity Calculation Logic
+## Quantity calculation
 
-Defined in `calculatePlanQuantities` in `backend/src/services/purchasePlanningService.js`:
+`calculatePlanQuantities` in `purchasePlanningService.js`:
 
 ```
-totalUsage = totalSalesLast3Months + totalBundleUsageLast3Months
-averageMonthlyUsage = totalUsage / 3
-suggestedQty = ceil(totalSales + totalBundle)
-finalQty = min(suggestedQty, vigilWholesaleAvailable)
-included = finalQty > 0 AND vigil matched AND wholesale > 0
+totalUsage   = totalSalesLast3Months + totalBundleUsageLast3Months
+suggestedQty = ceil(totalUsage)
+finalQty     = min(suggestedQty, vigilWholesaleAvailable)
+included     = finalQty > 0 AND Vigil matched AND wholesale > 0
 ```
 
-**Notes auto-set:**
+Automatic notes: no Vigil match, Vigil qty 0, or Vigil stock below required usage (final qty capped).
 
-- No Vigil match → "No matching Vigil stock row"
-- Vigil qty 0 → "Unavailable in wholesale stock"
-- Suggested > Vigil → "Vigil stock below required usage; final qty auto-adjusted"
+Bundle usage comes from the active Zoho composite catalog intersected with 92-day sales (MIX/SET/KIT/COMBO/BUNDLE SKU names as a fallback). Composite BOMs are fetched with cached, concurrent lookups and rolled back to component SKUs.
 
-**Bundle/composite usage:**
-
-- Loads the active Zoho composite catalog and intersects it with 92-day sales (also keeps MIX/SET/KIT/COMBO/BUNDLE SKU heuristic as fallback)
-- Fetches composite BOMs with cached, concurrent Zoho detail lookups (no 80-item cap)
-- Rolls component usage back to individual SKUs
-
-**Direct sales:**
-
-- Aggregated from Zoho `salesbyitem` report over last 92 days (~3 months)
+**Draft refresh** (`POST /plans/:id/refresh-zoho-data`) re-pulls Zoho data and recalculates every line, which can overwrite manual quantity edits. Wholesale availability comes from the plan's own `source_upload_id`; if that upload was deleted the latest upload is used and the response reports `vigilSource: 'latest_fallback'`.
 
 ---
 
-## SKU Matching (Zoho ↔ Vigil)
+## SKU matching
 
-`backend/src/utils/purchasePlanningSkuMatcher.js`:
-
-- **Normalize**: uppercase, trim, unify dashes/spaces
-- **Vigil indexes**: exact variants + parent/color-stripped variants (e.g. `LIFEP5-16-GREEN` → parent `LIFEP5-16`)
-- **Match types**: `exact` | `parent` | `not_found`
-- Used for: low-stock Vigil display, plan line wholesale qty, PO stock status badges
-
-**Zoho item matching** (in service):
-
-- Builds index from warehouse-scoped item list
-- Matches uploaded SKU against item code, name, part number variants
+`purchasePlanningSkuMatcher.js` normalises SKUs (uppercase, trim, unified dashes/spaces) and indexes Vigil rows by exact and parent variants (e.g. `LIFEP5-16-GREEN` → `LIFEP5-16`). Match types: `exact` | `parent` | `not_found`. Zoho items are matched against item code, name and part-number variants from the warehouse-scoped item list.
 
 ---
 
-## API Reference
+## API reference
 
-All routes under `/api/purchase-planning`, admin auth required, client timeout **120s** (`PURCHASE_PLANNING_TIMEOUT_MS` in `src/api/client.js`).
+All routes are under `/api/purchase-planning`, require an admin session, and the client uses a 120 s timeout (`PURCHASE_PLANNING_TIMEOUT_MS`).
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| GET | `/low-stock` | List pending low-stock SKUs (Vigil joined at read time) |
-| GET | `/low-stock/enrichment-status` | Background job: running, lastError, lastSummary |
-| POST | `/low-stock-upload` | Preview or save low-stock file (`?save=true`) |
-| POST | `/low-stock/refresh-zoho` | Queue background enrichment |
-| POST | `/vigil-upload` | Preview or save Vigil file (`body.save=true`) |
-| GET | `/vigil-uploads` | Last 50 uploads |
-| POST | `/generate-plan` | Create draft plan from pending SKUs |
-| GET | `/plans` | List plans (50 most recent) |
-| GET | `/plans/:id` | Full plan with items |
-| POST | `/plans/:id/refresh-zoho-data` | Re-enrich draft plan from Zoho |
-| DELETE | `/plans/:id` | Delete draft plan only |
+| GET | `/low-stock` | Pending low-stock SKUs with Vigil joined |
+| GET | `/low-stock/enrichment-status` | Job state: running, progress, attempts, lastError, lastSummary |
+| DELETE | `/low-stock/:id` | Remove a pending SKU from the batch |
+| POST | `/low-stock-upload` | Preview, or save with `?save=true` |
+| POST | `/low-stock/refresh-zoho` | Queue an enrichment job |
+| POST | `/vigil-upload` | Preview, or save with `save=true` |
+| GET | `/vigil-uploads` | Recent Vigil uploads |
+| POST | `/generate-plan` | Create a draft from pending SKUs |
+| GET | `/plans` | Recent plans with line counts and totals |
+| GET | `/plans/:id` | Plan with items |
+| POST | `/plans/:id/refresh-zoho-data` | Re-enrich an open plan |
+| DELETE | `/plans/:id` | Delete a draft; planned SKUs return to pending (`restoredSkuCount`) |
 | PUT | `/plans/:id/items/:itemId` | Patch `finalQty`, `included`, `purchasePrice`, `notes` |
-| POST | `/plans/:id/create-zoho-po` | Send PO to Zoho |
+| POST | `/plans/:id/create-zoho-po` | Send or reconcile the Zoho PO |
+
+### Error codes
+
+| HTTP | Codes |
+|------|-------|
+| 400 | `NO_VIGIL_UPLOAD`, `NO_LOW_STOCK_ITEMS`, `LOW_STOCK_ZOHO_MATCH_INCOMPLETE`, `NO_PO_LINES`, `ZOHO_PO_NUMBER_REQUIRED`, `ZOHO_PO_PRICE_REQUIRED`, `ZOHO_VENDOR_NOT_CONFIGURED`, `PLAN_NOT_DRAFT`, `PLAN_HAS_NO_ITEMS`, `INVALID_*`, parse errors |
+| 404 | `PLAN_NOT_FOUND`, `PLAN_ITEM_NOT_FOUND`, `LOW_STOCK_ITEM_NOT_FOUND` |
+| 409 | `ENRICHMENT_RUNNING`, `PLAN_NOT_EDITABLE`, `DUPLICATE_PO`, `LOW_STOCK_ITEM_NOT_REMOVABLE`, `ZOHO_ITEMS_INACTIVE`, `PO_SEND_IN_PROGRESS`, `PO_NUMBER_IN_USE`, `ZOHO_PO_NUMBER_TAKEN`, `PLAN_CHANGED_DURING_SEND` |
+| 503 | `ZOHO_NOT_CONFIGURED` |
 
 ---
 
-## Frontend Structure
-
-Six-step wizard at `/management/purchase-planning`:
-
-1. Upload Vigil Stock — `VigilUploadStep.jsx`
-2. Upload Low Stock SKUs — `LowStockUploadStep.jsx` (re-upload confirmation)
-3. Match & Enrich from Zoho — `ZohoEnrichmentStep.jsx` (polls enrichment status)
-4. Generate Draft Plan — `GeneratePlanStep.jsx` (readiness checklist)
-5. Review Quantities & Prices — `ReviewPlanStep.jsx` + `PurchasePlanTable.jsx` (qty saves on blur/Enter only)
-6. Create Zoho PO — `CreateZohoPoStep.jsx`
-
-Header status cards and stepper: `PurchasePlanningStatusCards.jsx`, `PurchasePlanningStepper.jsx`. Row badges: `PurchasePlanningBadges.jsx`.
-
-**State:** `lowStock`, `uploads`, `plans`, `activePlan`, `enrichmentRunning`, `activeStep`, filters, busy/error/notice
-
-**Pricing:** `enrichPlanWithPurchasePrices()` in `purchasePlanningUtils.js` merges All Prices rows by normalized SKU/vigilCode/itemName before display and PO submission.
-
----
-
-## Zoho & Environment Configuration
+## Configuration
 
 | Variable | Purpose |
 |----------|---------|
 | `PURCHASE_PLANNING_WAREHOUSE_ID` / `LIFE_SMILE_WAREHOUSE_ID` | Zoho warehouse for stock lookup |
-| `PURCHASE_PLANNING_WAREHOUSE_NAME` | Default `LIFE SMILE` — resolved via Zoho warehouses API if ID not set |
+| `PURCHASE_PLANNING_WAREHOUSE_NAME` | Default `LIFE SMILE`, resolved via the warehouses API when no ID is set |
 | `ZOHO_PURCHASE_VENDOR_ID` | PO vendor (preferred) |
-| `PURCHASE_PLANNING_REPORT_GROUP` | Fallback vendor from weekly report config |
-| Standard Zoho OAuth vars | Required for all Zoho calls (`readZohoConfig`) — see `docs/integrations-zoho.md` |
-
-Zoho integrations used:
-
-- `backend/src/integrations/zoho/zohoAdapter.js` — `fetchItemsRawForWarehouse` (cached warehouse item list)
-- `backend/src/integrations/zoho/weeklyReportZohoTransactions.js` — `getSales` (salesbyitem report)
-- `backend/src/integrations/zoho/zohoInventoryClient.js` — `fetchCompositeItemDetail`, `zohoApiRequest` (create PO)
+| `PURCHASE_PLANNING_REPORT_GROUP` | Fallback vendor from the weekly report config |
+| Standard Zoho OAuth vars | See `docs/integrations-zoho.md` |
 
 ---
 
-## Background Enrichment Architecture
+## Known limitations
 
-```mermaid
-flowchart LR
-  Save[saveUploadedLowStockSkus] --> Queue[queueLowStockZohoEnrichment]
-  Queue --> Job[In-memory lowStockEnrichmentJob]
-  Job --> Refresh[refreshLowStockZohoEnrichment]
-  Refresh --> PendingOnly["UPDATE WHERE status=pending"]
-  UI[Frontend poll] --> Status[GET enrichment-status]
-  Status --> Job
-```
-
-- Enrichment only touches `status = 'pending'` rows
-- Once `generatePlan` marks SKUs `planned`, background job no longer updates them
-- Job state is **in-memory** (lost on restart; not shared across instances)
-- `generatePlan` sync-enriches if Zoho IDs missing; draft refresh endpoint repairs frozen plans
+- Purchase prices come from the user's All Prices preferences, not a server-side catalogue.
+- Generate and draft refresh do synchronous Zoho work; very large batches can approach proxy timeouts (the client allows 120 s).
+- `reviewed` plan status exists in the schema but nothing sets it.
 
 ---
 
-## Known Design Limitations (current behavior)
+## Admin cheat sheet
 
-These are architectural constraints worth knowing when using the module:
-
-- **Vigil not pinned to plan**: refresh uses latest Vigil upload, not `source_upload_id`
-- **Delete draft does not revert** `planned` SKUs back to `pending`
-- **Composite lookups**: enrichment and draft refresh fetch every sold composite BOM (cached, concurrency 5); generate still uses stored pending-row totals unless those bundle totals are all zero
-- **CloudFront 30s timeout** vs heavy sync Zoho work on generate/refresh (client allows 120s)
-- **Final qty input** saves on blur/Enter (local draft state; no per-keystroke PUT)
-- **Duplicate PO** not blocked server-side for `sent_to_zoho` plans
-- **Purchase prices** from client All Prices prefs, not server-side catalog
-
----
-
-## Typical Admin Workflow (cheat sheet)
-
-1. Upload **Vigil stock** file → Save
-2. Upload **low-stock SKUs** → Save → wait for "Enriching from Zoho…" to finish
-3. Verify matched/unmatched tables show stock, sales, bundle data
-4. Click **Generate Purchase Plan**
-5. Open draft → adjust final quantities → check purchase prices from All Prices
-6. Enter PO number → **Create PO in Zoho**
-7. If draft shows zeros after an early generate: use **Refresh Zoho data** on the draft
+1. Upload the **Vigil stock** file and save.
+2. Upload the **low-stock SKUs** and save; wait for enrichment to finish (it keeps running if you leave the page).
+3. Remove or fix any unmatched SKUs, then **Generate Draft Purchase Plan**.
+4. Review final quantities and check prices from All Prices.
+5. Enter the PO number and **Create Draft PO in Zoho**. If a send is interrupted, open the plan and use **Check Zoho & finish** — it will not create a duplicate.

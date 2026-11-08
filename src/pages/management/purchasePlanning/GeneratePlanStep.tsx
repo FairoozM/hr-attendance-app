@@ -1,6 +1,26 @@
 import { Trash2 } from 'lucide-react'
-import { Badge } from './PurchasePlanningBadges'
+import { PlanStatusBadge } from './PurchasePlanningBadges'
+import type { PurchasePlan, StepId, VigilUpload, Workflow } from './purchasePlanningTypes'
 import { formatUploadDate, getLatestVigilUpload } from './purchasePlanningUtils'
+
+interface ChecklistItem {
+  label: string
+  ok: boolean
+  step: StepId
+}
+
+interface GeneratePlanStepProps {
+  uploads: VigilUpload[]
+  workflow: Workflow
+  plans: PurchasePlan[]
+  activePlan: PurchasePlan | null
+  busy: boolean
+  deleteBusy: boolean
+  onGenerate: () => void
+  onOpenPlan: (planId: number) => void
+  onDeletePlan: (plan: PurchasePlan) => void
+  onGoToStep: (step: StepId) => void
+}
 
 export function GeneratePlanStep({
   uploads,
@@ -8,11 +28,12 @@ export function GeneratePlanStep({
   plans,
   activePlan,
   busy,
+  deleteBusy,
   onGenerate,
   onOpenPlan,
   onDeletePlan,
   onGoToStep,
-}) {
+}: GeneratePlanStepProps) {
   const latestVigil = getLatestVigilUpload(uploads)
   const blocker = workflow.blockers[4]
   const canGenerate =
@@ -22,7 +43,7 @@ export function GeneratePlanStep({
     workflow.stepStatuses[3] === 'completed'
 
   const batchAlreadyPlanned = Boolean(workflow.batchConsumed && !workflow.hasPendingUpload)
-  const checklist = batchAlreadyPlanned
+  const checklist: ChecklistItem[] = batchAlreadyPlanned
     ? [
         { label: 'Vigil stock uploaded', ok: true, step: 1 },
         { label: 'Low-stock batch already planned', ok: true, step: 2 },
@@ -51,7 +72,7 @@ export function GeneratePlanStep({
         },
       ]
 
-  const draftPlans = (plans || []).filter((p) => p.status === 'draft')
+  const draftPlans = plans.filter((p) => p.status === 'draft')
 
   return (
     <div className="pp-step-content">
@@ -62,7 +83,7 @@ export function GeneratePlanStep({
             <li key={item.label} className={item.ok ? 'pp-checklist__item--ok' : 'pp-checklist__item--pending'}>
               <span className="pp-checklist__mark">{item.ok ? '✓' : '○'}</span>
               <span>{item.label}</span>
-              {!item.ok && onGoToStep && (
+              {!item.ok && (
                 <button type="button" className="pp-checklist__link" onClick={() => onGoToStep(item.step)}>
                   Go to Step {item.step}
                 </button>
@@ -121,13 +142,14 @@ export function GeneratePlanStep({
                   <span>
                     {plan.itemsCount} items · final qty {plan.totalFinalQty}
                   </span>
-                  <Badge tone="warning">{plan.status}</Badge>
+                  <PlanStatusBadge status={plan.status} />
                 </button>
                 <button
                   type="button"
                   className="pp-plan-card__delete"
                   aria-label={`Delete draft ${plan.planNumber}`}
                   title="Delete draft"
+                  disabled={deleteBusy}
                   onClick={() => onDeletePlan(plan)}
                 >
                   <Trash2 size={18} aria-hidden />

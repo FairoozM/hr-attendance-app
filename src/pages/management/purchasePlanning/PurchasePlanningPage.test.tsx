@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { api } from '../../../api/client'
 import { PurchasePlanningPage } from './PurchasePlanningPage'
 
 const items = Array.from({ length: 88 }, (_, index) => ({
@@ -33,7 +34,7 @@ const draftSummary = {
 
 const fullDraft = { ...draftSummary, items }
 
-vi.mock('../../contexts/UserPreferencesContext', () => ({
+vi.mock('../../../contexts/UserPreferencesContext', () => ({
   useUserPreferences: () => ({
     ready: true,
     prefsVersion: 1,
@@ -41,10 +42,10 @@ vi.mock('../../contexts/UserPreferencesContext', () => ({
   }),
 }))
 
-vi.mock('../../api/client', () => ({
+vi.mock('../../../api/client', () => ({
   PURCHASE_PLANNING_TIMEOUT_MS: 1000,
   api: {
-    get: vi.fn(async (path) => {
+    get: vi.fn(async (path: string) => {
       if (String(path).includes('enrichment-status')) return { running: false, lastError: null, lastSummary: null }
       if (String(path).includes('/plans/')) return { plan: fullDraft }
       if (String(path).includes('/plans')) {
@@ -80,6 +81,7 @@ vi.mock('../../api/client', () => ({
 
 afterEach(() => {
   cleanup()
+  vi.mocked(api.delete).mockReset()
 })
 
 describe('PurchasePlanningPage', () => {
@@ -104,5 +106,24 @@ describe('PurchasePlanningPage', () => {
     expect(createButton).toBeDisabled()
     fireEvent.change(screen.getByPlaceholderText('e.g. PO-2026-001'), { target: { value: 'PO-2026-014' } })
     expect(createButton).toBeEnabled()
+  })
+
+  it('asks for confirmation in a dialog before deleting a draft', async () => {
+    vi.mocked(api.delete).mockResolvedValue({ restoredSkuCount: 0 })
+    render(<PurchasePlanningPage />)
+
+    await screen.findByRole('button', { name: /Continue to create Zoho PO/i })
+    const recent = screen.getByRole('region', { name: 'Recent purchase plans' })
+    fireEvent.click(within(recent).getByRole('button', { name: `Delete draft ${draftSummary.planNumber}` }))
+
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText(`Delete draft ${draftSummary.planNumber}?`)).toBeInTheDocument()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(api.delete).not.toHaveBeenCalled()
+
+    fireEvent.click(within(recent).getByRole('button', { name: `Delete draft ${draftSummary.planNumber}` }))
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Delete draft' }))
+    await waitFor(() => expect(api.delete).toHaveBeenCalledWith('/api/purchase-planning/plans/9', expect.anything()))
   })
 })

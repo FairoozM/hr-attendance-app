@@ -1,4 +1,5 @@
-import { Badge } from './PurchasePlanningBadges'
+import { PlanStatusBadge } from './PurchasePlanningBadges'
+import type { PurchasePlan } from './purchasePlanningTypes'
 import {
   computePoReadiness,
   fmtPrice,
@@ -6,6 +7,17 @@ import {
   isEditablePlanStatus,
   isPlanSendStale,
 } from './purchasePlanningUtils'
+
+interface CreateZohoPoStepProps {
+  plan: PurchasePlan | null
+  purchaseOrderNumber: string
+  onPurchaseOrderNumberChange: (value: string) => void
+  onCreatePo: () => void
+  onReload: () => void
+  busy: boolean
+  vendorLabel?: string
+  pricesReady?: boolean
+}
 
 export function CreateZohoPoStep({
   plan,
@@ -16,7 +28,7 @@ export function CreateZohoPoStep({
   busy,
   vendorLabel,
   pricesReady = true,
-}) {
+}: CreateZohoPoStepProps) {
   const readiness = computePoReadiness(plan, { pricesReady })
   const summary = readiness.summary
   const isSent = plan?.status === 'sent_to_zoho'
@@ -38,9 +50,13 @@ export function CreateZohoPoStep({
             <dd>{plan.zohoPurchaseOrderId || '—'}</dd>
           </div>
           <div>
+            <dt>PO number</dt>
+            <dd>{plan.purchaseOrderNumber || '—'}</dd>
+          </div>
+          <div>
             <dt>Status</dt>
             <dd>
-              <Badge tone="success">sent_to_zoho</Badge>
+              <PlanStatusBadge status={plan.status} />
             </dd>
           </div>
         </dl>
@@ -65,11 +81,9 @@ export function CreateZohoPoStep({
               {busy ? 'Checking Zoho…' : 'Check Zoho & finish'}
             </button>
           ) : (
-            onReload && (
-              <button type="button" className="btn" disabled={busy} onClick={onReload}>
-                Reload status
-              </button>
-            )
+            <button type="button" className="btn" disabled={busy} onClick={onReload}>
+              Reload status
+            </button>
           )}
         </div>
       </div>

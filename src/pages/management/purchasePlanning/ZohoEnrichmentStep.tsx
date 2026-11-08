@@ -1,7 +1,22 @@
 import { useMemo, useState } from 'react'
 import { Badge } from './PurchasePlanningBadges'
 import { UnmatchedLowStockTable } from './UnmatchedLowStockTable'
+import type { BadgeTone, EnrichmentSummary, LowStockItem } from './purchasePlanningTypes'
 import { fmt, getPendingLowStock, getStockRemark } from './purchasePlanningUtils'
+
+interface ZohoEnrichmentStepProps {
+  lowStock: LowStockItem[]
+  enrichmentRunning: boolean
+  enrichmentError: string | null
+  enrichmentSummary: EnrichmentSummary | null
+  enrichmentProgress?: string | null
+  onRefreshZoho: () => void
+  onRemoveUnmatched: (item: LowStockItem) => void
+  removingLowStockId: number | null
+  refreshBusy: boolean
+  hasPending: boolean
+  batchConsumed?: boolean
+}
 
 export function ZohoEnrichmentStep({
   lowStock,
@@ -15,9 +30,9 @@ export function ZohoEnrichmentStep({
   refreshBusy,
   hasPending,
   batchConsumed = false,
-}) {
+}: ZohoEnrichmentStepProps) {
   const [showMatched, setShowMatched] = useState(true)
-  const pending = getPendingLowStock(lowStock)
+  const pending = useMemo(() => getPendingLowStock(lowStock), [lowStock])
   const matched = useMemo(
     () => pending.filter((item) => String(item.zohoItemId || '').trim()),
     [pending]
@@ -45,7 +60,7 @@ export function ZohoEnrichmentStep({
       : 'Matching uploaded SKUs in Zoho.')
 
   let statusLabel = 'Idle'
-  let statusTone = 'muted'
+  let statusTone: BadgeTone = 'muted'
   if (showAsRunning) {
     statusLabel = matched.length > 0 ? 'Loading usage' : 'Matching'
     statusTone = 'warning'
@@ -126,7 +141,7 @@ export function ZohoEnrichmentStep({
         )}
       </div>
 
-      {unmatched.length > 0 && onRemoveUnmatched && (
+      {unmatched.length > 0 && (
         <UnmatchedLowStockTable items={unmatched} onRemove={onRemoveUnmatched} removingId={removingLowStockId} />
       )}
 

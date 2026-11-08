@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useUserPreferences } from '../../contexts/UserPreferencesContext'
-import { api } from '../../api/client'
+import { useUserPreferences } from '../../../contexts/UserPreferencesContext'
+import { api } from '../../../api/client'
 import { CreateZohoPoStep } from './CreateZohoPoStep'
 import { GeneratePlanStep } from './GeneratePlanStep'
 import { LatestSentPurchaseOrderPanel } from './LatestSentPurchaseOrderPanel'
@@ -11,16 +11,31 @@ import { RecentPurchasePlansSection } from './RecentPurchasePlansSection'
 import { ReviewPlanStep } from './ReviewPlanStep'
 import { VigilUploadStep } from './VigilUploadStep'
 import { ZohoEnrichmentStep } from './ZohoEnrichmentStep'
+import { useConfirmDialog } from './useConfirmDialog'
+import {
+  asApiError,
+  type CreatePoResponse,
+  type EnrichmentStatus,
+  type EnrichmentSummary,
+  type LowStockItem,
+  type LowStockUploadResponse,
+  type PlanFilters,
+  type PlanItem,
+  type PlanItemPatch,
+  type PurchasePlan,
+  type PurchasePlanningViewMode,
+  type StepId,
+  type VigilUpload,
+} from './purchasePlanningTypes'
 import {
   PP_REQUEST_OPTS,
   PP_STEPS,
   EMPTY_FILTERS,
   computeWorkflow,
   computePoReadiness,
-  computePlanReviewSummary,
   enrichPlanWithPurchasePrices,
   getDefaultPurchasePlanningView,
-  getLatestDraftPlan,
+  getLatestOpenPlan,
   getLatestSentPlan,
   getLatestVigilUpload,
   getPendingLowStock,
@@ -31,16 +46,43 @@ import {
   pollLowStockEnrichment,
   resolveAllPriceRows,
 } from './purchasePlanningUtils'
-import './DocumentExpiryPage.css'
+import '../DocumentExpiryPage.css'
 import './PurchasePlanningPage.css'
+
+const LAST_STEP = PP_STEPS.length as StepId
+
+interface PlanResponse {
+  plan: PurchasePlan
+}
+
+interface RefreshPlanResponse extends PlanResponse {
+  summary?: { refreshed?: number; vigilSource?: string }
+}
+
+function hasZohoItemId(item: Pick<PlanItem, 'zohoItemId'> | Pick<LowStockItem, 'zohoItemId'>): boolean {
+  return Boolean(String(item.zohoItemId || '').trim())
+}
+
+function toPlanListRow(plan: PurchasePlan): PurchasePlan {
+  const items = plan.items || []
+  const included = items.filter((item) => item.included)
+  return {
+    ...plan,
+    items: undefined,
+    itemsCount: items.length,
+    includedCount: included.length,
+    totalFinalQty: included.reduce((sum, item) => sum + Number(item.finalQty || 0), 0),
+  }
+}
 
 export function PurchasePlanningPage() {
   const { ready: prefsReady, getPref, prefsVersion } = useUserPreferences()
-  const [lowStock, setLowStock] = useState([])
-  const [uploads, setUploads] = useState([])
-  const [plans, setPlans] = useState([])
-  const [activePlan, setActivePlan] = useState(null)
-  const [filters, setFilters] = useState(EMPTY_FILTERS)
+  const { confirm, dialog } = useConfirmDialog()
+  const [lowStock, setLowStock] = useState<LowStockItem[]>([])
+  const [uploads, setUploads] = useState<VigilUpload[]>([])
+  const [plans, setPlans] = useState<PurchasePlan[]>([])
+  const [activePlan, setActivePlan] = useState<PurchasePlan | null>(null)
+  const [filters, setFilters] = useState<PlanFilters>(EMPTY_FILTERS)
   const [loading, setLoading] = useState(true)
   const [loadingLowStock, setLoadingLowStock] = useState(true)
   const [busy, setBusy] = useState('')
@@ -48,16 +90,16 @@ export function PurchasePlanningPage() {
   const [notice, setNotice] = useState('')
   const [purchaseOrderNumber, setPurchaseOrderNumber] = useState('')
   const [enrichmentRunning, setEnrichmentRunning] = useState(false)
-  const [enrichmentError, setEnrichmentError] = useState(null)
-  const [enrichmentSummary, setEnrichmentSummary] = useState(null)
-  const [enrichmentProgress, setEnrichmentProgress] = useState(null)
-  const [activeStep, setActiveStep] = useState(null)
-  const [viewMode, setViewMode] = useState('workflow')
-  const [removingLowStockId, setRemovingLowStockId] = useState(null)
-  const loadAbortRef = useRef(null)
+  const [enrichmentError, setEnrichmentError] = useState<string | null>(null)
+  const [enrichmentSummary, setEnrichmentSummary] = useState<EnrichmentSummary | null>(null)
+  const [enrichmentProgress, setEnrichmentProgress] = useState<string | null>(null)
+  const [activeStep, setActiveStep] = useState<StepId | null>(null)
+  const [viewMode, setViewMode] = useState<PurchasePlanningViewMode>('workflow')
+  const [removingLowStockId, setRemovingLowStockId] = useState<number | null>(null)
+  const loadAbortRef = useRef<AbortController | null>(null)
   const initialViewAppliedRef = useRef(false)
-  const itemWriteSeqRef = useRef(new Map())
-  const enrichmentPollRef = useRef(null)
+  const itemWriteSeqRef = useRef(new Map<number, number>())
+  const enrichmentPollRef = useRef<AbortController | null>(null)
 
   const scrollToStep = useCallback(() => {
     requestAnimationFrame(() => {
@@ -66,7 +108,7 @@ export function PurchasePlanningPage() {
   }, [])
 
   const goToStep = useCallback(
-    (stepId) => {
+    (stepId: StepId) => {
       setActiveStep(stepId)
       scrollToStep()
     },
@@ -105,7 +147,7 @@ export function PurchasePlanningPage() {
     [uploads, lowStock, enrichmentRunning, enrichmentError, activePlan, activePlanWithPrices, plans, activeStep, pricesReady]
   )
 
-  const currentStep = activeStep ?? workflow.suggestedStep
+  const currentStep: StepId = activeStep ?? workflow.suggestedStep
 
   const poReadiness = useMemo(
     () => computePoReadiness(activePlanWithPrices, { pricesReady }),
@@ -113,10 +155,10 @@ export function PurchasePlanningPage() {
   )
 
   const latestSentPlan = useMemo(() => getLatestSentPlan(plans), [plans])
-  const latestDraftPlan = useMemo(() => getLatestDraftPlan(plans), [plans])
+  const latestOpenPlan = useMemo(() => getLatestOpenPlan(plans), [plans])
 
   const showLatestSentPanel = useMemo(() => {
-    if (!latestSentPlan || latestDraftPlan) return false
+    if (!latestSentPlan || latestOpenPlan) return false
     const noPendingBatch = getPendingLowStock(lowStock).length === 0
     return (
       viewMode === 'sent_review' ||
@@ -124,24 +166,10 @@ export function PurchasePlanningPage() {
       activePlanWithPrices?.status === 'sent_to_zoho' ||
       noPendingBatch
     )
-  }, [latestSentPlan, latestDraftPlan, viewMode, activePlanWithPrices?.status, lowStock])
+  }, [latestSentPlan, latestOpenPlan, viewMode, activePlanWithPrices?.status, lowStock])
 
-  const latestSentPanelPlan = useMemo(() => {
-    if (activePlanWithPrices?.status === 'sent_to_zoho') return activePlanWithPrices
-    return latestSentPlan
-  }, [activePlanWithPrices, latestSentPlan])
-
-  const latestSentPanelSummary = useMemo(() => {
-    if (!latestSentPanelPlan) return null
-    if (latestSentPanelPlan.items?.length) {
-      return computePlanReviewSummary(latestSentPanelPlan)
-    }
-    return {
-      includedCount: latestSentPanelPlan.includedCount,
-      totalFinalQty: latestSentPanelPlan.totalFinalQty,
-      estimatedValue: latestSentPanelPlan.estimatedTotalValue,
-    }
-  }, [latestSentPanelPlan])
+  const latestSentPanelPlan =
+    activePlanWithPrices?.status === 'sent_to_zoho' ? activePlanWithPrices : latestSentPlan
 
   const load = useCallback(async () => {
     loadAbortRef.current?.abort()
@@ -153,13 +181,13 @@ export function PurchasePlanningPage() {
     try {
       const lowStockPromise = api
         .get('/api/purchase-planning/low-stock', opts)
-        .then((low) => {
+        .then((low: { items?: LowStockItem[] }) => {
           if (!controller.signal.aborted) setLowStock(low.items || [])
         })
         .finally(() => {
           if (!controller.signal.aborted) setLoadingLowStock(false)
         })
-      const [uploadRes, planRes] = await Promise.all([
+      const [uploadRes, planRes]: [{ uploads?: VigilUpload[] }, { plans?: PurchasePlan[] }] = await Promise.all([
         api.get('/api/purchase-planning/vigil-uploads', opts),
         api.get('/api/purchase-planning/plans', opts),
       ])
@@ -169,7 +197,7 @@ export function PurchasePlanningPage() {
       await lowStockPromise
     } catch (err) {
       if (ignoreCancelledPurchasePlanningRequest(err, controller.signal)) return
-      setError(err.message || 'Failed to load purchase planning')
+      setError(asApiError(err).message || 'Failed to load purchase planning')
       setLoadingLowStock(false)
     }
   }, [])
@@ -186,8 +214,8 @@ export function PurchasePlanningPage() {
     }
   }, [load])
 
-  const refreshActivePlan = useCallback(async (id) => {
-    const res = await api.get(`/api/purchase-planning/plans/${id}`, PP_REQUEST_OPTS)
+  const refreshActivePlan = useCallback(async (id: number) => {
+    const res: PlanResponse = await api.get(`/api/purchase-planning/plans/${id}`, PP_REQUEST_OPTS)
     setActivePlan(res.plan)
     return res.plan
   }, [])
@@ -202,7 +230,7 @@ export function PurchasePlanningPage() {
       const result = await pollLowStockEnrichment({
         signal: controller.signal,
         onTick: async (tick) => {
-          setLowStock(tick.items || [])
+          setLowStock(tick.items)
           if (tick.lastSummary) setEnrichmentSummary(tick.lastSummary)
           setEnrichmentProgress(
             tick.running && tick.progress
@@ -217,8 +245,8 @@ export function PurchasePlanningPage() {
         setEnrichmentError(result.lastError)
         setError(`Zoho enrichment failed: ${result.lastError}`)
       } else if (result.lastSummary) {
-        setEnrichmentSummary(result.lastSummary)
         const s = result.lastSummary
+        setEnrichmentSummary(s)
         setNotice(
           `Enriched ${s.refreshed ?? 0} SKU(s): ${s.matched ?? 0} matched, ${s.unmatched ?? 0} unmatched in Zoho.`
         )
@@ -228,8 +256,9 @@ export function PurchasePlanningPage() {
       }
     } catch (err) {
       if (controller.signal.aborted) return
-      setEnrichmentError(err.message || String(err))
-      setError(err.message || 'Enrichment timed out')
+      const message = asApiError(err).message
+      setEnrichmentError(message || 'Enrichment failed')
+      setError(message || 'Enrichment timed out')
     } finally {
       if (enrichmentPollRef.current === controller) {
         enrichmentPollRef.current = null
@@ -244,7 +273,7 @@ export function PurchasePlanningPage() {
   useEffect(() => {
     api
       .get('/api/purchase-planning/low-stock/enrichment-status', PP_REQUEST_OPTS)
-      .then((statusRes) => {
+      .then((statusRes: EnrichmentStatus) => {
         if (statusRes.running) runEnrichmentPoll()
         else if (statusRes.lastSummary) setEnrichmentSummary(statusRes.lastSummary)
         if (statusRes.lastError) setEnrichmentError(statusRes.lastError)
@@ -253,7 +282,7 @@ export function PurchasePlanningPage() {
   }, [runEnrichmentPoll])
 
   const handleLowStockUploaded = useCallback(
-    async (res) => {
+    async (res: LowStockUploadResponse) => {
       setError('')
       setLowStock(res.items || [])
       setLoadingLowStock(false)
@@ -263,41 +292,53 @@ export function PurchasePlanningPage() {
         await runEnrichmentPoll()
         return
       }
-      const uploaded = Number(res.summary?.uploaded ?? 0)
-      setNotice(`Saved ${uploaded} low-stock SKU(s).`)
+      setNotice(`Saved ${Number(res.summary?.uploaded ?? 0)} low-stock SKU(s).`)
     },
     [runEnrichmentPoll]
   )
 
-  const removePendingLowStockSku = useCallback(async (item) => {
-    if (!item?.id) return
-    const ok = window.confirm(
-      `Remove "${item.sku}" from this low-stock batch?\n\nIt will no longer block plan generation.`
-    )
-    if (!ok) return
-    setRemovingLowStockId(item.id)
-    setError('')
-    try {
-      const res = await api.delete(`/api/purchase-planning/low-stock/${item.id}`, PP_REQUEST_OPTS)
-      const items = res.items || []
-      setLowStock(items)
-      const stillUnmatched = items.filter(
-        (row) => row.status === 'pending' && !String(row.zohoItemId || '').trim()
-      )
-      setNotice(`Removed ${item.sku} from pending low-stock.`)
-      if (stillUnmatched.length === 0 && items.some((row) => row.status === 'pending')) {
-        setActiveStep(4)
-        setNotice(`Removed ${item.sku}. Step 3 is clear — proceed to Generate Draft Plan (Step 4).`)
+  const removePendingLowStockSku = useCallback(
+    async (item: LowStockItem) => {
+      if (!item.id) return
+      const ok = await confirm({
+        title: `Remove ${item.sku}?`,
+        message: 'The SKU is removed from this low-stock batch and no longer blocks plan generation.',
+        confirmLabel: 'Remove SKU',
+        tone: 'danger',
+      })
+      if (!ok) return
+      setRemovingLowStockId(item.id)
+      setError('')
+      try {
+        const res: { items?: LowStockItem[] } = await api.delete(
+          `/api/purchase-planning/low-stock/${item.id}`,
+          PP_REQUEST_OPTS
+        )
+        const items = res.items || []
+        setLowStock(items)
+        const pending = items.filter((row) => row.status === 'pending')
+        if (pending.length > 0 && pending.every(hasZohoItemId)) {
+          setActiveStep(4)
+          setNotice(`Removed ${item.sku}. Step 3 is clear — proceed to Generate Draft Plan (Step 4).`)
+        } else {
+          setNotice(`Removed ${item.sku} from pending low-stock.`)
+        }
+      } catch (err) {
+        setError(asApiError(err).message || 'Failed to remove low-stock SKU')
+      } finally {
+        setRemovingLowStockId(null)
       }
-    } catch (err) {
-      setError(err.message || 'Failed to remove low-stock SKU')
-    } finally {
-      setRemovingLowStockId(null)
-    }
-  }, [])
+    },
+    [confirm]
+  )
 
   const refreshLowStockZoho = useCallback(async () => {
-    const ok = window.confirm('Refresh Zoho data for all pending uploaded SKUs? This may call Zoho APIs.')
+    const ok = await confirm({
+      title: 'Refresh Zoho data?',
+      message: 'Zoho stock, sales, and bundle usage are reloaded for every pending SKU in this batch.',
+      details: ['This runs in the background and can take a few minutes for large batches.'],
+      confirmLabel: 'Refresh',
+    })
     if (!ok) return
     setBusy('enrich-low')
     setError('')
@@ -308,72 +349,61 @@ export function PurchasePlanningPage() {
       await runEnrichmentPoll()
     } catch (err) {
       setEnrichmentRunning(false)
-      setError(err.message || 'Zoho refresh failed')
+      setError(asApiError(err).message || 'Zoho refresh failed')
     } finally {
       setBusy('')
     }
-  }, [runEnrichmentPoll])
+  }, [confirm, runEnrichmentPoll])
 
   const generatePlan = useCallback(async () => {
     setBusy('generate')
     setError('')
     setNotice('Generating draft plan from enriched SKUs and Vigil stock…')
     try {
-      const res = await api.post('/api/purchase-planning/generate-plan', {}, PP_REQUEST_OPTS)
-      if (!res?.plan?.id) {
+      const res: Partial<PlanResponse> = await api.post('/api/purchase-planning/generate-plan', {}, PP_REQUEST_OPTS)
+      const plan = res?.plan
+      if (!plan?.id) {
         throw new Error('Server returned an empty plan. Check backend logs or try again.')
       }
-      setActivePlan(res.plan)
+      setActivePlan(plan)
       setViewMode('draft_review')
-      setPlans((prev) => {
-        const without = prev.filter((p) => p.id !== res.plan.id)
-        return [
-          {
-            id: res.plan.id,
-            planNumber: res.plan.planNumber,
-            status: res.plan.status,
-            itemsCount: res.plan.items?.length ?? 0,
-            totalFinalQty: (res.plan.items || []).reduce(
-              (sum, item) => sum + (item.included ? Number(item.finalQty || 0) : 0),
-              0
-            ),
-            createdAt: res.plan.createdAt,
-          },
-          ...without,
-        ]
-      })
+      setPlans((prev) => [toPlanListRow(plan), ...prev.filter((p) => p.id !== plan.id)])
       setActiveStep(5)
-      setNotice(
-        `Generated draft plan ${res.plan.planNumber}. Review lines below, then click Continue to Step 6 to create the Zoho PO.`
-      )
+      setNotice(`Generated draft plan ${plan.planNumber}. Review the lines, then continue to Step 6 to create the Zoho PO.`)
       load().catch(() => {})
     } catch (err) {
-      const code = err.body?.code || err.code
-      const detail =
-        err.body?.details?.unmatchedCount != null
-          ? ` (${err.body.details.unmatchedCount} unmatched)`
-          : ''
-      setError(
-        code
-          ? `${err.message || 'Plan generation failed'} (${code})${detail}`
-          : err.message || 'Plan generation failed'
-      )
+      const apiErr = asApiError(err)
+      const code = apiErr.body?.code || apiErr.code
+      const unmatched = apiErr.body?.details?.unmatchedCount
+      const detail = unmatched != null ? ` (${unmatched} unmatched)` : ''
+      const message = apiErr.message || 'Plan generation failed'
+      setError(code ? `${message} (${code})${detail}` : message)
     } finally {
       setBusy('')
     }
   }, [load])
 
   const deleteDraftPlan = useCallback(
-    async (plan) => {
-      const label = plan.planNumber || plan.id
-      const ok = window.confirm(
-        `Delete draft plan ${label}?\n\nSKUs from this draft that are still marked planned return to the pending batch. A plan already sent to Zoho is not affected.`
-      )
+    async (plan: PurchasePlan) => {
+      const label = plan.planNumber || String(plan.id)
+      const ok = await confirm({
+        title: `Delete draft ${label}?`,
+        message: 'This draft plan and its line edits are deleted.',
+        details: [
+          'SKUs from this draft that are still marked planned return to the pending batch.',
+          'Plans already sent to Zoho are not affected.',
+        ],
+        confirmLabel: 'Delete draft',
+        tone: 'danger',
+      })
       if (!ok) return
       setBusy(`delete-plan-${plan.id}`)
       setError('')
       try {
-        const deleted = await api.delete(`/api/purchase-planning/plans/${plan.id}`, PP_REQUEST_OPTS)
+        const deleted: { restoredSkuCount?: number } = await api.delete(
+          `/api/purchase-planning/plans/${plan.id}`,
+          PP_REQUEST_OPTS
+        )
         if (activePlan?.id === plan.id) {
           setActivePlan(null)
           setFilters(EMPTY_FILTERS)
@@ -382,18 +412,13 @@ export function PurchasePlanningPage() {
         setPlans((prev) => prev.filter((p) => p.id !== plan.id))
         await load()
         const restored = Number(deleted?.restoredSkuCount ?? 0)
-        setNotice(
-          restored > 0
-            ? `Deleted ${label}. ${restored} SKU(s) are pending again.`
-            : `Deleted ${label}.`
-        )
-        const remainingPlans = plans.filter((p) => p.id !== plan.id)
+        setNotice(restored > 0 ? `Deleted ${label}. ${restored} SKU(s) are pending again.` : `Deleted ${label}.`)
         const view = getDefaultPurchasePlanningView({
           uploads,
           lowStock,
           enrichmentRunning,
           enrichmentError,
-          plans: remainingPlans,
+          plans: plans.filter((p) => p.id !== plan.id),
           selectedPlan: null,
         })
         setViewMode(view.mode)
@@ -402,16 +427,16 @@ export function PurchasePlanningPage() {
           await refreshActivePlan(view.selectedPlanId)
         }
       } catch (err) {
-        setError(err.message || 'Failed to delete draft plan')
+        setError(asApiError(err).message || 'Failed to delete draft plan')
       } finally {
         setBusy('')
       }
     },
-    [activePlan, load, plans, uploads, lowStock, enrichmentRunning, enrichmentError, refreshActivePlan]
+    [confirm, activePlan, load, plans, uploads, lowStock, enrichmentRunning, enrichmentError, refreshActivePlan]
   )
 
   const openPlan = useCallback(
-    async (id) => {
+    async (id: number) => {
       setBusy(`plan-${id}`)
       setError('')
       try {
@@ -419,16 +444,13 @@ export function PurchasePlanningPage() {
         if (plan.status === 'sent_to_zoho') {
           setViewMode('sent_review')
           setActiveStep(5)
-          scrollToStep(5)
           setNotice(`Opened sent plan ${plan.planNumber} (read-only).`)
         } else if (plan.status === 'sending') {
           setViewMode('draft_review')
           setActiveStep(6)
-          scrollToStep(6)
         } else if (isEditablePlanStatus(plan.status)) {
           setViewMode('draft_review')
           setActiveStep(5)
-          scrollToStep(5)
           if (plan.status === 'failed') {
             setNotice(`Opened ${plan.planNumber}. The last Zoho send failed — fix the lines and try again.`)
           }
@@ -436,8 +458,9 @@ export function PurchasePlanningPage() {
           setViewMode('workflow')
           setActiveStep(5)
         }
+        scrollToStep()
       } catch (err) {
-        setError(err.message || 'Failed to open plan')
+        setError(asApiError(err).message || 'Failed to open plan')
       } finally {
         setBusy('')
       }
@@ -451,14 +474,13 @@ export function PurchasePlanningPage() {
     setPurchaseOrderNumber('')
     setViewMode('workflow')
     const hasVigil = Boolean(getLatestVigilUpload(uploads))
-    const nextStep = hasVigil ? 2 : 1
-    setActiveStep(nextStep)
+    setActiveStep(hasVigil ? 2 : 1)
     setNotice(
       hasVigil
         ? 'Upload a new low-stock file in Step 2 to start a new batch. Previously sent plans remain in history.'
         : 'Upload Vigil wholesale stock in Step 1 to begin a new purchase plan.'
     )
-    scrollToStep(nextStep)
+    scrollToStep()
   }, [uploads, scrollToStep])
 
   useEffect(() => {
@@ -486,25 +508,16 @@ export function PurchasePlanningPage() {
           }
         })
         .catch((err) => {
-          setError(err.message || 'Failed to load default plan')
+          setError(asApiError(err).message || 'Failed to load default plan')
         })
     }
-  }, [
-    loading,
-    loadingLowStock,
-    uploads,
-    lowStock,
-    enrichmentRunning,
-    enrichmentError,
-    plans,
-    refreshActivePlan,
-  ])
+  }, [loading, loadingLowStock, uploads, lowStock, enrichmentRunning, enrichmentError, plans, refreshActivePlan])
 
   const updateItem = useCallback(
-    async (itemId, patch) => {
+    async (itemId: number, patch: PlanItemPatch) => {
       const seq = (itemWriteSeqRef.current.get(itemId) || 0) + 1
       itemWriteSeqRef.current.set(itemId, seq)
-      let planId = null
+      let planId: number | null = null
       setActivePlan((current) => {
         if (!current || !isEditablePlanStatus(current.status)) return current
         planId = current.id
@@ -513,17 +526,18 @@ export function PurchasePlanningPage() {
           items: (current.items || []).map((item) => (item.id === itemId ? { ...item, ...patch } : item)),
         }
       })
-      if (!planId) return
+      if (planId == null) return
+      const targetPlanId: number = planId
       try {
-        const res = await api.put(
-          `/api/purchase-planning/plans/${planId}/items/${itemId}`,
+        const res: { item?: Partial<PlanItem> } = await api.put(
+          `/api/purchase-planning/plans/${targetPlanId}/items/${itemId}`,
           patch,
           PP_REQUEST_OPTS
         )
         if (itemWriteSeqRef.current.get(itemId) !== seq) return
         const saved = res?.item
         setActivePlan((current) => {
-          if (!current || current.id !== planId) return current
+          if (!current || current.id !== targetPlanId) return current
           return {
             ...current,
             items: (current.items || []).map((item) =>
@@ -533,8 +547,8 @@ export function PurchasePlanningPage() {
         })
       } catch (err) {
         if (itemWriteSeqRef.current.get(itemId) !== seq) return
-        setError(err.message || 'Failed to update plan item')
-        await refreshActivePlan(planId)
+        setError(asApiError(err).message || 'Failed to update plan item')
+        await refreshActivePlan(targetPlanId).catch(() => {})
       }
     },
     [refreshActivePlan]
@@ -542,14 +556,20 @@ export function PurchasePlanningPage() {
 
   const refreshPlanZohoData = useCallback(async () => {
     if (!activePlan || !isEditablePlanStatus(activePlan.status)) return
-    const ok = window.confirm(
-      'Refresh Zoho stock, sales, and bundle usage?\n\nThis may overwrite manual quantity edits. Wholesale availability comes from the Vigil upload this plan was built from.'
-    )
+    const ok = await confirm({
+      title: 'Refresh Zoho data for this plan?',
+      message: 'Zoho stock, sales, and bundle usage are reloaded for every line.',
+      details: [
+        'This may overwrite manual quantity edits.',
+        'Wholesale availability comes from the Vigil upload this plan was built from.',
+      ],
+      confirmLabel: 'Refresh plan',
+    })
     if (!ok) return
     setBusy('refresh-plan-zoho')
     setError('')
     try {
-      const res = await api.post(
+      const res: RefreshPlanResponse = await api.post(
         `/api/purchase-planning/plans/${activePlan.id}/refresh-zoho-data`,
         {},
         PP_REQUEST_OPTS
@@ -562,11 +582,11 @@ export function PurchasePlanningPage() {
           : ''
       setNotice(`Refreshed ${summary.refreshed ?? 0} line(s) from Zoho.${vigilNote}`)
     } catch (err) {
-      setError(err.message || 'Failed to refresh plan from Zoho')
+      setError(asApiError(err).message || 'Failed to refresh plan from Zoho')
     } finally {
       setBusy('')
     }
-  }, [activePlan])
+  }, [confirm, activePlan])
 
   const createPo = useCallback(async () => {
     const pricedPlan = activePlanWithPrices
@@ -581,7 +601,7 @@ export function PurchasePlanningPage() {
       return
     }
     const selectedItems = (pricedPlan.items || []).filter(
-      (item) => item.included && Number(item.finalQty || 0) > 0 && String(item.zohoItemId || '').trim()
+      (item) => item.included && Number(item.finalQty || 0) > 0 && hasZohoItemId(item)
     )
     const missingPriceItems = selectedItems.filter(
       (item) => !Number.isFinite(Number(item.purchasePrice)) || Number(item.purchasePrice) <= 0
@@ -595,9 +615,15 @@ export function PurchasePlanningPage() {
       )
       return
     }
-    const ok = window.confirm(
-      `Create Zoho purchase order ${poNumber} from ${pricedPlan.planNumber}?\n\n${selectedItems.length} line(s), total qty ${selectedItems.reduce((s, i) => s + Number(i.finalQty || 0), 0)}.`
-    )
+    const totalQty = selectedItems.reduce((sum, item) => sum + Number(item.finalQty || 0), 0)
+    const ok = await confirm({
+      title: finishingInterruptedSend ? `Finish sending PO ${poNumber}?` : `Create Zoho PO ${poNumber}?`,
+      message: finishingInterruptedSend
+        ? 'Zoho is checked for this PO first. If it already exists it is linked; otherwise it is created now.'
+        : `A draft purchase order is created in Zoho Inventory from ${pricedPlan.planNumber}.`,
+      details: [`${selectedItems.length} line(s)`, `Total quantity ${totalQty}`, 'The plan becomes read-only once sent.'],
+      confirmLabel: finishingInterruptedSend ? 'Check Zoho & finish' : 'Create PO in Zoho',
+    })
     if (!ok) return
     setBusy('po')
     setError('')
@@ -608,7 +634,7 @@ export function PurchasePlanningPage() {
         sku: item.sku,
         purchasePrice: Number(item.purchasePrice),
       }))
-      const res = await api.post(
+      const res: CreatePoResponse = await api.post(
         `/api/purchase-planning/plans/${pricedPlan.id}/create-zoho-po`,
         { purchaseOrderNumber: poNumber, purchasePrices },
         PP_REQUEST_OPTS
@@ -623,42 +649,43 @@ export function PurchasePlanningPage() {
           : `Created Zoho purchase order ${res.purchaseOrderNumber || poNumber} (${res.sentLines} lines). Plan is now read-only.`
       )
     } catch (err) {
-      const code = err.code || err.body?.code
+      const apiErr = asApiError(err)
+      const code = apiErr.code || apiErr.body?.code
       if (code === 'DUPLICATE_PO') {
         setError('This plan was already sent to Zoho. Duplicate PO creation is blocked.')
       } else if (code === 'PO_SEND_IN_PROGRESS') {
         setError('This plan is already being sent to Zoho. Reload in a moment to see the result.')
       } else {
-        setError(err.message || 'Zoho purchase order failed')
+        setError(apiErr.message || 'Zoho purchase order failed')
       }
       await refreshActivePlan(pricedPlan.id).catch(() => {})
     } finally {
       setBusy('')
     }
-  }, [activePlanWithPrices, load, purchaseOrderNumber, refreshActivePlan])
+  }, [confirm, activePlanWithPrices, load, purchaseOrderNumber, refreshActivePlan])
 
-  const stepSummaries = useMemo(() => {
-    const latest = uploads[0]
-    const pending = workflow.pending?.length ?? 0
+  const stepSummaries = useMemo((): Partial<Record<StepId, string | null>> => {
+    const latest = getLatestVigilUpload(uploads)
+    const pending = workflow.pending.length
+    let enrichment: string | null = null
+    if (enrichmentRunning) enrichment = 'Enrichment running…'
+    else if (workflow.pendingWithoutZoho.length) enrichment = `${workflow.pendingWithoutZoho.length} unmatched`
+    else if (pending > 0) enrichment = 'Enrichment complete'
     return {
       1: latest ? `${latest.rowsCount} rows · ${latest.fileName}` : null,
       2: pending > 0 ? `${pending} pending SKU(s)` : workflow.batchConsumed ? 'Batch planned' : null,
-      3: enrichmentRunning
-        ? 'Enrichment running…'
-        : workflow.pendingWithoutZoho?.length
-          ? `${workflow.pendingWithoutZoho.length} unmatched`
-          : pending > 0
-            ? 'Enrichment complete'
-            : null,
+      3: enrichment,
       4: activePlan?.planNumber || (workflow.hasOpenPlan ? 'Draft available' : null),
       5: activePlanWithPrices
         ? `${poReadiness.includedLines.length} ready · ${activePlanWithPrices.items?.length ?? 0} lines`
         : null,
-      6: activePlan?.status === 'sent_to_zoho' ? activePlan.zohoPurchaseOrderId : null,
+      6: activePlan?.status === 'sent_to_zoho' ? activePlan.purchaseOrderNumber || activePlan.zohoPurchaseOrderId : null,
     }
   }, [uploads, workflow, enrichmentRunning, activePlan, activePlanWithPrices, poReadiness.includedLines.length])
 
-  const renderStepContent = (stepId) => {
+  const deleteBusy = busy.startsWith('delete-plan')
+
+  const renderStepContent = (stepId: StepId) => {
     switch (stepId) {
       case 1:
         return <VigilUploadStep uploads={uploads} onUploaded={load} status={workflow.stepStatuses[1]} />
@@ -672,6 +699,7 @@ export function PurchasePlanningPage() {
             hasOpenDraft={workflow.hasOpenPlan}
             onRemoveUnmatched={removePendingLowStockSku}
             removingLowStockId={removingLowStockId}
+            confirm={confirm}
           />
         )
       case 3:
@@ -698,6 +726,7 @@ export function PurchasePlanningPage() {
             plans={plans}
             activePlan={activePlan}
             busy={busy === 'generate'}
+            deleteBusy={deleteBusy}
             onGenerate={generatePlan}
             onOpenPlan={openPlan}
             onDeletePlan={deleteDraftPlan}
@@ -718,7 +747,7 @@ export function PurchasePlanningPage() {
             plans={plans}
             onOpenPlan={openPlan}
             onDeletePlan={deleteDraftPlan}
-            deleteBusy={Boolean(busy?.startsWith('delete-plan'))}
+            deleteBusy={deleteBusy}
             onContinueToPo={() => {
               goToStep(6)
               setNotice('Enter the PO number, then create the draft in Zoho.')
@@ -746,8 +775,9 @@ export function PurchasePlanningPage() {
   }
 
   const activeStepDef = PP_STEPS.find((step) => step.id === currentStep) || PP_STEPS[0]
-  const nextStatus = workflow.stepStatuses[currentStep + 1]
-  const canGoNext = currentStep < 6 && Boolean(nextStatus) && nextStatus !== 'blocked' && nextStatus !== 'not_started'
+  const nextStep = currentStep < LAST_STEP ? ((currentStep + 1) as StepId) : null
+  const nextStatus = nextStep ? workflow.stepStatuses[nextStep] : null
+  const canGoNext = Boolean(nextStep && nextStatus && nextStatus !== 'blocked' && nextStatus !== 'not_started')
 
   if (loading) {
     return (
@@ -783,7 +813,6 @@ export function PurchasePlanningPage() {
       {showLatestSentPanel && latestSentPanelPlan && (
         <LatestSentPurchaseOrderPanel
           plan={latestSentPanelPlan}
-          summary={latestSentPanelSummary}
           onOpenSentPlan={openPlan}
           onStartNew={startNewPurchasePlan}
         />
@@ -796,45 +825,56 @@ export function PurchasePlanningPage() {
         onStepClick={goToStep}
       />
 
-      {error && <div className="page-error">{error}</div>}
-      {notice && <div className="pp-notice">{notice}</div>}
+      {error && (
+        <div className="page-error" role="alert">
+          {error}
+        </div>
+      )}
+      {notice && (
+        <div className="pp-notice" role="status">
+          {notice}
+        </div>
+      )}
       {workflow.hasPendingUpload && workflow.hasOpenPlan && (
         <div className="pp-notice">
           A new low-stock batch is in progress. The open draft stays available from Review until you replace it.
         </div>
       )}
 
-      {activeStepDef && (
-        <section id="pp-workspace" className="pp-workspace">
-          <StepPanel
-            id={`pp-step-${activeStepDef.id}`}
-            step={activeStepDef}
-            status={workflow.stepStatuses[activeStepDef.id]}
-            blocker={workflow.blockers[activeStepDef.id]}
-            collapsed={false}
-            summary={stepSummaries[activeStepDef.id]}
+      <section id="pp-workspace" className="pp-workspace">
+        <StepPanel
+          id={`pp-step-${activeStepDef.id}`}
+          step={activeStepDef}
+          status={workflow.stepStatuses[activeStepDef.id]}
+          blocker={workflow.blockers[activeStepDef.id]}
+        >
+          {renderStepContent(activeStepDef.id)}
+        </StepPanel>
+        <div className="pp-workspace__nav">
+          <button
+            type="button"
+            className="btn"
+            disabled={currentStep <= 1}
+            onClick={() => goToStep((currentStep - 1) as StepId)}
           >
-            {renderStepContent(activeStepDef.id)}
-          </StepPanel>
-          <div className="pp-workspace__nav">
-            <button type="button" className="btn" disabled={currentStep <= 1} onClick={() => goToStep(currentStep - 1)}>
-              Back
-            </button>
-            <p className="pp-workspace__nav-note">{workflow.blockers[currentStep] || stepSummaries[currentStep] || ''}</p>
-            <button type="button" className="btn" disabled={!canGoNext} onClick={() => goToStep(currentStep + 1)}>
-              Next
-            </button>
-          </div>
-        </section>
-      )}
+            Back
+          </button>
+          <p className="pp-workspace__nav-note">{workflow.blockers[currentStep] || stepSummaries[currentStep] || ''}</p>
+          <button type="button" className="btn" disabled={!canGoNext} onClick={() => nextStep && goToStep(nextStep)}>
+            Next
+          </button>
+        </div>
+      </section>
 
       <RecentPurchasePlansSection
         plans={plans}
-        activePlanId={activePlan?.id}
+        activePlanId={activePlan?.id ?? null}
         onOpenPlan={openPlan}
         onDeletePlan={deleteDraftPlan}
-        deleteBusy={Boolean(busy?.startsWith('delete-plan'))}
+        deleteBusy={deleteBusy}
       />
+
+      {dialog}
     </div>
   )
 }

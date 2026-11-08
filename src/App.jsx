@@ -78,7 +78,7 @@ import {
   IsoClauseMatrixPage,
 } from './pages/isoQms'
 import { PaymentsPage as CompanyPaymentsPage } from './pages/management/PaymentsPage'
-import { PurchasePlanningPage } from './pages/management/PurchasePlanningPage'
+import { PurchasePlanningPage } from './pages/management/purchasePlanning/PurchasePlanningPage'
 import { AmazonPaymentClearingPage } from './pages/management/amazonPaymentClearing/AmazonPaymentClearingPage'
 import { NoonPaymentClearingPage } from './pages/management/noonPaymentClearing/NoonPaymentClearingPage'
 import { TabbyClearingPage } from './pages/management/tabby/TabbyClearingPage'
