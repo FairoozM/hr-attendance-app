@@ -1,6 +1,11 @@
 const attendanceService = require('../services/attendanceService')
 const assignmentService = require('../services/attendanceAssignmentService')
 const s3Service = require('../services/s3Service')
+const {
+  ATTENDANCE_STATUS_CODES,
+  isAttendanceStatus,
+  isIsoCalendarDate,
+} = require('../lib/attendanceValidation.ts')
 
 /**
  * Determine which employee IDs this user may access for attendance.
@@ -156,13 +161,15 @@ async function upsert(req, res) {
       return res.status(400).json({ error: 'attendance_date is required' })
     }
     const attendanceDate = String(rawDate).trim()
-    const date = new Date(attendanceDate)
-    if (Number.isNaN(date.getTime())) {
-      return res.status(400).json({ error: 'attendance_date must be a valid date (e.g. YYYY-MM-DD)' })
+    if (!isIsoCalendarDate(attendanceDate)) {
+      return res.status(400).json({ error: 'attendance_date must be a valid date (YYYY-MM-DD)' })
     }
     const status = req.body.status != null ? String(req.body.status).trim() : ''
     if (!status) {
       return res.status(400).json({ error: 'status is required' })
+    }
+    if (!isAttendanceStatus(status)) {
+      return res.status(400).json({ error: `status must be one of ${ATTENDANCE_STATUS_CODES.join(', ')}` })
     }
     if (!(await isInScope(employeeId, req.user))) {
       return res.status(403).json({ error: 'Access denied: this employee is not in your assigned list' })
@@ -193,9 +200,8 @@ async function remove(req, res) {
       return res.status(400).json({ error: 'attendance_date is required' })
     }
     const attendanceDate = String(rawDate).trim()
-    const date = new Date(attendanceDate)
-    if (Number.isNaN(date.getTime())) {
-      return res.status(400).json({ error: 'attendance_date must be a valid date (e.g. YYYY-MM-DD)' })
+    if (!isIsoCalendarDate(attendanceDate)) {
+      return res.status(400).json({ error: 'attendance_date must be a valid date (YYYY-MM-DD)' })
     }
     if (!(await isInScope(employeeId, req.user))) {
       return res.status(403).json({ error: 'Access denied: this employee is not in your assigned list' })

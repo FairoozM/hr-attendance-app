@@ -1,36 +1,28 @@
 const { query } = require('../db')
 
 /**
+ * `attendance_date` is returned as a plain `YYYY-MM-DD` string. node-pg would otherwise
+ * build a Date at server-local midnight, which serializes to the previous UTC day when
+ * the server runs east of UTC (e.g. Asia/Dubai) and shifts every record by one day.
+ */
+const RECORD_COLUMNS = `id, employee_id, to_char(attendance_date, 'YYYY-MM-DD') AS attendance_date, status,
+  sick_leave_document_url, annual_leave_id, created_at`
+
+const MONTH_RANGE = `attendance_date >= make_date($2, $1, 1)
+  AND attendance_date < (make_date($2, $1, 1) + INTERVAL '1 month')`
+
+/**
  * Get all attendance records for a given month and year.
  * @param {number} month - 1-12
  * @param {number} year - e.g. 2026
  */
 async function findByMonthYear(month, year) {
   const result = await query(
-    `SELECT id, employee_id, attendance_date, status, sick_leave_document_url, created_at
+    `SELECT ${RECORD_COLUMNS}
      FROM attendance
-     WHERE EXTRACT(MONTH FROM attendance_date) = $1
-       AND EXTRACT(YEAR FROM attendance_date) = $2
+     WHERE ${MONTH_RANGE}
      ORDER BY attendance_date, employee_id`,
     [month, year]
-  )
-  return result.rows
-}
-
-/**
- * Get attendance records for a given month/year filtered to a specific department.
- */
-async function findByMonthYearDepartment(month, year, department) {
-  const result = await query(
-    `SELECT a.id, a.employee_id, a.attendance_date, a.status,
-            a.sick_leave_document_url, a.created_at
-     FROM attendance a
-     JOIN employees e ON e.id = a.employee_id
-     WHERE EXTRACT(MONTH FROM a.attendance_date) = $1
-       AND EXTRACT(YEAR FROM a.attendance_date) = $2
-       AND LOWER(e.department) = LOWER($3)
-     ORDER BY a.attendance_date, a.employee_id`,
-    [month, year, department]
   )
   return result.rows
 }
@@ -42,10 +34,9 @@ async function findByMonthYearEmployeeIds(month, year, employeeIds) {
   if (!employeeIds || employeeIds.length === 0) return []
   const placeholders = employeeIds.map((_, i) => `$${i + 3}`).join(', ')
   const result = await query(
-    `SELECT id, employee_id, attendance_date, status, sick_leave_document_url, created_at
+    `SELECT ${RECORD_COLUMNS}
      FROM attendance
-     WHERE EXTRACT(MONTH FROM attendance_date) = $1
-       AND EXTRACT(YEAR FROM attendance_date) = $2
+     WHERE ${MONTH_RANGE}
        AND employee_id IN (${placeholders})
      ORDER BY attendance_date, employee_id`,
     [month, year, ...employeeIds]
@@ -55,7 +46,7 @@ async function findByMonthYearEmployeeIds(month, year, employeeIds) {
 
 async function findOne(employee_id, attendance_date) {
   const result = await query(
-    `SELECT id, employee_id, attendance_date, status, sick_leave_document_url, created_at
+    `SELECT ${RECORD_COLUMNS}
      FROM attendance WHERE employee_id = $1 AND attendance_date = $2::date`,
     [employee_id, attendance_date]
   )
@@ -82,7 +73,7 @@ async function upsert(employee_id, attendance_date, status) {
          WHEN EXCLUDED.status = 'AL' THEN attendance.annual_leave_id
          ELSE NULL
        END
-     RETURNING id, employee_id, attendance_date, status, sick_leave_document_url, created_at`,
+     RETURNING ${RECORD_COLUMNS}`,
     [employee_id, attendance_date, status]
   )
   return result.rows[0]
@@ -93,7 +84,7 @@ async function setSickLeaveDocumentUrl(employee_id, attendance_date, url) {
     `UPDATE attendance
      SET sick_leave_document_url = $3
      WHERE employee_id = $1 AND attendance_date = $2::date AND status = 'SL'
-     RETURNING id, employee_id, attendance_date, status, sick_leave_document_url, created_at`,
+     RETURNING ${RECORD_COLUMNS}`,
     [employee_id, attendance_date, url]
   )
   return result.rows[0] || null
@@ -120,7 +111,6 @@ async function remove(employee_id, attendance_date) {
 
 module.exports = {
   findByMonthYear,
-  findByMonthYearDepartment,
   findByMonthYearEmployeeIds,
   findOne,
   upsert,

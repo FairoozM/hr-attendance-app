@@ -13,7 +13,7 @@ import { RequireAuth } from './components/RequireAuth'
 import { PermissionGuard, LeaveSelfServiceGuard } from './components/PermissionGuard'
 import { LoginPage } from './pages/LoginPage'
 import { EmployeeAccountPage } from './pages/EmployeeAccountPage'
-import { AttendanceRouteContainer } from './pages/AttendanceRouteContainer'
+import { AttendancePage } from './pages/attendance/AttendancePage'
 import { EmployeesPage } from './pages/EmployeesPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { AnnualLeavePage } from './pages/AnnualLeavePage'
@@ -168,7 +168,7 @@ import { HealthCalculatorsPage } from './pages/nutrition/HealthCalculatorsPage'
 import { AIPlannerProvider } from './contexts/AIPlannerContext'
 import { TeamProjectsProvider } from './contexts/TeamProjectsContext'
 import { useEmployees } from './hooks/useEmployees'
-import { clearAllAttendanceStorage } from './hooks/useAttendance'
+import { clearAllAttendanceStorage } from './lib/clearAttendanceStorage'
 import './App.css'
 
 function AppContent() {
@@ -219,7 +219,7 @@ function AppContent() {
           path="attendance"
           element={
             <PermissionGuard module="attendance" action="view">
-              <AttendanceRouteContainer />
+              <AttendancePage />
             </PermissionGuard>
           }
         />
